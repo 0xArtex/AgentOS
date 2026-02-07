@@ -3,6 +3,8 @@ import { config } from "./config";
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
 import domainRoutes from "./routes/domain";
+import computeRoutes from "./routes/compute";
+import apikeysRoutes from "./routes/apikeys";
 import { errorHandler, notFoundHandler } from "./middleware/errors";
 
 const app = express();
@@ -16,7 +18,7 @@ app.get("/", (_req, res) => {
     version: "0.1.0",
     status: "operational",
     docs: "https://github.com/0xArtex/AgentOS",
-    services: ["phone", "email", "domains"],
+    services: ["phone", "email", "domains", "compute", "apikeys"],
   });
 });
 
@@ -28,6 +30,8 @@ app.get("/health", (_req, res) => {
 app.use("/phone", phoneRoutes);
 app.use("/email", emailRoutes);
 app.use("/domains", domainRoutes);
+app.use("/compute", computeRoutes);
+app.use("/apikeys", apikeysRoutes);
 
 // ── Pricing info (no auth required) ──────────────────────────
 app.get("/pricing", (_req, res) => {
@@ -49,6 +53,18 @@ app.get("/pricing", (_req, res) => {
         "register_domain": "10.00",
         "get_status": "0.01",
         "update_dns": "0.10",
+      },
+      compute: {
+        "create_server": "5.00",
+        "list_servers": "0.01",
+        "get_server": "0.01",
+        "delete_server": "0.10",
+        "upload_ssh_key": "0.10",
+      },
+      apikeys: {
+        "provision_key": "1.00",
+        "list_keys": "0.01",
+        "revoke_key": "0.01",
       },
     },
   });

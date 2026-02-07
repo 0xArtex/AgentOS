@@ -1,4 +1,4 @@
-import { PhoneNumber, SmsMessage, EmailInbox, EmailMessage, Domain, DnsRecord } from "../types";
+import { PhoneNumber, SmsMessage, EmailInbox, EmailMessage, Domain, DnsRecord, Server, ApiKey } from "../types";
 
 /**
  * In-memory storage with a clean interface for future DB migration.
@@ -49,6 +49,26 @@ class Storage {
       if (d.domain === name) return d;
     }
     return undefined;
+  }
+  // ── Compute ────────────────────────────────────────────────
+  private servers = new Map<string, Server>();
+
+  setServer(id: string, server: Server): void { this.servers.set(id, server); }
+  getServer(id: string): Server | undefined { return this.servers.get(id); }
+  deleteServer(id: string): void { this.servers.delete(id); }
+  listServers(owner?: string): Server[] {
+    const all = Array.from(this.servers.values());
+    return owner ? all.filter((s) => s.owner === owner) : all;
+  }
+
+  // ── API Keys ──────────────────────────────────────────────
+  private apiKeys = new Map<string, ApiKey>();
+
+  setApiKey(id: string, key: ApiKey): void { this.apiKeys.set(id, key); }
+  getApiKey(id: string): ApiKey | undefined { return this.apiKeys.get(id); }
+  listApiKeys(owner?: string): ApiKey[] {
+    const all = Array.from(this.apiKeys.values()).filter((k) => k.active);
+    return owner ? all.filter((k) => k.owner === owner) : all;
   }
 }
 

@@ -15,8 +15,8 @@ AgentOS lets AI agents provision real-world infrastructure — phone numbers, SM
 | **Phone** | 🚧 Building | Provision numbers, receive/send SMS, call transcripts |
 | **Email** | 🚧 Building | Inboxes (`name@mail.agentos.dev`), send/receive, OTP forwarding |
 | **Domains** | 🚧 Building | Register domains, DNS management, Namecheap/Cloudflare |
-| **Compute** | 📋 Planned | Spin up VPS/containers on demand |
-| **API Keys** | 📋 Planned | Auto-provision keys for third-party services |
+| **Compute** | 🚧 Building | Spin up VPS (Hetzner Cloud), SSH key management |
+| **API Keys** | 🚧 Building | Auto-provision keys for third-party services |
 
 ## How It Works
 
@@ -98,6 +98,46 @@ curl -X PUT http://localhost:3000/domains/{id}/dns \
   -d '{"records": [{"type": "A", "name": "@", "value": "1.2.3.4", "ttl": 300}]}'
 ```
 
+### Compute API
+
+```bash
+# Create a server (5 USDC provisioning fee)
+curl -X POST http://localhost:3000/compute/servers \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: <solana-tx-signature>" \
+  -d '{"name": "my-vps", "serverType": "cx22"}'
+
+# List servers (0.01 USDC)
+curl http://localhost:3000/compute/servers \
+  -H "X-Payment: <solana-tx-signature>"
+
+# Get server status (0.01 USDC)
+curl http://localhost:3000/compute/servers/{id} \
+  -H "X-Payment: <solana-tx-signature>"
+
+# Delete server (0.10 USDC)
+curl -X DELETE http://localhost:3000/compute/servers/{id} \
+  -H "X-Payment: <solana-tx-signature>"
+```
+
+### API Keys
+
+```bash
+# Provision an API key (1 USDC)
+curl -X POST http://localhost:3000/apikeys \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: <solana-tx-signature>" \
+  -d '{"provider": "brave_search", "label": "my-search-key"}'
+
+# List keys (0.01 USDC)
+curl http://localhost:3000/apikeys \
+  -H "X-Payment: <solana-tx-signature>"
+
+# Revoke a key (0.01 USDC)
+curl -X DELETE http://localhost:3000/apikeys/{id} \
+  -H "X-Payment: <solana-tx-signature>"
+```
+
 ### Pricing
 
 ```bash
@@ -117,6 +157,14 @@ curl http://localhost:3000/pricing
 | Domain | Register domain | 10.00 |
 | Domain | Get status | 0.01 |
 | Domain | Update DNS | 0.10 |
+| Compute | Create server | 5.00 |
+| Compute | List servers | 0.01 |
+| Compute | Get server | 0.01 |
+| Compute | Delete server | 0.10 |
+| Compute | Upload SSH key | 0.10 |
+| API Keys | Provision key | 1.00 |
+| API Keys | List keys | 0.01 |
+| API Keys | Revoke key | 0.01 |
 
 ## x402 Payment Protocol
 

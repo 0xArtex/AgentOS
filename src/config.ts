@@ -42,4 +42,8 @@ export const config = {
   namecheapApiKey: optional("NAMECHEAP_API_KEY", ""),
   namecheapApiUser: optional("NAMECHEAP_API_USER", ""),
   cloudflareApiToken: optional("CLOUDFLARE_API_TOKEN", ""),
+
+  // Hetzner Cloud
+  hcloudToken: optional("HCLOUD_TOKEN", ""),
+  hcloudLocation: optional("HCLOUD_LOCATION", "fsn1"),
 } as const;

@@ -116,6 +116,55 @@ export interface UpdateDnsRequest {
   records: DnsRecord[];
 }
 
+// ── Compute Service ───────────────────────────────────────────
+
+export type ServerType = "cx22" | "cx32" | "cx42" | "cx52";
+
+export const SERVER_PRICING: Record<ServerType, string> = {
+  cx22: "5.00",   // 2 vCPU, 4 GB RAM
+  cx32: "10.00",  // 4 vCPU, 8 GB RAM
+  cx42: "20.00",  // 8 vCPU, 16 GB RAM
+  cx52: "40.00",  // 16 vCPU, 32 GB RAM
+};
+
+export interface Server {
+  id: string;
+  name: string;
+  serverType: ServerType;
+  image: string;
+  status: string;
+  ipv4: string | null;
+  ipv6: string | null;
+  owner: string;
+  priceMonthly: string;
+  createdAt: string;
+  rootPassword: string | null;
+}
+
+// ── API Key Service ───────────────────────────────────────────
+
+export type ApiKeyProvider = "brave_search" | "helius" | "openai" | "anthropic" | "elevenlabs" | "custom";
+
+export const API_KEY_PRICING: Record<ApiKeyProvider, string> = {
+  brave_search: "1.00",
+  helius: "2.00",
+  openai: "1.00",
+  anthropic: "1.00",
+  elevenlabs: "1.00",
+  custom: "0.50",
+};
+
+export interface ApiKey {
+  id: string;
+  provider: ApiKeyProvider;
+  label: string;
+  secret: string;
+  owner: string;
+  priceUsdc: string;
+  active: boolean;
+  createdAt: string;
+}
+
 // ── Pricing ───────────────────────────────────────────────────
 
 export interface PricingTier {
