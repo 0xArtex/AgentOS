@@ -1,0 +1,33 @@
+{
+  "name": "agentos",
+  "version": "0.1.0",
+  "description": "Autonomous infrastructure for AI agents — pay with USDC on Solana via x402",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn src/index.ts",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["solana", "x402", "ai-agents", "infrastructure"],
+  "author": "Zolty <zolty@openclaw.ai>",
+  "license": "MIT",
+  "dependencies": {
+    "@solana/web3.js": "^1.98.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "nodemailer": "^6.9.16",
+    "tweetnacl": "^1.0.3",
+    "twilio": "^5.4.3",
+    "uuid": "^11.0.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.12.0",
+    "@types/nodemailer": "^6.4.17",
+    "@types/uuid": "^10.0.0",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.7.3"
+  }
+}
