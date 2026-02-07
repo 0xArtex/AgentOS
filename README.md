@@ -14,7 +14,7 @@ AgentOS lets AI agents provision real-world infrastructure — phone numbers, SM
 |---------|--------|-------------|
 | **Phone** | 🚧 Building | Provision numbers, receive/send SMS, call transcripts |
 | **Email** | 🚧 Building | Inboxes (`name@mail.agentos.dev`), send/receive, OTP forwarding |
-| **Domains** | 📋 Planned | Register domains, DNS management |
+| **Domains** | 🚧 Building | Register domains, DNS management, Namecheap/Cloudflare |
 | **Compute** | 📋 Planned | Spin up VPS/containers on demand |
 | **API Keys** | 📋 Planned | Auto-provision keys for third-party services |
 
@@ -78,6 +78,26 @@ curl -X POST http://localhost:3000/email/inboxes/{id}/send \
   -d '{"to": "user@example.com", "subject": "Hello", "body": "Sent by an AI agent"}'
 ```
 
+### Domain API
+
+```bash
+# Register a domain (10 USDC)
+curl -X POST http://localhost:3000/domains \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: <solana-tx-signature>" \
+  -d '{"name": "my-agent", "tld": "com"}'
+
+# Get domain status (0.01 USDC)
+curl http://localhost:3000/domains/{id} \
+  -H "X-Payment: <solana-tx-signature>"
+
+# Update DNS records (0.10 USDC)
+curl -X PUT http://localhost:3000/domains/{id}/dns \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: <solana-tx-signature>" \
+  -d '{"records": [{"type": "A", "name": "@", "value": "1.2.3.4", "ttl": 300}]}'
+```
+
 ### Pricing
 
 ```bash
@@ -94,6 +114,9 @@ curl http://localhost:3000/pricing
 | Email | Create inbox | 1.00 |
 | Email | Get messages | 0.01 |
 | Email | Send email | 0.05 |
+| Domain | Register domain | 10.00 |
+| Domain | Get status | 0.01 |
+| Domain | Update DNS | 0.10 |
 
 ## x402 Payment Protocol
 

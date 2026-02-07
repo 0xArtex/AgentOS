@@ -36,4 +36,10 @@ export const config = {
 
   // Inbound email webhook secret (Mailgun/SendGrid signature verification)
   emailWebhookSecret: optional("EMAIL_WEBHOOK_SECRET", ""),
+
+  // Domain registrar ("namecheap" or "cloudflare")
+  domainRegistrar: optional("DOMAIN_REGISTRAR", "namecheap"),
+  namecheapApiKey: optional("NAMECHEAP_API_KEY", ""),
+  namecheapApiUser: optional("NAMECHEAP_API_USER", ""),
+  cloudflareApiToken: optional("CLOUDFLARE_API_TOKEN", ""),
 } as const;

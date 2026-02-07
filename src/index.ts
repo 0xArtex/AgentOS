@@ -2,6 +2,8 @@ import express from "express";
 import { config } from "./config";
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
+import domainRoutes from "./routes/domain";
+import { errorHandler, notFoundHandler } from "./middleware/errors";
 
 const app = express();
 
@@ -14,7 +16,7 @@ app.get("/", (_req, res) => {
     version: "0.1.0",
     status: "operational",
     docs: "https://github.com/0xArtex/AgentOS",
-    services: ["phone", "email"],
+    services: ["phone", "email", "domains"],
   });
 });
 
@@ -25,6 +27,7 @@ app.get("/health", (_req, res) => {
 // ── Routes ────────────────────────────────────────────────────
 app.use("/phone", phoneRoutes);
 app.use("/email", emailRoutes);
+app.use("/domains", domainRoutes);
 
 // ── Pricing info (no auth required) ──────────────────────────
 app.get("/pricing", (_req, res) => {
@@ -42,9 +45,18 @@ app.get("/pricing", (_req, res) => {
         "get_messages": "0.01",
         "send_email": "0.05",
       },
+      domains: {
+        "register_domain": "10.00",
+        "get_status": "0.01",
+        "update_dns": "0.10",
+      },
     },
   });
 });
+
+// ── Error handling ────────────────────────────────────────────
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 // ── Start ─────────────────────────────────────────────────────
 app.listen(config.port, () => {

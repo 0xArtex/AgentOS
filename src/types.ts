@@ -85,6 +85,37 @@ export interface SendEmailRequest {
   html?: string;
 }
 
+// ── Domain Service ────────────────────────────────────────────
+
+export interface Domain {
+  id: string;
+  domain: string;
+  tld: string;
+  owner: string;
+  status: "pending" | "active" | "failed" | "expired";
+  registrar: "namecheap" | "cloudflare";
+  dnsRecords: DnsRecord[];
+  registeredAt: string;
+  expiresAt: string;
+}
+
+export interface DnsRecord {
+  type: "A" | "AAAA" | "CNAME" | "MX" | "TXT" | "NS" | "SRV";
+  name: string;
+  value: string;
+  ttl: number;
+  priority?: number;
+}
+
+export interface RegisterDomainRequest {
+  name: string;
+  tld: string;
+}
+
+export interface UpdateDnsRequest {
+  records: DnsRecord[];
+}
+
 // ── Pricing ───────────────────────────────────────────────────
 
 export interface PricingTier {

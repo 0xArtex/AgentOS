@@ -2,10 +2,7 @@ import twilio from "twilio";
 import { v4 as uuid } from "uuid";
 import { config } from "../config";
 import { PhoneNumber, SmsMessage } from "../types";
-
-// In-memory store — replace with a database in production
-const numbers = new Map<string, PhoneNumber>();
-const messages = new Map<string, SmsMessage[]>();
+import { storage } from "./storage";
 
 function getClient(): twilio.Twilio {
   if (!config.twilioAccountSid || !config.twilioAuthToken) {
@@ -52,8 +49,8 @@ export async function provisionNumber(
     active: true,
   };
 
-  numbers.set(record.id, record);
-  messages.set(record.id, []);
+  storage.setPhoneNumber(record.id, record);
+  storage.initSmsMessages(record.id);
 
   return record;
 }
@@ -62,7 +59,7 @@ export async function provisionNumber(
  * Get all messages for a phone number.
  */
 export function getMessages(phoneNumberId: string): SmsMessage[] {
-  const msgs = messages.get(phoneNumberId);
+  const msgs = storage.getSmsMessages(phoneNumberId);
   if (!msgs) throw new Error(`Phone number ${phoneNumberId} not found`);
   return msgs;
 }
@@ -75,7 +72,7 @@ export async function sendSms(
   to: string,
   body: string
 ): Promise<SmsMessage> {
-  const number = numbers.get(phoneNumberId);
+  const number = storage.getPhoneNumber(phoneNumberId);
   if (!number) throw new Error(`Phone number ${phoneNumberId} not found`);
   if (!number.active) throw new Error("Phone number is deactivated");
 
@@ -97,7 +94,7 @@ export async function sendSms(
     timestamp: new Date().toISOString(),
   };
 
-  messages.get(phoneNumberId)!.push(msg);
+  storage.pushSmsMessage(phoneNumberId, msg);
   return msg;
 }
 
@@ -105,28 +102,27 @@ export async function sendSms(
  * Handle inbound SMS webhook from Twilio.
  */
 export function handleInboundSms(from: string, to: string, body: string): void {
-  // Find the number record by phone number
-  for (const [id, num] of numbers) {
-    if (num.phoneNumber === to) {
-      const msg: SmsMessage = {
-        id: uuid(),
-        phoneNumberId: id,
-        direction: "inbound",
-        from,
-        to,
-        body,
-        timestamp: new Date().toISOString(),
-      };
-      messages.get(id)?.push(msg);
-      return;
-    }
+  const found = storage.findPhoneByNumber(to);
+  if (!found) {
+    console.warn(`[phone] Inbound SMS to unknown number: ${to}`);
+    return;
   }
-  console.warn(`[phone] Inbound SMS to unknown number: ${to}`);
+  const [id] = found;
+  const msg: SmsMessage = {
+    id: uuid(),
+    phoneNumberId: id,
+    direction: "inbound",
+    from,
+    to,
+    body,
+    timestamp: new Date().toISOString(),
+  };
+  storage.pushSmsMessage(id, msg);
 }
 
 /**
  * Get a phone number by ID.
  */
 export function getNumber(id: string): PhoneNumber | undefined {
-  return numbers.get(id);
+  return storage.getPhoneNumber(id);
 }

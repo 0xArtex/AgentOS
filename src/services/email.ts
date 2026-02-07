@@ -2,13 +2,7 @@ import nodemailer from "nodemailer";
 import { v4 as uuid } from "uuid";
 import { config } from "../config";
 import { EmailInbox, EmailMessage } from "../types";
-
-// In-memory store — replace with a database in production
-const inboxes = new Map<string, EmailInbox>();
-const messages = new Map<string, EmailMessage[]>();
-
-/** Lookup table: local-part → inbox ID */
-const addressIndex = new Map<string, string>();
+import { storage } from "./storage";
 
 function getTransporter(): nodemailer.Transporter {
   if (!config.smtpHost) {
@@ -35,7 +29,7 @@ export function createInbox(name: string, owner: string): EmailInbox {
 
   const address = `${localPart}@${config.emailDomain}`;
 
-  if (addressIndex.has(localPart)) {
+  if (storage.hasEmailLocalPart(localPart)) {
     throw new Error(`Inbox ${address} already exists`);
   }
 
@@ -48,9 +42,8 @@ export function createInbox(name: string, owner: string): EmailInbox {
     active: true,
   };
 
-  inboxes.set(inbox.id, inbox);
-  messages.set(inbox.id, []);
-  addressIndex.set(localPart, inbox.id);
+  storage.setEmailInbox(inbox.id, inbox);
+  storage.initEmailMessages(inbox.id);
 
   return inbox;
 }
@@ -59,7 +52,7 @@ export function createInbox(name: string, owner: string): EmailInbox {
  * Get all messages for an inbox.
  */
 export function getMessages(inboxId: string): EmailMessage[] {
-  const msgs = messages.get(inboxId);
+  const msgs = storage.getEmailMessages(inboxId);
   if (!msgs) throw new Error(`Inbox ${inboxId} not found`);
   return msgs;
 }
@@ -74,7 +67,7 @@ export async function sendEmail(
   body: string,
   html?: string
 ): Promise<EmailMessage> {
-  const inbox = inboxes.get(inboxId);
+  const inbox = storage.getEmailInbox(inboxId);
   if (!inbox) throw new Error(`Inbox ${inboxId} not found`);
   if (!inbox.active) throw new Error("Inbox is deactivated");
 
@@ -100,7 +93,7 @@ export async function sendEmail(
     timestamp: new Date().toISOString(),
   };
 
-  messages.get(inboxId)!.push(msg);
+  storage.pushEmailMessage(inboxId, msg);
   return msg;
 }
 
@@ -120,7 +113,7 @@ export function handleInboundEmail(
   if (!match) return null;
 
   const localPart = match[1].toLowerCase();
-  const inboxId = addressIndex.get(localPart);
+  const inboxId = storage.getEmailInboxByLocalPart(localPart);
   if (!inboxId) {
     console.warn(`[email] Inbound email to unknown address: ${to}`);
     return null;
@@ -138,7 +131,7 @@ export function handleInboundEmail(
     timestamp: new Date().toISOString(),
   };
 
-  messages.get(inboxId)?.push(msg);
+  storage.pushEmailMessage(inboxId, msg);
   return msg;
 }
 
@@ -146,5 +139,5 @@ export function handleInboundEmail(
  * Get an inbox by ID.
  */
 export function getInbox(id: string): EmailInbox | undefined {
-  return inboxes.get(id);
+  return storage.getEmailInbox(id);
 }
