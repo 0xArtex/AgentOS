@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentOS — Infrastructure for Autonomous AI Agents</title>
+<meta name="description" content="Pay-per-call infrastructure APIs for AI agents. Phone numbers, email, domains, compute, and API keys — all payable with USDC on Solana.">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --bg2: #12121a;
+    --bg3: #1a1a2e;
+    --purple: #9945FF;
+    --purple-dim: #7b33d4;
+    --green: #14F195;
+    --green-dim: #0ec47a;
+    --text: #e4e4e7;
+    --text-dim: #a1a1aa;
+    --border: #27273a;
+    --radius: 12px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, monospace;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  a { color: var(--green); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Nav */
+  nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem 2rem;
+    max-width: 1200px;
+    margin: 0 auto;
+  }
+  .logo {
+    font-size: 1.5rem;
+    font-weight: 800;
+    background: linear-gradient(135deg, var(--purple), var(--green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .nav-links { display: flex; gap: 2rem; }
+  .nav-links a { color: var(--text-dim); font-size: 0.9rem; }
+  .nav-links a:hover { color: var(--green); text-decoration: none; }
+
+  /* Hero */
+  .hero {
+    text-align: center;
+    padding: 6rem 2rem 4rem;
+    max-width: 900px;
+    margin: 0 auto;
+    position: relative;
+  }
+  .hero::before {
+    content: '';
+    position: absolute;
+    top: -100px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 600px;
+    height: 600px;
+    background: radial-gradient(circle, rgba(153,69,255,0.12) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  .hero h1 {
+    font-size: 3.5rem;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 1.5rem;
+    position: relative;
+    z-index: 1;
+  }
+  .hero h1 span {
+    background: linear-gradient(135deg, var(--purple), var(--green));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+  .hero p {
+    font-size: 1.25rem;
+    color: var(--text-dim);
+    max-width: 600px;
+    margin: 0 auto 2.5rem;
+    position: relative;
+    z-index: 1;
+  }
+  .hero-buttons {
+    display: flex;
+    gap: 1rem;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+  .btn {
+    display: inline-block;
+    padding: 0.8rem 2rem;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--purple), var(--purple-dim));
+    color: white;
+  }
+  .btn-primary:hover { opacity: 0.9; text-decoration: none; }
+  .btn-secondary {
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
+  .btn-secondary:hover { border-color: var(--purple); text-decoration: none; }
+
+  /* Protocol badge */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 50px;
+    padding: 0.4rem 1.2rem;
+    font-size: 0.85rem;
+    color: var(--text-dim);
+    margin-bottom: 2rem;
+    position: relative;
+    z-index: 1;
+  }
+  .badge span { color: var(--green); font-weight: 600; }
+
+  /* Section */
+  section {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 5rem 2rem;
+  }
+  .section-title {
+    text-align: center;
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 1rem;
+  }
+  .section-sub {
+    text-align: center;
+    color: var(--text-dim);
+    margin-bottom: 3rem;
+    font-size: 1.1rem;
+  }
+
+  /* Services Grid */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    gap: 1.5rem;
+  }
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    transition: border-color 0.2s, transform 0.2s;
+  }
+  .card:hover { border-color: var(--purple); transform: translateY(-2px); }
+  .card-icon { font-size: 2rem; margin-bottom: 1rem; }
+  .card h3 { font-size: 1.2rem; margin-bottom: 0.5rem; }
+  .card p { color: var(--text-dim); font-size: 0.9rem; }
+
+  /* How it works */
+  .steps {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2rem;
+    position: relative;
+  }
+  .step {
+    text-align: center;
+    padding: 2rem;
+  }
+  .step-num {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 48px;
+    height: 48px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--purple), var(--green));
+    font-weight: 800;
+    font-size: 1.2rem;
+    margin-bottom: 1rem;
+    color: var(--bg);
+  }
+  .step h3 { margin-bottom: 0.5rem; font-size: 1.1rem; }
+  .step p { color: var(--text-dim); font-size: 0.9rem; }
+
+  /* Pricing */
+  .pricing-table {
+    width: 100%;
+    border-collapse: collapse;
+    background: var(--bg2);
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+  .pricing-table th {
+    background: var(--bg3);
+    padding: 1rem;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-dim);
+  }
+  .pricing-table td {
+    padding: 0.8rem 1rem;
+    border-top: 1px solid var(--border);
+    font-size: 0.95rem;
+  }
+  .pricing-table tr:hover td { background: rgba(153,69,255,0.05); }
+  .price { color: var(--green); font-weight: 600; font-family: monospace; }
+
+  /* Code block */
+  .code-block {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 1.5rem;
+    overflow-x: auto;
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 0.85rem;
+    line-height: 1.8;
+    color: var(--text-dim);
+    max-width: 700px;
+    margin: 0 auto;
+  }
+  .code-block .kw { color: var(--purple); }
+  .code-block .str { color: var(--green); }
+  .code-block .cmt { color: #555; }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 3rem 2rem;
+    border-top: 1px solid var(--border);
+    color: var(--text-dim);
+    font-size: 0.9rem;
+  }
+  footer a { color: var(--green); }
+
+  /* Responsive */
+  @media (max-width: 768px) {
+    .hero h1 { font-size: 2.2rem; }
+    .steps { grid-template-columns: 1fr; }
+    .hero-buttons { flex-direction: column; align-items: center; }
+    .nav-links { gap: 1rem; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="logo">⚡ AgentOS</div>
+  <div class="nav-links">
+    <a href="#services">Services</a>
+    <a href="#how-it-works">How It Works</a>
+    <a href="#pricing">Pricing</a>
+    <a href="/docs/API.md">API Docs</a>
+    <a href="https://github.com/0xArtex/AgentOS">GitHub</a>
+  </div>
+</nav>
+
+<div class="hero">
+  <div class="badge">🔗 Powered by <span>Solana</span> &amp; <span>USDC</span></div>
+  <h1>Infrastructure for<br><span>Autonomous AI Agents</span></h1>
+  <p>Pay-per-call APIs for everything your AI agent needs. Phone numbers, email, domains, compute, and API keys — authenticated with USDC payments on Solana.</p>
+  <div class="hero-buttons">
+    <a href="https://github.com/0xArtex/AgentOS" class="btn btn-primary">View on GitHub</a>
+    <a href="#pricing" class="btn btn-secondary">See Pricing</a>
+  </div>
+</div>
+
+<section id="services">
+  <h2 class="section-title">Services</h2>
+  <p class="section-sub">Everything an autonomous agent needs to operate in the real world.</p>
+  <div class="grid">
+    <div class="card">
+      <div class="card-icon">📞</div>
+      <h3>Phone Numbers</h3>
+      <p>Provision real phone numbers and send/receive SMS. Powered by Twilio. From <span class="price">0.01 USDC</span>.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">📧</div>
+      <h3>Email</h3>
+      <p>Create email inboxes, send and receive emails. Your agent gets its own address. From <span class="price">0.01 USDC</span>.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🌐</div>
+      <h3>Domains</h3>
+      <p>Register domains and manage DNS records programmatically. From <span class="price">0.01 USDC</span>.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🖥️</div>
+      <h3>Compute</h3>
+      <p>Spin up cloud servers on Hetzner. 2-16 vCPUs, SSH access, full root. From <span class="price">0.01 USDC</span>.</p>
+    </div>
+    <div class="card">
+      <div class="card-icon">🔑</div>
+      <h3>API Keys</h3>
+      <p>Provision API keys for OpenAI, Anthropic, Brave Search, and more. From <span class="price">0.01 USDC</span>.</p>
+    </div>
+  </div>
+</section>
+
+<section id="how-it-works" style="background: var(--bg2); border-radius: var(--radius); max-width: 1000px;">
+  <h2 class="section-title">How It Works</h2>
+  <p class="section-sub">No API keys. No accounts. Just pay and use.</p>
+  <div class="steps">
+    <div class="step">
+      <div class="step-num">1</div>
+      <h3>Pay with USDC</h3>
+      <p>Send USDC to the AgentOS treasury wallet on Solana. Amount depends on the service.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <h3>Call the API</h3>
+      <p>Include the Solana transaction signature in the <code>X-Payment</code> header. That's your auth.</p>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <h3>Service Provisioned</h3>
+      <p>AgentOS verifies payment on-chain and provisions your resource instantly. Done. ⚡</p>
+    </div>
+  </div>
+
+  <div class="code-block" style="margin-top: 2rem;">
+    <span class="cmt"># Provision a phone number for your agent</span><br>
+    <span class="kw">curl</span> -X POST https://api.agentos.dev/phone/numbers \<br>
+    &nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span> \<br>
+    &nbsp;&nbsp;-H <span class="str">"X-Payment: &lt;solana-tx-signature&gt;"</span> \<br>
+    &nbsp;&nbsp;-d <span class="str">'{"country": "US"}'</span>
+  </div>
+</section>
+
+<section id="pricing">
+  <h2 class="section-title">Pricing</h2>
+  <p class="section-sub">Simple, transparent, pay-per-call. All prices in USDC on Solana.</p>
+  <table class="pricing-table">
+    <thead>
+      <tr>
+        <th>Service</th>
+        <th>Action</th>
+        <th>Cost (USDC)</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>📞 Phone</td><td>Provision Number</td><td class="price">2.00</td></tr>
+      <tr><td>📞 Phone</td><td>Get Messages</td><td class="price">0.01</td></tr>
+      <tr><td>📞 Phone</td><td>Send SMS</td><td class="price">0.05</td></tr>
+      <tr><td>📧 Email</td><td>Create Inbox</td><td class="price">1.00</td></tr>
+      <tr><td>📧 Email</td><td>Get Messages</td><td class="price">0.01</td></tr>
+      <tr><td>📧 Email</td><td>Send Email</td><td class="price">0.05</td></tr>
+      <tr><td>🌐 Domains</td><td>Register Domain</td><td class="price">10.00</td></tr>
+      <tr><td>🌐 Domains</td><td>Get Status</td><td class="price">0.01</td></tr>
+      <tr><td>🌐 Domains</td><td>Update DNS</td><td class="price">0.10</td></tr>
+      <tr><td>🖥️ Compute</td><td>Create Server</td><td class="price">5.00</td></tr>
+      <tr><td>🖥️ Compute</td><td>List/Get Servers</td><td class="price">0.01</td></tr>
+      <tr><td>🖥️ Compute</td><td>Delete Server</td><td class="price">0.10</td></tr>
+      <tr><td>🖥️ Compute</td><td>Upload SSH Key</td><td class="price">0.10</td></tr>
+      <tr><td>🔑 API Keys</td><td>Provision Key</td><td class="price">1.00</td></tr>
+      <tr><td>🔑 API Keys</td><td>List Keys</td><td class="price">0.01</td></tr>
+      <tr><td>🔑 API Keys</td><td>Revoke Key</td><td class="price">0.01</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<footer>
+  <p>Built by <strong>Zolty</strong> ⚡ for the <a href="https://www.colosseum.org/">Colosseum Agent Hackathon</a></p>
+  <p style="margin-top: 0.5rem;">
+    <a href="https://github.com/0xArtex/AgentOS">GitHub</a> · 
+    <a href="/docs/API.md">API Docs</a> · 
+    x402 Protocol on Solana
+  </p>
+</footer>
+
+</body>
+</html>

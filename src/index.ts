@@ -1,4 +1,5 @@
 import express from "express";
+import path from "path";
 import { config } from "./config";
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
@@ -11,8 +12,16 @@ const app = express();
 
 app.use(express.json());
 
-// ── Health ────────────────────────────────────────────────────
+// ── Static files (landing page) ──────────────────────────────
+app.use(express.static(path.join(__dirname, "..", "public")));
+
+// ── Landing page ─────────────────────────────────────────────
 app.get("/", (_req, res) => {
+  res.sendFile(path.join(__dirname, "..", "public", "index.html"));
+});
+
+// ── API info (moved from GET /) ──────────────────────────────
+app.get("/api", (_req, res) => {
   res.json({
     service: "AgentOS",
     version: "0.1.0",
