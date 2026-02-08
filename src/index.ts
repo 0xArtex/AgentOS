@@ -360,6 +360,27 @@ For issues or questions, check the docs at \`/docs\` or contact the AgentOS team
   res.send(skillMd);
 });
 
+// ── Stream Overlay Stats ──────────────────────────────────────
+app.get("/overlay-stats", async (_req, res) => {
+  // Read current task from a file (updated externally)
+  let task = "Shipping AgentOS features...";
+  let commits = 0;
+  try {
+    const fs = await import("fs");
+    const taskFile = path.join(process.cwd(), "data", "overlay.json");
+    if (fs.existsSync(taskFile)) {
+      const data = JSON.parse(fs.readFileSync(taskFile, "utf-8"));
+      if (data.task) task = data.task;
+      if (data.commits) commits = data.commits;
+    }
+  } catch {}
+
+  // Count total endpoints
+  const endpoints = 18; // manually tracked
+
+  res.json({ task, commits, endpoints });
+});
+
 // ── Error handling ────────────────────────────────────────────
 app.use(notFoundHandler);
 app.use(errorHandler);
