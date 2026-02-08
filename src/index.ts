@@ -9,6 +9,8 @@ import emailRoutes from "./routes/email";
 import domainRoutes from "./routes/domain";
 import computeRoutes from "./routes/compute";
 import apikeysRoutes from "./routes/apikeys";
+import demoRoutes from "./routes/demo";
+import webhookRoutes from "./routes/webhooks";
 import { errorHandler, notFoundHandler } from "./middleware/errors";
 
 const app = express();
@@ -47,6 +49,12 @@ app.use("/email", emailRoutes);
 app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
 app.use("/apikeys", apikeysRoutes);
+
+// ── Demo Routes (no payment required) ────────────────────────
+app.use("/demo", demoRoutes);
+
+// ── Webhook Routes (no x402 payment, for provider callbacks) ─
+app.use("/webhooks", webhookRoutes);
 
 // ── Pricing info (no auth required) ──────────────────────────
 app.get("/pricing", (_req, res) => {

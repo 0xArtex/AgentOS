@@ -306,6 +306,225 @@ export const swaggerSpec = {
           '402': { $ref: '#/components/responses/PaymentRequired' }
         }
       }
+    },
+    '/demo/provision-phone': {
+      get: {
+        summary: 'Demo: Phone number provisioning',
+        description: 'Simulate phone number provisioning without payment (returns mock data)',
+        tags: ['Demo'],
+        responses: {
+          '200': {
+            description: 'Mock phone number data',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', example: 'demo_abc123' },
+                    number: { type: 'string', example: '+12125551234' },
+                    friendlyName: { type: 'string', example: '(212) 555-1234' },
+                    country: { type: 'string', example: 'US' },
+                    cost: { type: 'string', example: '2.00 USDC' },
+                    demo: { type: 'boolean', example: true },
+                    note: { type: 'string', example: 'This is demo data. Real endpoint: POST /phone/numbers' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/demo/create-inbox': {
+      get: {
+        summary: 'Demo: Email inbox creation',
+        description: 'Simulate email inbox creation without payment (returns mock data)',
+        tags: ['Demo'],
+        responses: {
+          '200': {
+            description: 'Mock email inbox data',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', example: 'demo_inbox_abc123' },
+                    email: { type: 'string', example: 'agent-abc123@agentos.dev' },
+                    password: { type: 'string', example: '[generated-password]' },
+                    cost: { type: 'string', example: '1.00 USDC' },
+                    demo: { type: 'boolean', example: true },
+                    note: { type: 'string', example: 'This is demo data. Real endpoint: POST /email/inboxes' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/demo/create-server': {
+      get: {
+        summary: 'Demo: Server creation',
+        description: 'Simulate server creation without payment (returns mock data)',
+        tags: ['Demo'],
+        responses: {
+          '200': {
+            description: 'Mock server data',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', example: 'demo_server_abc123' },
+                    name: { type: 'string', example: 'agent-server-abc123' },
+                    type: { type: 'string', example: 'cx11' },
+                    ipv4: { type: 'string', example: '192.0.2.123' },
+                    cost: { type: 'string', example: '5.00 USDC' },
+                    demo: { type: 'boolean', example: true },
+                    note: { type: 'string', example: 'This is demo data. Real endpoint: POST /compute/servers' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/demo/provision-apikey': {
+      get: {
+        summary: 'Demo: API key provisioning',
+        description: 'Simulate API key provisioning without payment (returns mock data)',
+        tags: ['Demo'],
+        responses: {
+          '200': {
+            description: 'Mock API key data',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'string', example: 'demo_key_abc123' },
+                    provider: { type: 'string', example: 'openai' },
+                    keyPreview: { type: 'string', example: 'sk-proj-abc123...xyz789' },
+                    cost: { type: 'string', example: '1.00 USDC' },
+                    demo: { type: 'boolean', example: true },
+                    note: { type: 'string', example: 'This is demo data. Real endpoint: POST /apikeys' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    '/webhooks/twilio/sms': {
+      post: {
+        summary: 'Twilio SMS webhook',
+        description: 'Handle inbound SMS messages from Twilio (webhook callback)',
+        tags: ['Webhooks'],
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/x-www-form-urlencoded': {
+              schema: {
+                type: 'object',
+                properties: {
+                  MessageSid: { type: 'string', example: 'SM1234567890abcdef' },
+                  From: { type: 'string', example: '+15551234567' },
+                  To: { type: 'string', example: '+12125551234' },
+                  Body: { type: 'string', example: 'Hello from SMS!' },
+                  NumMedia: { type: 'string', example: '0' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'SMS webhook processed successfully',
+            content: {
+              'application/xml': {
+                schema: {
+                  type: 'string',
+                  example: '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Message received by AgentOS</Message></Response>'
+                }
+              }
+            }
+          },
+          '401': {
+            description: 'Invalid webhook signature'
+          }
+        }
+      }
+    },
+    '/webhooks/sendgrid/inbound': {
+      post: {
+        summary: 'SendGrid inbound email webhook',
+        description: 'Handle inbound emails from SendGrid Inbound Parse (webhook callback)',
+        tags: ['Webhooks'],
+        security: [],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                properties: {
+                  from: { type: 'string', example: 'sender@example.com' },
+                  to: { type: 'string', example: 'agent-123@agentos.dev' },
+                  subject: { type: 'string', example: 'Hello AgentOS' },
+                  text: { type: 'string', example: 'Email body text' },
+                  html: { type: 'string', example: '<p>Email body HTML</p>' }
+                }
+              }
+            }
+          }
+        },
+        responses: {
+          '200': {
+            description: 'Email webhook processed successfully',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', example: 'received' }
+                  }
+                }
+              }
+            }
+          },
+          '401': {
+            description: 'Invalid webhook signature'
+          }
+        }
+      }
+    },
+    '/webhooks/test': {
+      get: {
+        summary: 'Webhook test endpoint',
+        description: 'Simple endpoint for testing webhook infrastructure',
+        tags: ['Webhooks'],
+        security: [],
+        responses: {
+          '200': {
+            description: 'Webhook test response',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    status: { type: 'string', example: 'ok' },
+                    message: { type: 'string', example: 'Webhook endpoint is working' },
+                    timestamp: { type: 'string', example: '2024-02-09T01:30:00.000Z' }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   components: {
@@ -376,6 +595,14 @@ export const swaggerSpec = {
     {
       name: 'API Keys',
       description: 'Third-party API key provisioning'
+    },
+    {
+      name: 'Demo',
+      description: 'Demo endpoints (no payment required, returns mock data)'
+    },
+    {
+      name: 'Webhooks',
+      description: 'Webhook endpoints for inbound SMS and email callbacks'
     }
   ]
 };

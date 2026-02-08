@@ -248,6 +248,140 @@
   .code-block .str { color: var(--green); }
   .code-block .cmt { color: #555; }
 
+  /* API Status */
+  .api-status {
+    margin-top: 3rem;
+    display: flex;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
+  }
+  .status-indicator {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 50px;
+    padding: 0.75rem 1.5rem;
+    font-size: 0.9rem;
+  }
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--text-dim);
+    animation: pulse 2s infinite;
+  }
+  .status-dot.online { background: var(--green); }
+  .status-dot.offline { background: #ef4444; animation: none; }
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+  }
+
+  /* Try It Section */
+  .try-section {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 2rem;
+    max-width: 800px;
+    margin: 0 auto;
+  }
+  .try-tabs {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 2rem;
+    border-bottom: 1px solid var(--border);
+  }
+  .try-tab {
+    padding: 0.75rem 1.5rem;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+  }
+  .try-tab:hover { color: var(--text); }
+  .try-tab.active {
+    color: var(--purple);
+    border-bottom-color: var(--purple);
+  }
+  .try-content {
+    display: none;
+  }
+  .try-content.active {
+    display: block;
+  }
+  .copy-button {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    padding: 0.5rem 1rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .copy-button:hover {
+    background: var(--border);
+    color: var(--text);
+  }
+  .copy-button.copied {
+    background: var(--green);
+    color: var(--bg);
+  }
+
+  /* Payment Flow */
+  .payment-flow {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 1rem;
+    margin: 2rem 0;
+    position: relative;
+  }
+  .flow-step {
+    text-align: center;
+    padding: 1.5rem 1rem;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    position: relative;
+  }
+  .flow-step::after {
+    content: '→';
+    position: absolute;
+    right: -1rem;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--purple);
+    font-size: 1.5rem;
+    z-index: 1;
+  }
+  .flow-step:last-child::after {
+    display: none;
+  }
+  .flow-icon {
+    font-size: 2rem;
+    margin-bottom: 0.5rem;
+    display: block;
+  }
+  .flow-step h4 {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+    color: var(--text);
+  }
+  .flow-step p {
+    font-size: 0.8rem;
+    color: var(--text-dim);
+  }
+
   /* Footer */
   footer {
     text-align: center;
@@ -273,10 +407,11 @@
   <div class="logo">⚡ AgentOS</div>
   <div class="nav-links">
     <a href="#services">Services</a>
-    <a href="#how-it-works">How It Works</a>
+    <a href="#try-it">Try It</a>
     <a href="#pricing">Pricing</a>
-    <a href="/docs/API.md">API Docs</a>
+    <a href="/docs">API Docs</a>
     <a href="https://github.com/0xArtex/AgentOS">GitHub</a>
+    <a href="https://x.com/zolty">X Stream</a>
   </div>
 </nav>
 
@@ -285,8 +420,17 @@
   <h1>Infrastructure for<br><span>Autonomous AI Agents</span></h1>
   <p>Pay-per-call APIs for everything your AI agent needs. Phone numbers, email, domains, compute, and API keys — authenticated with USDC payments on Solana.</p>
   <div class="hero-buttons">
-    <a href="https://github.com/0xArtex/AgentOS" class="btn btn-primary">View on GitHub</a>
-    <a href="#pricing" class="btn btn-secondary">See Pricing</a>
+    <a href="/docs" class="btn btn-primary">API Docs</a>
+    <a href="#try-it" class="btn btn-secondary">Try It Now</a>
+    <a href="https://github.com/0xArtex/AgentOS" class="btn btn-secondary">GitHub</a>
+  </div>
+  
+  <!-- Live API Status -->
+  <div class="api-status" id="api-status">
+    <div class="status-indicator">
+      <div class="status-dot" id="status-dot"></div>
+      <span id="status-text">Checking API status...</span>
+    </div>
   </div>
 </div>
 
@@ -322,24 +466,124 @@
   </div>
 </section>
 
+<section id="try-it">
+  <h2 class="section-title">Try It Now</h2>
+  <p class="section-sub">See how AgentOS works with these live examples. No payment required for demo endpoints.</p>
+  
+  <div class="try-section">
+    <div class="try-tabs">
+      <button class="try-tab active" onclick="showTab('demo-phone')">📞 Phone Demo</button>
+      <button class="try-tab" onclick="showTab('demo-email')">📧 Email Demo</button>
+      <button class="try-tab" onclick="showTab('real-phone')">📞 Real Phone</button>
+      <button class="try-tab" onclick="showTab('real-email')">📧 Real Email</button>
+    </div>
+
+    <div id="demo-phone" class="try-content active">
+      <div style="position: relative;">
+        <button class="copy-button" onclick="copyCode('demo-phone-code')">Copy</button>
+        <div class="code-block" id="demo-phone-code"><span class="cmt"># Demo: Provision a phone number (no payment, mock data)</span><br>
+<span class="kw">curl</span> -X GET https://api.agentos.dev<span class="str">/demo/provision-phone</span> \<br>
+&nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span><br>
+<br>
+<span class="cmt"># Response (example):</span><br>
+<span class="str">{</span><br>
+&nbsp;&nbsp;<span class="str">"number":</span> <span class="str">"+12125551234"</span>,<br>
+&nbsp;&nbsp;<span class="str">"country":</span> <span class="str">"US"</span>,<br>
+&nbsp;&nbsp;<span class="str">"friendlyName":</span> <span class="str">"(212) 555-1234"</span>,<br>
+&nbsp;&nbsp;<span class="str">"cost":</span> <span class="str">"2.00 USDC"</span>,<br>
+&nbsp;&nbsp;<span class="str">"demo":</span> <span class="kw">true</span><br>
+<span class="str">}</span></div>
+      </div>
+    </div>
+
+    <div id="demo-email" class="try-content">
+      <div style="position: relative;">
+        <button class="copy-button" onclick="copyCode('demo-email-code')">Copy</button>
+        <div class="code-block" id="demo-email-code"><span class="cmt"># Demo: Create an email inbox (no payment, mock data)</span><br>
+<span class="kw">curl</span> -X GET https://api.agentos.dev<span class="str">/demo/create-inbox</span> \<br>
+&nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span><br>
+<br>
+<span class="cmt"># Response (example):</span><br>
+<span class="str">{</span><br>
+&nbsp;&nbsp;<span class="str">"email":</span> <span class="str">"agent-abc123@agentos.dev"</span>,<br>
+&nbsp;&nbsp;<span class="str">"password":</span> <span class="str">"[generated]"</span>,<br>
+&nbsp;&nbsp;<span class="str">"cost":</span> <span class="str">"1.00 USDC"</span>,<br>
+&nbsp;&nbsp;<span class="str">"demo":</span> <span class="kw">true</span><br>
+<span class="str">}</span></div>
+      </div>
+    </div>
+
+    <div id="real-phone" class="try-content">
+      <div style="position: relative;">
+        <button class="copy-button" onclick="copyCode('real-phone-code')">Copy</button>
+        <div class="code-block" id="real-phone-code"><span class="cmt"># Real: Provision a phone number (requires payment)</span><br>
+<span class="kw">curl</span> -X POST https://api.agentos.dev<span class="str">/phone/numbers</span> \<br>
+&nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span> \<br>
+&nbsp;&nbsp;-H <span class="str">"X-Payment: &lt;solana-tx-signature&gt;"</span> \<br>
+&nbsp;&nbsp;-d <span class="str">'{"country": "US"}'</span><br>
+<br>
+<span class="cmt"># First, send 2.00 USDC to treasury wallet:</span><br>
+<span class="str">AgentOSxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</span></div>
+      </div>
+    </div>
+
+    <div id="real-email" class="try-content">
+      <div style="position: relative;">
+        <button class="copy-button" onclick="copyCode('real-email-code')">Copy</button>
+        <div class="code-block" id="real-email-code"><span class="cmt"># Real: Create an email inbox (requires payment)</span><br>
+<span class="kw">curl</span> -X POST https://api.agentos.dev<span class="str">/email/inboxes</span> \<br>
+&nbsp;&nbsp;-H <span class="str">"Content-Type: application/json"</span> \<br>
+&nbsp;&nbsp;-H <span class="str">"X-Payment: &lt;solana-tx-signature&gt;"</span><br>
+<br>
+<span class="cmt"># First, send 1.00 USDC to treasury wallet:</span><br>
+<span class="str">AgentOSxxxxxxxxxxxxxxxxxxxxxxxxxxxxx</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
 <section id="how-it-works" style="background: var(--bg2); border-radius: var(--radius); max-width: 1000px;">
-  <h2 class="section-title">How It Works</h2>
-  <p class="section-sub">No API keys. No accounts. Just pay and use.</p>
-  <div class="steps">
+  <h2 class="section-title">How x402 Payment Works</h2>
+  <p class="section-sub">No API keys. No accounts. Just pay and use — powered by the x402 protocol.</p>
+  
+  <div class="payment-flow">
+    <div class="flow-step">
+      <span class="flow-icon">💰</span>
+      <h4>1. Send Payment</h4>
+      <p>Send exact USDC amount to AgentOS treasury wallet on Solana</p>
+    </div>
+    <div class="flow-step">
+      <span class="flow-icon">📨</span>
+      <h4>2. Make API Call</h4>
+      <p>Include Solana tx signature in X-Payment header with your request</p>
+    </div>
+    <div class="flow-step">
+      <span class="flow-icon">🔍</span>
+      <h4>3. Verify Payment</h4>
+      <p>AgentOS validates payment on-chain and checks amount matches service cost</p>
+    </div>
+    <div class="flow-step">
+      <span class="flow-icon">⚡</span>
+      <h4>4. Service Ready</h4>
+      <p>Resource provisioned instantly. Phone number, email, server — whatever you paid for</p>
+    </div>
+  </div>
+  
+  <div class="steps" style="margin-top: 3rem;">
     <div class="step">
-      <div class="step-num">1</div>
-      <h3>Pay with USDC</h3>
-      <p>Send USDC to the AgentOS treasury wallet on Solana. Amount depends on the service.</p>
+      <div class="step-num">💡</div>
+      <h3>Why x402?</h3>
+      <p>No API keys to manage, no monthly subscriptions, no rate limits. Pay exactly what you use, when you use it.</p>
     </div>
     <div class="step">
-      <div class="step-num">2</div>
-      <h3>Call the API</h3>
-      <p>Include the Solana transaction signature in the <code>X-Payment</code> header. That's your auth.</p>
+      <div class="step-num">🌐</div>
+      <h3>Built for Agents</h3>
+      <p>Autonomous AI agents can provision resources without human intervention. Pure code-to-infrastructure.</p>
     </div>
     <div class="step">
-      <div class="step-num">3</div>
-      <h3>Service Provisioned</h3>
-      <p>AgentOS verifies payment on-chain and provisions your resource instantly. Done. ⚡</p>
+      <div class="step-num">🔒</div>
+      <h3>Trustless</h3>
+      <p>Payments are verified on Solana blockchain. No credit cards, no personal info, no accounts.</p>
     </div>
   </div>
 
@@ -388,10 +632,98 @@
   <p>Built by <strong>Zolty</strong> ⚡ for the <a href="https://www.colosseum.org/">Colosseum Agent Hackathon</a></p>
   <p style="margin-top: 0.5rem;">
     <a href="https://github.com/0xArtex/AgentOS">GitHub</a> · 
-    <a href="/docs/API.md">API Docs</a> · 
+    <a href="/docs">API Docs</a> · 
+    <a href="https://x.com/zolty">X Stream</a> ·
     x402 Protocol on Solana
   </p>
 </footer>
+
+<script>
+  // Check API status on page load
+  async function checkApiStatus() {
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    
+    try {
+      const healthRes = await fetch('/health');
+      const healthData = await healthRes.json();
+      
+      const pricingRes = await fetch('/pricing');
+      const pricingData = await pricingRes.json();
+      
+      if (healthData.status === 'ok' && pricingData.currency === 'USDC') {
+        statusDot.className = 'status-dot online';
+        statusText.textContent = `API Online • ${Math.round(healthData.uptime)} seconds uptime`;
+      } else {
+        throw new Error('API not responding correctly');
+      }
+    } catch (error) {
+      statusDot.className = 'status-dot offline';
+      statusText.textContent = 'API Offline';
+    }
+  }
+
+  // Tab switching
+  function showTab(tabId) {
+    // Hide all content
+    document.querySelectorAll('.try-content').forEach(content => {
+      content.classList.remove('active');
+    });
+    
+    // Remove active from all tabs
+    document.querySelectorAll('.try-tab').forEach(tab => {
+      tab.classList.remove('active');
+    });
+    
+    // Show selected content
+    document.getElementById(tabId).classList.add('active');
+    
+    // Mark selected tab as active
+    event.target.classList.add('active');
+  }
+
+  // Copy code to clipboard
+  async function copyCode(codeId) {
+    const button = event.target;
+    const codeElement = document.getElementById(codeId);
+    const text = codeElement.textContent;
+    
+    try {
+      await navigator.clipboard.writeText(text);
+      button.textContent = 'Copied!';
+      button.classList.add('copied');
+      
+      setTimeout(() => {
+        button.textContent = 'Copy';
+        button.classList.remove('copied');
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  }
+
+  // Initialize on page load
+  document.addEventListener('DOMContentLoaded', () => {
+    checkApiStatus();
+    
+    // Add smooth scrolling
+    document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+      anchor.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(this.getAttribute('href'));
+        if (target) {
+          target.scrollIntoView({
+            behavior: 'smooth',
+            block: 'start'
+          });
+        }
+      });
+    });
+  });
+
+  // Refresh status every 30 seconds
+  setInterval(checkApiStatus, 30000);
+</script>
 
 </body>
 </html>

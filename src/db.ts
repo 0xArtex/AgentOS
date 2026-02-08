@@ -169,6 +169,42 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_used_payments_verified_at ON used_payments(verified_at);
   `);
 
+  // Inbound SMS table (from webhook callbacks)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS inbound_sms (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      twilio_sid TEXT UNIQUE NOT NULL,
+      from_number TEXT NOT NULL,
+      to_number TEXT NOT NULL,
+      body TEXT NOT NULL,
+      media_count INTEGER DEFAULT 0,
+      media_url TEXT,
+      media_type TEXT,
+      received_at TEXT NOT NULL
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_inbound_sms_to_number ON inbound_sms(to_number);
+    CREATE INDEX IF NOT EXISTS idx_inbound_sms_received_at ON inbound_sms(received_at);
+  `);
+
+  // Inbound Emails table (from webhook callbacks)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS inbound_emails (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      from_address TEXT NOT NULL,
+      to_address TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      text_body TEXT NOT NULL,
+      html_body TEXT,
+      attachment_count INTEGER DEFAULT 0,
+      raw_data TEXT,
+      received_at TEXT NOT NULL
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_inbound_emails_to_address ON inbound_emails(to_address);
+    CREATE INDEX IF NOT EXISTS idx_inbound_emails_received_at ON inbound_emails(received_at);
+  `);
+
   console.log('✅ Database initialized with all tables');
 }
 
