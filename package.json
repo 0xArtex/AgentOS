@@ -10,14 +10,23 @@
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
-  "keywords": ["solana", "x402", "ai-agents", "infrastructure"],
+  "keywords": [
+    "solana",
+    "x402",
+    "ai-agents",
+    "infrastructure"
+  ],
   "author": "Zolty <zolty@openclaw.ai>",
   "license": "MIT",
   "dependencies": {
+    "@sendgrid/mail": "^8.1.4",
     "@solana/web3.js": "^1.98.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/swagger-ui-express": "^4.1.8",
+    "better-sqlite3": "^12.6.2",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "@sendgrid/mail": "^8.1.4",
+    "swagger-ui-express": "^5.0.1",
     "tweetnacl": "^1.0.3",
     "twilio": "^5.4.3",
     "uuid": "^11.0.5"

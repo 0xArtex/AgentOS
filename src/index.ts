@@ -1,6 +1,9 @@
 import express from "express";
 import path from "path";
+import swaggerUi from "swagger-ui-express";
 import { config } from "./config";
+import { swaggerSpec } from "./swagger";
+import "./db"; // Initialize database
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
 import domainRoutes from "./routes/domain";
@@ -34,6 +37,9 @@ app.get("/api", (_req, res) => {
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", uptime: process.uptime() });
 });
+
+// ── API Documentation ─────────────────────────────────────────
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // ── Routes ────────────────────────────────────────────────────
 app.use("/phone", phoneRoutes);

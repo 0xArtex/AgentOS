@@ -2,6 +2,7 @@ import { Response, NextFunction } from "express";
 import { Connection, PublicKey } from "@solana/web3.js";
 import { config } from "../config";
 import { AuthenticatedRequest, PaymentProof } from "../types";
+import { storage } from "../services/storage";
 
 const connection = new Connection(config.solanaRpcUrl, "confirmed");
 const USDC_DECIMALS = 6;
@@ -30,6 +31,16 @@ export function x402(minUsdc: number = 0) {
         treasury: config.treasuryWallet,
         currency: "USDC",
         network: "solana",
+      });
+      return;
+    }
+
+    // Check if this transaction signature has been used before
+    if (storage.isPaymentUsed(signature)) {
+      res.status(402).json({
+        error: "Payment Already Used",
+        message: "This transaction signature has already been used for payment. Each transaction can only be used once.",
+        signature,
       });
       return;
     }
@@ -80,6 +91,9 @@ export function x402(minUsdc: number = 0) {
         });
         return;
       }
+
+      // Mark this payment as used to prevent reuse
+      storage.markPaymentUsed(signature, payment.payer, payment.amountLamports, req.originalUrl);
 
       req.payment = payment;
       next();
