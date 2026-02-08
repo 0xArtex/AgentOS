@@ -20,7 +20,10 @@ export function requestLogger(req: Request, res: Response, next: NextFunction): 
 
     // Skip logging for static files, health checks, etc.
     const skip = ["/", "/health", "/favicon.ico"];
-    if (skip.includes(req.path) || req.path.startsWith("/docs")) return;
+    if (skip.includes(req.path) || req.path.startsWith("/docs") || 
+        req.path.endsWith(".js") || req.path.endsWith(".css") || 
+        req.path.endsWith(".map") || req.path.endsWith(".png") ||
+        req.path.endsWith(".ico")) return;
 
     try {
       db.prepare(

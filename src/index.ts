@@ -35,10 +35,10 @@ app.get("/", (_req, res) => {
 app.get("/api", (_req, res) => {
   res.json({
     service: "AgentOS",
-    version: "0.1.0",
+    version: "0.2.0",
     status: "operational",
     docs: "https://github.com/0xArtex/AgentOS",
-    services: ["phone", "email", "domains", "compute", "apikeys"],
+    services: ["phone", "email", "domains", "compute", "apikeys", "agents", "messages", "stats"],
   });
 });
 
