@@ -205,6 +205,42 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_inbound_emails_received_at ON inbound_emails(received_at);
   `);
 
+  // Agents table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agents (
+      id TEXT PRIMARY KEY,
+      name TEXT UNIQUE NOT NULL,
+      description TEXT,
+      wallet_address TEXT,
+      webhook_url TEXT,
+      token TEXT UNIQUE NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_agents_name ON agents(name);
+    CREATE INDEX IF NOT EXISTS idx_agents_token ON agents(token);
+    CREATE INDEX IF NOT EXISTS idx_agents_wallet ON agents(wallet_address);
+  `);
+
+  // API request log for analytics
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS request_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT,
+      endpoint TEXT NOT NULL,
+      method TEXT NOT NULL,
+      status_code INTEGER NOT NULL,
+      payment_type TEXT CHECK(payment_type IN ('x402', 'hackathon', 'free')),
+      cost_usdc TEXT,
+      response_time_ms INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_request_log_agent ON request_log(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_request_log_endpoint ON request_log(endpoint);
+    CREATE INDEX IF NOT EXISTS idx_request_log_created ON request_log(created_at);
+  `);
+
   // Hackathon Usage table
   db.exec(`
     CREATE TABLE IF NOT EXISTS hackathon_usage (

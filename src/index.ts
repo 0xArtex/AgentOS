@@ -11,12 +11,16 @@ import computeRoutes from "./routes/compute";
 import apikeysRoutes from "./routes/apikeys";
 import demoRoutes from "./routes/demo";
 import webhookRoutes from "./routes/webhooks";
+import agentRoutes from "./routes/agents";
+import statsRoutes from "./routes/stats";
 import { errorHandler, notFoundHandler } from "./middleware/errors";
+import { requestLogger } from "./middleware/requestLog";
 import { isHackathonActive, getAgentUsage } from "./middleware/hackathon";
 
 const app = express();
 
 app.use(express.json());
+app.use(requestLogger);
 
 // ── Static files (landing page) ──────────────────────────────
 app.use(express.static(path.join(__dirname, "..", "public")));
@@ -50,6 +54,12 @@ app.use("/email", emailRoutes);
 app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
 app.use("/apikeys", apikeysRoutes);
+
+// ── Agent Management (free) ──────────────────────────────────
+app.use("/agents", agentRoutes);
+
+// ── Platform Stats (free) ────────────────────────────────────
+app.use("/stats", statsRoutes);
 
 // ── Demo Routes (no payment required) ────────────────────────
 app.use("/demo", demoRoutes);
