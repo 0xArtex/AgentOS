@@ -13,6 +13,7 @@ import demoRoutes from "./routes/demo";
 import webhookRoutes from "./routes/webhooks";
 import agentRoutes from "./routes/agents";
 import statsRoutes from "./routes/stats";
+import messageRoutes from "./routes/messages";
 import { errorHandler, notFoundHandler } from "./middleware/errors";
 import { requestLogger } from "./middleware/requestLog";
 import { isHackathonActive, getAgentUsage } from "./middleware/hackathon";
@@ -60,6 +61,9 @@ app.use("/agents", agentRoutes);
 
 // ── Platform Stats (free) ────────────────────────────────────
 app.use("/stats", statsRoutes);
+
+// ── Agent Messaging (free during hackathon) ──────────────────
+app.use("/messages", messageRoutes);
 
 // ── Demo Routes (no payment required) ────────────────────────
 app.use("/demo", demoRoutes);

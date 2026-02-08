@@ -256,6 +256,42 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_hackathon_usage_created_at ON hackathon_usage(created_at);
   `);
 
+  // Agent-to-agent messages
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_messages (
+      id TEXT PRIMARY KEY,
+      from_agent TEXT NOT NULL,
+      to_agent TEXT NOT NULL,
+      subject TEXT,
+      body TEXT NOT NULL,
+      reply_to TEXT,
+      read INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (from_agent) REFERENCES agents(id),
+      FOREIGN KEY (to_agent) REFERENCES agents(id)
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_to ON agent_messages(to_agent);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_from ON agent_messages(from_agent);
+    CREATE INDEX IF NOT EXISTS idx_agent_messages_created ON agent_messages(created_at);
+  `);
+
+  // Webhook delivery log
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS webhook_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      event TEXT NOT NULL,
+      url TEXT NOT NULL,
+      status_code INTEGER,
+      error TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_webhook_log_agent ON webhook_log(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_webhook_log_event ON webhook_log(event);
+  `);
+
   console.log('✅ Database initialized with all tables');
 }
 
