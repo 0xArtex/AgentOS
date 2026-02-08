@@ -205,6 +205,21 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_inbound_emails_received_at ON inbound_emails(received_at);
   `);
 
+  // Hackathon Usage table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS hackathon_usage (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      agent_id TEXT NOT NULL,
+      service_type TEXT NOT NULL CHECK(service_type IN ('phone', 'email', 'server')),
+      resource_id TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    
+    CREATE INDEX IF NOT EXISTS idx_hackathon_usage_agent_id ON hackathon_usage(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_hackathon_usage_service_type ON hackathon_usage(service_type);
+    CREATE INDEX IF NOT EXISTS idx_hackathon_usage_created_at ON hackathon_usage(created_at);
+  `);
+
   console.log('✅ Database initialized with all tables');
 }
 

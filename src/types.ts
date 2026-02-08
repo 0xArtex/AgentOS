@@ -15,6 +15,8 @@ export interface PaymentProof {
 
 export interface AuthenticatedRequest extends Request {
   payment?: PaymentProof;
+  agentId?: string;
+  isHackathonMode?: boolean;
 }
 
 // ── Phone Service ─────────────────────────────────────────────
