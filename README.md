@@ -12,8 +12,8 @@ AgentOS lets AI agents provision real-world infrastructure — phone numbers, SM
 
 | Service | Status | Description |
 |---------|--------|-------------|
-| **Phone** | 🚧 Building | Provision numbers, receive/send SMS, call transcripts |
-| **Email** | 🚧 Building | Inboxes (`name@mail.agentos.dev`), send/receive, OTP forwarding |
+| **Phone** | ✅ Live | Provision numbers, receive/send SMS via Twilio |
+| **Email** | ✅ Live | Inboxes (`name@mail.agentos.dev`), send/receive via SendGrid |
 | **Domains** | 🚧 Building | Register domains, DNS management, Namecheap/Cloudflare |
 | **Compute** | 🚧 Building | Spin up VPS (Hetzner Cloud), SSH key management |
 | **API Keys** | 🚧 Building | Auto-provision keys for third-party services |
@@ -181,7 +181,7 @@ If payment is missing or insufficient, you get a `402 Payment Required` response
 - **Runtime:** Node.js + TypeScript
 - **Payments:** x402 (USDC on Solana via `@solana/web3.js`)
 - **Phone:** Twilio
-- **Email:** SMTP (Mailgun/SendGrid) + catch-all domain
+- **Email:** SendGrid (send + inbound parse webhook)
 - **Deployment:** Docker / Railway
 
 ## Deploy

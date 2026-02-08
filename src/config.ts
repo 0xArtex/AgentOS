@@ -27,14 +27,11 @@ export const config = {
   twilioAuthToken: optional("TWILIO_AUTH_TOKEN", ""),
   twilioPhoneNumber: optional("TWILIO_PHONE_NUMBER", ""),
 
-  // Email / SMTP
-  smtpHost: optional("SMTP_HOST", ""),
-  smtpPort: parseInt(optional("SMTP_PORT", "587"), 10),
-  smtpUser: optional("SMTP_USER", ""),
-  smtpPass: optional("SMTP_PASS", ""),
+  // Email / SendGrid
+  sendgridApiKey: optional("SENDGRID_API_KEY", ""),
   emailDomain: optional("EMAIL_DOMAIN", "mail.agentos.dev"),
 
-  // Inbound email webhook secret (Mailgun/SendGrid signature verification)
+  // Inbound email webhook secret (SendGrid signature verification)
   emailWebhookSecret: optional("EMAIL_WEBHOOK_SECRET", ""),
 
   // Domain registrar ("namecheap" or "cloudflare")

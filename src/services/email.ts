@@ -1,22 +1,14 @@
-import nodemailer from "nodemailer";
+import sgMail from "@sendgrid/mail";
 import { v4 as uuid } from "uuid";
 import { config } from "../config";
 import { EmailInbox, EmailMessage } from "../types";
 import { storage } from "./storage";
 
-function getTransporter(): nodemailer.Transporter {
-  if (!config.smtpHost) {
-    throw new Error("SMTP not configured — set SMTP_HOST, SMTP_USER, SMTP_PASS");
+function initSendGrid(): void {
+  if (!config.sendgridApiKey) {
+    throw new Error("SendGrid not configured — set SENDGRID_API_KEY");
   }
-  return nodemailer.createTransport({
-    host: config.smtpHost,
-    port: config.smtpPort,
-    secure: config.smtpPort === 465,
-    auth: {
-      user: config.smtpUser,
-      pass: config.smtpPass,
-    },
-  });
+  sgMail.setApiKey(config.sendgridApiKey);
 }
 
 /**
@@ -58,7 +50,7 @@ export function getMessages(inboxId: string): EmailMessage[] {
 }
 
 /**
- * Send an email from an inbox.
+ * Send an email from an inbox via SendGrid.
  */
 export async function sendEmail(
   inboxId: string,
@@ -71,9 +63,9 @@ export async function sendEmail(
   if (!inbox) throw new Error(`Inbox ${inboxId} not found`);
   if (!inbox.active) throw new Error("Inbox is deactivated");
 
-  const transporter = getTransporter();
+  initSendGrid();
 
-  await transporter.sendMail({
+  await sgMail.send({
     from: inbox.address,
     to,
     subject,
@@ -98,8 +90,8 @@ export async function sendEmail(
 }
 
 /**
- * Handle inbound email from webhook (Mailgun, SendGrid, etc.)
- * Call this from your webhook endpoint.
+ * Handle inbound email from SendGrid Inbound Parse webhook.
+ * SendGrid POSTs multipart form data with fields: to, from, subject, text, html, etc.
  */
 export function handleInboundEmail(
   to: string,
