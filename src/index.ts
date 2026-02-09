@@ -23,6 +23,7 @@ import { isHackathonActive, getAgentUsage } from "./middleware/hackathon";
 import activityRoutes from "./routes/activity";
 import onboardingRoutes from "./routes/onboarding";
 import analyticsRoutes from "./routes/analytics";
+import changelogRoutes from "./routes/changelog";
 import { getHealth, getVersion } from "./utils/health";
 
 
@@ -402,6 +403,9 @@ app.get("/overlay-stats", async (_req, res) => {
 
   res.json({ task, commits, endpoints });
 });
+
+// ── Changelog ─────────────────────────────────────────────
+app.use("/changelog", changelogRoutes);
 
 // ── Error handling ────────────────────────────────────────────
 app.use(notFoundHandler);
