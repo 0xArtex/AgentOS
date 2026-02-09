@@ -21,6 +21,7 @@ import { requestTimeout } from "./middleware/timeout";
 import { rateLimit } from "./middleware/rateLimit";
 import { isHackathonActive, getAgentUsage } from "./middleware/hackathon";
 import activityRoutes from "./routes/activity";
+import onboardingRoutes from "./routes/onboarding";
 import { getHealth, getVersion } from "./utils/health";
 
 
@@ -82,6 +83,7 @@ app.use("/messages", messageRoutes);
 
 // ── Activity Feed (free) ─────────────────────────────────────
 app.use("/activity", activityRoutes);
+app.use("/onboarding", onboardingRoutes);
 
 // ── Demo Routes (no payment required) ────────────────────────
 app.use("/demo", demoRoutes);
