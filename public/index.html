@@ -596,6 +596,30 @@
   </div>
 </section>
 
+
+<section id="live-stats" style="max-width: 1000px;">
+  <h2 class="section-title">📊 Live Platform Stats</h2>
+  <p class="section-sub">Real-time numbers from the running API</p>
+  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1.5rem; margin-top: 2rem;">
+    <div style="background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; text-align: center;">
+      <div id="stat-agents" style="font-size: 2.5rem; font-weight: 700; color: var(--green);">-</div>
+      <div style="color: var(--text-dim); margin-top: 0.5rem;">Registered Agents</div>
+    </div>
+    <div style="background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; text-align: center;">
+      <div id="stat-requests" style="font-size: 2.5rem; font-weight: 700; color: var(--purple);">-</div>
+      <div style="color: var(--text-dim); margin-top: 0.5rem;">API Requests (24h)</div>
+    </div>
+    <div style="background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; text-align: center;">
+      <div id="stat-resources" style="font-size: 2.5rem; font-weight: 700; color: var(--green);">-</div>
+      <div style="color: var(--text-dim); margin-top: 0.5rem;">Resources Provisioned</div>
+    </div>
+    <div style="background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; text-align: center;">
+      <div id="stat-hackathon" style="font-size: 2.5rem; font-weight: 700; color: var(--purple);">-</div>
+      <div style="color: var(--text-dim); margin-top: 0.5rem;">Hackathon Agents</div>
+    </div>
+  </div>
+</section>
+
 <section id="pricing">
   <h2 class="section-title">Pricing</h2>
   <p class="section-sub">Simple, transparent, pay-per-call. All prices in USDC on Solana.</p>
@@ -639,28 +663,44 @@
 </footer>
 
 <script>
-  // Check API status on page load
+  // Check API status + live stats
   async function checkApiStatus() {
     const statusDot = document.getElementById('status-dot');
     const statusText = document.getElementById('status-text');
     
     try {
-      const healthRes = await fetch('/health');
-      const healthData = await healthRes.json();
+      const [healthRes, statsRes] = await Promise.all([
+        fetch('/health'),
+        fetch('/stats')
+      ]);
+      const health = await healthRes.json();
+      const stats = await statsRes.json();
       
-      const pricingRes = await fetch('/pricing');
-      const pricingData = await pricingRes.json();
-      
-      if (healthData.status === 'ok' && pricingData.currency === 'USDC') {
+      if (health.status === 'healthy' || health.status === 'ok') {
         statusDot.className = 'status-dot online';
-        statusText.textContent = `API Online • ${Math.round(healthData.uptime)} seconds uptime`;
+        const hrs = Math.floor(health.uptime / 3600);
+        const mins = Math.floor((health.uptime % 3600) / 60);
+        statusText.textContent = `API Online • ${hrs}h ${mins}m uptime • v${stats.version || health.version || '0.3.0'}`;
       } else {
-        throw new Error('API not responding correctly');
+        throw new Error('degraded');
       }
+      
+      // Update live stats counters
+      updateLiveStats(stats);
     } catch (error) {
       statusDot.className = 'status-dot offline';
       statusText.textContent = 'API Offline';
     }
+  }
+  
+  function updateLiveStats(stats) {
+    const el = (id) => document.getElementById(id);
+    if (!el('stat-agents')) return;
+    el('stat-agents').textContent = stats.platform?.registeredAgents ?? '-';
+    el('stat-requests').textContent = stats.last24h?.apiRequests ?? '-';
+    const total = stats.platform?.totalResources || {};
+    el('stat-resources').textContent = (total.phoneNumbers||0) + (total.emailInboxes||0) + (total.servers||0) + (total.domains||0);
+    el('stat-hackathon').textContent = stats.hackathon?.uniqueAgents ?? '-';
   }
 
   // Tab switching
