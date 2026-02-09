@@ -1,4 +1,5 @@
 import dashboardRoutes from "./routes/dashboard";
+import healthSummaryRoutes from "./routes/health-summary";
 import alertsRouter from "./routes/alerts";
 import sdkRoutes from "./routes/sdk";
 import ecosystemRoutes from "./routes/ecosystem";
@@ -30,6 +31,7 @@ import activityRoutes from "./routes/activity";
 import onboardingRoutes from "./routes/onboarding";
 import analyticsRoutes from "./routes/analytics";
 import changelogRoutes from "./routes/changelog";
+import reputationRoutes from "./routes/reputation";
 import statusRoutes from "./routes/status";
 import networkRoutes from "./routes/network";
 import usecasesRoutes from "./routes/usecases";
@@ -58,6 +60,7 @@ import capabilitiesRoutes from "./routes/capabilities";
 import directoryRoutes from "./routes/directory";
 import logsRoutes from "./routes/logs";
 import metricsRoutes from "./routes/metrics";
+import agentKitRoutes from "./routes/agent-kit";
 
 
 const app = express();
@@ -476,14 +479,17 @@ app.use("/api/templates", templatesRoutes);
 app.use("/api/capabilities", capabilitiesRoutes);
 app.use("/api/logs", logsRoutes);
 app.use("/api/metrics", metricsRoutes);
+app.use("/api/agent-kit", agentKitRoutes);
 app.use("/api/sdk", sdkRoutes);
 app.use("/api/agents/directory", directoryRoutes);
 import demoRouter from "./routes/demo";
 app.use("/api/demo", demoRouter);
 import verifyRouter from "./routes/verify";
 import whoamiRouter from "./routes/whoami";
+import feedbackRouter from "./routes/feedback";
 app.use("/api/agents/verify", verifyRouter);
 app.use("/api/whoami", whoamiRouter);
+app.use("/api/feedback", feedbackRouter);
 
 // ── Error handling ────────────────────────────────────────────
 // ── Deep health check ────────────────────────────────────────
@@ -504,9 +510,34 @@ app.get("/health/deep", (_req, res) => {
 import hackathonRouter from "./routes/hackathon";
 app.use("/api/hackathon", hackathonRouter);
 import grantsRouter from "./routes/grants";
+import rateLimitsRouter from "./routes/ratelimits";
 app.use("/api", grantsRouter);
 app.use("/api/alerts", alertsRouter);
+app.use("/api/agents/reputation", reputationRoutes);
 app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/rate-limits", rateLimitsRouter);
+import configRouter from "./routes/config";
+app.use("/api/config", configRouter);
+import deadlinesRouter from "./routes/deadlines";
+app.use("/api/deadlines", deadlinesRouter);
+import integrationTestRouter from "./routes/integration-test";
+app.use("/api/integration-test", integrationTestRouter);
+import launchChecklistRouter from "./routes/launch-checklist";
+app.use("/api/launch-checklist", launchChecklistRouter);
+import submitChecklistRouter from "./routes/submit-checklist";
+app.use("/api/submit-checklist", submitChecklistRouter);
+import countdownRouter from "./routes/countdown";
+app.use("/api", countdownRouter);
+import finalSprintRouter from "./routes/final-sprint";
+app.use("/api", finalSprintRouter);
+import uptimeRouter from "./routes/uptime";
+app.use("/api", uptimeRouter);
+import walkthroughRouter from "./routes/walkthrough";
+import demoRequestRouter from "./routes/demo-request";
+app.use("/api/walkthrough", walkthroughRouter);
+app.use("/api/demo-request", demoRequestRouter);
+
+app.use("/api/health-summary", healthSummaryRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 

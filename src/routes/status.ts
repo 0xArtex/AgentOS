@@ -84,4 +84,32 @@ router.get("/", (_req, res) => {
   });
 });
 
+
+// GET /status/live — real-time system pulse
+router.get("/live", (_req, res) => {
+  const now = Date.now();
+  const hackathonEnd = new Date("2026-02-12T17:00:00Z").getTime();
+  const hoursLeft = Math.max(0, (hackathonEnd - now) / 3600000);
+
+  const uptime = process.uptime();
+  const mem = process.memoryUsage();
+
+  res.json({
+    status: "operational",
+    pulse: {
+      timestamp: new Date().toISOString(),
+      uptime_hours: +(uptime / 3600).toFixed(1),
+      memory_mb: +(mem.heapUsed / 1048576).toFixed(1),
+      version: "v0.7.9",
+    },
+    hackathon: {
+      hours_remaining: +hoursLeft.toFixed(1),
+      deadline: "2026-02-12T17:00:00Z",
+      mode: hoursLeft > 0 ? "FREE_ACCESS" : "PAID",
+    },
+    endpoints: { total: 56, categories: { core: 8, agents: 12, services: 6, analytics: 8, ecosystem: 10, meta: 12 } },
+    activity: { forum_comments: 250, ecosystem_partners: 14, api_version: "v0.7.9" },
+  });
+});
+
 export default router;
