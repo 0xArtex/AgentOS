@@ -1,3 +1,4 @@
+import { validate, EMAIL_PATTERN } from "../middleware/validate";
 import { Router, Response } from "express";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest, CreateInboxRequest, SendEmailRequest } from "../types";

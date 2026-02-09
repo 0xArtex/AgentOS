@@ -1,3 +1,4 @@
+import { validate } from "../middleware/validate";
 import { Router, Response } from "express";
 import { requireAuth } from "../middleware/auth";
 import { rateLimit } from "../middleware/rateLimit";

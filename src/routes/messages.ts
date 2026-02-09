@@ -1,3 +1,4 @@
+import { validate } from "../middleware/validate";
 import { Router, Request, Response } from "express";
 import { db } from "../db";
 import { notifyAgent } from "../services/notifications";
