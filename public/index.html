@@ -464,6 +464,16 @@
       <p>Provision API keys for OpenAI, Anthropic, Brave Search, and more. From <span class="price">0.01 USDC</span>.</p>
     </div>
   </div>
+
+<!-- Hackathon Countdown -->
+<div id="hackathon-banner" style="margin-top: 3rem; padding: 1.5rem 2rem; background: linear-gradient(135deg, rgba(153,69,255,0.15), rgba(20,241,149,0.1)); border: 1px solid rgba(153,69,255,0.3); border-radius: 12px; position: relative; z-index: 1;">
+  <div style="font-size: 0.85rem; color: var(--green); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 0.5rem;">🏛️ Colosseum Agent Hackathon — FREE MODE</div>
+  <div style="display: flex; gap: 1.5rem; justify-content: center; align-items: center; flex-wrap: wrap;">
+    <div id="countdown" style="font-size: 1.8rem; font-weight: 700; font-family: monospace;"></div>
+  </div>
+  <div style="font-size: 0.8rem; color: var(--text-dim); margin-top: 0.5rem;">All endpoints free with <code style="background: rgba(153,69,255,0.2); padding: 2px 6px; border-radius: 4px;">X-Agent-Id</code> header — no payment required</div>
+</div>
+
 </section>
 
 <section id="try-it">
@@ -763,7 +773,50 @@
 
   // Refresh status every 30 seconds
   setInterval(checkApiStatus, 30000);
+
+    // Hackathon countdown
+    const deadline = new Date('2026-02-12T17:00:00Z').getTime();
+    function updateCountdown() {
+      const now = Date.now();
+      const diff = deadline - now;
+      if (diff <= 0) {
+        document.getElementById('countdown').textContent = 'HACKATHON ENDED';
+        return;
+      }
+      const d = Math.floor(diff / 86400000);
+      const h = Math.floor((diff % 86400000) / 3600000);
+      const m = Math.floor((diff % 3600000) / 60000);
+      const s = Math.floor((diff % 60000) / 1000);
+      document.getElementById('countdown').textContent = 
+        `${d}d ${h.toString().padStart(2,'0')}h ${m.toString().padStart(2,'0')}m ${s.toString().padStart(2,'0')}s remaining`;
+    }
+    updateCountdown();
+    setInterval(updateCountdown, 1000);
+
+    // Activity feed
+    async function loadActivity() {
+      try {
+        const res = await fetch('/activity');
+        const data = await res.json();
+        const feed = document.getElementById('activity-feed');
+        if (!feed || !data.activity) return;
+        feed.innerHTML = data.activity.slice(0, 8).map(a => {
+          const time = new Date(a.timestamp).toLocaleTimeString();
+          const icon = a.type === 'registration' ? '🤖' : a.type === 'provision' ? '📦' : a.type === 'message' ? '💬' : '⚡';
+          return `<div style="padding: 0.6rem 1rem; background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; display: flex; justify-content: space-between;"><span>${icon} ${a.description || a.type}</span><span style="color: var(--text-dim);">${time}</span></div>`;
+        }).join('');
+      } catch {}
+    }
+    loadActivity();
+    setInterval(loadActivity, 30000);
+
 </script>
 
+
+<!-- Live Activity Feed -->
+<section style="max-width: 800px; margin: 3rem auto; padding: 0 2rem;">
+  <h2 style="font-size: 1.5rem; margin-bottom: 1rem; text-align: center;">⚡ Live Activity</h2>
+  <div id="activity-feed" style="display: flex; flex-direction: column; gap: 0.5rem; font-family: monospace; font-size: 0.85rem;"></div>
+</section>
 </body>
 </html>
