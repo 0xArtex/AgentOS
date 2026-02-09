@@ -3,6 +3,7 @@ import healthSummaryRoutes from "./routes/health-summary";
 import alertsRouter from "./routes/alerts";
 import sdkRoutes from "./routes/sdk";
 import ecosystemRoutes from "./routes/ecosystem";
+import agentScoreRoutes from "./routes/agent-score";
 import comparisonRoutes from "./routes/comparison";
 import quickstartRoutes from "./routes/quickstart";
 import express from "express";
@@ -538,6 +539,11 @@ app.use("/api/walkthrough", walkthroughRouter);
 app.use("/api/demo-request", demoRequestRouter);
 
 app.use("/api/health-summary", healthSummaryRoutes);
+app.use("/api/agent-score", agentScoreRoutes);
+import walletRouter from "./routes/wallet";
+app.use("/api/wallet", walletRouter);
+import agentProfileRouter from "./routes/agent-profile";
+app.use("/api/agent-profile", agentProfileRouter);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
