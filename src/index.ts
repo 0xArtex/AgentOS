@@ -503,6 +503,8 @@ app.get("/health/deep", (_req, res) => {
 
 import hackathonRouter from "./routes/hackathon";
 app.use("/api/hackathon", hackathonRouter);
+import grantsRouter from "./routes/grants";
+app.use("/api", grantsRouter);
 app.use("/api/alerts", alertsRouter);
 app.use("/api/dashboard", dashboardRoutes);
 app.use(notFoundHandler);
