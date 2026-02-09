@@ -1,0 +1,237 @@
+From e17c037d21a65e60f733d08f98260b24a2164934 Mon Sep 17 00:00:00 2001
+From: Zolty <zolty@agentos.dev>
+Date: Mon, 9 Feb 2026 01:28:43 +0000
+Subject: [PATCH 3/9] feat: Reusable input validation middleware with
+ type/pattern/enum checks
+
+---
+ data/agentos.db-shm        | Bin 32768 -> 32768 bytes
+ data/agentos.db-wal        | Bin 4128272 -> 4128272 bytes
+ package.json               |   2 +-
+ src/middleware/validate.ts | 102 +++++++++++++++++++++++++++++++++++++
+ src/routes/compute.ts      |   1 +
+ src/routes/email.ts        |   1 +
+ src/routes/messages.ts     |   1 +
+ src/routes/phone.ts        |   1 +
+ 8 files changed, 107 insertions(+), 1 deletion(-)
+ create mode 100644 src/middleware/validate.ts
+
+diff --git a/data/agentos.db-shm b/data/agentos.db-shm
+index 2deb95d121be803a1adfc3802d43c277c1094c7d..966db11e003b0a2adc2138b185e14c760c19bfab 100644
+GIT binary patch
+delta 255
+zcmZo@U}|V!s+V}A%K!q55G;@dq~n2D`NZP*gEHUGAGy8jtD;I}wf$s4Zda|BoTRD;
+z8U+R*bN?d&s4x>l>c+-k#)%hLCN7BBe1%cYW3r!@0(%5QEJG4Q`sRy_S6L@}1t_pb
+zGQ=??Gh|FI45(xeVTfT!WJufmF`$@(JqqaB6oyQo%Ii#%onjQ&qZtwyQW>&<0zdhg
+bIT*r#jL&?`oDAVWhB_lNJ3}atQOyhhch*kr
+
+delta 214
+zcmZo@U}|V!s+V}A%K!prfS8eiK_D1N#{;pFe7NKsxx+C>Ztwc4s8U(|#m9yFxzp?b
+zQq=>E0t1k_|B(Pxn2CX5V`DJmW&<WUkI4>9F_Zng6gC?%-C>>V6`(NLh$&(6sQ{2b
+o6vt$jND$*5(`2U@g~dip0*oA+4Vk|3F>(SaO-4p`AXUo@08Ly#2><{9
+
+diff --git a/data/agentos.db-wal b/data/agentos.db-wal
+index 6430de818ef1de4bc57a1f2117636c3e7a2e7ffe..1f3d636c8c58000fb1eec1a482acdcc5e92e9d78 100644
+GIT binary patch
+delta 1755
+zcmb`_e@v8h9KiAWKF{}g?s*QlhdPo2PdMN}6ujfOJAR&VE&nL}Ls&Iys}3#t!4M8Z
+ziirwzH>lKD=lJ5L6_(Oe))CByW(^cqxG5;iCD2qx%QcH1{c`!E`h1@U{?LWd)*tUb
+zzT0=-efRo&ns47i%}|{m`58a!$KBj7*%7}bSZcOS7;?w@4zJ(W6)GH)&{Xi9Vwd1O
+z+*khkrnj!hp1+(!5;{t*9uuO`g<!~+DsAhjyUqui{5p+BBcpEFE4liR{O&2?W7M^-
+z>QH#(bD^6%_wJeAPcIxt1Dc?x@<%dQZ;m6aW>-#dZG%a#Z`J$tKK-+327QYLf@KX)
+z28)smL9@l(CB3;JoNR8*DI#U(m+vActggN&<)5J!Ud|cTKmId3i!S3@+18FbSd1HR
+zZOZ_2nwV1=PCLc18ix5v4jsi!VUd6CXzq3HZ(pxtiRKbIqalM@ZVQ7Y*&}cTNHnl3
+z7+Xbk$rf_{w#6v#6}b}#!=K+Ez3r<SK?1%+tWC@T(s44?Ag6qRSB6Q?+-YLcqsyO<
+zfQu#_PrP4a7uK!T@ts9qiHtKqIwN9Dq@Z6Xk;@FjYqRrQS<b*_f(n@o*^|h9$O)r~
+zwU*NHnnJnIX$<kAJuj19Vy1!<j~NJD!E%q4%NNz@)E_GUb#Upy-Rg9vNqz%zNyGi}
+zOQ%|@cTtKfxLT#)C<P`7Yh%AuFe0WEjJruj?G?87C(j(GB%|{rES6aL!V=6QE|+DQ
+zb1g2$L3WR1iTA*~NMT+>(-dX_o{T?6wtwF9!8qkvCJre)9OV&7+pyW%SzIi#&On92
+z!RO@J?TZnUqTJih#=r8z?{uR!@{Oc7Ii_EJFJL^!Q9b$$GfnmQ`#@gTG=y)x6q%+%
+z&Zv-%j^>(!X{D7E@+$VJkb(kPjeW3J-3p~)Mxp#C&^FIbUHT_&WfXL59+U^rTkJKu
+zXKo}cux5o+(~D*l&HI^lO|n(q@46nPrg0)sOtp&XkSK3Fn`z}bi&HS`3iwEUIhR0e
+zo8lz_R5D@l{-d<8!BT%spZ7?!?73*%q3kAohnZ1y7YE&~`7~@Y-f>Zdo>igWeyZg3
+zXHSc-Qs@a>szU4Lp>ZitA5*AfW)<p%!EbuMUlSXubyM*1d2m4mXGc_WQdgDD-?O}K
+z%DoQFD%}5$KJ`t?fg1&VTPb?H=vB~lbLd3$b{55mAYOU5xYPc>48i-+K+@0+(@D7}
+zIi_T82u?dQJ2!+y&ch)#8jkRg77`$O)<I!VI1~ZtAqk3v9)KQ%3{VvG5VQn}hKx`Q
+z6bmhdOwckY4vL4&Py&<)B|#P_8A^ecL#faTXeE>er9-PAD`bN*AUl)^IUpzGg0i4&
+VC<n@g@}PXk4Xu_9M;^ZO#NQBINx1+3
+
+delta 1224
+zcmaLWZA@EL7{Kv+Zt1yay=^b7)KMI)8w_fPr7JCT-Edo`UpCXMVKFL(Zez0$Hw6|T
+z)y)joD8{&f2*(AHOpQ*eX0^tn%$E)pqs+Pyl`69E;!9Yjj#&L*P~&rUL)8!Z;rHpB
+z<jFtJIbFXmqAqYWf+Au>6Ulm0o31kaGW=kNrE$z_`0Rmq*2T~4oK#Q+eMl#H3{Ayl
+zFNG&vg*u~E_>{h<lPH}T#&dLwUMeBwhuZgqLi=0T4`*?^9!05hgcS8$J09r?6q)FA
+z(`GY^TBHI*&h*~XG8+4{k1gc8oCrI8ZkNwPo7-{=So8wkqodi6cqjYfcpys<gdOx$
+z9N)!eQn*u8u4+rmqr%<K8{lAr<|}&5E***mf*N+tAyw&>?QHO=lk>_kogknhawUFZ
+zwpwKVYUv2>-fg2+o2X@NX}m@vPdqyJ^Y_#Buc~owHLml--t+O--uLski<!7@ugBqk
+zr41~lwXr`w!ZnC^NTNP^;maY`aG%SCvi`5f#e23;=)o+R!q1AvWTGy9s<)Ll`820_
+zQ)?_xreR$UsX?#Y8fpyZ8}nv(Q!)7lnl@*etZGwJ8rviieYwf(d#korZSts1^V;&y
+zX}yr(O_zAnNxm?(DeE80dVHy9Z_k02<*ff{;~hv!c1#(rYLjf{tjmMYe{RUai%Qw+
+zDLgDHxd(pqUpcne$!j)hnt4roERYu2>}5QtSA1m+hL1<`w(^>_<TBK3&D7+nHFMh}
+zheQ?*2G{q^8phO`O0`CA-rV-alV68<%{Z^=|GP%aJiOMW7XS5@phap#<YLpk+I^=x
+zP3%s6MF3IfkzB%pzvXlzwml+G5mq>X>kz$ETY;%RoMU1G$K?-2T04mi%KR=|d34#X
+z!#rt|#>bPwvB0pXaYrg?^B0nnB_Ebv&?_tLBewDGPmH{+gruNtTc#~rZQGZ|Zi(!a
+zr`|qz*gLAWRnf&7uZM&tg!_Me<%1wgoRbp@T{VF*t=n&0K^?@7`A4{&c8tm<nm8|G
+zni!X}mD~E??SB!Qzk_)~H%hVTarqfU$9|G`(A~tYWrHE(YU5+pAq*ryz%rl%GSCA9
+z;CB>|4RXM8U;??o3~m4`KpwDwd~hRJ2?{_VSOu(LHCO|RKrvVgN<b;Fft!FGtOI4>
+lX5awjzzNm^7pMSk-~pAO3V6W=-~$`MCQ!|+L$@r{`~?BJ#}xno
+
+diff --git a/package.json b/package.json
+index c9fb849..33bd6f4 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "agentos",
+-  "version": "0.3.0",
++  "version": "0.3.1",
+   "description": "Autonomous infrastructure for AI agents — pay with USDC on Solana via x402",
+   "main": "dist/index.js",
+   "scripts": {
+diff --git a/src/middleware/validate.ts b/src/middleware/validate.ts
+new file mode 100644
+index 0000000..885f96e
+--- /dev/null
++++ b/src/middleware/validate.ts
+@@ -0,0 +1,102 @@
++import { Request, Response, NextFunction } from "express";
++
++interface FieldRule {
++  name: string;
++  type?: "string" | "number" | "boolean" | "object" | "array";
++  required?: boolean;
++  minLength?: number;
++  maxLength?: number;
++  pattern?: RegExp;
++  patternHint?: string;
++  min?: number;
++  max?: number;
++  enum?: string[];
++}
++
++/**
++ * Creates a validation middleware for request body fields.
++ * Returns 400 with helpful error messages on validation failure.
++ */
++export function validate(rules: FieldRule[]) {
++  return (req: Request, res: Response, next: NextFunction) => {
++    const errors: string[] = [];
++    const body = req.body || {};
++
++    for (const rule of rules) {
++      const value = body[rule.name];
++
++      // Required check
++      if (rule.required && (value === undefined || value === null || value === "")) {
++        errors.push(`'${rule.name}' is required`);
++        continue;
++      }
++
++      // Skip optional missing fields
++      if (value === undefined || value === null) continue;
++
++      // Type check
++      if (rule.type) {
++        const actualType = Array.isArray(value) ? "array" : typeof value;
++        if (actualType !== rule.type) {
++          errors.push(`'${rule.name}' must be a ${rule.type}, got ${actualType}`);
++          continue;
++        }
++      }
++
++      // String validations
++      if (typeof value === "string") {
++        if (rule.minLength && value.length < rule.minLength) {
++          errors.push(`'${rule.name}' must be at least ${rule.minLength} characters`);
++        }
++        if (rule.maxLength && value.length > rule.maxLength) {
++          errors.push(`'${rule.name}' must be at most ${rule.maxLength} characters`);
++        }
++        if (rule.pattern && !rule.pattern.test(value)) {
++          errors.push(`'${rule.name}' ${rule.patternHint || "has invalid format"}`);
++        }
++      }
++
++      // Number validations
++      if (typeof value === "number") {
++        if (rule.min !== undefined && value < rule.min) {
++          errors.push(`'${rule.name}' must be >= ${rule.min}`);
++        }
++        if (rule.max !== undefined && value > rule.max) {
++          errors.push(`'${rule.name}' must be <= ${rule.max}`);
++        }
++      }
++
++      // Enum check
++      if (rule.enum && !rule.enum.includes(value)) {
++        errors.push(`'${rule.name}' must be one of: ${rule.enum.join(", ")}`);
++      }
++    }
++
++    if (errors.length > 0) {
++      res.status(400).json({
++        error: "Validation Error",
++        message: errors.length === 1 ? errors[0] : `${errors.length} validation errors`,
++        details: errors,
++        hint: "Check the API docs at /docs or /skill.md for field requirements",
++      });
++      return;
++    }
++
++    next();
++  };
++}
++
++/**
++ * Validates email format
++ */
++export const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
++
++/**
++ * Validates phone number format (E.164)
++ */
++export const PHONE_PATTERN = /^\+[1-9]\d{1,14}$/;
++
++/**
++ * Validates country code (2 letters)
++ */
++export const COUNTRY_PATTERN = /^[A-Z]{2}$/;
+diff --git a/src/routes/compute.ts b/src/routes/compute.ts
+index c20d72d..a37fe0a 100644
+--- a/src/routes/compute.ts
++++ b/src/routes/compute.ts
+@@ -1,3 +1,4 @@
++import { validate } from "../middleware/validate";
+ import { Router, Response } from "express";
+ import { requireAuth } from "../middleware/auth";
+ import { rateLimit } from "../middleware/rateLimit";
+diff --git a/src/routes/email.ts b/src/routes/email.ts
+index 7c70055..aa18e83 100644
+--- a/src/routes/email.ts
++++ b/src/routes/email.ts
+@@ -1,3 +1,4 @@
++import { validate, EMAIL_PATTERN } from "../middleware/validate";
+ import { Router, Response } from "express";
+ import { requireAuth } from "../middleware/auth";
+ import { AuthenticatedRequest, CreateInboxRequest, SendEmailRequest } from "../types";
+diff --git a/src/routes/messages.ts b/src/routes/messages.ts
+index 8a01e8a..4d747ee 100644
+--- a/src/routes/messages.ts
++++ b/src/routes/messages.ts
+@@ -1,3 +1,4 @@
++import { validate } from "../middleware/validate";
+ import { Router, Request, Response } from "express";
+ import { db } from "../db";
+ import { notifyAgent } from "../services/notifications";
+diff --git a/src/routes/phone.ts b/src/routes/phone.ts
+index caf6ada..76047d1 100644
+--- a/src/routes/phone.ts
++++ b/src/routes/phone.ts
+@@ -1,3 +1,4 @@
++import { validate, PHONE_PATTERN, COUNTRY_PATTERN } from "../middleware/validate";
+ import { Router, Response } from "express";
+ import { requireAuth } from "../middleware/auth";
+ import { AuthenticatedRequest, ProvisionNumberRequest, SendSmsRequest } from "../types";
+-- 
+2.43.0
+

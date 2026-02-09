@@ -4,6 +4,20 @@ const router = Router();
 
 const CHANGELOG = [
   {
+    version: "0.4.3",
+    date: "2026-02-09",
+    changes: [
+      "Platform status dashboard: GET /status — comprehensive overview with health, stats, top agents, links",
+    ],
+  },
+  {
+    version: "0.4.2",
+    date: "2026-02-09",
+    changes: [
+      "Changelog endpoint: GET /changelog — full version history",
+    ],
+  },
+  {
     version: "0.4.1",
     date: "2026-02-09",
     changes: [
