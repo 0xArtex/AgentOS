@@ -22,6 +22,7 @@ import { rateLimit } from "./middleware/rateLimit";
 import { isHackathonActive, getAgentUsage } from "./middleware/hackathon";
 import activityRoutes from "./routes/activity";
 import onboardingRoutes from "./routes/onboarding";
+import analyticsRoutes from "./routes/analytics";
 import { getHealth, getVersion } from "./utils/health";
 
 
@@ -84,6 +85,7 @@ app.use("/messages", messageRoutes);
 // ── Activity Feed (free) ─────────────────────────────────────
 app.use("/activity", activityRoutes);
 app.use("/onboarding", onboardingRoutes);
+app.use("/analytics", analyticsRoutes);
 
 // ── Demo Routes (no payment required) ────────────────────────
 app.use("/demo", demoRoutes);
