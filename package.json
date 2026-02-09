@@ -1,6 +1,6 @@
 {
   "name": "agentos",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Autonomous infrastructure for AI agents — pay with USDC on Solana via x402",
   "main": "dist/index.js",
   "scripts": {

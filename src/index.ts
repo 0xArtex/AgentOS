@@ -16,11 +16,15 @@ import statsRoutes from "./routes/stats";
 import messageRoutes from "./routes/messages";
 import { errorHandler, notFoundHandler } from "./middleware/errors";
 import { requestLogger } from "./middleware/requestLog";
+import { rateLimit } from "./middleware/rateLimit";
 import { isHackathonActive, getAgentUsage } from "./middleware/hackathon";
+import activityRoutes from "./routes/activity";
+import { getHealth, getVersion } from "./utils/health";
+
 
 const app = express();
 
-app.use(express.json());
+app.use(express.json({ limit: "1mb" }));
 app.use(requestLogger);
 
 // ── Static files (landing page) ──────────────────────────────
@@ -35,15 +39,21 @@ app.get("/", (_req, res) => {
 app.get("/api", (_req, res) => {
   res.json({
     service: "AgentOS",
-    version: "0.2.0",
+    version: getVersion().version,
     status: "operational",
     docs: "https://github.com/0xArtex/AgentOS",
-    services: ["phone", "email", "domains", "compute", "apikeys", "agents", "messages", "stats"],
+    services: ["phone", "email", "domains", "compute", "apikeys", "agents", "messages", "stats", "activity"],
   });
 });
 
 app.get("/health", (_req, res) => {
-  res.json({ status: "ok", uptime: process.uptime() });
+  const health = getHealth();
+  res.status(health.status === "healthy" ? 200 : 503).json(health);
+});
+
+// ── Version endpoint ─────────────────────────────────────────
+app.get("/version", (_req, res) => {
+  res.json(getVersion());
 });
 
 // ── API Documentation ─────────────────────────────────────────
@@ -64,6 +74,9 @@ app.use("/stats", statsRoutes);
 
 // ── Agent Messaging (free during hackathon) ──────────────────
 app.use("/messages", messageRoutes);
+
+// ── Activity Feed (free) ─────────────────────────────────────
+app.use("/activity", activityRoutes);
 
 // ── Demo Routes (no payment required) ────────────────────────
 app.use("/demo", demoRoutes);
@@ -376,7 +389,7 @@ app.get("/overlay-stats", async (_req, res) => {
   } catch {}
 
   // Count total endpoints
-  const endpoints = 18; // manually tracked
+  const endpoints = 22; // manually tracked
 
   res.json({ task, commits, endpoints });
 });
