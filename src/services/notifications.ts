@@ -37,7 +37,7 @@ export async function notifyAgent(
       headers: {
         "Content-Type": "application/json",
         "X-AgentOS-Event": event,
-        "User-Agent": "AgentOS/0.2.0",
+        "User-Agent": "AgentOS/0.4.3",
       },
       body: JSON.stringify(payload),
       signal: controller.signal,

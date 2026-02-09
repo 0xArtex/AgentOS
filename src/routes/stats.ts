@@ -60,7 +60,7 @@ router.get("/", (_req: Request, res: Response) => {
       uniqueAgents: hackathonAgents,
     },
     uptime: process.uptime(),
-    version: "0.2.0",
+    version: "0.4.3",
   });
 });
 

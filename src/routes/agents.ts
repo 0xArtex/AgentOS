@@ -156,27 +156,6 @@ router.get("/:id", (req: Request, res: Response) => {
 /**
  * GET /agents/search?q=name — Search agents by name/description
  */
-router.get("/search", (req: Request, res: Response) => {
-  const q = req.query.q as string;
-  if (!q || q.length < 2) {
-    res.status(400).json({
-      error: "Invalid Query",
-      message: "Search query must be at least 2 characters",
-      hint: "GET /agents/search?q=myagent",
-    });
-    return;
-  }
-
-  const agents = db
-    .prepare(
-      `SELECT id, name, description, created_at FROM agents 
-       WHERE name LIKE ? OR description LIKE ?
-       LIMIT 20`
-    )
-    .all(`%${q}%`, `%${q}%`);
-
-  res.json({ query: q, results: agents, count: agents.length });
-});
 
 /**
  * GET /agents/:id/resources — List all resources owned by an agent

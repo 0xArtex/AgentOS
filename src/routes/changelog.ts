@@ -69,7 +69,7 @@ const CHANGELOG = [
     ],
   },
   {
-    version: "0.2.0",
+    version: "0.4.3",
     date: "2026-02-08",
     changes: [
       "Agent registration and leaderboard",

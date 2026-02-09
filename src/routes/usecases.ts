@@ -1,0 +1,62 @@
+import { Router, Request, Response } from "express";
+
+const router = Router({ mergeParams: true });
+
+/**
+ * GET /api/use-cases — Real-world examples of what agents can build with AgentOS
+ */
+router.get("/", (_req: Request, res: Response) => {
+  res.json({
+    title: "What Can Agents Build with AgentOS?",
+    useCases: [
+      {
+        name: "Customer Support Agent",
+        description: "An AI agent that provisions a phone number and email, handles inbound queries via SMS and email, and escalates to humans when needed.",
+        services: ["phone", "email"],
+        example: "POST /phone/numbers → GET /phone/numbers/{id}/messages → POST /phone/numbers/{id}/send",
+        difficulty: "beginner"
+      },
+      {
+        name: "Infrastructure-as-Code Agent",
+        description: "Spins up and tears down cloud servers on demand. Perfect for CI/CD, batch processing, or temporary sandboxes.",
+        services: ["compute"],
+        example: "POST /compute/servers → GET /compute/servers/{id} → DELETE /compute/servers/{id}",
+        difficulty: "intermediate"
+      },
+      {
+        name: "Multi-Agent Communication Hub",
+        description: "Register multiple agents and let them message each other. Build agent swarms that coordinate via the messaging API.",
+        services: ["agents", "messages"],
+        example: "POST /agents/register → POST /messages/send → GET /messages/inbox",
+        difficulty: "intermediate"
+      },
+      {
+        name: "Domain Squatter Agent",
+        description: "Monitors trending topics and registers relevant domains automatically. Manages DNS for landing pages.",
+        services: ["domains"],
+        example: "POST /domains → GET /domains/{id} → PUT /domains/{id}/dns",
+        difficulty: "advanced"
+      },
+      {
+        name: "Full-Stack Autonomous Agent",
+        description: "The ultimate setup: phone + email + server + domain. An agent with a complete digital identity, able to interact with the real world.",
+        services: ["phone", "email", "compute", "domains", "apikeys"],
+        example: "POST /onboarding/quickstart → provisions everything in one call",
+        difficulty: "advanced"
+      },
+      {
+        name: "API Key Broker",
+        description: "Provisions API keys for various services (OpenAI, Brave Search, Helius) and manages them for sub-agents.",
+        services: ["apikeys"],
+        example: "POST /apikeys → GET /apikeys → DELETE /apikeys/{id}",
+        difficulty: "beginner"
+      }
+    ],
+    hackathonMode: {
+      note: "All services are FREE during the Colosseum hackathon (until Feb 12, 2026). Just pass X-Agent-Id header.",
+      getStarted: "POST /onboarding/quickstart with X-Agent-Id header"
+    }
+  });
+});
+
+export default router;

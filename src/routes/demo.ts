@@ -1,124 +1,183 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response } from 'express';
 
 const router = Router();
 
-/**
- * GET /demo/provision-phone — Demo phone provisioning (no payment required)
- * Returns mock data to show what the real endpoint would return
- */
-router.get("/provision-phone", async (_req: Request, res: Response) => {
-  // Simulate some processing delay
-  await new Promise(resolve => setTimeout(resolve, 100));
+interface DemoStep {
+  step: number;
+  title: string;
+  description: string;
+  method: string;
+  endpoint: string;
+  headers: Record<string, string>;
+  body?: Record<string, unknown>;
+  expectedResponse: string;
+  nextStep: string;
+}
 
-  const mockResponse = {
-    id: "demo_" + Math.random().toString(36).substr(2, 9),
-    number: "+12125551234",
-    friendlyName: "(212) 555-1234",
-    country: "US",
-    capabilities: {
-      voice: true,
-      sms: true,
-      mms: true
-    },
-    cost: "2.00 USDC",
-    provisionedAt: new Date().toISOString(),
-    demo: true,
-    note: "This is demo data. Real endpoint: POST /phone/numbers"
-  };
+interface DemoScenario {
+  id: string;
+  name: string;
+  description: string;
+  estimatedTime: string;
+  difficulty: string;
+  steps: DemoStep[];
+}
 
-  res.json(mockResponse);
+const scenarios: DemoScenario[] = [
+  {
+    id: 'agent-lifecycle',
+    name: 'Full Agent Lifecycle',
+    description: 'Register an agent, provision all services, run a task, check analytics, tear down',
+    estimatedTime: '5 minutes',
+    difficulty: 'intermediate',
+    steps: [
+      {
+        step: 1,
+        title: 'Register Your Agent',
+        description: 'Create your agent identity on AgentOS',
+        method: 'POST',
+        endpoint: '/api/agents/onboard',
+        headers: { 'Content-Type': 'application/json', 'X-Agent-Id': 'demo-agent-001' },
+        body: { name: 'Demo Agent', capabilities: ['compute', 'communicate'] },
+        expectedResponse: 'Agent registered with unique ID',
+        nextStep: 'Use the returned agent ID for all subsequent calls'
+      },
+      {
+        step: 2,
+        title: 'Provision Phone Number',
+        description: 'Get a dedicated phone number for SMS/voice',
+        method: 'POST',
+        endpoint: '/api/phone/provision',
+        headers: { 'X-Agent-Id': 'demo-agent-001' },
+        body: { country: 'US', capabilities: ['sms', 'voice'] },
+        expectedResponse: 'Phone number assigned to your agent',
+        nextStep: 'Use the phone number to send notifications'
+      },
+      {
+        step: 3,
+        title: 'Send Email',
+        description: 'Send an email through your agent',
+        method: 'POST',
+        endpoint: '/api/email/send',
+        headers: { 'X-Agent-Id': 'demo-agent-001', 'Content-Type': 'application/json' },
+        body: { to: 'test@example.com', subject: 'Hello from AgentOS', body: 'My first autonomous email!' },
+        expectedResponse: 'Email queued for delivery',
+        nextStep: 'Check delivery status via /api/email/status'
+      },
+      {
+        step: 4,
+        title: 'Spin Up Compute',
+        description: 'Provision a dedicated compute instance',
+        method: 'POST',
+        endpoint: '/api/compute/provision',
+        headers: { 'X-Agent-Id': 'demo-agent-001', 'Content-Type': 'application/json' },
+        body: { type: 'sandbox', resources: { cpu: 2, memory: '4GB' } },
+        expectedResponse: 'Compute instance ID and connection details',
+        nextStep: 'Execute code on your instance'
+      },
+      {
+        step: 5,
+        title: 'Check Analytics',
+        description: 'Review your agent usage and performance',
+        method: 'GET',
+        endpoint: '/api/analytics',
+        headers: { 'X-Agent-Id': 'demo-agent-001' },
+        expectedResponse: 'Usage stats, API calls, resource consumption',
+        nextStep: 'Use insights to optimize your agent'
+      }
+    ]
+  },
+  {
+    id: 'multi-agent',
+    name: 'Multi-Agent Coordination',
+    description: 'Spin up multiple agents that communicate and collaborate',
+    estimatedTime: '10 minutes',
+    difficulty: 'advanced',
+    steps: [
+      {
+        step: 1,
+        title: 'Register Coordinator Agent',
+        description: 'Create the orchestrator that manages other agents',
+        method: 'POST',
+        endpoint: '/api/agents/onboard',
+        headers: { 'Content-Type': 'application/json', 'X-Agent-Id': 'coordinator-001' },
+        body: { name: 'Coordinator', capabilities: ['orchestration', 'compute', 'communicate'] },
+        expectedResponse: 'Coordinator agent registered',
+        nextStep: 'Register worker agents'
+      },
+      {
+        step: 2,
+        title: 'Register Worker Agents',
+        description: 'Create 3 specialized worker agents',
+        method: 'POST',
+        endpoint: '/api/agents/onboard',
+        headers: { 'Content-Type': 'application/json', 'X-Agent-Id': 'worker-001' },
+        body: { name: 'Research Worker', capabilities: ['compute'] },
+        expectedResponse: 'Worker agents registered (repeat for worker-002, worker-003)',
+        nextStep: 'Provision shared compute resources'
+      },
+      {
+        step: 3,
+        title: 'Provision Shared Infrastructure',
+        description: 'Set up compute and communication for the swarm',
+        method: 'POST',
+        endpoint: '/api/compute/provision',
+        headers: { 'X-Agent-Id': 'coordinator-001', 'Content-Type': 'application/json' },
+        body: { type: 'cluster', instances: 3, resources: { cpu: 2, memory: '2GB' } },
+        expectedResponse: 'Cluster provisioned with 3 instances',
+        nextStep: 'Agents can now communicate and share results'
+      },
+      {
+        step: 4,
+        title: 'Monitor Swarm Activity',
+        description: 'Track all agent activity through the coordinator',
+        method: 'GET',
+        endpoint: '/api/logs?level=info',
+        headers: { 'X-Agent-Id': 'coordinator-001' },
+        expectedResponse: 'Activity logs from all agents in the swarm',
+        nextStep: 'Use /api/metrics for real-time performance data'
+      }
+    ]
+  }
+];
+
+// GET /api/demo - list all demo scenarios
+router.get('/', (_req: Request, res: Response) => {
+  res.json({
+    title: 'AgentOS Interactive Demos',
+    description: 'Step-by-step guided demos to experience AgentOS capabilities hands-on',
+    hackathonNote: 'All demos are FREE during the Colosseum hackathon (until Feb 12). Just include X-Agent-Id header.',
+    baseUrl: 'http://77.42.89.233:3001',
+    scenarios: scenarios.map(s => ({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      estimatedTime: s.estimatedTime,
+      difficulty: s.difficulty,
+      steps: s.steps.length,
+      url: `/api/demo/${s.id}`
+    }))
+  });
 });
 
-/**
- * GET /demo/create-inbox — Demo email inbox creation (no payment required)  
- * Returns mock data to show what the real endpoint would return
- */
-router.get("/create-inbox", async (_req: Request, res: Response) => {
-  // Simulate some processing delay
-  await new Promise(resolve => setTimeout(resolve, 150));
-
-  const agentId = Math.random().toString(36).substr(2, 8);
-  const mockResponse = {
-    id: "demo_inbox_" + agentId,
-    email: `agent-${agentId}@agentos.dev`,
-    password: "[generated-password]",
-    imap: {
-      host: "imap.agentos.dev", 
-      port: 993,
-      secure: true
-    },
-    smtp: {
-      host: "smtp.agentos.dev",
-      port: 587,
-      secure: false
-    },
-    cost: "1.00 USDC",
-    createdAt: new Date().toISOString(),
-    demo: true,
-    note: "This is demo data. Real endpoint: POST /email/inboxes"
-  };
-
-  res.json(mockResponse);
-});
-
-/**
- * GET /demo/create-server — Demo compute server creation (no payment required)
- * Returns mock data to show what the real endpoint would return  
- */
-router.get("/create-server", async (_req: Request, res: Response) => {
-  await new Promise(resolve => setTimeout(resolve, 200));
-
-  const serverId = Math.random().toString(36).substr(2, 10);
-  const mockResponse = {
-    id: "demo_server_" + serverId,
-    name: `agent-server-${serverId}`,
-    type: "cx11",
-    datacenter: "ash-dc1",
-    ipv4: "192.0.2." + Math.floor(Math.random() * 255),
-    ipv6: "2001:db8::" + Math.floor(Math.random() * 9999),
-    status: "running",
-    specs: {
-      vcpus: 1,
-      memory: "4 GB",
-      disk: "20 GB SSD"
-    },
-    cost: "5.00 USDC",
-    createdAt: new Date().toISOString(),
-    demo: true,
-    note: "This is demo data. Real endpoint: POST /compute/servers"
-  };
-
-  res.json(mockResponse);
-});
-
-/**
- * GET /demo/provision-apikey — Demo API key provisioning (no payment required)
- * Returns mock data to show what the real endpoint would return
- */
-router.get("/provision-apikey", async (_req: Request, res: Response) => {
-  await new Promise(resolve => setTimeout(resolve, 80));
-
-  const keyId = Math.random().toString(36).substr(2, 12);
-  const mockResponse = {
-    id: "demo_key_" + keyId,
-    provider: "openai",
-    keyPreview: "sk-proj-abc123...xyz789",
-    usage: {
-      totalCalls: 0,
-      totalCost: "0.00",
-      lastUsed: null
-    },
-    limits: {
-      dailyCalls: 1000,
-      monthlyCost: "50.00"
-    },
-    cost: "1.00 USDC", 
-    createdAt: new Date().toISOString(),
-    demo: true,
-    note: "This is demo data. Real endpoint: POST /apikeys"
-  };
-
-  res.json(mockResponse);
+// GET /api/demo/:id - get specific demo with full steps
+router.get('/:id', (req: Request, res: Response) => {
+  const scenario = scenarios.find(s => s.id === req.params.id);
+  if (!scenario) {
+    return res.status(404).json({ error: 'Demo scenario not found', available: scenarios.map(s => s.id) });
+  }
+  res.json({
+    ...scenario,
+    baseUrl: 'http://77.42.89.233:3001',
+    hackathonFree: true,
+    tip: 'Copy-paste the curl commands below to follow along',
+    curlExamples: scenario.steps.map(step => {
+      let curl = `curl -X ${step.method} 'http://77.42.89.233:3001${step.endpoint}'`;
+      Object.entries(step.headers).forEach(([k, v]) => { curl += ` -H '${k}: ${v}'`; });
+      if (step.body) curl += ` -d '${JSON.stringify(step.body)}'`;
+      return { step: step.step, title: step.title, curl };
+    })
+  });
 });
 
 export default router;

@@ -1,3 +1,9 @@
+import dashboardRoutes from "./routes/dashboard";
+import alertsRouter from "./routes/alerts";
+import sdkRoutes from "./routes/sdk";
+import ecosystemRoutes from "./routes/ecosystem";
+import comparisonRoutes from "./routes/comparison";
+import quickstartRoutes from "./routes/quickstart";
 import express from "express";
 import path from "path";
 import swaggerUi from "swagger-ui-express";
@@ -26,7 +32,32 @@ import analyticsRoutes from "./routes/analytics";
 import changelogRoutes from "./routes/changelog";
 import statusRoutes from "./routes/status";
 import networkRoutes from "./routes/network";
+import usecasesRoutes from "./routes/usecases";
+import integrationsRoutes from "./routes/integrations";
+import roadmapRoutes from "./routes/roadmap";
+import testimonialsRoutes from "./routes/testimonials";
+import examplesRoutes from "./routes/examples";
+import faqRoutes from "./routes/faq";
 import { getHealth, getVersion } from "./utils/health";
+import compatibilityRoutes from "./routes/compatibility";
+import securityRoutes from "./routes/security";
+import calculatorRoutes from "./routes/calculator";
+import migrationRoutes from "./routes/migration";
+import benchmarksRoutes from "./routes/benchmarks";
+import sandboxRoutes from "./routes/sandbox";
+import slaRoutes from "./routes/sla";
+import infoRoutes from "./routes/info";
+import leaderboardRoutes from "./routes/leaderboard";
+import healthMatrixRoutes from "./routes/healthmatrix";
+import eventsRoutes from "./routes/events";
+import changelogFullRoutes from "./routes/changelog-full";
+import partnersRoutes from "./routes/partners";
+import playgroundRoutes from "./routes/playground";
+import templatesRoutes from "./routes/templates";
+import capabilitiesRoutes from "./routes/capabilities";
+import directoryRoutes from "./routes/directory";
+import logsRoutes from "./routes/logs";
+import metricsRoutes from "./routes/metrics";
 
 
 const app = express();
@@ -400,18 +431,80 @@ app.get("/overlay-stats", async (_req, res) => {
     }
   } catch {}
 
-  // Count total endpoints
-  const endpoints = 22; // manually tracked
+  // Count total endpoints from overlay data or default
+  let endpoints = 48;
+  try {
+    const fs = await import("fs");
+    const taskFile = path.join(process.cwd(), "data", "overlay.json");
+    if (fs.existsSync(taskFile)) {
+      const data = JSON.parse(fs.readFileSync(taskFile, "utf-8"));
+      if (data.endpoints) endpoints = data.endpoints;
+    }
+  } catch {}
 
   res.json({ task, commits, endpoints });
 });
 
 // ── Changelog ─────────────────────────────────────────────
+app.use("/api/use-cases", usecasesRoutes);
 app.use("/changelog", changelogRoutes);
 app.use("/status", statusRoutes);
 app.use("/api/network", networkRoutes);
+app.use("/api/integrations", integrationsRoutes);
+app.use("/api/compatibility", compatibilityRoutes);
+app.use("/api/roadmap", roadmapRoutes);
+app.use("/api/testimonials", testimonialsRoutes);
+app.use("/api/examples", examplesRoutes);
+app.use("/api/faq", faqRoutes);
+app.use("/api", securityRoutes);
+app.use("/api", calculatorRoutes);
+app.use("/api/quickstart", quickstartRoutes);
+app.use("/api/comparison", comparisonRoutes);
+app.use("/api/ecosystem", ecosystemRoutes);
+app.use("/api/migration", migrationRoutes);
+app.use("/api/benchmarks", benchmarksRoutes);
+app.use("/api/sandbox", sandboxRoutes);
+app.use("/api/sla", slaRoutes);
+app.use("/api/uptime", infoRoutes);
+app.use("/api", leaderboardRoutes);
+app.use("/api/health-matrix", healthMatrixRoutes);
+app.use("/api/changelog", changelogFullRoutes);
+app.use("/api/events", eventsRoutes);
+app.use("/api/partners", partnersRoutes);
+app.use("/api/playground", playgroundRoutes);
+app.use("/api/templates", templatesRoutes);
+app.use("/api/capabilities", capabilitiesRoutes);
+app.use("/api/logs", logsRoutes);
+app.use("/api/metrics", metricsRoutes);
+app.use("/api/sdk", sdkRoutes);
+app.use("/api/agents/directory", directoryRoutes);
+import demoRouter from "./routes/demo";
+app.use("/api/demo", demoRouter);
+import verifyRouter from "./routes/verify";
+import whoamiRouter from "./routes/whoami";
+app.use("/api/agents/verify", verifyRouter);
+app.use("/api/whoami", whoamiRouter);
 
 // ── Error handling ────────────────────────────────────────────
+// ── Deep health check ────────────────────────────────────────
+app.get("/health/deep", (_req, res) => {
+  const os = require("os");
+  const uptimeS = Math.floor(process.uptime());
+  const mem = process.memoryUsage();
+  res.json({
+    status: "healthy",
+    version: getVersion().version,
+    uptime: { seconds: uptimeS, human: `${Math.floor(uptimeS/3600)}h ${Math.floor((uptimeS%3600)/60)}m ${uptimeS%60}s` },
+    memory: { rss_mb: Math.round(mem.rss/1048576), heap_used_mb: Math.round(mem.heapUsed/1048576) },
+    system: { cpus: os.cpus().length, load: os.loadavg(), free_mem_mb: Math.round(os.freemem()/1048576), total_mem_mb: Math.round(os.totalmem()/1048576) },
+    hackathon: { deadline: "2026-02-12T17:00:00Z", hours_remaining: Math.max(0, Math.floor((new Date("2026-02-12T17:00:00Z").getTime() - Date.now())/3600000)), mode: "FREE" }
+  });
+});
+
+import hackathonRouter from "./routes/hackathon";
+app.use("/api/hackathon", hackathonRouter);
+app.use("/api/alerts", alertsRouter);
+app.use("/api/dashboard", dashboardRoutes);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
