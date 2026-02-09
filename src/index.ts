@@ -16,6 +16,8 @@ import statsRoutes from "./routes/stats";
 import messageRoutes from "./routes/messages";
 import { errorHandler, notFoundHandler } from "./middleware/errors";
 import { requestLogger } from "./middleware/requestLog";
+import { cors } from "./middleware/cors";
+import { requestTimeout } from "./middleware/timeout";
 import { rateLimit } from "./middleware/rateLimit";
 import { isHackathonActive, getAgentUsage } from "./middleware/hackathon";
 import activityRoutes from "./routes/activity";
@@ -25,6 +27,9 @@ import { getHealth, getVersion } from "./utils/health";
 const app = express();
 
 app.use(express.json({ limit: "1mb" }));
+app.use(cors);
+app.use(requestTimeout(30_000));
+app.use(rateLimit(60, 60_000));
 app.use(requestLogger);
 
 // ── Static files (landing page) ──────────────────────────────
