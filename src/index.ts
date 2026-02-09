@@ -24,6 +24,7 @@ import activityRoutes from "./routes/activity";
 import onboardingRoutes from "./routes/onboarding";
 import analyticsRoutes from "./routes/analytics";
 import changelogRoutes from "./routes/changelog";
+import statusRoutes from "./routes/status";
 import { getHealth, getVersion } from "./utils/health";
 
 
@@ -406,6 +407,7 @@ app.get("/overlay-stats", async (_req, res) => {
 
 // ── Changelog ─────────────────────────────────────────────
 app.use("/changelog", changelogRoutes);
+app.use("/status", statusRoutes);
 
 // ── Error handling ────────────────────────────────────────────
 app.use(notFoundHandler);
