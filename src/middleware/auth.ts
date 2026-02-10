@@ -49,7 +49,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
         }
         
         // Check x402 payment header (standard protocol)
-        if (req.headers["x-payment"]) {
+        if (req.headers["payment-signature"] || req.headers["x-payment"]) {
           const paymentAuth = requireX402Payment(minUsdc);
           return paymentAuth(req, res, next);
         }
@@ -107,7 +107,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
     }
 
     // Method 3: x402 payment only (no registration needed)
-    if (req.headers["x-payment"]) {
+    if (req.headers["payment-signature"] || req.headers["x-payment"]) {
       const paymentAuth = requireX402Payment(minUsdc);
       return paymentAuth(req, res, next);
     }
