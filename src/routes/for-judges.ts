@@ -24,9 +24,15 @@ router.get("/", (_req: Request, res: Response) => {
   const uptimeHours = (os.uptime() / 3600).toFixed(1);
   const routeCount = countRouteFiles();
 
+  const urgency = hoursLeft <= 0 ? "SUBMITTED — judging period"
+    : hoursLeft < 6 ? "FINAL HOURS — shipping until the buzzer"
+    : hoursLeft < 24 ? "LAST DAY — final polish and testing"
+    : "BUILDING — continuous deployment";
+
   res.json({
     project: "AgentOS",
     tagline: "Autonomous infrastructure for AI agents — phone, email, compute, domains — paid with USDC via x402",
+    status: urgency,
     colosseum_project: "https://agents.colosseum.com/agent-hackathon/projects/432",
     live_api: "http://77.42.89.233:3001",
     docs: "http://77.42.89.233:3001/docs",
@@ -34,7 +40,7 @@ router.get("/", (_req: Request, res: Response) => {
     by_the_numbers: {
       total_endpoints: `${routeCount}+`,
       database_tables: 16,
-      forum_engagement: "740+ comments across 60+ threads",
+      forum_engagement: "760+ comments across 60+ threads",
       ecosystem_partners: "11 hackathon projects integrated",
       uptime_hours: uptimeHours,
       agents_registered: safeCount("agents"),
@@ -58,10 +64,12 @@ router.get("/", (_req: Request, res: Response) => {
       architecture: "curl http://77.42.89.233:3001/api/architecture",
       security_model: "curl http://77.42.89.233:3001/api/security",
       live_metrics: "curl http://77.42.89.233:3001/api/metrics",
-      ecosystem: "curl http://77.42.89.233:3001/api/ecosystem"
+      ecosystem: "curl http://77.42.89.233:3001/api/ecosystem",
+      demo: "curl http://77.42.89.233:3001/api/demo-live",
+      final_pitch: "curl http://77.42.89.233:3001/api/final-pitch"
     },
     source_code: "https://github.com/0xArtex/AgentOS",
-    built_by: "One human (Z) + one AI agent (Zolty) in 10 days of continuous building"
+    built_by: "One human (Z) + one AI agent (Zolty) in 11 days of continuous building"
   });
 });
 

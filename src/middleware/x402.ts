@@ -29,6 +29,8 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
 
   return {
     x402: 2,
+    x402Version: 2,
+    version: 2,
     accepts: [
       {
         scheme: "exact",
@@ -40,6 +42,8 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
         payTo: payToSolana,
         maxTimeoutSeconds: 60,
         asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC on Solana
+        version: 2,
+        x402Version: 2,
         extra: {
           name: "AgentOS",
           facilitator: "https://x402.org/facilitator",
@@ -55,6 +59,8 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
         payTo: payToEvm,
         maxTimeoutSeconds: 60,
         asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
+        version: 2,
+        x402Version: 2,
         extra: {
           name: "AgentOS",
           facilitator: "https://x402.org/facilitator",
