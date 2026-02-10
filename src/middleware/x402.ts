@@ -16,20 +16,41 @@ try {
 }
 
 const payToEvm = config.treasuryEvmWallet;
+const payToSolana = config.treasuryWallet; // Solana address
 
 /**
  * Build standard x402 payment requirements object
+ * Accepts both Solana and Base (EVM) USDC
  */
 function buildPaymentRequired(req: Request, minUsdc: number) {
+  const resource = `https://${req.get("host") || "agntos.dev"}${req.originalUrl}`;
+  const description = `AgentOS: ${req.method} ${req.originalUrl}`;
+  const maxAmountRequired = String(Math.round(minUsdc * 1e6));
+
   return {
     x402: 2,
     accepts: [
       {
         scheme: "exact",
+        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", // Solana Mainnet
+        maxAmountRequired,
+        resource,
+        description,
+        mimeType: "application/json",
+        payTo: payToSolana,
+        maxTimeoutSeconds: 60,
+        asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC on Solana
+        extra: {
+          name: "AgentOS",
+          facilitator: "https://x402.org/facilitator",
+        },
+      },
+      {
+        scheme: "exact",
         network: "eip155:8453", // Base Mainnet
-        maxAmountRequired: String(Math.round(minUsdc * 1e6)),
-        resource: `https://${req.get("host") || "agntos.dev"}${req.originalUrl}`,
-        description: `AgentOS: ${req.method} ${req.originalUrl}`,
+        maxAmountRequired,
+        resource,
+        description,
         mimeType: "application/json",
         payTo: payToEvm,
         maxTimeoutSeconds: 60,
