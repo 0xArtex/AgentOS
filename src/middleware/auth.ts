@@ -27,8 +27,15 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
         const agentIdentifier = agent.colosseum_id || agent.wallet_address || agent.id;
         req.agentId = agentIdentifier;
         
-        // Check hackathon free tier
-        if (agent.hackathon_verified && isHackathonActive() && serviceType !== 'general') {
+        // 'general' service type = always allowed for registered agents (reading inbox, etc.)
+        if (serviceType === 'general') {
+          req.isHackathonMode = isHackathonActive() && agent.hackathon_verified;
+          next();
+          return;
+        }
+
+        // Check hackathon free tier for provisioning services
+        if (agent.hackathon_verified && isHackathonActive()) {
           const usage = db.prepare(
             "SELECT COUNT(*) as c FROM hackathon_usage WHERE agent_id = ? AND service_type = ?"
           ).get(agentIdentifier, serviceType) as any;

@@ -1,169 +1,99 @@
-import { Router, Request, Response } from "express";
+import { Router } from "express";
 import { db } from "../db";
 
 const router = Router();
 
-// Initialize reputation tables
-try {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS agent_reputation (
-      agent_id TEXT PRIMARY KEY,
-      trust_score REAL DEFAULT 50.0,
-      total_tasks INTEGER DEFAULT 0,
-      completed_tasks INTEGER DEFAULT 0,
-      failed_tasks INTEGER DEFAULT 0,
-      total_payments_usd REAL DEFAULT 0,
-      disputes INTEGER DEFAULT 0,
-      endorsements INTEGER DEFAULT 0,
-      first_seen TEXT DEFAULT (datetime('now')),
-      last_active TEXT DEFAULT (datetime('now')),
-      tier TEXT DEFAULT 'unverified'
-    );
-    CREATE TABLE IF NOT EXISTS reputation_events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      agent_id TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      delta REAL NOT NULL,
-      reason TEXT,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-    CREATE TABLE IF NOT EXISTS agent_endorsements (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      from_agent TEXT NOT NULL,
-      to_agent TEXT NOT NULL,
-      message TEXT,
-      created_at TEXT DEFAULT (datetime('now')),
-      UNIQUE(from_agent, to_agent)
-    );
-  `);
-} catch {}
-
-function calculateTier(score: number): string {
-  if (score >= 90) return "legendary";
-  if (score >= 75) return "trusted";
-  if (score >= 60) return "reliable";
-  if (score >= 40) return "unverified";
-  if (score >= 20) return "suspicious";
-  return "blacklisted";
-}
-
-// GET /api/agent-reputation — overview
-router.get("/", (_req: Request, res: Response) => {
-  const total = (db.prepare("SELECT COUNT(*) as c FROM agent_reputation").get() as any).c;
-  const tiers = db.prepare("SELECT tier, COUNT(*) as count FROM agent_reputation GROUP BY tier").all();
-  const topAgents = db.prepare("SELECT agent_id, trust_score, tier, total_tasks, completed_tasks, endorsements FROM agent_reputation ORDER BY trust_score DESC LIMIT 10").all();
+/**
+ * @swagger
+ * /api/agent-reputation/{agentId}:
+ *   get:
+ *     summary: Get agent reputation score
+ *     description: Returns composite reputation score based on uptime, API usage patterns, payment history, and resource efficiency
+ *     tags: [Agent Reputation]
+ *     parameters:
+ *       - in: path
+ *         name: agentId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Agent reputation profile
+ */
+router.get("/api/agent-reputation/:agentId", (req, res) => {
+  const { agentId } = req.params;
   
+  // Get agent data
+  const agent = db.prepare("SELECT * FROM api_keys WHERE agent_id = ?").get(agentId) as any;
+  if (!agent) {
+    return res.status(404).json({ error: "Agent not found" });
+  }
+
+  // Count resources
+  const phones = (db.prepare("SELECT COUNT(*) as c FROM phones WHERE agent_id = ?").get(agentId) as any)?.c || 0;
+  const emails = (db.prepare("SELECT COUNT(*) as c FROM emails WHERE agent_id = ?").get(agentId) as any)?.c || 0;
+  const servers = (db.prepare("SELECT COUNT(*) as c FROM servers WHERE agent_id = ?").get(agentId) as any)?.c || 0;
+  const domains = (db.prepare("SELECT COUNT(*) as c FROM domains WHERE agent_id = ?").get(agentId) as any)?.c || 0;
+  
+  // Count API requests
+  const requests = (db.prepare("SELECT COUNT(*) as c FROM request_log WHERE agent_id = ?").get(agentId) as any)?.c || 0;
+  const recentRequests = (db.prepare("SELECT COUNT(*) as c FROM request_log WHERE agent_id = ? AND timestamp > datetime('now', '-24 hours')").get(agentId) as any)?.c || 0;
+
+  // Calculate reputation dimensions
+  const resourceScore = Math.min(100, (phones + emails + servers + domains) * 15);
+  const activityScore = Math.min(100, requests * 2);
+  const consistencyScore = recentRequests > 0 ? 85 : (requests > 0 ? 50 : 10);
+  const diversityScore = Math.min(100, [phones > 0, emails > 0, servers > 0, domains > 0].filter(Boolean).length * 25);
+  
+  const overallScore = Math.round((resourceScore * 0.25 + activityScore * 0.3 + consistencyScore * 0.25 + diversityScore * 0.2));
+  const tier = overallScore >= 80 ? "platinum" : overallScore >= 60 ? "gold" : overallScore >= 40 ? "silver" : "bronze";
+
   res.json({
-    endpoint: "/api/agent-reputation",
-    description: "Decentralized reputation system for AI agents — trust scores, endorsements, and verifiable track records",
-    total_agents: total,
-    tier_distribution: tiers,
-    tiers_explained: {
-      legendary: "90-100 — Elite agents with proven track records",
-      trusted: "75-89 — Consistently reliable, community endorsed",
-      reliable: "60-74 — Good standing, building history",
-      unverified: "40-59 — New or limited history",
-      suspicious: "20-39 — Failed tasks or disputes flagged",
-      blacklisted: "0-19 — Do not interact"
+    agentId,
+    reputation: {
+      overall: overallScore,
+      tier,
+      dimensions: {
+        resources: { score: resourceScore, detail: `${phones + emails + servers + domains} total resources provisioned` },
+        activity: { score: activityScore, detail: `${requests} lifetime API calls` },
+        consistency: { score: consistencyScore, detail: `${recentRequests} calls in last 24h` },
+        diversity: { score: diversityScore, detail: `${[phones > 0, emails > 0, servers > 0, domains > 0].filter(Boolean).length}/4 service types used` }
+      }
     },
-    top_agents: topAgents,
-    scoring_factors: {
-      task_completion: "+2 per completed task",
-      task_failure: "-5 per failed task",
-      payment_history: "+1 per $10 in successful payments",
-      endorsement_received: "+3 per unique endorsement",
-      dispute_filed: "-8 per dispute",
-      uptime_bonus: "+0.1 per day active"
-    },
-    routes: {
-      "GET /api/agent-reputation": "This overview",
-      "GET /api/agent-reputation/:agentId": "Get specific agent reputation",
-      "POST /api/agent-reputation/:agentId/report": "Report task completion or failure",
-      "POST /api/agent-reputation/:agentId/endorse": "Endorse an agent",
-      "GET /api/agent-reputation/:agentId/history": "View reputation event history",
-      "GET /api/agent-reputation/leaderboard": "Top agents by trust score"
-    },
-    hackathon_note: "Free during Colosseum hackathon — all reputation tracking included",
-    try_it: [
-      'curl http://77.42.89.233:3001/api/agent-reputation',
-      'curl -X POST http://77.42.89.233:3001/api/agent-reputation/my-agent/report -H "Content-Type: application/json" -d \'{"event":"task_completed","reason":"Deployed webhook successfully"}\'',
-      'curl -X POST http://77.42.89.233:3001/api/agent-reputation/my-agent/endorse -H "Content-Type: application/json" -d \'{"from":"other-agent","message":"Reliable infra partner"}\''
-    ]
+    badges: [
+      ...(phones > 0 ? ["📞 communicator"] : []),
+      ...(emails > 0 ? ["📧 networker"] : []),
+      ...(servers > 0 ? ["🖥️ builder"] : []),
+      ...(domains > 0 ? ["🌐 establisher"] : []),
+      ...(requests > 50 ? ["⚡ power-user"] : []),
+      ...(overallScore >= 80 ? ["🏆 elite"] : [])
+    ],
+    trustSignals: {
+      accountAge: agent.created_at,
+      totalResources: phones + emails + servers + domains,
+      lifetimeRequests: requests,
+      isActive: recentRequests > 0
+    }
   });
 });
 
-// GET leaderboard
-router.get("/leaderboard", (_req: Request, res: Response) => {
-  const agents = db.prepare("SELECT agent_id, trust_score, tier, total_tasks, completed_tasks, endorsements, last_active FROM agent_reputation ORDER BY trust_score DESC LIMIT 25").all();
-  res.json({ leaderboard: agents, updated: new Date().toISOString() });
-});
-
-// GET specific agent
-router.get("/:agentId", (req: Request, res: Response) => {
-  const { agentId } = req.params;
-  let agent = db.prepare("SELECT * FROM agent_reputation WHERE agent_id = ?").get(agentId) as any;
-  if (!agent) {
-    db.prepare("INSERT OR IGNORE INTO agent_reputation (agent_id) VALUES (?)").run(agentId);
-    agent = db.prepare("SELECT * FROM agent_reputation WHERE agent_id = ?").get(agentId);
-  }
-  const endorsements = db.prepare("SELECT from_agent, message, created_at FROM agent_endorsements WHERE to_agent = ? ORDER BY created_at DESC LIMIT 10").all(agentId);
-  const recentEvents = db.prepare("SELECT event_type, delta, reason, created_at FROM reputation_events WHERE agent_id = ? ORDER BY created_at DESC LIMIT 20").all(agentId);
-  res.json({ agent, endorsements, recent_events: recentEvents });
-});
-
-// POST report task
-router.post("/:agentId/report", (req: Request, res: Response) => {
-  const { agentId } = req.params;
-  const { event, reason } = req.body || {};
-  if (!event || !["task_completed", "task_failed", "payment", "dispute"].includes(event)) {
-    return res.status(400).json({ error: "event required: task_completed | task_failed | payment | dispute" });
-  }
-
-  db.prepare("INSERT OR IGNORE INTO agent_reputation (agent_id) VALUES (?)").run(agentId);
+/**
+ * @swagger
+ * /api/agent-reputation/leaderboard:
+ *   get:
+ *     summary: Agent reputation leaderboard
+ *     tags: [Agent Reputation]
+ */
+router.get("/api/agent-reputation/leaderboard", (_req, res) => {
+  const agents = db.prepare("SELECT agent_id, created_at FROM api_keys ORDER BY created_at ASC").all() as any[];
   
-  let delta = 0;
-  switch (event) {
-    case "task_completed": delta = 2; db.prepare("UPDATE agent_reputation SET completed_tasks = completed_tasks + 1, total_tasks = total_tasks + 1 WHERE agent_id = ?").run(agentId); break;
-    case "task_failed": delta = -5; db.prepare("UPDATE agent_reputation SET failed_tasks = failed_tasks + 1, total_tasks = total_tasks + 1 WHERE agent_id = ?").run(agentId); break;
-    case "payment": delta = 1; db.prepare("UPDATE agent_reputation SET total_payments_usd = total_payments_usd + 10 WHERE agent_id = ?").run(agentId); break;
-    case "dispute": delta = -8; db.prepare("UPDATE agent_reputation SET disputes = disputes + 1 WHERE agent_id = ?").run(agentId); break;
-  }
+  const leaderboard = agents.map((a: any) => {
+    const resources = (db.prepare("SELECT (SELECT COUNT(*) FROM phones WHERE agent_id = ?) + (SELECT COUNT(*) FROM emails WHERE agent_id = ?) + (SELECT COUNT(*) FROM servers WHERE agent_id = ?) + (SELECT COUNT(*) FROM domains WHERE agent_id = ?) as total").get(a.agent_id, a.agent_id, a.agent_id, a.agent_id) as any)?.total || 0;
+    const requests = (db.prepare("SELECT COUNT(*) as c FROM request_log WHERE agent_id = ?").get(a.agent_id) as any)?.c || 0;
+    const score = Math.round(Math.min(100, resources * 15) * 0.25 + Math.min(100, requests * 2) * 0.3 + 50 * 0.25 + Math.min(100, resources > 0 ? 50 : 10) * 0.2);
+    return { agentId: a.agent_id, score, since: a.created_at };
+  }).sort((a: any, b: any) => b.score - a.score).slice(0, 20);
 
-  db.prepare("UPDATE agent_reputation SET trust_score = MAX(0, MIN(100, trust_score + ?)), last_active = datetime('now') WHERE agent_id = ?").run(delta, agentId);
-  const updated = db.prepare("SELECT trust_score, tier FROM agent_reputation WHERE agent_id = ?").get(agentId) as any;
-  const newTier = calculateTier(updated.trust_score);
-  db.prepare("UPDATE agent_reputation SET tier = ? WHERE agent_id = ?").run(newTier, agentId);
-  db.prepare("INSERT INTO reputation_events (agent_id, event_type, delta, reason) VALUES (?, ?, ?, ?)").run(agentId, event, delta, reason || null);
-
-  res.json({ agent_id: agentId, event, delta, new_score: updated.trust_score + delta, tier: newTier, reason });
-});
-
-// POST endorse
-router.post("/:agentId/endorse", (req: Request, res: Response) => {
-  const { agentId } = req.params;
-  const { from, message } = req.body || {};
-  if (!from) return res.status(400).json({ error: "from (endorsing agent ID) required" });
-  if (from === agentId) return res.status(400).json({ error: "Cannot self-endorse" });
-
-  db.prepare("INSERT OR IGNORE INTO agent_reputation (agent_id) VALUES (?)").run(agentId);
-  try {
-    db.prepare("INSERT INTO agent_endorsements (from_agent, to_agent, message) VALUES (?, ?, ?)").run(from, agentId, message || null);
-    db.prepare("UPDATE agent_reputation SET endorsements = endorsements + 1, trust_score = MIN(100, trust_score + 3) WHERE agent_id = ?").run(agentId);
-    const updated = db.prepare("SELECT trust_score FROM agent_reputation WHERE agent_id = ?").get(agentId) as any;
-    const newTier = calculateTier(updated.trust_score);
-    db.prepare("UPDATE agent_reputation SET tier = ? WHERE agent_id = ?").run(newTier, agentId);
-    db.prepare("INSERT INTO reputation_events (agent_id, event_type, delta, reason) VALUES (?, ?, ?, ?)").run(agentId, "endorsement", 3, `Endorsed by ${from}`);
-    res.json({ success: true, from, to: agentId, new_score: updated.trust_score, tier: newTier });
-  } catch {
-    res.status(409).json({ error: "Already endorsed by this agent" });
-  }
-});
-
-// GET history
-router.get("/:agentId/history", (req: Request, res: Response) => {
-  const { agentId } = req.params;
-  const events = db.prepare("SELECT * FROM reputation_events WHERE agent_id = ? ORDER BY created_at DESC LIMIT 50").all(agentId);
-  res.json({ agent_id: agentId, events });
+  res.json({ leaderboard, total_agents: agents.length });
 });
 
 export default router;

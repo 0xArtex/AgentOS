@@ -131,7 +131,7 @@ router.post("/inboxes/:id/challenge", async (req, res: Response) => {
  * 
  * Cost: 0.01 USDC (or free during hackathon)
  */
-router.post("/inboxes/:id/messages", requireAuth(0.01, "email"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/inboxes/:id/messages", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
     const { challenge, signature } = req.body;
@@ -174,7 +174,7 @@ router.post("/inboxes/:id/messages", requireAuth(0.01, "email"), async (req: Aut
  * 
  * For backwards compat. Use POST with wallet signature for zero-knowledge access.
  */
-router.get("/inboxes/:id/messages", requireAuth(0.01, "email"), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/inboxes/:id/messages", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
     const msgs = emailService.getMessages(inboxId);
@@ -196,7 +196,7 @@ router.get("/inboxes/:id/messages", requireAuth(0.01, "email"), async (req: Auth
  * 
  * Cost: 0.05 USDC (or free during hackathon)
  */
-router.post("/inboxes/:id/send", requireAuth(0.05, "email"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/inboxes/:id/send", requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
     const { to, subject, body, html, challenge, signature } = req.body;
