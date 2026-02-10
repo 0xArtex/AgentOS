@@ -177,3 +177,33 @@ router.get("/demo-flows", (_req, res) => {
     docs: "http://77.42.89.233:3001/docs"
   });
 });
+
+router.get("/final-pitch", (_req, res) => {
+  res.json({
+    project: "AgentOS",
+    tagline: "Autonomous Infrastructure for AI Agents",
+    problem: "AI agents need real-world capabilities (phone, email, compute, domains) but building infra from scratch takes weeks and costs thousands",
+    solution: "One API, 200+ endpoints. Provision any resource in seconds. Pay with USDC via x402. Zero DevOps required.",
+    traction: {
+      endpoints: "200+",
+      hackathon_integrations: "15+ ecosystem partners",
+      forum_engagement: "720+ community comments",
+      uptime: "10+ days continuous",
+      frameworks_supported: ["LangChain", "CrewAI", "OpenClaw", "Eliza", "AutoGen", "raw HTTP"]
+    },
+    differentiators: [
+      "Only infra-as-a-service purpose-built for autonomous agents",
+      "x402 native — agents pay per use, no human billing setup",
+      "Framework-agnostic — works with any agent stack",
+      "Full observability — analytics, agent graphs, audit trails",
+      "Free hackathon tier — zero friction to start"
+    ],
+    demo: {
+      quickstart: "curl http://77.42.89.233:3001/api/quickstart",
+      docs: "http://77.42.89.233:3001/docs",
+      sandbox: "curl http://77.42.89.233:3001/api/sandbox",
+      live_stats: "curl http://77.42.89.233:3001/api/stats"
+    },
+    ask: "Vote for AgentOS — the infrastructure layer that makes the entire agent ecosystem possible."
+  });
+});
