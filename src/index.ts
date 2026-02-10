@@ -1,3 +1,6 @@
+import judgeScorecardRoute from "./routes/judge-scorecard";
+import agentGraphRoute from "./routes/agent-graph";
+import agentLeaderboardRoute from "./routes/agent-leaderboard";
 import fleetDashboardRoute from "./routes/fleet-dashboard";
 import agentReputationRouter from "./routes/agent-reputation";
 import serviceProbeRouter from "./routes/service-probe";
@@ -526,6 +529,9 @@ import agentQuicksetup from "./routes/agent-quicksetup";app.use("/api/quicksetup
 import agentFinalReviewRouter from "./routes/agent-final-review";
 app.use("/api/final-review", agentFinalReviewRouter);
 import deadlineCountdownRouter from "./routes/deadline-countdown"; app.use(deadlineCountdownRouter);
+app.use("/api/agent-leaderboard", agentLeaderboardRoute);
+app.use("/api/agent-graph", agentGraphRoute);
+app.use(judgeScorecardRoute);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
