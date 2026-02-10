@@ -1,3 +1,4 @@
+import starterKitRoute from "./routes/starter-kit";
 import colosseumReadyRoutes from "./routes/colosseum-ready";
 import agentActivityRoutes from "./routes/agent-activity";
 import whyAgentosRoute from "./routes/why-agentos";
@@ -610,7 +611,10 @@ import hackathonStatsRoute from "./routes/hackathon-stats";
 app.use("/api", hackathonStatsRoute);
 import pingRoute from "./routes/ping";
 app.use("/api/ping", pingRoute);
+app.use("/api/starter-kit", starterKitRoute);
 app.use("/ping", pingRoute);
+import deadlineRoute from "./routes/deadline";
+app.use("/api/deadline", deadlineRoute);
 app.use(notFoundHandler);
 app.use(errorHandler);
 

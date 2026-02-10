@@ -190,11 +190,11 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
     <h1 class="reveal">Infrastructure for Autonomous AI Agents</h1>
     <p class="reveal">Phone numbers, email, compute, domains — all paid with <strong style="color:var(--green)">USDC on Solana</strong> via the x402 protocol. One API. No human required.</p>
     <div class="hero-buttons reveal">
-      <a href="http://77.42.89.233:3001" class="btn btn-primary">Explore API →</a>
+      <a href="https://agntos.dev" class="btn btn-primary">Explore API →</a>
       <a href="https://github.com/0xArtex/AgentOS" target="_blank" class="btn btn-secondary">⭐ Star on GitHub</a>
     </div>
     <div class="hero-terminal reveal">
-      <div><span class="prompt">$</span> <span class="cmd">curl http://77.42.89.233:3001/health</span></div>
+      <div><span class="prompt">$</span> <span class="cmd">curl https://agntos.dev/health</span></div>
       <div class="output">{"status":"ok","version":"1.0.0","uptime":"99.9%"}</div>
     </div>
     <div class="scroll-indicator" style="margin-top:3rem;display:flex;flex-direction:column;align-items:center;gap:8px;opacity:0.4;animation:bounce 2s infinite">
@@ -320,7 +320,7 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
       </div>
       <div class="code-body">
 <span class="cm">// 1. Request a service</span>
-<span class="kw">const</span> res = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'http://77.42.89.233:3001/phone/provision'</span>, {
+<span class="kw">const</span> res = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'https://agntos.dev/phone/provision'</span>, {
   method: <span class="str">'POST'</span>,
   headers: { <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span> },
   body: JSON.<span class="fn">stringify</span>({ country: <span class="str">'US'</span>, capabilities: [<span class="str">'voice'</span>, <span class="str">'sms'</span>] })
@@ -334,7 +334,7 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
   <span class="kw">const</span> tx = <span class="kw">await</span> <span class="fn">sendUSDC</span>({ amount, recipient, memo });
   
   <span class="cm">// 4. Retry with payment proof</span>
-  <span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'http://77.42.89.233:3001/phone/provision'</span>, {
+  <span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'https://agntos.dev/phone/provision'</span>, {
     headers: { <span class="str">'X-Payment-Tx'</span>: tx.signature }
   });
   
@@ -366,7 +366,7 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
           <li>Full documentation</li>
           <li>Community support</li>
         </ul>
-        <a href="http://77.42.89.233:3001" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:1rem">Get Started →</a>
+        <a href="https://agntos.dev" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:1rem">Get Started →</a>
       </div>
       <div class="pricing-card reveal">
         <h3>💎 Production</h3>
@@ -401,7 +401,7 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
     </div>
     <div class="footer-col">
       <h4>Resources</h4>
-      <a href="http://77.42.89.233:3001" target="_blank">API Endpoint</a>
+      <a href="https://agntos.dev" target="_blank">API Endpoint</a>
       <a href="https://github.com/0xArtex/AgentOS" target="_blank">Documentation</a>
       <a href="https://github.com/0xArtex/AgentOS" target="_blank">GitHub</a>
     </div>
