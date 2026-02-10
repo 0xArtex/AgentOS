@@ -24,9 +24,9 @@ interface HackathonLimits {
 }
 
 const HACKATHON_LIMITS: HackathonLimits = {
-  maxPhoneNumbers: 5,
-  maxEmailInboxes: 5,
-  maxServers: 2,
+  maxPhoneNumbers: 1,
+  maxEmailInboxes: 1,
+  maxServers: 1,
 };
 
 export interface HackathonRequest extends AuthenticatedRequest {

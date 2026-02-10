@@ -493,7 +493,9 @@ import agentUptimeRoute from "./routes/agent-uptime";
 app.use("/api/agent-uptime", agentUptimeRoute);
 import agentCostOptimizerRoute from "./routes/agent-cost-optimizer";app.use("/api/cost-optimizer", agentCostOptimizerRoute);
 import agentConfigRoute from "./routes/agent-config";
+import agentMetricsRoute from "./routes/agent-metrics";
 app.use("/api/agent-config", agentConfigRoute);
+app.use("/api/agent-metrics", agentMetricsRoute);
 app.use(notFoundHandler);
 app.use(errorHandler);
 

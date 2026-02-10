@@ -201,9 +201,9 @@ GET /hackathon/status — hackathon mode info
 - **Challenge-response**: Wallet signatures for authentication (no passwords)
 
 ## Hackathon Limits (Free Tier)
-- 📱 Phone numbers: 5
-- 📧 Email inboxes: 5
-- 🖥️ Servers: 2
+- 📱 Phone numbers: 1
+- 📧 Email inboxes: 1
+- 🖥️ Servers: 1
 
 ## Links
 - **Website**: https://agntos.dev
