@@ -1,3 +1,7 @@
+import whyAgentosRoute from "./routes/why-agentos";
+import serviceHealthRouter from "./routes/service-health";
+import hackathonStatusRouter from "./routes/hackathon-status";
+import pitchRouter from "./routes/pitch";
 import dashboardRoutes from "./routes/dashboard";
 import healthSummaryRoutes from "./routes/health-summary";
 import alertsRouter from "./routes/alerts";
@@ -18,15 +22,19 @@ import domainRoutes from "./routes/domain";
 import computeRoutes from "./routes/compute";
 import apikeysRoutes from "./routes/apikeys";
 import demoRoutes from "./routes/demo";
+import demoInteractiveRoutes from "./routes/demo-interactive";
 import webhookRoutes from "./routes/webhooks";
+import submissionReadyRoutes from "./routes/submission-ready";
 import agentRoutes from "./routes/agents";
 import statsRoutes from "./routes/stats";
 import messageRoutes from "./routes/messages";
+import agentToolkitRouter from "./routes/agent-toolkit";
 import { errorHandler, notFoundHandler } from "./middleware/errors";
 import { requestLogger } from "./middleware/requestLog";
 import { cors } from "./middleware/cors";
 import { requestTimeout } from "./middleware/timeout";
 import { rateLimit } from "./middleware/rateLimit";
+import { securityHeaders, paramPollution, sqlInjectionGuard, sanitizeInputs, bodySizeLimit, bruteForceProtection } from "./middleware/security";
 import { isHackathonActive, getAgentUsage } from "./middleware/hackathon";
 import activityRoutes from "./routes/activity";
 import onboardingRoutes from "./routes/onboarding";
@@ -66,8 +74,13 @@ import agentKitRoutes from "./routes/agent-kit";
 
 const app = express();
 
-app.use(express.json({ limit: "1mb" }));
+app.use(securityHeaders);
+app.use(paramPollution);
+app.use(express.json({ limit: "100kb" }));
 app.use(cors);
+app.use(sanitizeInputs);
+app.use(sqlInjectionGuard);
+app.use(bruteForceProtection);
 app.use(requestTimeout(30_000));
 app.use(rateLimit(60, 60_000));
 app.use(requestLogger);
@@ -127,9 +140,12 @@ app.use("/analytics", analyticsRoutes);
 
 // ── Demo Routes (no payment required) ────────────────────────
 app.use("/demo", demoRoutes);
+app.use("/api/demo/interactive", demoInteractiveRoutes);
 
 // ── Webhook Routes (no x402 payment, for provider callbacks) ─
 app.use("/webhooks", webhookRoutes);
+app.use("/api", whyAgentosRoute);
+app.use("/api", submissionReadyRoutes);
 
 // ── Pricing info (no auth required) ──────────────────────────
 app.get("/pricing", (_req, res) => {
@@ -544,10 +560,42 @@ import walletRouter from "./routes/wallet";
 app.use("/api/wallet", walletRouter);
 import agentProfileRouter from "./routes/agent-profile";
 import judgeReadyRouter from "./routes/judge-ready";
+import judgeSummaryRouter from "./routes/judge-summary";
+import agentReadinessRouter from "./routes/agent-readiness";
+import agentDirectoryRouter from "./routes/agent-directory";
 import integrationGuideRouter from "./routes/integration-guide";
+import agentHealthRouter from "./routes/agent-health";
+app.use("/api/agent-health", agentHealthRouter);
 app.use("/api", integrationGuideRouter);
 app.use("/api", judgeReadyRouter);
+app.use("/api", agentReadinessRouter);
 app.use("/api/agent-profile", agentProfileRouter);
+app.use("/api/agent-directory", agentDirectoryRouter);
+import debugRouter from "./routes/debug";
+import invoiceRouter from "./routes/invoice";
+import webhooksRouter from "./routes/webhooks";
+app.use("/api/debug", debugRouter);
+app.use("/api/invoice", invoiceRouter);
+app.use("/api/webhooks", webhooksRouter);
+app.use("/api/judge-summary", judgeSummaryRouter);
+app.use("/api/pitch", pitchRouter);
+import systemMetricsRouter from "./routes/system-metrics";
+import demoWalkthroughRoute from "./routes/demo-walkthrough";
+import liveDemoRoute from "./routes/live-demo";
+import architectureRoute from "./routes/architecture";
+app.use("/api/system-metrics", systemMetricsRouter);
+import forJudgesRoute from "./routes/for-judges";
+import liveTestRoute from "./routes/live-test";
+app.use("/api/agent-toolkit", agentToolkitRouter);
+app.use("/api", serviceHealthRouter);
+app.use("/api/hackathon-status", hackathonStatusRouter);
+app.use("/api", demoWalkthroughRoute);
+app.use(liveDemoRoute);
+app.use("/api/architecture", architectureRoute);
+app.use("/api/for-judges", forJudgesRoute);
+app.use("/api/live-test", liveTestRoute);
+import systemOverviewRoute from "./routes/system-overview";
+app.use("/api/system-overview", systemOverviewRoute);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
