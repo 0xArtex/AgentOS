@@ -531,6 +531,7 @@ app.use("/api/final-review", agentFinalReviewRouter);
 import deadlineCountdownRouter from "./routes/deadline-countdown"; app.use(deadlineCountdownRouter);
 app.use("/api/agent-leaderboard", agentLeaderboardRoute);
 app.use("/api/agent-graph", agentGraphRoute);
+import agentHealthRoute from "./routes/agent-health"; app.use("/api", agentHealthRoute);
 app.use(judgeScorecardRoute);
 app.use(notFoundHandler);
 app.use(errorHandler);
