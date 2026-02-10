@@ -27,23 +27,22 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
   const description = `AgentOS: ${req.method} ${req.originalUrl}`;
   const maxAmountRequired = String(Math.round(minUsdc * 1e6));
 
+  // V2 format per @x402/core schemas
   return {
-    x402: 2,
     x402Version: 2,
-    version: 2,
+    resource: {
+      url: resource,
+      description,
+      mimeType: "application/json",
+    },
     accepts: [
       {
         scheme: "exact",
         network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", // Solana Mainnet
-        maxAmountRequired,
-        resource,
-        description,
-        mimeType: "application/json",
+        amount: maxAmountRequired,
         payTo: payToSolana,
         maxTimeoutSeconds: 60,
         asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC on Solana
-        version: 2,
-        x402Version: 2,
         extra: {
           name: "AgentOS",
           facilitator: "https://x402.org/facilitator",
@@ -52,15 +51,10 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
       {
         scheme: "exact",
         network: "eip155:8453", // Base Mainnet
-        maxAmountRequired,
-        resource,
-        description,
-        mimeType: "application/json",
+        amount: maxAmountRequired,
         payTo: payToEvm,
         maxTimeoutSeconds: 60,
         asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
-        version: 2,
-        x402Version: 2,
         extra: {
           name: "AgentOS",
           facilitator: "https://x402.org/facilitator",
