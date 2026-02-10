@@ -60,8 +60,15 @@ export function initDatabase(): void {
       local_part TEXT UNIQUE NOT NULL,
       owner TEXT NOT NULL,
       public_key TEXT,
+      solana_public_key TEXT,
       created_at TEXT NOT NULL,
       active INTEGER DEFAULT 1
+    );
+
+    CREATE TABLE IF NOT EXISTS email_challenges (
+      inbox_id TEXT PRIMARY KEY,
+      challenge TEXT NOT NULL,
+      expires_at INTEGER NOT NULL
     );
     
     CREATE INDEX IF NOT EXISTS idx_email_inboxes_local_part ON email_inboxes(local_part);

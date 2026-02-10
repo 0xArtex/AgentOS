@@ -84,10 +84,10 @@ class Storage {
 
   setEmailInbox(id: string, inbox: EmailInbox): void {
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO email_inboxes (id, address, local_part, owner, public_key, created_at, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO email_inboxes (id, address, local_part, owner, public_key, solana_public_key, created_at, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, inbox.address, inbox.localPart, inbox.owner, inbox.publicKey, inbox.createdAt, inbox.active ? 1 : 0);
+    stmt.run(id, inbox.address, inbox.localPart, inbox.owner, inbox.publicKey, inbox.solanaPublicKey, inbox.createdAt, inbox.active ? 1 : 0);
   }
 
   getEmailInbox(id: string): EmailInbox | undefined {
@@ -101,6 +101,7 @@ class Storage {
       localPart: row.local_part,
       owner: row.owner,
       publicKey: row.public_key,
+      solanaPublicKey: row.solana_public_key,
       createdAt: row.created_at,
       active: Boolean(row.active)
     };
@@ -126,9 +127,31 @@ class Storage {
       localPart: row.local_part,
       owner: row.owner,
       publicKey: row.public_key,
+      solanaPublicKey: row.solana_public_key,
       createdAt: row.created_at,
       active: Boolean(row.active),
     }));
+  }
+
+  // ── Email Challenges (for wallet auth) ────────────────────
+
+  setEmailChallenge(inboxId: string, challenge: string, expiresAt: number): void {
+    const stmt = db.prepare(`
+      INSERT OR REPLACE INTO email_challenges (inbox_id, challenge, expires_at)
+      VALUES (?, ?, ?)
+    `);
+    stmt.run(inboxId, challenge, expiresAt);
+  }
+
+  getEmailChallenge(inboxId: string): { challenge: string; expiresAt: number } | undefined {
+    const stmt = db.prepare('SELECT challenge, expires_at FROM email_challenges WHERE inbox_id = ?');
+    const row = stmt.get(inboxId) as any;
+    if (!row) return undefined;
+    return { challenge: row.challenge, expiresAt: row.expires_at };
+  }
+
+  deleteEmailChallenge(inboxId: string): void {
+    db.prepare('DELETE FROM email_challenges WHERE inbox_id = ?').run(inboxId);
   }
 
   initEmailMessages(inboxId: string): void {

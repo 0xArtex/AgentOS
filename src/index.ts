@@ -721,7 +721,9 @@ app.use("/api/agent-collaboration", agentCollaborationRoute);
 
 import agentLogsRoute from "./routes/agent-logs";
 import agentReputationRoute from "./routes/agent-reputation";
+import agentFleetRoute from "./routes/agent-fleet";
 app.use("/api/agent-logs", agentLogsRoute);
+app.use("/api/agent-fleet", agentFleetRoute);
 app.use("/api/agent-reputation", agentReputationRoute);
 
 

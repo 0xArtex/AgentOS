@@ -59,8 +59,10 @@ export interface EmailInbox {
   /** e.g. "agent-name" portion of agent-name@agntos.dev */
   localPart: string;
   owner: string;
-  /** X25519 public key for E2E encryption (base64) */
+  /** X25519 public key derived from Solana wallet (base64) */
   publicKey: string;
+  /** Solana Ed25519 public key (base58) — the wallet that owns this inbox */
+  solanaPublicKey: string;
   createdAt: string;
   active: boolean;
 }

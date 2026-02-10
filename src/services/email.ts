@@ -1,35 +1,89 @@
 import nacl from "tweetnacl";
 import { encodeBase64, decodeBase64 } from "tweetnacl-util";
+import { ed25519 } from "@noble/curves/ed25519";
+
+import bs58 from "bs58";
 import { v4 as uuid } from "uuid";
 import { config } from "../config";
 import { EmailInbox, EmailMessage } from "../types";
 import { storage } from "./storage";
 
-// ── Crypto helpers ──────────────────────────────────────────
+// ── Ed25519 → X25519 conversion ────────────────────────────
 
 /**
- * Generate an X25519 keypair for a new inbox.
- * The private key is returned to the agent and NEVER stored.
+ * Convert an Ed25519 public key to X25519 (Curve25519) public key.
+ * This allows encrypting messages to a Solana wallet holder.
  */
-function generateKeypair(): { publicKey: string; privateKey: string } {
-  const kp = nacl.box.keyPair();
-  return {
-    publicKey: encodeBase64(kp.publicKey),
-    privateKey: encodeBase64(kp.secretKey),
-  };
+function ed25519PubToX25519(ed25519Pub: Uint8Array): Uint8Array {
+  // Use TweetNaCl's built-in conversion if available,
+  // otherwise use the standard birational map
+  // nacl.sign has the conversion: nacl internally uses this
+  // We use the montgomery form conversion from ed25519
+  
+  // The standard conversion from ed25519 point to curve25519 point:
+  // Given ed25519 point (x, y), curve25519 u = (1 + y) / (1 - y) mod p
+  const p = BigInt("57896044618658097711785492504343953926634992332820282019728792003956564819949");
+  
+  // Extract y coordinate from ed25519 public key (it's encoded as y with sign bit)
+  let y = BigInt(0);
+  for (let i = 0; i < 32; i++) {
+    y += BigInt(ed25519Pub[i]) << BigInt(8 * i);
+  }
+  // Clear the sign bit
+  y &= (BigInt(1) << BigInt(255)) - BigInt(1);
+  
+  // u = (1 + y) * inverse(1 - y) mod p
+  const one = BigInt(1);
+  const numerator = (one + y) % p;
+  const denominator = (p + one - (y % p)) % p;
+  
+  // Modular inverse using Fermat's little theorem: a^(p-2) mod p
+  function modPow(base: bigint, exp: bigint, mod: bigint): bigint {
+    let result = BigInt(1);
+    base = base % mod;
+    while (exp > BigInt(0)) {
+      if (exp % BigInt(2) === BigInt(1)) {
+        result = (result * base) % mod;
+      }
+      exp = exp >> BigInt(1);
+      base = (base * base) % mod;
+    }
+    return result;
+  }
+  
+  const inverse = modPow(denominator, p - BigInt(2), p);
+  const u = (numerator * inverse) % p;
+  
+  // Convert back to bytes (little-endian)
+  const result = new Uint8Array(32);
+  let val = u;
+  for (let i = 0; i < 32; i++) {
+    result[i] = Number(val & BigInt(0xff));
+    val >>= BigInt(8);
+  }
+  
+  return result;
 }
 
 /**
- * Encrypt plaintext using the inbox's public key (NaCl box, sealed).
- * Uses an ephemeral keypair so only the private key holder can decrypt.
+ * Verify an Ed25519 signature (Solana wallet signature).
  */
-function encryptForInbox(plaintext: string, publicKeyB64: string): string {
-  const publicKey = decodeBase64(publicKeyB64);
+function verifySignature(message: Uint8Array, signature: Uint8Array, publicKey: Uint8Array): boolean {
+  return nacl.sign.detached.verify(message, signature, publicKey);
+}
+
+// ── Encryption helpers ──────────────────────────────────────
+
+/**
+ * Encrypt plaintext using the inbox's X25519 public key (derived from Solana wallet).
+ * Uses an ephemeral keypair — only the wallet holder can decrypt.
+ */
+function encryptForWallet(plaintext: string, x25519PubKey: Uint8Array): string {
   const ephemeral = nacl.box.keyPair();
   const nonce = nacl.randomBytes(nacl.box.nonceLength);
   const messageBytes = new TextEncoder().encode(plaintext);
 
-  const encrypted = nacl.box(messageBytes, nonce, publicKey, ephemeral.secretKey);
+  const encrypted = nacl.box(messageBytes, nonce, x25519PubKey, ephemeral.secretKey);
   if (!encrypted) throw new Error("Encryption failed");
 
   // Pack: ephemeralPublicKey (32) + nonce (24) + ciphertext
@@ -41,34 +95,18 @@ function encryptForInbox(plaintext: string, publicKeyB64: string): string {
   return encodeBase64(packed);
 }
 
-/**
- * Decrypt a message using the agent's private key.
- * Called client-side or via API with the agent's key.
- */
-export function decryptMessage(encryptedB64: string, privateKeyB64: string): string {
-  const packed = decodeBase64(encryptedB64);
-  const privateKey = decodeBase64(privateKeyB64);
-
-  const ephemeralPublicKey = packed.slice(0, 32);
-  const nonce = packed.slice(32, 56);
-  const ciphertext = packed.slice(56);
-
-  const decrypted = nacl.box.open(ciphertext, nonce, ephemeralPublicKey, privateKey);
-  if (!decrypted) throw new Error("Decryption failed — invalid key or corrupted data");
-
-  return new TextDecoder().decode(decrypted);
-}
-
 // ── Email Service ───────────────────────────────────────────
 
 /**
- * Create a new E2E encrypted email inbox for an agent.
- * Returns the inbox info + the private key (shown once, never stored).
+ * Create an E2E encrypted inbox tied to a Solana wallet.
+ * The wallet's Ed25519 public key is converted to X25519 for encryption.
+ * No private key is generated or stored — the agent's Solana wallet IS the key.
  */
 export function createInbox(
   name: string,
-  owner: string
-): EmailInbox & { privateKey: string } {
+  owner: string,
+  solanaPublicKey: string
+): EmailInbox & { decryptionGuide: object } {
   const localPart = name.toLowerCase().replace(/[^a-z0-9\-_.]/g, "");
   if (!localPart) throw new Error("Invalid inbox name");
 
@@ -78,14 +116,25 @@ export function createInbox(
     throw new Error(`Inbox ${address} already exists`);
   }
 
-  const { publicKey, privateKey } = generateKeypair();
+  // Decode Solana public key (base58) and convert to X25519
+  let ed25519Pub: Uint8Array;
+  try {
+    ed25519Pub = bs58.decode(solanaPublicKey);
+    if (ed25519Pub.length !== 32) throw new Error("Invalid key length");
+  } catch {
+    throw new Error("Invalid Solana public key (expected base58-encoded Ed25519 key)");
+  }
+
+  const x25519Pub = ed25519PubToX25519(ed25519Pub);
+  const publicKeyB64 = encodeBase64(x25519Pub);
 
   const inbox: EmailInbox = {
     id: uuid(),
     address,
     localPart,
     owner,
-    publicKey,
+    publicKey: publicKeyB64,
+    solanaPublicKey,
     createdAt: new Date().toISOString(),
     active: true,
   };
@@ -93,13 +142,80 @@ export function createInbox(
   storage.setEmailInbox(inbox.id, inbox);
   storage.initEmailMessages(inbox.id);
 
-  // Return inbox + private key (private key is NOT stored)
-  return { ...inbox, privateKey };
+  return {
+    ...inbox,
+    decryptionGuide: {
+      note: "Your Solana wallet IS your email key. No separate key needed.",
+      steps: [
+        "1. Sign a challenge with your Solana wallet to authenticate",
+        "2. Receive encrypted email blobs",
+        "3. Decrypt client-side: ed25519PrivateKey → X25519 → nacl.box.open()",
+      ],
+      algorithm: "X25519 + XSalsa20-Poly1305 (NaCl box)",
+      sdkExample: `import nacl from 'tweetnacl'; 
+// Convert your Solana keypair's secret key (first 32 bytes) to X25519
+// Then use nacl.box.open() to decrypt each message`,
+    },
+  };
+}
+
+/**
+ * Generate a challenge for wallet authentication.
+ * Agent signs this with their Solana wallet to prove ownership.
+ */
+export function generateChallenge(inboxId: string): { challenge: string; expiresAt: string } {
+  const timestamp = Date.now();
+  const nonce = encodeBase64(nacl.randomBytes(16));
+  const challenge = `agentos-email:${inboxId}:${timestamp}:${nonce}`;
+  const expiresAt = new Date(timestamp + 5 * 60 * 1000).toISOString(); // 5 min expiry
+
+  // Store challenge temporarily
+  storage.setEmailChallenge(inboxId, challenge, timestamp + 5 * 60 * 1000);
+
+  return { challenge, expiresAt };
+}
+
+/**
+ * Verify a wallet signature against a challenge.
+ * Returns true if the signature is valid and the challenge hasn't expired.
+ */
+export function verifyWalletAuth(
+  inboxId: string,
+  challenge: string,
+  signatureB58: string
+): boolean {
+  const inbox = storage.getEmailInbox(inboxId);
+  if (!inbox || !inbox.solanaPublicKey) throw new Error("Inbox not found");
+
+  // Verify challenge exists and hasn't expired
+  const stored = storage.getEmailChallenge(inboxId);
+  if (!stored || stored.challenge !== challenge) throw new Error("Invalid or expired challenge");
+  if (Date.now() > stored.expiresAt) {
+    storage.deleteEmailChallenge(inboxId);
+    throw new Error("Challenge expired");
+  }
+
+  // Verify Ed25519 signature
+  const pubKey = bs58.decode(inbox.solanaPublicKey);
+  const message = new TextEncoder().encode(challenge);
+  let signature: Uint8Array;
+  try {
+    signature = bs58.decode(signatureB58);
+  } catch {
+    // Try base64
+    signature = decodeBase64(signatureB58);
+  }
+
+  const valid = verifySignature(message, signature, pubKey);
+  if (!valid) throw new Error("Invalid signature — wallet does not match inbox owner");
+
+  // Delete used challenge (one-time use)
+  storage.deleteEmailChallenge(inboxId);
+  return true;
 }
 
 /**
  * Get encrypted messages for an inbox.
- * Messages are encrypted — agent must decrypt with their private key.
  */
 export function getMessages(inboxId: string): EmailMessage[] {
   const msgs = storage.getEmailMessages(inboxId);
@@ -108,78 +224,7 @@ export function getMessages(inboxId: string): EmailMessage[] {
 }
 
 /**
- * Decrypt messages using agent's private key.
- * Agent sends their key, we decrypt on-the-fly and return plaintext.
- * Key is never stored or logged.
- */
-export function getDecryptedMessages(
-  inboxId: string,
-  privateKey: string
-): Array<EmailMessage & { decryptedBody: string; decryptedSubject: string }> {
-  const msgs = getMessages(inboxId);
-  return msgs.map((msg) => {
-    try {
-      return {
-        ...msg,
-        decryptedSubject: msg.subject ? decryptMessage(msg.subject, privateKey) : "",
-        decryptedBody: msg.body ? decryptMessage(msg.body, privateKey) : "",
-      };
-    } catch {
-      return { ...msg, decryptedSubject: "[decrypt failed]", decryptedBody: "[decrypt failed]" };
-    }
-  });
-}
-
-/**
- * Send an email from an inbox.
- * Agent must prove ownership by providing their private key.
- * The sent content is encrypted before storage.
- */
-export async function sendEmail(
-  inboxId: string,
-  privateKey: string,
-  to: string,
-  subject: string,
-  body: string,
-  html?: string
-): Promise<EmailMessage> {
-  const inbox = storage.getEmailInbox(inboxId);
-  if (!inbox) throw new Error(`Inbox ${inboxId} not found`);
-  if (!inbox.active) throw new Error("Inbox is deactivated");
-
-  // Verify ownership: try to decrypt a test message
-  try {
-    const testEncrypted = encryptForInbox("verify", inbox.publicKey);
-    const testDecrypted = decryptMessage(testEncrypted, privateKey);
-    if (testDecrypted !== "verify") throw new Error("Key mismatch");
-  } catch {
-    throw new Error("Invalid private key — you don't own this inbox");
-  }
-
-  // Send via Cloudflare MailChannels Worker (or fallback)
-  await sendViaMailChannels(inbox.address, to, subject, body, html);
-
-  // Encrypt sent content before storing
-  const msg: EmailMessage = {
-    id: uuid(),
-    inboxId,
-    direction: "outbound",
-    from: inbox.address,
-    to,
-    subject: encryptForInbox(subject, inbox.publicKey),
-    body: encryptForInbox(body, inbox.publicKey),
-    html: html ? encryptForInbox(html, inbox.publicKey) : undefined,
-    encrypted: true,
-    timestamp: new Date().toISOString(),
-  };
-
-  storage.pushEmailMessage(inboxId, msg);
-  return msg;
-}
-
-/**
- * Handle inbound email (from Cloudflare Email Worker webhook).
- * Encrypts content immediately, plaintext is never stored.
+ * Handle inbound email — encrypt with wallet's public key immediately.
  */
 export function handleInboundEmail(
   to: string,
@@ -204,28 +249,66 @@ export function handleInboundEmail(
     return null;
   }
 
-  // Encrypt everything before storage — plaintext never touches disk
+  // Decrypt the X25519 public key
+  const x25519Pub = decodeBase64(inbox.publicKey);
+
+  // Encrypt everything before storage — plaintext NEVER touches disk
   const msg: EmailMessage = {
     id: uuid(),
     inboxId,
     direction: "inbound",
-    from, // sender address is metadata, not encrypted (needed for filtering)
+    from, // sender address is metadata (needed for filtering)
     to,
-    subject: encryptForInbox(subject, inbox.publicKey),
-    body: encryptForInbox(body, inbox.publicKey),
-    html: html ? encryptForInbox(html, inbox.publicKey) : undefined,
+    subject: encryptForWallet(subject, x25519Pub),
+    body: encryptForWallet(body, x25519Pub),
+    html: html ? encryptForWallet(html, x25519Pub) : undefined,
     encrypted: true,
     timestamp: new Date().toISOString(),
   };
 
   storage.pushEmailMessage(inboxId, msg);
-  console.log(`[email] Inbound from ${from} to ${to} — encrypted and stored`);
+  console.log(`[email] Inbound from ${from} to ${to} — encrypted with wallet key and stored`);
   return msg;
 }
 
 /**
- * Send email via Cloudflare MailChannels API (free via Workers).
- * Fallback: direct MailChannels API (works from whitelisted IPs).
+ * Send email — verify wallet ownership via signature first.
+ */
+export async function sendEmail(
+  inboxId: string,
+  to: string,
+  subject: string,
+  body: string,
+  html?: string
+): Promise<EmailMessage> {
+  const inbox = storage.getEmailInbox(inboxId);
+  if (!inbox) throw new Error(`Inbox ${inboxId} not found`);
+  if (!inbox.active) throw new Error("Inbox is deactivated");
+
+  // Send via MailChannels
+  await sendViaMailChannels(inbox.address, to, subject, body, html);
+
+  // Encrypt sent content before storing
+  const x25519Pub = decodeBase64(inbox.publicKey);
+  const msg: EmailMessage = {
+    id: uuid(),
+    inboxId,
+    direction: "outbound",
+    from: inbox.address,
+    to,
+    subject: encryptForWallet(subject, x25519Pub),
+    body: encryptForWallet(body, x25519Pub),
+    html: html ? encryptForWallet(html, x25519Pub) : undefined,
+    encrypted: true,
+    timestamp: new Date().toISOString(),
+  };
+
+  storage.pushEmailMessage(inboxId, msg);
+  return msg;
+}
+
+/**
+ * Send via Cloudflare MailChannels API.
  */
 async function sendViaMailChannels(
   from: string,
@@ -244,7 +327,6 @@ async function sendViaMailChannels(
     ],
   };
 
-  // Try Cloudflare Worker endpoint first
   const workerUrl = config.mailWorkerUrl;
   if (workerUrl) {
     const resp = await fetch(workerUrl, {
@@ -253,10 +335,8 @@ async function sendViaMailChannels(
       body: JSON.stringify(payload),
     });
     if (resp.ok) return;
-    console.warn(`[email] Worker send failed: ${resp.status}, falling back to MailChannels direct`);
   }
 
-  // Direct MailChannels API
   const resp = await fetch("https://api.mailchannels.net/tx/v1/send", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -269,16 +349,13 @@ async function sendViaMailChannels(
   }
 }
 
-/**
- * Get an inbox by ID.
- */
 export function getInbox(id: string): EmailInbox | undefined {
   return storage.getEmailInbox(id);
 }
 
-/**
- * List all inboxes for an owner.
- */
 export function listInboxes(owner: string): EmailInbox[] {
   return storage.getEmailInboxesByOwner(owner);
 }
+
+// Re-export for route usage
+export { encryptForWallet, verifySignature };
