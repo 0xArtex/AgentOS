@@ -88,71 +88,17 @@ router.post("/inboxes", requireAuth(1.0, "email"), async (req: AuthenticatedRequ
 });
 
 /**
- * POST /email/inboxes/:id/challenge — Get a challenge to sign
+ * GET /email/inboxes/:id/messages — Get encrypted messages
  * 
- * Step 1 of reading emails: get a challenge string.
- * Step 2: sign it with your Solana wallet.
- * Step 3: send the signature to get your encrypted emails.
- * 
- * No auth required — the signature IS the auth.
- */
-router.post("/inboxes/:id/challenge", async (req, res: Response) => {
-  try {
-    const inboxId = req.params.id as string;
-    const inbox = emailService.getInbox(inboxId);
-    if (!inbox) {
-      res.status(404).json({ error: "Inbox not found" });
-      return;
-    }
-
-    const { challenge, expiresAt } = emailService.generateChallenge(inboxId);
-
-    res.json({
-      challenge,
-      expiresAt,
-      instructions: {
-        step1: "Sign this challenge string with your Solana wallet",
-        step2: "POST /email/inboxes/:id/messages with { challenge, signature }",
-        step3: "Decrypt the returned blobs client-side with your wallet's private key",
-        signing: "Use nacl.sign.detached(messageBytes, keypair.secretKey) or equivalent",
-      },
-    });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * POST /email/inboxes/:id/messages — Get encrypted messages (requires wallet signature)
- * 
- * Prove you own the wallet by signing a challenge.
+ * Auth via x402 payment (0.001 USDC) or hackathon mode.
+ * Payment proves wallet ownership — no separate challenge needed.
  * Returns encrypted blobs that only YOUR wallet can decrypt.
- * We never see your plaintext emails.
  * 
- * Cost: 0.01 USDC (or free during hackathon)
+ * Cost: 0.001 USDC (or free during hackathon)
  */
-router.post("/inboxes/:id/messages", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/inboxes/:id/messages", requireAuth(0.001, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
-    const { challenge, signature } = req.body;
-
-    if (!challenge || !signature) {
-      res.status(400).json({
-        error: "Missing wallet authentication",
-        message: "Provide 'challenge' and 'signature' to prove wallet ownership",
-        flow: [
-          "1. POST /email/inboxes/:id/challenge → get challenge string",
-          "2. Sign challenge with your Solana wallet",
-          "3. POST /email/inboxes/:id/messages with { challenge, signature }",
-        ],
-      });
-      return;
-    }
-
-    // Verify wallet signature
-    emailService.verifyWalletAuth(inboxId, challenge, signature);
-
-    // Return encrypted messages
     const msgs = emailService.getMessages(inboxId);
     
     res.json({
@@ -162,52 +108,22 @@ router.post("/inboxes/:id/messages", requireAuth(0.01, "general"), async (req: A
       decryptionHint: "Decrypt client-side: convert your Solana Ed25519 private key to X25519, then use nacl.box.open() with the ephemeral key and nonce packed in each message blob.",
     });
   } catch (err: any) {
-    res.status(err.message.includes("Invalid") || err.message.includes("expired") ? 401 : 500).json({
-      error: "Authentication Failed",
-      message: err.message,
-    });
-  }
-});
-
-/**
- * GET /email/inboxes/:id/messages — Get encrypted messages (legacy, requires auth header)
- * 
- * For backwards compat. Use POST with wallet signature for zero-knowledge access.
- */
-router.get("/inboxes/:id/messages", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const inboxId = req.params.id as string;
-    const msgs = emailService.getMessages(inboxId);
-    
-    res.json({
-      messages: msgs,
-      encrypted: true,
-      hint: "For zero-knowledge access, use POST with wallet signature. See POST /email/inboxes/:id/challenge.",
-    });
-  } catch (err: any) {
     res.status(404).json({ error: err.message });
   }
 });
 
 /**
- * POST /email/inboxes/:id/send — Send email (requires wallet signature)
+ * POST /email/inboxes/:id/send — Send email
  * 
- * Prove wallet ownership, then send. Sent content encrypted before storage.
+ * Auth via x402 payment or hackathon mode. No challenge needed.
+ * Sent content encrypted with your wallet key before storage.
  * 
  * Cost: 0.05 USDC (or free during hackathon)
  */
 router.post("/inboxes/:id/send", requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
-    const { to, subject, body, html, challenge, signature } = req.body;
-
-    if (!challenge || !signature) {
-      res.status(400).json({
-        error: "Missing wallet authentication",
-        message: "Sign a challenge to prove wallet ownership before sending",
-      });
-      return;
-    }
+    const { to, subject, body, html } = req.body;
 
     if (!to || !subject || !body) {
       res.status(400).json({
@@ -216,10 +132,6 @@ router.post("/inboxes/:id/send", requireAuth(0.05, "general"), async (req: Authe
       return;
     }
 
-    // Verify wallet signature
-    emailService.verifyWalletAuth(inboxId, challenge, signature);
-
-    // Send email
     const msg = await emailService.sendEmail(inboxId, to, subject, body, html);
     res.status(201).json({
       message: msg,
@@ -273,23 +185,21 @@ router.get("/info", (_req, res: Response) => {
     },
     howItWorks: {
       provision: "POST /email/provision with { name, walletAddress }. Your Solana wallet becomes your email key.",
-      challenge: "POST /email/inboxes/:id/challenge — get a string to sign with your wallet.",
-      read: "POST /email/inboxes/:id/messages with { challenge, signature } — proves ownership, returns encrypted blobs.",
+      read: "GET /email/inboxes/:id/messages — auth via x402 USDC payment (0.001) or hackathon mode. Returns encrypted blobs.",
       decrypt: "Client-side: Ed25519 → X25519 conversion, then nacl.box.open() on each blob.",
-      send: "POST /email/inboxes/:id/send with { challenge, signature, to, subject, body }.",
+      send: "POST /email/inboxes/:id/send with { to, subject, body } — auth via x402 (0.05 USDC) or hackathon mode.",
     },
     security: [
       "Your Solana wallet IS your email key — no separate keys to manage",
       "Private keys NEVER touch our servers",
       "Email content encrypted before hitting disk, plaintext deleted immediately",
       "Even if our database is breached, emails are unreadable without your wallet",
-      "Wallet signature proves ownership — like signing a transaction",
+      "x402 payment proves wallet ownership — no separate auth flow needed",
       "Self-custody model — lose your wallet, lose your email (just like crypto)",
     ],
     solanaIntegration: [
       "Ed25519 → X25519 key derivation for encryption",
-      "Wallet signature for authentication (no passwords)",
-      "x402 USDC payments for provisioning",
+      "x402 USDC payments for auth + access (payment = proof of ownership)",
       "One wallet = one identity = one inbox",
     ],
   });

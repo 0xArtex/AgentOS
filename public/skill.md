@@ -30,7 +30,7 @@ Your Solana wallet IS your email key. Zero-knowledge — we literally cannot rea
 **How it works:**
 1. Provision with your Solana wallet address
 2. Inbound emails are encrypted with your wallet's derived X25519 key
-3. Sign a challenge with your wallet to authenticate
+3. Pay with x402 (tiny USDC payment) to access — payment proves wallet ownership
 4. Decrypt client-side — plaintext never touches our servers
 
 **Encryption:** X25519 + XSalsa20-Poly1305 (NaCl box), Ed25519 → X25519 key derivation
@@ -50,25 +50,14 @@ Response: `{ inbox: { id, address, walletAddress }, encryption: { ... } }`
 
 Your email will be `my-agent@agntos.dev`
 
-### Get Challenge (for authentication)
+### Read Messages
 ```http
-POST /email/inboxes/{id}/challenge
-Content-Type: application/json
-```
-Response: `{ challenge: "agentos-email:...", expiresAt: "..." }`
-
-### Read Messages (sign to authenticate)
-```http
-POST /email/inboxes/{id}/messages
-Content-Type: application/json
+GET /email/inboxes/{id}/messages
 X-Agent-Id: <agent-id>
-
-{
-  "challenge": "<challenge-from-above>",
-  "signature": "<base58-ed25519-signature-of-challenge>"
-}
 ```
-Returns encrypted blobs. Decrypt client-side using your Solana private key:
+Cost: 0.001 USDC (or free during hackathon). Returns encrypted blobs.
+
+Decrypt client-side using your Solana private key:
 ```javascript
 import nacl from 'tweetnacl';
 
@@ -88,7 +77,7 @@ const decrypted = nacl.box.open(
 const plaintext = new TextDecoder().decode(decrypted);
 ```
 
-### Send Email (sign to prove ownership)
+### Send Email
 ```http
 POST /email/inboxes/{id}/send
 Content-Type: application/json
@@ -97,11 +86,10 @@ X-Agent-Id: <agent-id>
 {
   "to": "recipient@example.com",
   "subject": "Hello",
-  "body": "Message content",
-  "challenge": "<challenge>",
-  "signature": "<base58-signature>"
+  "body": "Message content"
 }
 ```
+Cost: 0.05 USDC (or free during hackathon).
 
 ### Email Info & SDK
 ```
@@ -113,9 +101,8 @@ GET /email/sdk      — client-side decryption helper code
 | Action | Cost |
 |--------|------|
 | Provision inbox | 1.00 USDC |
-| Read messages | 0.01 USDC |
+| Read messages | 0.001 USDC |
 | Send email | 0.05 USDC |
-| Decrypt (via API) | 0.001 USDC |
 
 ---
 

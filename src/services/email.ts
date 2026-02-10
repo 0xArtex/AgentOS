@@ -147,7 +147,7 @@ export function createInbox(
     decryptionGuide: {
       note: "Your Solana wallet IS your email key. No separate key needed.",
       steps: [
-        "1. Sign a challenge with your Solana wallet to authenticate",
+        "1. GET /email/inboxes/:id/messages (auth via x402 or hackathon header)",
         "2. Receive encrypted email blobs",
         "3. Decrypt client-side: ed25519PrivateKey → X25519 → nacl.box.open()",
       ],
