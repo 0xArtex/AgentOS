@@ -1,3 +1,15 @@
+import agentBackupRoute from "./routes/agent-backup";
+import trafficDashboardRoute from "./routes/traffic-dashboard";
+import last48hRoute from "./routes/last-48h";
+import marketplaceRoutes from "./routes/agent-marketplace";
+import submissionSummaryRoutes from "./routes/submission-summary";
+import agentWorkflowsRoutes from "./routes/agent-workflows";
+import finalCountdownRoute from "./routes/final-countdown";
+import liveStatusRoute from "./routes/live-status";
+import apiMapRoute from "./routes/api-map";
+import demoFlowRoute from "./routes/demo-flow";
+import judgeBriefRoutes from "./routes/judge-brief";
+import partnerWorkflowsRoute from "./routes/partner-workflows";
 import starterKitRoute from "./routes/starter-kit";
 import colosseumReadyRoutes from "./routes/colosseum-ready";
 import agentActivityRoutes from "./routes/agent-activity";
@@ -13,6 +25,7 @@ import ecosystemRoutes from "./routes/ecosystem";
 import agentScoreRoutes from "./routes/agent-score";
 import comparisonRoutes from "./routes/comparison";
 import quickstartRoutes from "./routes/quickstart";
+import integrationsLiveRouter from "./routes/integrations-live";
 import express from "express";
 import path from "path";
 import swaggerUi from "swagger-ui-express";
@@ -490,6 +503,21 @@ app.use("/api/benchmarks", benchmarksRoutes);
 app.use("/api/sandbox", sandboxRoutes);
 app.use("/api/sla", slaRoutes);
 app.use("/api/uptime", infoRoutes);
+app.get("/api/final-pitch", (_req: any, res: any) => {
+  res.json({
+    name: "AgentOS",
+    tagline: "The operating system for autonomous AI agents",
+    problem: "Every agent team rebuilds the same infra. Weeks wasted on plumbing.",
+    solution: "One API call = full infra stack, paid in USDC on Solana.",
+    traction: { endpoints: "121+", forum_comments: "495+", partners: 11 },
+    differentiators: ["x402 payments", "Framework-agnostic", "Sub-second provisioning", "Security-first"],
+    vision: "The AWS for the agent economy.",
+    links: { api: "http://77.42.89.233:3001", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/AgentOS" }
+  });
+});
+app.use("/api/judge-brief", judgeBriefRoutes);
+app.use("/api", last48hRoute);
+app.use("/api/submission-summary", submissionSummaryRoutes);
 app.use("/api", leaderboardRoutes);
 app.use("/api/health-matrix", healthMatrixRoutes);
 app.use("/api/changelog", changelogFullRoutes);
@@ -532,11 +560,11 @@ import hackathonRouter from "./routes/hackathon";
 app.use("/api/hackathon", hackathonRouter);
 import grantsRouter from "./routes/grants";
 import rateLimitsRouter from "./routes/ratelimits";
+import agentEventsRouter from "./routes/agent-events";
 app.use("/api", grantsRouter);
 app.use("/api/alerts", alertsRouter);
 app.use("/api/agents/reputation", reputationRoutes);
 app.use("/api/dashboard", dashboardRoutes);
-app.use("/api/rate-limits", rateLimitsRouter);
 import configRouter from "./routes/config";
 app.use("/api/config", configRouter);
 import deadlinesRouter from "./routes/deadlines";
@@ -559,6 +587,8 @@ import walkthroughRouter from "./routes/walkthrough";
 import demoRequestRouter from "./routes/demo-request";
 app.use("/api/walkthrough", walkthroughRouter);
 app.use("/api/demo-request", demoRequestRouter);
+app.use("/demo-flow", demoFlowRoute);
+app.use("/api/agent-workflows", agentWorkflowsRoutes);
 
 app.use("/api/health-summary", healthSummaryRoutes);
 app.use("/api/agent-score", agentScoreRoutes);
@@ -612,9 +642,62 @@ app.use("/api", hackathonStatsRoute);
 import pingRoute from "./routes/ping";
 app.use("/api/ping", pingRoute);
 app.use("/api/starter-kit", starterKitRoute);
+app.use("/api/partner-workflows", partnerWorkflowsRoute);
+app.use("/api/partner-workflows", partnerWorkflowsRoute);
 app.use("/ping", pingRoute);
+app.use("/api/live-status", liveStatusRoute);
+app.use("/api", finalCountdownRoute);
 import deadlineRoute from "./routes/deadline";
+import proofOfWorkRoute from './routes/proof-of-work';
 app.use("/api/deadline", deadlineRoute);
+app.use(apiMapRoute);
+app.use("/api/integrations-live", integrationsLiveRouter);
+app.use(proofOfWorkRoute);
+import agentRatingRoute from "./routes/agent-rating";
+app.use("/api/agent-rating", agentRatingRoute);
+import healthMonitorRoute from "./routes/health-monitor";
+import judgeDashboardRoute from "./routes/judge-dashboard";
+app.use("/api/health-monitor", healthMonitorRoute);
+import agentTasksRoute from "./routes/agent-tasks";
+app.use("/api/tasks", agentTasksRoute);
+app.use("/api", judgeDashboardRoute);
+app.use(trafficDashboardRoute);
+import agentNotificationsRoute from "./routes/agent-notifications";
+app.use("/api/notifications", agentNotificationsRoute);
+import agentCommsRoute from "./routes/agent-comms";app.use("/api/agent-comms", agentCommsRoute);
+import agentEscrowRoute from "./routes/agent-escrow";
+import agentWebhooksRoute from "./routes/agent-webhooks"; app.use("/api/agent-webhooks", agentWebhooksRoute);
+app.use("/api/agent-escrow", agentEscrowRoute);
+import agentQueueRoute from "./routes/agent-queue";
+app.use("/api/queue", agentQueueRoute);
+import agentDashboardRoute from "./routes/agent-dashboard";app.use("/api/agent-dashboard", agentDashboardRoute);
+import agentTemplatesRoute from "./routes/agent-templates";
+app.use("/api/agent-templates", agentTemplatesRoute);
+import agentBatchRoute from "./routes/agent-batch";app.use("/api/agent-batch", agentBatchRoute);
+import agentStatsLiveRoute from "./routes/agent-stats-live";
+import agentKanbanRoute from "./routes/agent-kanban";
+app.use("/api/agent-kanban", agentKanbanRoute);
+app.use("/api/agent-stats", agentStatsLiveRoute);
+app.use("/api/marketplace", marketplaceRoutes);
+app.use("/api/agent-events", agentEventsRouter);
+import agentAlertsRoute from "./routes/agent-alerts";
+import agentIdentityRoute from "./routes/agent-identity";
+app.use("/api/agent-alerts", agentAlertsRoute);
+app.use("/api/agent-identity", agentIdentityRoute);
+import agentSecretsRoute from "./routes/agent-secrets";
+app.use("/api/agent-secrets", agentSecretsRoute);
+import agentCronRoute from "./routes/agent-cron";
+import agentEnvRouter from "./routes/agent-env";
+app.use("/api/agent-env", agentEnvRouter);
+app.use("/api/agent-cron", agentCronRoute);
+import evaluateRoute from "./routes/evaluate";app.use("/api/evaluate", evaluateRoute);
+app.use("/api/agent-backup", agentBackupRoute);
+import agentComposeRoute from "./routes/agent-compose";
+app.use("/api/agent-compose", agentComposeRoute);
+import agentBillingRoute from "./routes/agent-billing";
+app.use("/api/agent-billing", agentBillingRoute);
+import agentSlaRoute from "./routes/agent-sla";app.use("/api/agent-sla", agentSlaRoute);
+import agentOnboardRoute from "./routes/agent-onboard"; app.use("/api/agent-onboard", agentOnboardRoute);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
@@ -626,4 +709,23 @@ app.listen(config.port, () => {
   console.log(`   Email:    *@${config.emailDomain}`);
 });
 
+import agentSimulationRoute from "./routes/agent-simulation";
+import hackathonImpactRoute from "./routes/hackathon-impact";
+app.use(agentSimulationRoute);
+app.use(hackathonImpactRoute);
+import agentFleetRoute from './routes/agent-fleet';
+import agentCollaborationRoute from "./routes/agent-collaboration";
+app.use(agentFleetRoute);
+// removed duplicate
+app.use("/api/agent-collaboration", agentCollaborationRoute);
+
+import agentLogsRoute from "./routes/agent-logs";
+import agentReputationRoute from "./routes/agent-reputation";
+app.use("/api/agent-logs", agentLogsRoute);
+app.use("/api/agent-reputation", agentReputationRoute);
+
+
+// moved up
+
 export default app;
+

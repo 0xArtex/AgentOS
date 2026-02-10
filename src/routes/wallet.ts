@@ -47,7 +47,7 @@ router.post("/create", (req: Request, res: Response) => {
         label TEXT DEFAULT 'default',
         public_key TEXT NOT NULL,
         network TEXT DEFAULT 'solana',
-        created_at TEXT DEFAULT (datetime('now')),
+        created_at TEXT DEFAULT '',
         balance_sol REAL DEFAULT 0,
         balance_usdc REAL DEFAULT 0
       )
@@ -83,7 +83,7 @@ router.get("/:agentId", (req: Request, res: Response) => {
   try {
     db.prepare(`CREATE TABLE IF NOT EXISTS agent_wallets (
       id TEXT PRIMARY KEY, agent_id TEXT, label TEXT, public_key TEXT,
-      network TEXT DEFAULT 'solana', created_at TEXT DEFAULT (datetime('now')),
+      network TEXT DEFAULT 'solana', created_at TEXT DEFAULT '',
       balance_sol REAL DEFAULT 0, balance_usdc REAL DEFAULT 0
     )`).run();
 

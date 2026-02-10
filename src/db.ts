@@ -59,6 +59,7 @@ export function initDatabase(): void {
       address TEXT UNIQUE NOT NULL,
       local_part TEXT UNIQUE NOT NULL,
       owner TEXT NOT NULL,
+      public_key TEXT,
       created_at TEXT NOT NULL,
       active INTEGER DEFAULT 1
     );
@@ -78,6 +79,7 @@ export function initDatabase(): void {
       subject TEXT NOT NULL,
       body TEXT NOT NULL,
       html TEXT,
+      encrypted INTEGER DEFAULT 0,
       timestamp TEXT NOT NULL,
       FOREIGN KEY (inbox_id) REFERENCES email_inboxes(id)
     );

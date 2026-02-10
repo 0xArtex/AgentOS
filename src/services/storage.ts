@@ -84,10 +84,10 @@ class Storage {
 
   setEmailInbox(id: string, inbox: EmailInbox): void {
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO email_inboxes (id, address, local_part, owner, created_at, active)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO email_inboxes (id, address, local_part, owner, public_key, created_at, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, inbox.address, inbox.localPart, inbox.owner, inbox.createdAt, inbox.active ? 1 : 0);
+    stmt.run(id, inbox.address, inbox.localPart, inbox.owner, inbox.publicKey, inbox.createdAt, inbox.active ? 1 : 0);
   }
 
   getEmailInbox(id: string): EmailInbox | undefined {
@@ -100,6 +100,7 @@ class Storage {
       address: row.address,
       localPart: row.local_part,
       owner: row.owner,
+      publicKey: row.public_key,
       createdAt: row.created_at,
       active: Boolean(row.active)
     };
@@ -114,6 +115,20 @@ class Storage {
   hasEmailLocalPart(localPart: string): boolean {
     const stmt = db.prepare('SELECT 1 FROM email_inboxes WHERE local_part = ? LIMIT 1');
     return Boolean(stmt.get(localPart));
+  }
+
+  getEmailInboxesByOwner(owner: string): EmailInbox[] {
+    const stmt = db.prepare('SELECT * FROM email_inboxes WHERE owner = ?');
+    const rows = stmt.all(owner) as any[];
+    return rows.map((row) => ({
+      id: row.id,
+      address: row.address,
+      localPart: row.local_part,
+      owner: row.owner,
+      publicKey: row.public_key,
+      createdAt: row.created_at,
+      active: Boolean(row.active),
+    }));
   }
 
   initEmailMessages(inboxId: string): void {
@@ -137,16 +152,17 @@ class Storage {
       subject: row.subject,
       body: row.body,
       html: row.html,
+      encrypted: Boolean(row.encrypted),
       timestamp: row.timestamp
     }));
   }
 
   pushEmailMessage(inboxId: string, msg: EmailMessage): void {
     const stmt = db.prepare(`
-      INSERT INTO email_messages (id, inbox_id, direction, from_address, to_address, subject, body, html, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO email_messages (id, inbox_id, direction, from_address, to_address, subject, body, html, encrypted, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(msg.id, inboxId, msg.direction, msg.from, msg.to, msg.subject, msg.body, msg.html, msg.timestamp);
+    stmt.run(msg.id, inboxId, msg.direction, msg.from, msg.to, msg.subject, msg.body, msg.html, msg.encrypted ? 1 : 0, msg.timestamp);
   }
 
   // ── Domains ───────────────────────────────────────────────

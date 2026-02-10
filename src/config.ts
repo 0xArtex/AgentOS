@@ -30,8 +30,9 @@ export const config = {
 
   // Email / SendGrid
   sendgridApiKey: optional("SENDGRID_API_KEY", ""),
-  emailDomain: optional("EMAIL_DOMAIN", "mail.agentos.dev"),
+  emailDomain: optional("EMAIL_DOMAIN", "agntos.dev"),
   sendgridWebhookSecret: optional("SENDGRID_WEBHOOK_SECRET", ""),
+  mailWorkerUrl: optional("MAIL_WORKER_URL", ""),
 
   // Domain registrar ("namecheap" or "cloudflare")
   domainRegistrar: optional("DOMAIN_REGISTRAR", "namecheap"),

@@ -38,21 +38,6 @@ router.get("/", (_req: Request, res: Response) => {
   });
 });
 
-
-// Final pitch - elevator pitch for judges
-router.get("/final-pitch", (_req, res) => {
-  res.json({
-    name: "AgentOS",
-    tagline: "The operating system for autonomous AI agents",
-    problem: "Every agent team rebuilds the same infra: phones, email, compute, domains, payments.",
-    solution: "One API call gives your agent a full infrastructure stack, paid in USDC on Solana.",
-    traction: { endpoints: "121+", forum_comments: "495+", ecosystem_partners: 11 },
-    differentiators: ["x402 payments", "Framework-agnostic", "Sub-second provisioning", "Security-first"],
-    vision: "The AWS for the agent economy.",
-    links: { api: "http://77.42.89.233:3001", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/AgentOS" }
-  });
-});
-
 export default router;
 
 // Demo flow - interactive guided demo

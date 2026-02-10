@@ -56,9 +56,11 @@ export interface SendSmsRequest {
 export interface EmailInbox {
   id: string;
   address: string;
-  /** e.g. "agent-name" portion of agent-name@mail.agentos.dev */
+  /** e.g. "agent-name" portion of agent-name@agntos.dev */
   localPart: string;
   owner: string;
+  /** X25519 public key for E2E encryption (base64) */
+  publicKey: string;
   createdAt: string;
   active: boolean;
 }
@@ -69,9 +71,13 @@ export interface EmailMessage {
   direction: "inbound" | "outbound";
   from: string;
   to: string;
+  /** Encrypted with inbox's X25519 public key (base64) */
   subject: string;
+  /** Encrypted with inbox's X25519 public key (base64) */
   body: string;
   html?: string;
+  /** Whether content is E2E encrypted */
+  encrypted: boolean;
   timestamp: string;
 }
 
@@ -85,6 +91,8 @@ export interface SendEmailRequest {
   subject: string;
   body: string;
   html?: string;
+  /** Agent's private key to prove inbox ownership */
+  privateKey: string;
 }
 
 // ── Domain Service ────────────────────────────────────────────
