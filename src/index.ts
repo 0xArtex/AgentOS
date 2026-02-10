@@ -232,226 +232,17 @@ app.get("/hackathon/status", (req, res) => {
 
 // ── Skill documentation for OpenClaw agents ─────────────────
 app.get("/skill.md", (req, res) => {
-  const skillMd = `# AgentOS API Skill
-
-AgentOS provides autonomous infrastructure services for AI agents on Solana.
-
-## Base URL
-\`${req.protocol}://${req.get('host')}\`
-
-## Authentication
-
-### Option 1: x402 Payment (Always Available)
-Include a Solana USDC transaction signature in the \`X-Payment\` header:
-\`\`\`
-X-Payment: <solana-transaction-signature>
-\`\`\`
-
-### Option 2: Hackathon Mode (Until ${config.hackathonEnd})
-${isHackathonActive() ? 'Currently ACTIVE' : 'Currently INACTIVE'}
-
-Include your Colosseum agent ID in the \`X-Agent-Id\` header:
-\`\`\`
-X-Agent-Id: <your-agent-id>
-\`\`\`
-
-**Hackathon Limits per Agent:**
-- 📱 Phone numbers: 5 max
-- 📧 Email inboxes: 5 max  
-- 🖥️ Servers: 2 max
-
-## Services
-
-### 📱 Phone Numbers
-
-**Provision Number**
-\`\`\`http
-POST /phone/numbers
-Content-Type: application/json
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-
-{
-  "country": "US",
-  "areaCode": "415"
-}
-\`\`\`
-
-**Get Messages**
-\`\`\`http
-GET /phone/numbers/{id}/messages
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-\`\`\`
-
-**Send SMS**
-\`\`\`http
-POST /phone/numbers/{id}/send
-Content-Type: application/json
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-
-{
-  "to": "+1234567890",
-  "body": "Hello from AgentOS!"
-}
-\`\`\`
-
-### 📧 Email Inboxes
-
-**Create Inbox**
-\`\`\`http
-POST /email/inboxes
-Content-Type: application/json
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-
-{
-  "name": "my-agent"
-}
-// Creates: my-agent@mail.agentos.dev
-\`\`\`
-
-**Get Messages**
-\`\`\`http
-GET /email/inboxes/{id}/messages
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-\`\`\`
-
-**Send Email**
-\`\`\`http
-POST /email/inboxes/{id}/send
-Content-Type: application/json
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-
-{
-  "to": "recipient@example.com",
-  "subject": "Hello from AgentOS",
-  "body": "Text content",
-  "html": "<p>HTML content</p>"
-}
-\`\`\`
-
-### 🖥️ Compute Servers
-
-**Create Server**
-\`\`\`http
-POST /compute/servers
-Content-Type: application/json
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-
-{
-  "name": "my-server",
-  "serverType": "cx22",
-  "image": "ubuntu-24.04"
-}
-\`\`\`
-
-**List Servers**
-\`\`\`http
-GET /compute/servers
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-\`\`\`
-
-**Get Server**
-\`\`\`http
-GET /compute/servers/{id}
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-\`\`\`
-
-**Delete Server**
-\`\`\`http
-DELETE /compute/servers/{id}
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-\`\`\`
-
-### 🌐 Domain Management
-
-**Register Domain**
-\`\`\`http
-POST /domains
-Content-Type: application/json
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-
-{
-  "name": "myagent",
-  "tld": "com"
-}
-\`\`\`
-
-### 🔑 API Key Management
-
-**Provision API Key**
-\`\`\`http
-POST /apikeys
-Content-Type: application/json
-X-Payment: <signature> OR X-Agent-Id: <agent-id>
-
-{
-  "provider": "openai",
-  "label": "My OpenAI Key"
-}
-\`\`\`
-
-## Demo Endpoints (Free)
-
-Test endpoints that don't require payment:
-
-\`\`\`http
-GET /demo/phone
-GET /demo/email
-GET /demo/compute
-\`\`\`
-
-## Pricing (USDC)
-
-| Service | Action | Cost |
-|---------|--------|------|
-| 📱 Phone | Provision number | 2.00 |
-| 📱 Phone | Get messages | 0.01 |
-| 📱 Phone | Send SMS | 0.05 |
-| 📧 Email | Create inbox | 1.00 |
-| 📧 Email | Get messages | 0.01 |
-| 📧 Email | Send email | 0.05 |
-| 🖥️ Compute | Create server (cx22) | 5.00 |
-| 🖥️ Compute | List/Get servers | 0.01 |
-| 🖥️ Compute | Delete server | 0.10 |
-| 🖥️ Compute | SSH key upload | 0.10 |
-| 🌐 Domain | Register domain | 10.00 |
-| 🌐 Domain | DNS updates | 0.10 |
-| 🔑 API Keys | Provision key | 1.00 |
-
-## Status & Health
-
-- \`GET /\` - Landing page
-- \`GET /api\` - API information
-- \`GET /health\` - Health check
-- \`GET /pricing\` - Pricing table
-- \`GET /hackathon/status\` - Hackathon mode status
-- \`GET /docs\` - Swagger documentation
-
-## Error Handling
-
-All errors include:
-- \`error\`: Error type
-- \`message\`: What went wrong  
-- \`hint\`: What to do next
-
-Example error:
-\`\`\`json
-{
-  "error": "Missing Required Field",
-  "message": "The 'country' field is required", 
-  "hint": "Include 'country' in your request body (e.g., 'US', 'CA', 'GB')"
-}
-\`\`\`
-
-## Treasury Wallet
-${config.treasuryWallet}
-
-## Support
-For issues or questions, check the docs at \`/docs\` or contact the AgentOS team.
-`;
-
-  res.setHeader('Content-Type', 'text/markdown');
-  res.send(skillMd);
+  const fs = require('fs');
+  const path = require('path');
+  const skillPath = path.join(__dirname, '..', 'public', 'skill.md');
+  if (fs.existsSync(skillPath)) {
+    res.setHeader('Content-Type', 'text/markdown');
+    res.send(fs.readFileSync(skillPath, 'utf-8'));
+  } else {
+    res.status(404).send('# skill.md not found');
+  }
 });
+
 
 // ── Stream Overlay Stats ──────────────────────────────────────
 app.get("/overlay-stats", async (_req, res) => {
@@ -698,6 +489,11 @@ import agentBillingRoute from "./routes/agent-billing";
 app.use("/api/agent-billing", agentBillingRoute);
 import agentSlaRoute from "./routes/agent-sla";app.use("/api/agent-sla", agentSlaRoute);
 import agentOnboardRoute from "./routes/agent-onboard"; app.use("/api/agent-onboard", agentOnboardRoute);
+import agentUptimeRoute from "./routes/agent-uptime";
+app.use("/api/agent-uptime", agentUptimeRoute);
+import agentCostOptimizerRoute from "./routes/agent-cost-optimizer";app.use("/api/cost-optimizer", agentCostOptimizerRoute);
+import agentConfigRoute from "./routes/agent-config";
+app.use("/api/agent-config", agentConfigRoute);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
@@ -713,9 +509,7 @@ import agentSimulationRoute from "./routes/agent-simulation";
 import hackathonImpactRoute from "./routes/hackathon-impact";
 app.use(agentSimulationRoute);
 app.use(hackathonImpactRoute);
-import agentFleetRoute from './routes/agent-fleet';
 import agentCollaborationRoute from "./routes/agent-collaboration";
-app.use(agentFleetRoute);
 // removed duplicate
 app.use("/api/agent-collaboration", agentCollaborationRoute);
 

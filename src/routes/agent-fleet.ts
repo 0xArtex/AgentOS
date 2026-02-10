@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getDb } from "../db";
+import { db } from "../db";
 
 const router = Router();
 
@@ -47,7 +47,7 @@ router.get("/", (_req: Request, res: Response) => {
  *         description: Aggregated fleet health and metrics
  */
 router.get("/status", (_req: Request, res: Response) => {
-  const db = getDb();
+  
   const agents = db.prepare("SELECT * FROM agents").all() as any[];
   const totalAgents = agents.length;
   const activeAgents = agents.filter((a: any) => {
@@ -137,7 +137,7 @@ router.post("/provision", (req: Request, res: Response) => {
  *         description: List of peer agents
  */
 router.get("/:agentId/peers", (req: Request, res: Response) => {
-  const db = getDb();
+  
   const agents = db.prepare("SELECT id, name, created_at FROM agents WHERE id != ?").all(req.params.agentId) as any[];
 
   res.json({
@@ -175,7 +175,7 @@ router.get("/:agentId/peers", (req: Request, res: Response) => {
  */
 router.post("/broadcast", (req: Request, res: Response) => {
   const { message = "ping", priority = "normal" } = req.body || {};
-  const db = getDb();
+  
   const agents = db.prepare("SELECT id, name FROM agents").all() as any[];
 
   res.json({
