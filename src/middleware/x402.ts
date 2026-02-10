@@ -1,197 +1,114 @@
-import { Response, NextFunction } from "express";
-import { Connection, PublicKey } from "@solana/web3.js";
+import { Request, Response, NextFunction } from "express";
 import { config } from "../config";
 import { AuthenticatedRequest, PaymentProof } from "../types";
-import { storage } from "../services/storage";
 
-const connection = new Connection(config.solanaRpcUrl, "confirmed");
-const USDC_DECIMALS = 6;
+// Our EVM (Base) payment address — AgentWallet EVM address
+const payToEvm = config.treasuryEvmWallet;
 
 /**
- * x402 Payment Verification Middleware
- *
- * Expects header:  X-Payment: <solana-tx-signature>
- *
- * Verifies that the transaction:
- *  1. Exists and is confirmed on Solana
- *  2. Contains a USDC SPL transfer to our treasury wallet
- *  3. Meets the minimum payment amount for the requested service
- *
- * On success, attaches `req.payment` with payer info and amount.
+ * Standard x402 payment middleware.
+ * 
+ * If no X-Payment header: returns 402 with payment requirements
+ * that are compatible with AgentWallet's x402/fetch and any standard x402 client.
+ * 
+ * If X-Payment header present: verifies via the x402 facilitator.
  */
-export function x402(minUsdc: number = 0) {
+export function x402(minUsdc: number = 0.01) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
-    const signature = req.headers["x-payment"] as string | undefined;
+    const paymentHeader = req.headers["x-payment"] as string | undefined;
 
-    if (!signature) {
+    if (!paymentHeader) {
+      // Return standard 402 response
       res.status(402).json({
         error: "Payment Required",
-        message: "Include a Solana USDC transaction signature in the X-Payment header",
-        protocol: "x402",
-        treasury: config.treasuryWallet,
-        currency: "USDC",
-        network: "solana",
+        x402: 1,
+        accepts: [
+          {
+            scheme: "exact",
+            network: "eip155:8453",
+            maxAmountRequired: String(Math.round(minUsdc * 1e6)),
+            resource: `${req.protocol}://${req.get("host")}${req.originalUrl}`,
+            description: `AgentOS: ${req.method} ${req.originalUrl}`,
+            mimeType: "application/json",
+            payTo: payToEvm,
+            maxTimeoutSeconds: 60,
+            asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
+            extra: {
+              name: "AgentOS",
+              facilitator: "https://x402.org/facilitator",
+            },
+          },
+        ],
       });
       return;
     }
 
-    // Check if this transaction signature has been used before
-    if (storage.isPaymentUsed(signature)) {
-      res.status(402).json({
-        error: "Payment Already Used",
-        message: "This transaction signature has already been used for payment. Each transaction can only be used once.",
-        signature,
-      });
-      return;
-    }
-
+    // Verify payment via facilitator
     try {
-      const tx = await connection.getParsedTransaction(signature, {
-        maxSupportedTransactionVersion: 0,
-        commitment: "confirmed",
+      const verifyResp = await fetch("https://x402.org/facilitator/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          payload: paymentHeader,
+          details: {
+            scheme: "exact",
+            network: "eip155:8453",
+            maxAmountRequired: String(Math.round(minUsdc * 1e6)),
+            resource: `${req.protocol}://${req.get("host")}${req.originalUrl}`,
+            payTo: payToEvm,
+            asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+          },
+        }),
       });
 
-      if (!tx) {
+      if (!verifyResp.ok) {
+        const err = await verifyResp.text();
+        console.error("[x402] Facilitator verify failed:", verifyResp.status, err);
         res.status(402).json({
-          error: "Transaction not found",
-          message: "Could not find transaction on Solana. It may not be confirmed yet.",
-          signature,
+          error: "Payment verification failed",
+          message: err,
         });
         return;
       }
 
-      if (tx.meta?.err) {
+      const result = await verifyResp.json() as any;
+      if (!result.valid) {
         res.status(402).json({
-          error: "Transaction failed",
-          message: "The referenced transaction failed on-chain.",
-          signature,
+          error: "Invalid payment",
+          message: result.reason || "Payment verification failed",
         });
         return;
       }
 
-      // Find USDC transfer to our treasury in the parsed instructions
-      const payment = extractUsdcTransfer(tx, config.treasuryWallet, config.usdcMint);
-
-      if (!payment) {
-        res.status(402).json({
-          error: "No valid USDC transfer found",
-          message: `Transaction must include a USDC transfer to ${config.treasuryWallet}`,
-          signature,
+      // Payment verified — settle it
+      try {
+        await fetch("https://x402.org/facilitator/settle", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ payload: paymentHeader }),
         });
-        return;
+      } catch (settleErr) {
+        console.error("[x402] Settlement error (non-blocking):", settleErr);
       }
 
-      const amountUsdc = Number(payment.amountLamports) / 10 ** USDC_DECIMALS;
-      if (amountUsdc < minUsdc) {
-        res.status(402).json({
-          error: "Insufficient payment",
-          message: `This endpoint requires ${minUsdc} USDC, but transaction contains ${amountUsdc} USDC`,
-          required: minUsdc,
-          received: amountUsdc,
-        });
-        return;
-      }
+      // Attach payment info
+      req.payment = {
+        signature: typeof result.txHash === "string" ? result.txHash : paymentHeader.slice(0, 64),
+        payer: result.payer || "x402-verified",
+        amountLamports: BigInt(Math.round(minUsdc * 1e6)),
+        verifiedAt: Date.now(),
+      };
 
-      // Mark this payment as used to prevent reuse
-      storage.markPaymentUsed(signature, payment.payer, payment.amountLamports, req.originalUrl);
-
-      req.payment = payment;
       next();
     } catch (err) {
       console.error("[x402] Verification error:", err);
       res.status(500).json({
         error: "Payment verification failed",
-        message: "Internal error while verifying payment on Solana",
+        message: "Could not reach x402 facilitator",
       });
     }
   };
 }
 
-/**
- * Parse a confirmed transaction to find a USDC SPL token transfer
- * to the given treasury wallet.
- */
-function extractUsdcTransfer(
-  tx: any,
-  treasuryWallet: string,
-  usdcMint: string
-): PaymentProof | null {
-  const instructions = tx.transaction?.message?.instructions ?? [];
-
-  for (const ix of instructions) {
-    // SPL Token transfers show up as parsed instructions with type "transfer" or "transferChecked"
-    if (ix.program !== "spl-token") continue;
-
-    const parsed = ix.parsed;
-    if (!parsed) continue;
-
-    const type = parsed.type;
-    if (type !== "transfer" && type !== "transferChecked") continue;
-
-    const info = parsed.info;
-    if (!info) continue;
-
-    // For transferChecked, verify the mint is USDC
-    if (type === "transferChecked" && info.mint !== usdcMint) continue;
-
-    // Check destination — this is a token account, we need to check if it belongs to treasury
-    // In a production system, we'd resolve the token account owner via getParsedAccountInfo
-    // For now, we check post-token balances for the treasury wallet
-    const destination: string = info.destination;
-    const amount: string = type === "transferChecked" ? info.tokenAmount?.amount : info.amount;
-
-    if (!amount) continue;
-
-    // Verify destination belongs to treasury by checking postTokenBalances
-    const postBalances = tx.meta?.postTokenBalances ?? [];
-    const isTreasuryTransfer = postBalances.some(
-      (bal: any) =>
-        bal.owner === treasuryWallet &&
-        bal.mint === usdcMint &&
-        bal.uiTokenAmount?.amount !== undefined
-    );
-
-    if (!isTreasuryTransfer) continue;
-
-    return {
-      signature: tx.transaction.signatures[0],
-      payer: info.authority ?? info.source,
-      amountLamports: BigInt(amount),
-      verifiedAt: Date.now(),
-    };
-  }
-
-  // Also check inner instructions (CPI calls)
-  const innerInstructions = tx.meta?.innerInstructions ?? [];
-  for (const inner of innerInstructions) {
-    for (const ix of inner.instructions ?? []) {
-      if (ix.program !== "spl-token") continue;
-      const parsed = ix.parsed;
-      if (!parsed || (parsed.type !== "transfer" && parsed.type !== "transferChecked")) continue;
-
-      const info = parsed.info;
-      if (!info) continue;
-      if (parsed.type === "transferChecked" && info.mint !== usdcMint) continue;
-
-      const amount: string =
-        parsed.type === "transferChecked" ? info.tokenAmount?.amount : info.amount;
-      if (!amount) continue;
-
-      const postBalances = tx.meta?.postTokenBalances ?? [];
-      const isTreasuryTransfer = postBalances.some(
-        (bal: any) => bal.owner === treasuryWallet && bal.mint === usdcMint
-      );
-
-      if (!isTreasuryTransfer) continue;
-
-      return {
-        signature: tx.transaction.signatures[0],
-        payer: info.authority ?? info.source,
-        amountLamports: BigInt(amount),
-        verifiedAt: Date.now(),
-      };
-    }
-  }
-
-  return null;
-}
+// Alias for backwards compat
+export const requireX402Payment = x402;

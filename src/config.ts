@@ -19,6 +19,7 @@ export const config = {
   // Solana / x402
   solanaRpcUrl: optional("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),
   treasuryWallet: required("TREASURY_WALLET"),
+  treasuryEvmWallet: optional("TREASURY_EVM_WALLET", "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2"),
   /** USDC mint on Solana mainnet */
   usdcMint: optional("USDC_MINT", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
 

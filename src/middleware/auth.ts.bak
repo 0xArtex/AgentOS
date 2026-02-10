@@ -1,7 +1,7 @@
 import { Response, NextFunction } from "express";
 import { HackathonRequest, isHackathonActive } from "./hackathon";
 import { trackHackathonUsage } from "./hackathon";
-import { requireX402Payment } from "./x402";
+import { x402 } from "./x402";
 import { db } from "../db";
 
 /**
@@ -48,36 +48,19 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
           // Free tier exhausted — need payment
         }
         
-        // Check x402 payment header (standard protocol)
+        // Check x402 payment header
         if (req.headers["x-payment"]) {
-          const paymentAuth = requireX402Payment(minUsdc);
+          const paymentAuth = x402(minUsdc);
           return paymentAuth(req, res, next);
         }
 
-        // No payment, free tier used — return standard x402 payment requirements
+        // No payment, free tier used
         res.status(402).json({
           error: "Payment Required",
           message: agent.hackathon_verified 
-            ? "Free tier exhausted (1 per service). Pay with USDC via x402."
+            ? "Free tier exhausted (1 per service). Pay with USDC for additional services."
             : "This service requires USDC payment via x402.",
-          "x-payment-required": {
-            version: "0.1",
-            routes: {
-              [req.originalUrl]: {
-                accepts: [
-                  {
-                    scheme: "exact",
-                    price: `$${minUsdc}`,
-                    network: "eip155:8453",
-                    payTo: "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2",
-                    asset: "USDC",
-                  },
-                ],
-                description: `AgentOS: ${req.method} ${req.originalUrl}`,
-              },
-            },
-            facilitator: "https://x402.org/facilitator",
-          },
+          hint: "Include X-Payment header with a Solana USDC transaction signature",
           pricing: "GET /pricing",
         });
         return;
@@ -111,25 +94,8 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
 
         res.status(402).json({
           error: "Payment Required",
-          message: "Free tier exhausted or not available. Pay with USDC via x402.",
-          "x-payment-required": {
-            version: "0.1",
-            routes: {
-              [req.originalUrl]: {
-                accepts: [
-                  {
-                    scheme: "exact",
-                    price: `$${minUsdc}`,
-                    network: "eip155:8453",
-                    payTo: "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2",
-                    asset: "USDC",
-                  },
-                ],
-                description: `AgentOS: ${req.method} ${req.originalUrl}`,
-              },
-            },
-            facilitator: "https://x402.org/facilitator",
-          },
+          message: "Free tier exhausted or not available. Pay with USDC.",
+          hint: "Include X-Payment header with a Solana USDC transaction signature",
         });
         return;
       }
@@ -149,7 +115,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
 
     // Method 3: x402 payment only (no registration needed)
     if (req.headers["x-payment"]) {
-      const paymentAuth = requireX402Payment(minUsdc);
+      const paymentAuth = x402(minUsdc);
       return paymentAuth(req, res, next);
     }
 
