@@ -99,6 +99,7 @@ import logsRoutes from "./routes/logs";
 import metricsRoutes from "./routes/metrics";
 import agentKitRoutes from "./routes/agent-kit";
 import hackathonPitchRoutes from "./routes/hackathon-pitch";
+import agentManifestRoutes from "./routes/agent-manifest";
 
 
 const app = express();
@@ -487,6 +488,7 @@ app.use("/api/agent-kanban", agentKanbanRoute);
 app.use("/api/agent-stats", agentStatsLiveRoute);
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api", hackathonPitchRoutes);
+app.use("/api", agentManifestRoutes);
 app.use("/api/agent-events", agentEventsRouter);
 import agentAlertsRoute from "./routes/agent-alerts";
 import agentIdentityRoute from "./routes/agent-identity";
@@ -537,6 +539,9 @@ app.use("/api/agent-leaderboard", agentLeaderboardRoute);
 app.use("/api/agent-graph", agentGraphRoute);
 import agentHealthRoute from "./routes/agent-health"; app.use("/api", agentHealthRoute);
 app.use(judgeScorecardRoute);
+import finalHoursRouter from "./routes/final-hours";
+app.use("/api", finalHoursRouter);
+import finalDemoRouter from "./routes/final-demo"; app.use("/api", finalDemoRouter);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
@@ -567,4 +572,5 @@ app.use("/api/agent-reputation", agentReputationRoute);
 // moved up
 
 export default app;
+
 

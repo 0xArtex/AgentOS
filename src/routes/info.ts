@@ -207,3 +207,21 @@ router.get("/final-pitch", (_req, res) => {
     ask: "Vote for AgentOS — the infrastructure layer that makes the entire agent ecosystem possible."
   });
 });
+
+router.get("/last-stand", (_req, res) => {
+  const deadline = new Date("2026-02-12T17:00:00Z");
+  const now = new Date();
+  const msLeft = Math.max(0, deadline.getTime() - now.getTime());
+  const hours = Math.floor(msLeft / 3600000);
+  const mins = Math.floor((msLeft % 3600000) / 60000);
+  const urgency = hours < 6 ? "CRITICAL" : hours < 12 ? "HIGH" : hours < 24 ? "MEDIUM" : "NORMAL";
+  res.json({
+    title: "AgentOS - Last Stand",
+    countdown: `${hours}h ${mins}m remaining`,
+    urgency,
+    what_we_built: "Full autonomous infrastructure API for AI agents - phone, email, compute, domains - all USDC settled",
+    by_the_numbers: { api_endpoints: "205+", forum_comments: "800+", ecosystem_partners: "11+", days_building: 12 },
+    why_it_matters: "Every agent project needs infra. We built the platform so nobody has to.",
+    judge_quick_links: { try_it: "curl http://77.42.89.233:3001/api/quickstart", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/AgentOS" }
+  });
+});
