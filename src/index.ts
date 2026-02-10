@@ -1,3 +1,5 @@
+import serviceProbeRouter from "./routes/service-probe";
+import liveDashboardRoute from "./routes/live-dashboard";
 import agentBackupRoute from "./routes/agent-backup";
 import trafficDashboardRoute from "./routes/traffic-dashboard";
 import last48hRoute from "./routes/last-48h";
@@ -496,6 +498,9 @@ import agentConfigRoute from "./routes/agent-config";
 import agentMetricsRoute from "./routes/agent-metrics";
 app.use("/api/agent-config", agentConfigRoute);
 app.use("/api/agent-metrics", agentMetricsRoute);
+import agentSnapshotRoute from "./routes/agent-snapshot"; app.use(agentSnapshotRoute);
+app.use("/dashboard", liveDashboardRoute);
+app.use(serviceProbeRouter);
 app.use(notFoundHandler);
 app.use(errorHandler);
 

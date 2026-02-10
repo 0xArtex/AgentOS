@@ -6,8 +6,18 @@ const router = Router({ mergeParams: true });
 /**
  * POST /agents/register — Register a new agent (free, gets an agent token)
  */
-router.post("/register", (req: Request, res: Response) => {
-  const { name, description, walletAddress, webhookUrl } = req.body;
+router.post("/register", async (req: Request, res: Response) => {
+  const { name, description, walletAddress, webhookUrl, agentId } = req.body;
+
+  // Wallet address is REQUIRED
+  if (!walletAddress || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+    res.status(400).json({
+      error: "Wallet Address Required",
+      message: "Provide a valid Solana wallet address (base58 public key)",
+      hint: "Your wallet is your identity. Include 'walletAddress' in your request body.",
+    });
+    return;
+  }
 
   if (!name || typeof name !== "string" || name.length < 2) {
     res.status(400).json({
@@ -18,10 +28,19 @@ router.post("/register", (req: Request, res: Response) => {
     return;
   }
 
+  // Check if wallet already registered
+  const existingWallet = db.prepare("SELECT id, name FROM agents WHERE wallet_address = ?").get(walletAddress) as any;
+  if (existingWallet) {
+    res.status(409).json({
+      error: "Wallet Already Registered",
+      message: `This wallet is already registered as agent '${existingWallet.name}'`,
+      hint: "Use your existing token, or use a different wallet.",
+    });
+    return;
+  }
+
   // Check if name is taken
-  const existing = db
-    .prepare("SELECT id FROM agents WHERE name = ?")
-    .get(name);
+  const existing = db.prepare("SELECT id FROM agents WHERE name = ?").get(name);
   if (existing) {
     res.status(409).json({
       error: "Agent Name Taken",
@@ -31,26 +50,54 @@ router.post("/register", (req: Request, res: Response) => {
     return;
   }
 
+  // If Colosseum agent ID provided, prevent reuse with different wallet
+  let hackathonVerified = false;
+  if (agentId) {
+    const existingAgent = db.prepare("SELECT wallet_address, name FROM agents WHERE colosseum_id = ?").get(agentId) as any;
+    if (existingAgent) {
+      res.status(409).json({
+        error: "Colosseum ID Already Bound",
+        message: `Agent ID "${agentId}" is already linked to wallet ${existingAgent.wallet_address.slice(0, 8)}...`,
+        hint: "Each Colosseum agent ID can only be linked to one wallet. This prevents free-tier exploitation.",
+      });
+      return;
+    }
+
+    // During hackathon, trust agent ID (uniqueness constraint prevents exploitation)
+    hackathonVerified = true;
+  }
+
   const id = `agent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const token = `agt_${Array.from({ length: 48 }, () => Math.random().toString(36)[2]).join("")}`;
+  const token = `aos_${Array.from({ length: 48 }, () => Math.random().toString(36)[2]).join("")}`;
   const now = new Date().toISOString();
 
   db.prepare(
-    `INSERT INTO agents (id, name, description, wallet_address, webhook_url, token, created_at) 
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
-  ).run(id, name, description || null, walletAddress || null, webhookUrl || null, token, now);
+    `INSERT INTO agents (id, name, description, wallet_address, webhook_url, token, colosseum_id, hackathon_verified, created_at) 
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(id, name, description || null, walletAddress, webhookUrl || null, token, agentId || null, hackathonVerified ? 1 : 0, now);
 
   res.status(201).json({
     agent: {
       id,
       name,
-      description: description || null,
-      walletAddress: walletAddress || null,
-      webhookUrl: webhookUrl || null,
+      walletAddress,
+      colosseumId: agentId || null,
+      hackathonVerified,
       createdAt: now,
     },
     token,
-    message: "Agent registered! Use this token as X-Agent-Token header for authenticated requests.",
+    warning: "⚠️ Save your token — it is shown once and cannot be recovered.",
+    freeTier: hackathonVerified ? {
+      active: true,
+      limits: { email: 1, phone: 1, server: 1 },
+      note: "Colosseum hackathon agents get 1 free service each. Additional services require USDC payment via x402.",
+      expiresAt: "2026-02-12T17:00:00Z",
+    } : null,
+    nextSteps: [
+      "Use your token: Authorization: Bearer " + token,
+      hackathonVerified ? "Provision 1 free email: POST /email/provision" : "Pay with USDC for services",
+      "Check your profile: GET /agents/me",
+    ],
   });
 });
 

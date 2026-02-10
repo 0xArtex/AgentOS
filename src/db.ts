@@ -250,7 +250,23 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_request_log_created ON request_log(created_at);
   `);
 
-  // Hackathon Usage table
+  // Registered Agents table
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS registered_agents (
+      id TEXT PRIMARY KEY,
+      wallet_address TEXT UNIQUE NOT NULL,
+      agent_id TEXT UNIQUE,
+      name TEXT,
+      api_key TEXT UNIQUE NOT NULL,
+      hackathon_verified INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_registered_agents_wallet ON registered_agents(wallet_address);
+    CREATE INDEX IF NOT EXISTS idx_registered_agents_agent_id ON registered_agents(agent_id);
+    CREATE INDEX IF NOT EXISTS idx_registered_agents_api_key ON registered_agents(api_key);
+  `);
+
+// Hackathon Usage table
   db.exec(`
     CREATE TABLE IF NOT EXISTS hackathon_usage (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
