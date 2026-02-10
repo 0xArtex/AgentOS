@@ -1,33 +1,8 @@
 import { Response, NextFunction } from "express";
 import { HackathonRequest, isHackathonActive } from "./hackathon";
 import { trackHackathonUsage } from "./hackathon";
-import { requireX402Payment } from "./x402";
+import { requireX402Payment, send402Response } from "./x402";
 import { db } from "../db";
-
-const PAY_TO_EVM = "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2";
-
-/** Send a 402 with standard x402 headers + body */
-function send402(res: Response, req: any, minUsdc: number, message: string) {
-  const paymentRequirements = {
-    x402: 1,
-    accepts: [
-      {
-        scheme: "exact",
-        network: "eip155:8453",
-        maxAmountRequired: String(Math.round(minUsdc * 1e6)),
-        resource: `https://${req.get?.("host") || "agntos.dev"}${req.originalUrl}`,
-        description: `AgentOS: ${req.method} ${req.originalUrl}`,
-        mimeType: "application/json",
-        payTo: PAY_TO_EVM,
-        maxTimeoutSeconds: 60,
-        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-        extra: { name: "AgentOS", facilitator: "https://x402.org/facilitator" },
-      },
-    ],
-  };
-  res.setHeader("X-Payment-Required", JSON.stringify(paymentRequirements));
-  res.status(402).json({ error: "Payment Required", message, ...paymentRequirements });
-}
 
 /**
  * Combined authentication middleware for AgentOS
@@ -80,7 +55,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
         }
 
         // No payment, free tier used
-        send402(res, req, minUsdc,
+        send402Response(res, req, minUsdc,
           agent.hackathon_verified 
             ? "Free tier exhausted (1 per service). Pay with USDC via x402."
             : "This service requires USDC payment via x402."
@@ -114,7 +89,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
           }
         }
 
-        send402(res, req, minUsdc, "Free tier exhausted or not available. Pay with USDC via x402.");
+        send402Response(res, req, minUsdc, "Free tier exhausted or not available. Pay with USDC via x402.");
         return;
       }
       

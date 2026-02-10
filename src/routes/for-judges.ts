@@ -34,7 +34,7 @@ router.get("/", (_req: Request, res: Response) => {
     by_the_numbers: {
       total_endpoints: `${routeCount}+`,
       database_tables: 16,
-      forum_engagement: "727+ comments across 50+ threads",
+      forum_engagement: "740+ comments across 60+ threads",
       ecosystem_partners: "11 hackathon projects integrated",
       uptime_hours: uptimeHours,
       agents_registered: safeCount("agents"),

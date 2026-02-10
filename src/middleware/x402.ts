@@ -1,91 +1,112 @@
 import { Request, Response, NextFunction } from "express";
 import { config } from "../config";
-import { AuthenticatedRequest, PaymentProof } from "../types";
+import { AuthenticatedRequest } from "../types";
 
-// Our EVM (Base) payment address — AgentWallet EVM address
+// Use the official x402 encode/decode helpers
+let encodePaymentRequiredHeader: (data: any) => string;
+let decodePaymentSignatureHeader: (header: string) => any;
+try {
+  const x402Http = require("@x402/core/http");
+  encodePaymentRequiredHeader = x402Http.encodePaymentRequiredHeader;
+  decodePaymentSignatureHeader = x402Http.decodePaymentSignatureHeader;
+} catch {
+  // Fallback: base64 encode JSON
+  encodePaymentRequiredHeader = (data: any) => Buffer.from(JSON.stringify(data)).toString("base64");
+  decodePaymentSignatureHeader = (header: string) => JSON.parse(Buffer.from(header, "base64").toString());
+}
+
 const payToEvm = config.treasuryEvmWallet;
+
+/**
+ * Build standard x402 payment requirements object
+ */
+function buildPaymentRequired(req: Request, minUsdc: number) {
+  return {
+    x402: 2,
+    accepts: [
+      {
+        scheme: "exact",
+        network: "eip155:8453", // Base Mainnet
+        maxAmountRequired: String(Math.round(minUsdc * 1e6)),
+        resource: `https://${req.get("host") || "agntos.dev"}${req.originalUrl}`,
+        description: `AgentOS: ${req.method} ${req.originalUrl}`,
+        mimeType: "application/json",
+        payTo: payToEvm,
+        maxTimeoutSeconds: 60,
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
+        extra: {
+          name: "AgentOS",
+          facilitator: "https://x402.org/facilitator",
+        },
+      },
+    ],
+  };
+}
+
+/**
+ * Send a standard 402 response with proper headers.
+ * Header: PAYMENT-REQUIRED (base64-encoded JSON per x402 spec)
+ * Also sets X-Payment-Required as JSON for backwards compat.
+ */
+export function send402Response(res: Response, req: Request, minUsdc: number, message: string) {
+  const paymentRequired = buildPaymentRequired(req, minUsdc);
+  const encoded = encodePaymentRequiredHeader(paymentRequired);
+
+  // Standard x402 header (base64 encoded)
+  res.setHeader("PAYMENT-REQUIRED", encoded);
+  // Also set as JSON for clients that expect it
+  res.setHeader("X-Payment-Required", JSON.stringify(paymentRequired));
+
+  res.status(402).json({
+    error: "Payment Required",
+    message,
+    ...paymentRequired,
+  });
+}
 
 /**
  * Standard x402 payment middleware.
  * 
- * If no X-Payment header: returns 402 with payment requirements
- * that are compatible with AgentWallet's x402/fetch and any standard x402 client.
- * 
- * If X-Payment header present: verifies via the x402 facilitator.
+ * If no payment header: returns 402 with PAYMENT-REQUIRED header (base64, per spec).
+ * If PAYMENT-SIGNATURE header present: verifies via the x402 facilitator.
  */
 export function x402(minUsdc: number = 0.01) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
-    const paymentHeader = req.headers["x-payment"] as string | undefined;
+    // Check for standard x402 header (PAYMENT-SIGNATURE) and legacy (X-Payment)
+    const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
 
     if (!paymentHeader) {
-      // Return standard 402 with payment requirements as HEADER (x402 standard)
-      const paymentRequirements = {
-        x402: 1,
-        accepts: [
-          {
-            scheme: "exact",
-            network: "eip155:8453",
-            maxAmountRequired: String(Math.round(minUsdc * 1e6)),
-            resource: `${req.protocol}://${req.get("host")}${req.originalUrl}`,
-            description: `AgentOS: ${req.method} ${req.originalUrl}`,
-            mimeType: "application/json",
-            payTo: payToEvm,
-            maxTimeoutSeconds: 60,
-            asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC on Base
-            extra: {
-              name: "AgentOS",
-              facilitator: "https://x402.org/facilitator",
-            },
-          },
-        ],
-      };
-
-      res.setHeader("X-Payment-Required", JSON.stringify(paymentRequirements));
-      res.status(402).json({
-        error: "Payment Required",
-        ...paymentRequirements,
-      });
+      send402Response(res, req, minUsdc, "Payment required. Use x402 protocol.");
       return;
     }
 
     // Verify payment via facilitator
     try {
+      const paymentRequired = buildPaymentRequired(req, minUsdc);
+
       const verifyResp = await fetch("https://x402.org/facilitator/verify", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           payload: paymentHeader,
-          details: {
-            scheme: "exact",
-            network: "eip155:8453",
-            maxAmountRequired: String(Math.round(minUsdc * 1e6)),
-            resource: `${req.protocol}://${req.get("host")}${req.originalUrl}`,
-            payTo: payToEvm,
-            asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-          },
+          details: paymentRequired.accepts[0],
         }),
       });
 
       if (!verifyResp.ok) {
         const err = await verifyResp.text();
         console.error("[x402] Facilitator verify failed:", verifyResp.status, err);
-        res.status(402).json({
-          error: "Payment verification failed",
-          message: err,
-        });
+        send402Response(res, req, minUsdc, `Payment verification failed: ${err}`);
         return;
       }
 
       const result = await verifyResp.json() as any;
       if (!result.valid) {
-        res.status(402).json({
-          error: "Invalid payment",
-          message: result.reason || "Payment verification failed",
-        });
+        send402Response(res, req, minUsdc, result.reason || "Payment verification failed");
         return;
       }
 
-      // Payment verified — settle it
+      // Settlement (non-blocking)
       try {
         await fetch("https://x402.org/facilitator/settle", {
           method: "POST",
@@ -96,9 +117,9 @@ export function x402(minUsdc: number = 0.01) {
         console.error("[x402] Settlement error (non-blocking):", settleErr);
       }
 
-      // Attach payment info
+      // Attach payment info to request
       req.payment = {
-        signature: typeof result.txHash === "string" ? result.txHash : paymentHeader.slice(0, 64),
+        signature: result.txHash || paymentHeader.slice(0, 64),
         payer: result.payer || "x402-verified",
         amountLamports: BigInt(Math.round(minUsdc * 1e6)),
         verifiedAt: Date.now(),
@@ -115,5 +136,5 @@ export function x402(minUsdc: number = 0.01) {
   };
 }
 
-// Alias for backwards compat
+// Alias
 export const requireX402Payment = x402;
