@@ -15,6 +15,7 @@ import finalCountdownRoute from "./routes/final-countdown";
 import liveStatusRoute from "./routes/live-status";
 import apiMapRoute from "./routes/api-map";
 import demoFlowRoute from "./routes/demo-flow";
+import demoLiveRoute from "./routes/demo-live";
 import demoScriptRoute from "./routes/demo-script";
 import warRoomRouter from "./routes/war-room";
 import judgeBriefRoutes from "./routes/judge-brief";
@@ -390,6 +391,7 @@ import demoRequestRouter from "./routes/demo-request";
 app.use("/api/walkthrough", walkthroughRouter);
 app.use("/api/demo-request", demoRequestRouter);
 app.use("/demo-flow", demoFlowRoute);
+app.use(demoLiveRoute);
 app.use(demoScriptRoute);
 app.use("/api/agent-workflows", agentWorkflowsRoutes);
 

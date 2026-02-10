@@ -18,9 +18,8 @@ export function x402(minUsdc: number = 0.01) {
     const paymentHeader = req.headers["x-payment"] as string | undefined;
 
     if (!paymentHeader) {
-      // Return standard 402 response
-      res.status(402).json({
-        error: "Payment Required",
+      // Return standard 402 with payment requirements as HEADER (x402 standard)
+      const paymentRequirements = {
         x402: 1,
         accepts: [
           {
@@ -39,6 +38,12 @@ export function x402(minUsdc: number = 0.01) {
             },
           },
         ],
+      };
+
+      res.setHeader("X-Payment-Required", JSON.stringify(paymentRequirements));
+      res.status(402).json({
+        error: "Payment Required",
+        ...paymentRequirements,
       });
       return;
     }
