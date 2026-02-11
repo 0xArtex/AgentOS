@@ -7,8 +7,8 @@ const { encodePaymentRequiredHeader, decodePaymentSignatureHeader } = require("@
 const payToEvm = config.treasuryEvmWallet;
 const payToSolana = config.treasuryWallet;
 
-// Public x402 facilitator (supports devnet only)
-const FACILITATOR_URL = "https://x402.org/facilitator";
+// Self-hosted x402 facilitator (supports Solana mainnet)
+const FACILITATOR_URL = "http://localhost:8090";
 
 function buildPaymentRequired(req: Request, minUsdc: number) {
   const resource = `https://${req.get("host") || "agntos.dev"}${req.originalUrl}`;
@@ -21,23 +21,24 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
     accepts: [
       {
         scheme: "exact",
-        network: "solana:EtWTRABZaYq6iMfeYKouRu166VU2xqa1", // Solana Devnet
+        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", // Solana Mainnet
         amount,
         payTo: payToSolana,
         maxTimeoutSeconds: 60,
-        asset: "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU", // USDC Devnet
+        asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC Mainnet
         extra: {
           name: "AgentOS",
           facilitator: FACILITATOR_URL,
+          feePayer: "4R67MWivvc52g9BSzQRvQyD8GshttW1QLbnj46usBrcQ",
         },
       },
       {
         scheme: "exact",
-        network: "eip155:84532", // Base Sepolia
+        network: "eip155:8453", // Base Mainnet
         amount,
         payTo: payToEvm,
         maxTimeoutSeconds: 60,
-        asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e", // USDC Base Sepolia
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC Base
         extra: {
           name: "AgentOS",
           facilitator: FACILITATOR_URL,
