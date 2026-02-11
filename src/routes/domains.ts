@@ -148,7 +148,7 @@ async function namecheapRequest(command: string, params: Record<string, string> 
 }
 
 /**
- * Get pricing for a specific TLD
+ * Get pricing for a specific TLD from Namecheap
  */
 async function getTldPrice(tld: string): Promise<number> {
   const cacheKey = tld.toLowerCase();
@@ -159,46 +159,34 @@ async function getTldPrice(tld: string): Promise<number> {
   }
 
   try {
-    const response = await namecheapRequest('namecheap.users.getPricing', {
-      ProductType: 'DOMAIN',
-      ProductCategory: 'REGISTER'
-    });
-
-    if (response.pricing && response.pricing[tld]) {
-      const price = response.pricing[tld];
-      pricingCache.set(cacheKey, { price, timestamp: Date.now() });
-      return price;
+    // Query pricing for specific TLD
+    const apiUser = process.env.NAMECHEAP_API_USER;
+    const apiKey = process.env.NAMECHEAP_API_KEY;
+    const url = `https://api.namecheap.com/xml.response?ApiUser=${apiUser}&ApiKey=${apiKey}&UserName=${apiUser}&ClientIp=77.42.89.233&Command=namecheap.users.getPricing&ProductType=DOMAIN&ProductCategory=REGISTER&ProductName=${tld.toLowerCase()}`;
+    
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const xml = await resp.text();
+    
+    // Extract YourPrice for Duration="1" (1 year)
+    const match = xml.match(/Duration="1"[^/]*YourPrice="([^"]+)"/);
+    if (match) {
+      const price = parseFloat(match[1]);
+      // Also add ICANN fee if present
+      const icannMatch = xml.match(/Duration="1"[^/]*YourAdditonalCost="([^"]+)"/);
+      const icann = icannMatch ? parseFloat(icannMatch[1]) : 0;
+      const total = price + icann;
+      pricingCache.set(cacheKey, { price: total, timestamp: Date.now() });
+      return total;
     }
-
-    // Default pricing if not found
-    const defaultPricing: Record<string, number> = {
-      'com': 12.98,
-      'net': 14.98,
-      'org': 14.98,
-      'dev': 12.98,
-      'xyz': 12.98,
-      'io': 39.98,
-      'app': 19.98
-    };
-
-    const defaultPrice = defaultPricing[tld.toLowerCase()] || 15.98;
-    pricingCache.set(cacheKey, { price: defaultPrice, timestamp: Date.now() });
-    return defaultPrice;
+    
+    throw new Error('Price not found in response');
   } catch (error) {
-    console.warn(`Failed to get pricing for ${tld}, using default:`, error);
-    // Default pricing on error
-    const defaultPricing: Record<string, number> = {
-      'com': 12.98,
-      'net': 14.98,
-      'org': 14.98,
-      'dev': 12.98,
-      'xyz': 12.98,
-      'io': 39.98,
-      'app': 19.98
+    console.warn(`[domains] Failed to get pricing for .${tld}:`, error);
+    const defaults: Record<string, number> = {
+      'com': 18.48, 'net': 18.58, 'org': 15.98, 'dev': 12.98,
+      'xyz': 2.20, 'io': 34.98, 'app': 12.98, 'ai': 79.98
     };
-    const defaultPrice = defaultPricing[tld.toLowerCase()] || 15.98;
-    pricingCache.set(cacheKey, { price: defaultPrice, timestamp: Date.now() });
-    return defaultPrice;
+    return defaults[tld.toLowerCase()] || 15.98;
   }
 }
 
@@ -274,24 +262,19 @@ router.get('/check', async (req: Request, res: Response) => {
  * GET /domains/pricing
  * Get pricing for popular TLDs
  */
-router.get('/pricing', async (req: Request, res: Response) => {
-  // Default pricing (with 10% markup already applied)
-  const defaultPricing: Record<string, number> = {
-    'com': 14.28, // $12.98 * 1.10
-    'net': 16.48, // $14.98 * 1.10
-    'org': 16.48, // $14.98 * 1.10
-    'dev': 14.28, // $12.98 * 1.10
-    'xyz': 14.28, // $12.98 * 1.10
-    'io': 43.98,  // $39.98 * 1.10
-    'app': 21.98  // $19.98 * 1.10
-  };
+router.get('/pricing', async (_req: Request, res: Response) => {
+  const tlds = ['com', 'net', 'org', 'dev', 'xyz', 'io', 'app', 'ai'];
+  const pricing: Record<string, number> = {};
+  
+  await Promise.all(tlds.map(async (tld) => {
+    const base = await getTldPrice(tld);
+    pricing[tld] = Math.round(base * 1.10 * 100) / 100; // 10% markup
+  }));
 
-  // For now, return default pricing immediately due to Namecheap API connectivity issues
-  // TODO: Re-enable live pricing when API is stable
   res.json({
     currency: 'USDC',
-    pricing: defaultPricing,
-    note: 'Default pricing with 10% markup. Live API integration temporarily disabled due to connectivity issues.'
+    pricing,
+    note: 'Prices in USDC with 10% service fee. 1-year registration.',
   });
 });
 
