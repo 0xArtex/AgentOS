@@ -45,7 +45,7 @@ import { swaggerSpec } from "./swagger";
 import "./db"; // Initialize database
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
-import domainRoutes from "./routes/domain";
+import domainRoutes from "./routes/domains";
 import computeRoutes from "./routes/compute";
 import apikeysRoutes from "./routes/apikeys";
 import demoRoutes from "./routes/demo";
@@ -57,8 +57,11 @@ import statsRoutes from "./routes/stats";
 import messageRoutes from "./routes/messages";
 import agentToolkitRouter from "./routes/agent-toolkit";
 import bootstrapRouter from "./routes/bootstrap";
-import demoVideoRouter from "./routes/demo-video";
+import whyUsRouter from "./routes/why-us";
+import whyRouter from "./routes/why";
 import { errorHandler, notFoundHandler } from "./middleware/errors";
+import agentNetworkRouter from "./routes/agent-network";
+import agentSearchHub from "./routes/agent-search-hub";
 import { requestLogger } from "./middleware/requestLog";
 import { cors } from "./middleware/cors";
 import { requestTimeout } from "./middleware/timeout";
@@ -104,6 +107,7 @@ import agentManifestRoutes from "./routes/agent-manifest";
 
 
 const app = express();
+import deadlineDayRoute from "./routes/deadline-day";
 
 app.use(securityHeaders);
 app.use(paramPollution);
@@ -176,6 +180,7 @@ app.use("/api/demo/interactive", demoInteractiveRoutes);
 // ── Webhook Routes (no x402 payment, for provider callbacks) ─
 app.use("/webhooks", webhookRoutes);
 app.use("/api", whyAgentosRoute);
+app.use("/api/why", whyRouter);
 app.use("/api", submissionReadyRoutes);
 
 // ── Pricing info (no auth required) ──────────────────────────
@@ -528,13 +533,14 @@ app.use("/api/agent-compare", agentCompareRoute);
 import agentUptimeReportRoute from "./routes/agent-uptime-report";
 app.use("/api/agent-uptime-report", agentUptimeReportRoute);
 app.use(warRoomRouter);
-app.use("/api", demoVideoRouter);
 app.use("/api", fleetDashboardRoute);
 import finalStatsRouter from "./routes/final-stats";
 app.use(finalStatsRouter);
 import agentQuicksetup from "./routes/agent-quicksetup";app.use("/api/quicksetup", agentQuicksetup);
 import agentFinalReviewRouter from "./routes/agent-final-review";
+import agentFinalStats from "./routes/agent-final-stats";
 app.use("/api/final-review", agentFinalReviewRouter);
+app.use(agentFinalStats);
 import deadlineCountdownRouter from "./routes/deadline-countdown"; app.use(deadlineCountdownRouter);
 app.use("/api/agent-leaderboard", agentLeaderboardRoute);
 app.use("/api/agent-graph", agentGraphRoute);
@@ -544,10 +550,38 @@ import finalHoursRouter from "./routes/final-hours";
 app.use("/api", finalHoursRouter);
 import finalDemoRouter from "./routes/final-demo"; app.use("/api", finalDemoRouter);
 app.use(submissionRouter);
+app.use(whyUsRouter);
 import readyToJudge from "./routes/ready-to-judge";
 app.use(readyToJudge);
 import finalHoursChecklist from "./routes/final-hours-checklist";
 app.use(finalHoursChecklist);
+import submissionStatus from "./routes/submission-status";
+app.use(submissionStatus);
+import agentInboxRouter from "./routes/agent-inbox";
+app.use("/api/inbox", agentInboxRouter);
+app.use("/api/search", agentSearchHub);
+app.use("/api/agent-network", agentNetworkRouter);
+import deadlineFinalRouter from "./routes/deadline-final";
+app.use("/api/deadline-final", deadlineFinalRouter);
+import agentPulseRouter from "./routes/agent-pulse";
+app.use("/api/agent-pulse", agentPulseRouter);
+import agentSearchV2Router from "./routes/agent-search-v2";
+app.use("/api/search", agentSearchV2Router);
+import countdownLive from "./routes/countdown-live";
+import lastDayRoute from "./routes/last-day";
+app.use(lastDayRoute);
+import thankYouRouter from "./routes/thank-you";
+app.use("/api/thank-you", thankYouRouter);
+import lastCallRouter from "./routes/last-call";
+app.use("/api/last-call", lastCallRouter);
+app.use(countdownLive);
+app.use("/api/final-hours", finalHoursRouter);
+import finalHoursRoute from "./routes/final-hours";
+app.use(finalHoursRoute);
+import ecosystemMapRoute from "./routes/ecosystem-map";app.use("/api/ecosystem-map", ecosystemMapRoute);
+import judgesRouter from "./routes/judges"; app.use("/api/judges", judgesRouter);
+import pitchDeckRoute from "./routes/pitch-deck"; app.use(pitchDeckRoute);
+app.use("/api", deadlineDayRoute);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
@@ -573,6 +607,7 @@ import agentFleetRoute from "./routes/agent-fleet";
 app.use("/api/agent-logs", agentLogsRoute);
 app.use("/api/agent-fleet", agentFleetRoute);
 app.use("/api/agent-reputation", agentReputationRoute);
+app.use(whyUsRouter);
 
 
 // moved up
@@ -580,3 +615,4 @@ app.use("/api/agent-reputation", agentReputationRoute);
 export default app;
 
 
+import demoVideoRoute from "./routes/demo-video";import judgeWalkthroughRoute from "./routes/judge-walkthrough";app.use("/api/demo-video", demoVideoRoute);app.use("/api/judge-walkthrough", judgeWalkthroughRoute);

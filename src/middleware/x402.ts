@@ -1,18 +1,23 @@
 import { Request, Response, NextFunction } from "express";
 import { config } from "../config";
 import { AuthenticatedRequest } from "../types";
+import { verifySvmPayment, settleSvmPayment } from "./x402-svm-verify";
 
 const { encodePaymentRequiredHeader, decodePaymentSignatureHeader } = require("@x402/core/http");
 
 const payToEvm = config.treasuryEvmWallet;
 const payToSolana = config.treasuryWallet;
 
-// Self-hosted x402 facilitator (supports Solana mainnet)
+// Self-hosted x402 facilitator (for EVM)
 const FACILITATOR_URL = "http://localhost:8090";
+const FACILITATOR_BEARER = "agntos-facilitator-secret-2026";
+
+// Fee payer for Solana (must match the key in x402-svm-verify)
+const SOLANA_FEE_PAYER = "4R67MWivvc52g9BSzQRvQyD8GshttW1QLbnj46usBrcQ";
 
 function buildPaymentRequired(req: Request, minUsdc: number) {
-  const resource = `https://${req.get("host") || "agntos.dev"}${req.originalUrl}`;
-  const description = `AgentOS: ${req.method} ${req.originalUrl}`;
+  const resource = "https://" + (req.get("host") || "agntos.dev") + req.originalUrl;
+  const description = "AgentOS: " + req.method + " " + req.originalUrl;
   const amount = String(Math.round(minUsdc * 1e6));
 
   return {
@@ -21,24 +26,24 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
     accepts: [
       {
         scheme: "exact",
-        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp", // Solana Mainnet
+        network: "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
         amount,
         payTo: payToSolana,
         maxTimeoutSeconds: 60,
-        asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v", // USDC Mainnet
+        asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         extra: {
           name: "AgentOS",
           facilitator: FACILITATOR_URL,
-          feePayer: "4R67MWivvc52g9BSzQRvQyD8GshttW1QLbnj46usBrcQ",
+          feePayer: SOLANA_FEE_PAYER,
         },
       },
       {
         scheme: "exact",
-        network: "eip155:8453", // Base Mainnet
+        network: "eip155:8453",
         amount,
         payTo: payToEvm,
         maxTimeoutSeconds: 60,
-        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // USDC Base
+        asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
         extra: {
           name: "AgentOS",
           facilitator: FACILITATOR_URL,
@@ -67,6 +72,80 @@ function toJsonSafe(obj: any): any {
   return JSON.parse(JSON.stringify(obj, (_, v) => typeof v === "bigint" ? v.toString() : v));
 }
 
+async function handleSvmPayment(
+  paymentPayload: any,
+  matchedRequirement: any,
+): Promise<{ verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string }> {
+  const svmPayload = paymentPayload.payload;
+  if (!svmPayload?.transaction) {
+    return { verified: false, settled: false, reason: "missing_transaction_in_payload" };
+  }
+
+  const amount = BigInt(matchedRequirement.amount);
+  const verifyResult = await verifySvmPayment(
+    svmPayload.transaction,
+    matchedRequirement.payTo,
+    amount,
+    matchedRequirement.asset,
+    matchedRequirement.extra?.feePayer || SOLANA_FEE_PAYER,
+  );
+
+  if (!verifyResult.isValid) {
+    return { verified: false, settled: false, reason: verifyResult.invalidReason, payer: verifyResult.payer };
+  }
+
+  // Settle: co-sign and submit
+  const settleResult = await settleSvmPayment(svmPayload.transaction);
+  if (!settleResult.success) {
+    return { verified: true, settled: false, reason: settleResult.error, payer: verifyResult.payer };
+  }
+
+  return { verified: true, settled: true, signature: settleResult.signature, payer: verifyResult.payer };
+}
+
+async function handleEvmPayment(
+  paymentPayload: any,
+  matchedRequirement: any,
+): Promise<{ verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string }> {
+  // Use facilitator for EVM
+  const verifyResp = await fetch(FACILITATOR_URL + "/verify", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": "Bearer " + FACILITATOR_BEARER },
+    body: JSON.stringify({
+      x402Version: paymentPayload.x402Version || 2,
+      paymentPayload: toJsonSafe(paymentPayload),
+      paymentRequirements: toJsonSafe(matchedRequirement),
+    }),
+  });
+
+  const result = await verifyResp.json() as any;
+  if (!verifyResp.ok || !result.isValid) {
+    const reason = result.invalidReason || result.invalidMessage || result.error || "Verification failed";
+    return { verified: false, settled: false, reason };
+  }
+
+  // Settle
+  try {
+    const settleResp = await fetch(FACILITATOR_URL + "/settle", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + FACILITATOR_BEARER },
+      body: JSON.stringify({
+        x402Version: paymentPayload.x402Version || 2,
+        paymentPayload: toJsonSafe(paymentPayload),
+        paymentRequirements: toJsonSafe(matchedRequirement),
+      }),
+    });
+    const settleResult = await settleResp.json() as any;
+    if (settleResult.success === false) {
+      return { verified: true, settled: false, reason: settleResult.error || settleResult.errorReason };
+    }
+    return { verified: true, settled: true, signature: settleResult.transaction || result.txHash };
+  } catch (e) {
+    // Don't block on settlement failure
+    return { verified: true, settled: false, reason: "settlement_error" };
+  }
+}
+
 export function x402(minUsdc: number = 0.01) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
@@ -81,80 +160,62 @@ export function x402(minUsdc: number = 0.01) {
       try {
         paymentPayload = decodePaymentSignatureHeader(paymentHeader);
       } catch {
-        try { paymentPayload = JSON.parse(paymentHeader); } catch { paymentPayload = { signature: paymentHeader }; }
+        try { paymentPayload = JSON.parse(paymentHeader); } catch {
+          try { paymentPayload = JSON.parse(Buffer.from(paymentHeader, 'base64').toString()); } catch {
+            paymentPayload = { signature: paymentHeader };
+          }
+        }
       }
 
       console.log("[x402] Payment received, keys:", Object.keys(paymentPayload));
 
       const paymentRequired = buildPaymentRequired(req, minUsdc);
 
-      // Match requirement based on accepted field in payload
+      // Match requirement based on accepted field
       let matchedRequirement = paymentRequired.accepts[0];
-      if (paymentPayload.accepted?.network) {
-        const match = paymentRequired.accepts.find((a: any) => a.network === paymentPayload.accepted.network);
+      const network = paymentPayload.accepted?.network || paymentPayload.network;
+      if (network) {
+        const match = paymentRequired.accepts.find((a: any) => a.network === network);
         if (match) matchedRequirement = match;
       }
 
       console.log("[x402] Matched network:", matchedRequirement.network);
 
-      // Verify via public x402 facilitator
-      const verifyResp = await fetch(`${FACILITATOR_URL}/verify`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          x402Version: paymentPayload.x402Version || 2,
-          paymentPayload: toJsonSafe(paymentPayload),
-          paymentRequirements: toJsonSafe(matchedRequirement),
-        }),
-      });
+      let result: { verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string };
 
-      const result = await verifyResp.json() as any;
-      console.log("[x402] Verify result:", JSON.stringify(result).slice(0, 300));
+      if (matchedRequirement.network.startsWith("solana:")) {
+        console.log("[x402] Using direct SVM verification");
+        result = await handleSvmPayment(paymentPayload, matchedRequirement);
+      } else {
+        console.log("[x402] Using facilitator for EVM verification");
+        result = await handleEvmPayment(paymentPayload, matchedRequirement);
+      }
 
-      if (!verifyResp.ok || !result.isValid) {
-        const reason = result.invalidReason || result.invalidMessage || result.error || "Verification failed";
-        console.error("[x402] Verification failed:", reason);
-        send402Response(res, req, minUsdc, `Payment verification failed: ${reason}`);
+      console.log("[x402] Result:", JSON.stringify(result));
+
+      if (!result.verified) {
+        send402Response(res, req, minUsdc, "Payment verification failed: " + (result.reason || "unknown"));
         return;
       }
 
-      // Settle via facilitator
-      try {
-        const settleResp = await fetch(`${FACILITATOR_URL}/settle`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            x402Version: paymentPayload.x402Version || 2,
-            paymentPayload: toJsonSafe(paymentPayload),
-            paymentRequirements: toJsonSafe(matchedRequirement),
-          }),
-        });
-        const settleResult = await settleResp.json() as any;
-        console.log("[x402] Settlement:", JSON.stringify(settleResult).slice(0, 200));
-
-        if (settleResult.success === false) {
-          console.error("[x402] Settlement failed:", settleResult);
-          send402Response(res, req, minUsdc, `Settlement failed: ${settleResult.error || "unknown"}`);
-          return;
-        }
-      } catch (settleErr) {
-        console.error("[x402] Settlement error:", settleErr);
-        // Don't block on settlement failure for now
+      if (!result.settled) {
+        console.warn("[x402] Verified but settlement failed:", result.reason);
+        // Still allow the request through — payment was verified
       }
 
       req.payment = {
-        signature: result.txHash || "x402-verified",
-        payer: paymentPayload.payload?.authorization?.from || "x402-verified",
+        signature: result.signature || "x402-verified",
+        payer: result.payer || "unknown",
         amountLamports: BigInt(Math.round(minUsdc * 1e6)),
         verifiedAt: Date.now(),
       };
 
       next();
     } catch (err) {
-      console.error("[x402] Verification error:", err);
+      console.error("[x402] Error:", err);
       res.status(500).json({
         error: "Payment verification failed",
-        message: `Internal error: ${err instanceof Error ? err.message : String(err)}`,
+        message: "Internal error: " + (err instanceof Error ? err.message : String(err)),
       });
     }
   };

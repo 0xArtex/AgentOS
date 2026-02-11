@@ -1,63 +1,75 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response } from "express";
 
 const router = Router();
 
-router.get('/api/demo-script', (_req: Request, res: Response) => {
+router.get("/api/demo-script", (_req: Request, res: Response) => {
+  const now = new Date();
+  const deadline = new Date("2026-02-12T17:00:00Z");
+  const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000).toFixed(1);
+
   res.json({
-    title: "AgentOS — 3-Minute Demo Script for Judges",
-    description: "Follow these steps to see AgentOS in action. Each step includes a live curl command you can run right now.",
-    estimated_time: "3 minutes",
-    steps: [
-      {
-        step: 1,
-        title: "Register Your Agent",
-        description: "Create an agent identity with one API call. Returns your agent ID and API key.",
-        curl: 'curl -X POST http://77.42.89.233:3001/api/agents/register -H "Content-Type: application/json" -H "X-Agent-Id: demo-judge" -d \'{"name": "JudgeBot", "capabilities": ["compute", "email"]}\'',
-        expected: "Agent ID + API key returned instantly"
-      },
-      {
-        step: 2,
-        title: "Provision a Phone Number",
-        description: "Your agent gets a real phone number it can use for SMS/voice — programmatically.",
-        curl: 'curl -X POST http://77.42.89.233:3001/api/phones/provision -H "Content-Type: application/json" -H "X-Agent-Id: demo-judge" -d \'{"country": "US", "capabilities": ["sms", "voice"]}\'',
-        expected: "Phone number assigned to your agent"
-      },
-      {
-        step: 3,
-        title: "Set Up Email",
-        description: "Provision an email address your agent can send/receive from.",
-        curl: 'curl -X POST http://77.42.89.233:3001/api/emails/provision -H "Content-Type: application/json" -H "X-Agent-Id: demo-judge" -d \'{"prefix": "judgebot"}\'',
-        expected: "Email address provisioned"
-      },
-      {
-        step: 4,
-        title: "Spin Up Compute",
-        description: "Launch a container for your agent's workloads.",
-        curl: 'curl -X POST http://77.42.89.233:3001/api/compute/provision -H "Content-Type: application/json" -H "X-Agent-Id: demo-judge" -d \'{"cpu": 2, "memory_gb": 4, "image": "ubuntu:22.04"}\'',
-        expected: "Container ID + SSH access returned"
-      },
-      {
-        step: 5,
-        title: "Check Your Agent Dashboard",
-        description: "See everything your agent has provisioned in one view.",
-        curl: 'curl http://77.42.89.233:3001/api/agents/demo-judge/dashboard -H "X-Agent-Id: demo-judge"',
-        expected: "Full resource summary for your agent"
-      },
-      {
-        step: 6,
-        title: "View Live System Health",
-        description: "Real infrastructure metrics — DB latency, memory, disk, uptime.",
-        curl: 'curl http://77.42.89.233:3001/api/service-probe',
-        expected: "Per-subsystem health with latency numbers"
-      }
-    ],
-    bonus: {
-      live_dashboard: "http://77.42.89.233:3001/dashboard",
-      swagger_docs: "http://77.42.89.233:3001/docs",
-      skill_file: "http://77.42.89.233:3001/skill.md",
-      api_map: "http://77.42.89.233:3001/api/api-map"
+    project: "AgentOS",
+    tagline: "Autonomous Infrastructure for AI Agents",
+    demoScript: {
+      description: "3-minute judge walkthrough - every command is live",
+      steps: [
+        {
+          step: 1,
+          title: "Health Check",
+          time: "10s",
+          command: "curl https://agntos.dev/api/service-health",
+          expect: "All subsystems operational with real metrics"
+        },
+        {
+          step: 2,
+          title: "Register an Agent",
+          time: "15s",
+          command: "curl -X POST https://agntos.dev/api/agents/register -H 'Content-Type: application/json' -d '{\"name\":\"demo-agent\"}'",
+          expect: "Agent ID and API token returned instantly"
+        },
+        {
+          step: 3,
+          title: "Provision Phone",
+          time: "20s",
+          command: "curl -X POST https://agntos.dev/api/phone/provision -H 'X-Agent-Id: demo-agent'",
+          expect: "Working phone number in under 1 second"
+        },
+        {
+          step: 4,
+          title: "Provision Email",
+          time: "15s",
+          command: "curl -X POST https://agntos.dev/api/email/provision -H 'X-Agent-Id: demo-agent'",
+          expect: "Email address ready instantly"
+        },
+        {
+          step: 5,
+          title: "Agent Readiness Score",
+          time: "10s",
+          command: "curl https://agntos.dev/api/agent-score?agentId=demo-agent",
+          expect: "Readiness score, tier, and recommendations"
+        },
+        {
+          step: 6,
+          title: "Platform Stats",
+          time: "10s",
+          command: "curl https://agntos.dev/api/agent-stats",
+          expect: "Live DB counts, traffic stats, system metrics"
+        }
+      ],
+      totalTime: "about 80 seconds"
     },
-    hackathon_mode: "All endpoints FREE until Feb 12 — just include X-Agent-Id header"
+    differentiators: [
+      "x402 crypto-native payments (Solana + Base)",
+      "One API call = production infrastructure",
+      "Free during hackathon, production pricing after",
+      "10+ days zero downtime"
+    ],
+    hoursToDeadline: parseFloat(hoursLeft),
+    links: {
+      api: "https://agntos.dev",
+      docs: "https://agntos.dev/docs",
+      repo: "https://github.com/0xArtex/AgentOS"
+    }
   });
 });
 

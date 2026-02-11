@@ -1,5 +1,6 @@
 import { Router, Response } from "express";
 import { requireAuth } from "../middleware/auth";
+import { x402 } from "../middleware/x402";
 import { AuthenticatedRequest } from "../types";
 import * as emailService from "../services/email";
 import { trackHackathonUsage } from "../middleware/hackathon";
@@ -7,12 +8,7 @@ import { trackHackathonUsage } from "../middleware/hackathon";
 const router = Router();
 
 /**
- * POST /email/provision — Create a wallet-secured email inbox
- * 
- * Your Solana wallet IS your email key. No separate passwords or keys.
- * Emails are encrypted with your wallet's public key on arrival.
- * Only your wallet can decrypt them — not even us.
- * 
+ * POST /email/provision — Create an email inbox
  * Cost: 1.00 USDC (or free during hackathon)
  */
 router.post("/provision", requireAuth(1.0, "email"), async (req: AuthenticatedRequest, res: Response) => {
@@ -27,13 +23,11 @@ router.post("/provision", requireAuth(1.0, "email"), async (req: AuthenticatedRe
       return;
     }
 
-    // Get wallet address from: explicit param > x402 payment > hackathon header
     const solanaPublicKey = walletAddress || req.body.solanaPublicKey;
     if (!solanaPublicKey) {
       res.status(400).json({
         error: "Missing wallet address",
         message: "Provide 'walletAddress' (Solana base58 public key)",
-        hint: "Your Solana wallet becomes your email encryption key. No separate key management needed.",
       });
       return;
     }
@@ -53,19 +47,13 @@ router.post("/provision", requireAuth(1.0, "email"), async (req: AuthenticatedRe
         createdAt: result.createdAt,
       },
       encryption: {
-        algorithm: "X25519 + XSalsa20-Poly1305 (NaCl box)",
-        walletKey: result.solanaPublicKey,
-        derivedKey: result.publicKey,
-        model: "Zero-knowledge. Your Solana wallet IS your email key. We encrypt on receipt with your wallet's derived X25519 key. Only you can decrypt.",
+        algorithm: "AES-256-GCM (server-managed, encrypted at rest)",
+        model: "Messages encrypted at rest with per-inbox server key. Decrypted on read after x402 payment proves wallet ownership.",
       },
-      decryptionGuide: result.decryptionGuide,
     });
   } catch (err: any) {
     console.error("[email] Provision error:", err);
-    res.status(500).json({
-      error: "Inbox Creation Failed",
-      message: err.message,
-    });
+    res.status(500).json({ error: "Inbox Creation Failed", message: err.message });
   }
 });
 
@@ -88,55 +76,113 @@ router.post("/inboxes", requireAuth(1.0, "email"), async (req: AuthenticatedRequ
 });
 
 /**
- * GET /email/inboxes/:id/messages — Get encrypted messages
+ * GET /email/inboxes/:id/messages — Read inbox (decrypted)
  * 
- * Auth via x402 payment (0.001 USDC) or hackathon mode.
- * Payment proves wallet ownership — no separate challenge needed.
- * Returns encrypted blobs that only YOUR wallet can decrypt.
+ * x402 paywall: $0.01 USDC per read.
+ * Payment from the inbox's wallet proves ownership.
+ * Server decrypts messages and returns plaintext over TLS.
  * 
- * Cost: 0.001 USDC (or free during hackathon)
+ * Messages are encrypted at rest — only decrypted in-flight during this request.
  */
-router.get("/inboxes/:id/messages", requireAuth(0.001, "general"), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/inboxes/:id/messages", x402(0.01), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
-    const msgs = emailService.getMessages(inboxId);
+    const inbox = emailService.getInbox(inboxId);
+    
+    if (!inbox) {
+      res.status(404).json({ error: "Inbox not found" });
+      return;
+    }
+
+    // Verify the payer is the inbox owner (wallet that registered it)
+    const payer = req.payment?.payer;
+    if (!payer) {
+      res.status(403).json({ error: "Payment required to read inbox" });
+      return;
+    }
+
+    // The x402 payer must match the inbox's wallet address
+    // This is the core security: paying from the right wallet = proof of ownership
+    if (payer !== inbox.solanaPublicKey && payer !== inbox.owner) {
+      res.status(403).json({ 
+        error: "Wallet mismatch",
+        message: "The wallet that paid does not own this inbox. Pay from the wallet that created it.",
+      });
+      return;
+    }
+
+    // Get encrypted messages and decrypt them server-side
+    const encryptedMsgs = emailService.getMessages(inboxId);
+    const decryptedMsgs = encryptedMsgs.map(msg => {
+      try {
+        return {
+          id: msg.id,
+          direction: msg.direction,
+          from: msg.from,
+          to: msg.to,
+          subject: msg.encrypted ? emailService.serverDecrypt(inboxId, msg.subject) : msg.subject,
+          body: msg.encrypted ? emailService.serverDecrypt(inboxId, msg.body) : msg.body,
+          html: msg.html && msg.encrypted ? emailService.serverDecrypt(inboxId, msg.html) : msg.html,
+          timestamp: msg.timestamp,
+        };
+      } catch (decErr: any) {
+        // If server can't decrypt (old wallet-encrypted messages), return as-is
+        return {
+          id: msg.id,
+          direction: msg.direction,
+          from: msg.from,
+          to: msg.to,
+          subject: msg.subject,
+          body: msg.body,
+          html: msg.html,
+          timestamp: msg.timestamp,
+          encrypted: true,
+          decryptionNote: "Legacy wallet-encrypted message. Decrypt client-side with your Solana private key.",
+        };
+      }
+    });
     
     res.json({
-      messages: msgs,
-      encrypted: true,
-      totalMessages: msgs.length,
-      decryptionHint: "Decrypt client-side: convert your Solana Ed25519 private key to X25519, then use nacl.box.open() with the ephemeral key and nonce packed in each message blob.",
+      inbox: inbox.address,
+      messages: decryptedMsgs,
+      totalMessages: decryptedMsgs.length,
+      paidBy: payer,
+      security: "Messages encrypted at rest. Decrypted in-flight after x402 payment proved wallet ownership. Served over TLS.",
     });
   } catch (err: any) {
-    res.status(404).json({ error: err.message });
+    res.status(err.message?.includes("not found") ? 404 : 500).json({ error: err.message });
   }
 });
 
 /**
  * POST /email/inboxes/:id/send — Send email
- * 
- * Auth via x402 payment or hackathon mode. No challenge needed.
- * Sent content encrypted with your wallet key before storage.
- * 
- * Cost: 0.05 USDC (or free during hackathon)
+ * Cost: 0.05 USDC
  */
-router.post("/inboxes/:id/send", requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/inboxes/:id/send", x402(0.05), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
-    const { to, subject, body, html } = req.body;
+    const inbox = emailService.getInbox(inboxId);
+    
+    if (!inbox) {
+      res.status(404).json({ error: "Inbox not found" });
+      return;
+    }
 
+    // Verify payer owns the inbox
+    const payer = req.payment?.payer;
+    if (payer && payer !== inbox.solanaPublicKey && payer !== inbox.owner) {
+      res.status(403).json({ error: "Wallet mismatch — you don't own this inbox" });
+      return;
+    }
+
+    const { to, subject, body, html } = req.body;
     if (!to || !subject || !body) {
-      res.status(400).json({
-        error: "Missing required fields: to, subject, body",
-      });
+      res.status(400).json({ error: "Missing required fields: to, subject, body" });
       return;
     }
 
     const msg = await emailService.sendEmail(inboxId, to, subject, body, html);
-    res.status(201).json({
-      message: msg,
-      note: "Email sent. Sent content encrypted with your wallet key before storage.",
-    });
+    res.status(201).json({ message: { id: msg.id, to, subject, sentAt: msg.timestamp } });
   } catch (err: any) {
     console.error("[email] Send error:", err);
     res.status(500).json({ error: err.message });
@@ -144,7 +190,7 @@ router.post("/inboxes/:id/send", requireAuth(0.05, "general"), async (req: Authe
 });
 
 /**
- * POST /email/inbound — Webhook for inbound emails (Cloudflare Email Worker)
+ * POST /email/inbound — Webhook for inbound emails
  */
 router.post("/inbound", async (req, res: Response) => {
   try {
@@ -171,86 +217,30 @@ router.post("/inbound", async (req, res: Response) => {
 });
 
 /**
- * GET /email/info — Public info about wallet-secured email
+ * GET /email/info — Public info
  */
 router.get("/info", (_req, res: Response) => {
   res.json({
-    service: "AgentOS Wallet-Secured Email",
+    service: "AgentOS Email",
     domain: "agntos.dev",
-    encryption: {
-      algorithm: "X25519 + XSalsa20-Poly1305 (NaCl box)",
-      keyDerivation: "Ed25519 (Solana wallet) → X25519 (Curve25519)",
-      library: "TweetNaCl.js",
-      model: "Zero-knowledge, wallet-native encryption",
+    pricing: {
+      provision: "1.00 USDC",
+      read: "0.01 USDC (x402 paywall — payment proves wallet ownership)",
+      send: "0.05 USDC",
     },
-    howItWorks: {
-      provision: "POST /email/provision with { name, walletAddress }. Your Solana wallet becomes your email key.",
-      read: "GET /email/inboxes/:id/messages — auth via x402 USDC payment (0.001) or hackathon mode. Returns encrypted blobs.",
-      decrypt: "Client-side: Ed25519 → X25519 conversion, then nacl.box.open() on each blob.",
-      send: "POST /email/inboxes/:id/send with { to, subject, body } — auth via x402 (0.05 USDC) or hackathon mode.",
+    security: {
+      encryption: "AES-256-GCM at rest, per-inbox server key",
+      authentication: "x402 USDC payment from inbox's wallet = proof of ownership",
+      transport: "TLS (HTTPS)",
+      model: "Encrypted at rest → decrypted in-flight after x402 auth → served over TLS",
     },
-    security: [
-      "Your Solana wallet IS your email key — no separate keys to manage",
-      "Private keys NEVER touch our servers",
-      "Email content encrypted before hitting disk, plaintext deleted immediately",
-      "Even if our database is breached, emails are unreadable without your wallet",
-      "x402 payment proves wallet ownership — no separate auth flow needed",
-      "Self-custody model — lose your wallet, lose your email (just like crypto)",
-    ],
-    solanaIntegration: [
-      "Ed25519 → X25519 key derivation for encryption",
-      "x402 USDC payments for auth + access (payment = proof of ownership)",
-      "One wallet = one identity = one inbox",
+    howItWorks: [
+      "1. POST /email/inboxes — provision inbox (1 USDC)",
+      "2. Receive emails at {name}@agntos.dev — stored encrypted",
+      "3. GET /email/inboxes/:id/messages — pay $0.01 via x402, get decrypted messages",
+      "4. POST /email/inboxes/:id/send — send email ($0.05 via x402)",
     ],
   });
-});
-
-/**
- * GET /email/sdk — Client-side decryption helper code
- */
-router.get("/sdk", (_req, res: Response) => {
-  res.type("text/plain").send(`// AgentOS Email SDK — Client-Side Decryption
-// Your Solana wallet is your email key. Decrypt locally.
-
-import nacl from 'tweetnacl';
-import { Keypair } from '@solana/web3.js';
-
-/**
- * Convert Solana Ed25519 secret key to X25519 for email decryption.
- * Uses the standard birational map from Edwards to Montgomery form.
- */
-function solanaKeyToX25519(solanaSecretKey: Uint8Array): Uint8Array {
-  // Ed25519 secret key → seed (first 32 bytes) → SHA-512 → clamp → X25519
-  const hash = nacl.hash(solanaSecretKey.slice(0, 32));
-  const x25519Secret = new Uint8Array(32);
-  x25519Secret.set(hash.slice(0, 32));
-  x25519Secret[0] &= 248;
-  x25519Secret[31] &= 127;
-  x25519Secret[31] |= 64;
-  return x25519Secret;
-}
-
-/**
- * Decrypt an AgentOS email message blob.
- */
-function decryptEmail(encryptedBase64: string, solanaSecretKey: Uint8Array): string {
-  const x25519Secret = solanaKeyToX25519(solanaSecretKey);
-  const packed = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
-  
-  const ephemeralPub = packed.slice(0, 32);   // Ephemeral X25519 public key
-  const nonce = packed.slice(32, 56);          // 24-byte nonce
-  const ciphertext = packed.slice(56);         // Encrypted content
-  
-  const decrypted = nacl.box.open(ciphertext, nonce, ephemeralPub, x25519Secret);
-  if (!decrypted) throw new Error('Decryption failed — wrong wallet?');
-  
-  return new TextDecoder().decode(decrypted);
-}
-
-// Usage:
-// const keypair = Keypair.fromSecretKey(yourSecretKey);
-// const plaintext = decryptEmail(message.body, keypair.secretKey);
-`);
 });
 
 export default router;

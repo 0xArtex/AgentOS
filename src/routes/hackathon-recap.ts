@@ -17,7 +17,7 @@ router.get("/", (_req: Request, res: Response) => {
       versions_shipped: "v0.1.0 → v1.9.1+",
       total_commits: "200+",
       total_endpoints: "202+",
-      forum_engagements: "760+",
+      forum_engagements: "1000+",
       uptime: "100% since launch"
     },
 

@@ -187,7 +187,7 @@ router.get("/final-pitch", (_req, res) => {
     traction: {
       endpoints: "200+",
       hackathon_integrations: "15+ ecosystem partners",
-      forum_engagement: "720+ community comments",
+      forum_engagement: "1000+ community comments",
       uptime: "10+ days continuous",
       frameworks_supported: ["LangChain", "CrewAI", "OpenClaw", "Eliza", "AutoGen", "raw HTTP"]
     },

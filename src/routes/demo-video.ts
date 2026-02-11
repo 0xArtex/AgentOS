@@ -1,44 +1,62 @@
 import { Router, Request, Response } from "express";
-import { db } from "../db";
 
 const router = Router();
 
-function safeCount(table: string): number {
-  try { return (db.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as any).c; } catch { return 0; }
-}
-
-router.get("/demo-video", (_req: Request, res: Response) => {
-  const now = Date.now();
-  const deadline = new Date("2026-02-12T17:00:00Z").getTime();
-  const hoursLeft = Math.max(0, (deadline - now) / 3600000).toFixed(1);
-  const agents = safeCount("agents");
-  const phones = safeCount("phones");
-  const emails = safeCount("emails");
-  const servers = safeCount("servers");
-
-  const status = parseFloat(hoursLeft) <= 0 ? "SUBMITTED" : parseFloat(hoursLeft) <= 6 ? "FINAL_PUSH" : "BUILDING";
+router.get("/", (_req: Request, res: Response) => {
+  const now = new Date();
+  const deadline = new Date("2026-02-12T17:00:00Z");
+  const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000).toFixed(1);
 
   res.json({
-    title: "AgentOS Demo Walkthrough",
-    tagline: "Autonomous infrastructure for AI agents",
-    duration: "3 minutes",
-    scenes: [
-      { step: 1, title: "Register an Agent", description: "One POST creates agent identity with API key", endpoint: "POST /api/agents/register", responseTime: "< 50ms" },
-      { step: 2, title: "Provision Phone", description: "Real phone number for SMS/voice", endpoint: "POST /api/phone/provision", responseTime: "< 200ms" },
-      { step: 3, title: "Set Up Email", description: "Dedicated email for your agent", endpoint: "POST /api/email/provision", responseTime: "< 100ms" },
-      { step: 4, title: "Spin Up Compute", description: "On-demand server provisioning", endpoint: "POST /api/compute/provision", responseTime: "< 500ms" },
-      { step: 5, title: "Check Analytics", description: "Real-time per-agent metrics", endpoint: "GET /api/agent-snapshot", responseTime: "< 10ms" },
-      { step: 6, title: "Agent-to-Agent Comms", description: "Direct messaging with priority routing", endpoint: "POST /api/agent-comms/send", responseTime: "< 20ms" }
-    ],
-    liveStats: { agents, phones, emails, servers, endpoints: "187+", hoursToDeadline: parseFloat(hoursLeft) },
-    links: {
-      dashboard: "http://77.42.89.233:3001/dashboard",
-      docs: "http://77.42.89.233:3001/docs",
-      apiMap: "http://77.42.89.233:3001/api/api-map",
-      skill: "http://77.42.89.233:3001/skill.md",
-      github: "https://github.com/0xArtex/AgentOS"
+    title: "AgentOS — See It Live",
+    description: "No slides. No mockups. Just working APIs you can call right now.",
+    hoursToDeadline: parseFloat(hoursLeft),
+    liveDemo: {
+      step1_health: {
+        description: "Check platform health",
+        command: "curl https://agntos.dev/health",
+        whatYouGet: "Live uptime, memory, service status"
+      },
+      step2_register: {
+        description: "Register your agent (free during hackathon)",
+        command: "curl -X POST https://agntos.dev/api/register -H \"Content-Type: application/json\" -d \"{\\\"name\\\": \\\"my-agent\\\"}\"",
+        whatYouGet: "API key + agent ID, instant provisioning"
+      },
+      step3_phone: {
+        description: "Get a phone number",
+        command: "curl -X POST https://agntos.dev/api/phone/provision -H \"X-Agent-Id: YOUR_ID\"",
+        whatYouGet: "Working phone number for SMS/calls"
+      },
+      step4_email: {
+        description: "Get an email address",
+        command: "curl -X POST https://agntos.dev/api/email/provision -H \"X-Agent-Id: YOUR_ID\"",
+        whatYouGet: "Working email address on agntos.dev"
+      },
+      step5_compute: {
+        description: "Spin up compute",
+        command: "curl -X POST https://agntos.dev/api/compute/provision -H \"X-Agent-Id: YOUR_ID\"",
+        whatYouGet: "Isolated compute container"
+      },
+      step6_pay: {
+        description: "Pay with USDC via x402",
+        command: "curl https://agntos.dev/api/phone/provision -H \"X-Agent-Id: YOUR_ID\"",
+        whatYouGet: "402 Payment Required → sign → provision. Crypto-native."
+      }
     },
-    hackathon: { status, freeAccess: true, hoursRemaining: parseFloat(hoursLeft) }
+    differentiators: [
+      "203+ endpoints — more than most SaaS companies ship in a year",
+      "x402 USDC payments — agents pay for their own infra",
+      "Zero downtime since launch",
+      "One API for phone + email + compute + domains + analytics",
+      "Free during hackathon — no excuses not to try it"
+    ],
+    links: {
+      api: "https://agntos.dev",
+      docs: "https://agntos.dev/docs",
+      health: "https://agntos.dev/health",
+      judges: "https://agntos.dev/api/judges",
+      github: "https://github.com/0xArtex/AgentOS"
+    }
   });
 });
 

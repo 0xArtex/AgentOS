@@ -100,12 +100,12 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS domains (
       id TEXT PRIMARY KEY,
       domain TEXT UNIQUE NOT NULL,
-      tld TEXT NOT NULL,
       owner TEXT NOT NULL,
+      registrar_id TEXT,
       status TEXT NOT NULL CHECK(status IN ('pending', 'active', 'failed', 'expired')),
-      registrar TEXT NOT NULL CHECK(registrar IN ('namecheap', 'cloudflare')),
-      registered_at TEXT NOT NULL,
-      expires_at TEXT NOT NULL
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      dns_records TEXT
     );
     
     CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain);

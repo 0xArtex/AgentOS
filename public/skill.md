@@ -1,199 +1,300 @@
-# AgentOS — Infrastructure for Autonomous AI Agents
+# AgentOS — Infrastructure for AI Agents
 
-Autonomous infrastructure services for AI agents on Solana. Phone numbers, email, compute, domains — all paid with USDC via x402.
+Phone, email, compute, domains for AI agents. Pay with USDC on Solana via x402. No API keys needed — your wallet is your identity.
 
-**Source Code:** https://github.com/0xArtex/AgentOS (fully open source — verify every line)
+**Base URL:** `https://agntos.dev`
+**Source:** https://github.com/0xArtex/AgentOS
 
-## Base URL
-```
-https://agntos.dev
-```
+## Quick Reference
+
+| Service | Endpoint | Cost (USDC) |
+|---------|----------|-------------|
+| Register agent | `POST /agents/register` | Free |
+| Provision email | `POST /email/inboxes` | 1.00 |
+| Read inbox | `GET /email/inboxes/:id/messages` | 0.01 |
+| Send email | `POST /email/inboxes/:id/send` | 0.05 |
+| Provision phone | `POST /phone/numbers` | 2.00 |
+| Send SMS | `POST /messages/send` | 0.05 |
+| Create server | `POST /compute/servers` | 5.00 |
+| Check domain | `GET /domains/check?domain=example.com` | Free |
+| Register domain | `POST /domains/register` | ~$14-44 |
+| Update DNS | `POST /domains/:domain/dns` | Free |
+| Pricing details | `GET /pricing` | Free |
+
+All paid endpoints use **x402** — just make the request, get a 402 paywall, pay, done.
 
 ## Authentication
 
-### Hackathon Mode (Free until Feb 12, 2026)
+Two options (both work for all endpoints):
+
+**Option A: Agent token** (register once, get a token)
 ```
-X-Agent-Id: <your-colosseum-agent-id>
+Authorization: Bearer aos_xxxxx
 ```
 
-### x402 Payment (Always Available)
-```
-X-Payment: <solana-usdc-transaction-signature>
+**Option B: x402 payment only** (no registration needed)
+Just make the request. The 402 response tells you what to pay. Payment = auth.
+
+## How x402 Works
+
+1. Call any paid endpoint → get `402 Payment Required` with payment details
+2. Build a Solana USDC transfer transaction to the treasury
+3. Send it back in the `Payment-Signature` header
+4. Server verifies, settles on-chain, returns the response
+
+**If you have AgentWallet**, use its `x402/fetch` proxy — handles everything in one call:
+
+```bash
+curl -X POST "https://agentwallet.mcpay.tech/api/wallets/USERNAME/actions/x402/fetch" \
+  -H "Authorization: Bearer WALLET_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://agntos.dev/email/inboxes",
+    "method": "POST",
+    "body": {"name": "my-agent", "walletAddress": "YOUR_SOLANA_PUBKEY"},
+    "headers": {"X-Api-Key": "aos_xxxxx"},
+    "preferredChain": "solana"
+  }'
 ```
 
 ---
 
-## 📧 E2E Encrypted Email (Wallet-Secured)
+## Register Agent (Free)
 
-Your Solana wallet IS your email key. Zero-knowledge — we literally cannot read your emails.
+```bash
+curl -X POST https://agntos.dev/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent", "walletAddress": "YOUR_SOLANA_PUBKEY"}'
+```
 
-**How it works:**
-1. Provision with your Solana wallet address
-2. Inbound emails are encrypted with your wallet's derived X25519 key
-3. Pay with x402 (tiny USDC payment) to access — payment proves wallet ownership
-4. Decrypt client-side — plaintext never touches our servers
+Response:
+```json
+{"agent": {"id": "uuid", "name": "my-agent", "token": "aos_xxxxx"}}
+```
 
-**Encryption:** X25519 + XSalsa20-Poly1305 (NaCl box), Ed25519 → X25519 key derivation
+Save the `token` — use it as `Authorization: Bearer aos_xxxxx` or `X-Api-Key: aos_xxxxx`.
 
-### Provision Inbox
-```http
-POST /email/provision
-Content-Type: application/json
-X-Agent-Id: <agent-id>
+---
 
+## 📧 Email
+
+### Provision Inbox (1.00 USDC)
+
+```bash
+curl -X POST https://agntos.dev/email/inboxes \
+  -H "X-Api-Key: aos_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent", "walletAddress": "YOUR_SOLANA_PUBKEY"}'
+```
+
+Response:
+```json
+{"inbox": {"id": "uuid", "address": "my-agent@agntos.dev", "walletAddress": "..."}}
+```
+
+### Read Inbox (0.01 USDC via x402)
+
+```bash
+curl https://agntos.dev/email/inboxes/INBOX_ID/messages
+```
+
+Returns 402 → pay $0.01 from the wallet that created the inbox → get decrypted messages.
+
+**Security model:** Messages are encrypted at rest. Your x402 payment proves you own the wallet, so the server decrypts and returns plaintext over TLS. No private key needed — works with any wallet-as-a-service.
+
+Response (after payment):
+```json
 {
-  "name": "my-agent",
-  "walletAddress": "<solana-public-key-base58>"
+  "inbox": "my-agent@agntos.dev",
+  "messages": [
+    {
+      "from": "sender@example.com",
+      "subject": "Hello",
+      "body": "Decrypted message content",
+      "timestamp": "2026-02-11T12:00:00Z"
+    }
+  ],
+  "totalMessages": 1
 }
 ```
-Response: `{ inbox: { id, address, walletAddress }, encryption: { ... } }`
 
-Your email will be `my-agent@agntos.dev`
+### Send Email (0.05 USDC via x402)
 
-### Read Messages
-```http
-GET /email/inboxes/{id}/messages
-X-Agent-Id: <agent-id>
-```
-Cost: 0.001 USDC (or free during hackathon). Returns encrypted blobs.
-
-Decrypt client-side using your Solana private key:
-```javascript
-import nacl from 'tweetnacl';
-
-// Convert Solana Ed25519 secret → X25519
-const hash = nacl.hash(solanaSecretKey.slice(0, 32));
-const x25519Secret = hash.slice(0, 32);
-x25519Secret[0] &= 248; x25519Secret[31] &= 127; x25519Secret[31] |= 64;
-
-// Decrypt message blob
-const packed = Buffer.from(message.subject, 'base64');
-const decrypted = nacl.box.open(
-  packed.slice(56),      // ciphertext
-  packed.slice(32, 56),  // nonce
-  packed.slice(0, 32),   // ephemeral public key
-  x25519Secret
-);
-const plaintext = new TextDecoder().decode(decrypted);
+```bash
+curl -X POST https://agntos.dev/email/inboxes/INBOX_ID/send \
+  -H "Content-Type: application/json" \
+  -d '{"to": "user@example.com", "subject": "Hello", "body": "Message from my agent"}'
 ```
 
-### Send Email
-```http
-POST /email/inboxes/{id}/send
-Content-Type: application/json
-X-Agent-Id: <agent-id>
+---
 
+## 📱 Phone
+
+### Provision Number (2.00 USDC)
+
+```bash
+curl -X POST https://agntos.dev/phone/numbers \
+  -H "X-Api-Key: aos_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"country": "US"}'
+```
+
+### Send SMS (0.05 USDC)
+
+```bash
+curl -X POST https://agntos.dev/messages/send \
+  -H "X-Api-Key: aos_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"to": "+1234567890", "body": "Hello from my agent"}'
+```
+
+---
+
+## 💻 Compute
+
+### Create Server (5.00 USDC)
+
+```bash
+curl -X POST https://agntos.dev/compute/servers \
+  -H "X-Api-Key: aos_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-server", "size": "small"}'
+```
+
+---
+
+## 🌐 Domains
+
+### Check Domain Availability (Free)
+
+```bash
+curl "https://agntos.dev/domains/check?domain=example.com"
+```
+
+Response:
+```json
 {
-  "to": "recipient@example.com",
-  "subject": "Hello",
-  "body": "Message content"
+  "available": true,
+  "domain": "example.com",
+  "premium": false,
+  "price": 14.28
 }
 ```
-Cost: 0.05 USDC (or free during hackathon).
 
-### Email Info & SDK
-```
-GET /email/info     — security model and API overview
-GET /email/sdk      — client-side decryption helper code
+### Get TLD Pricing (Free)
+
+```bash
+curl https://agntos.dev/domains/pricing
 ```
 
-### Email Pricing
-| Action | Cost |
-|--------|------|
-| Provision inbox | 1.00 USDC |
-| Read messages | 0.001 USDC |
-| Send email | 0.05 USDC |
+Response:
+```json
+{
+  "currency": "USDC",
+  "pricing": {
+    "com": 14.28,
+    "dev": 14.28,
+    "xyz": 14.28,
+    "io": 43.98,
+    "net": 16.48,
+    "org": 16.48,
+    "app": 21.98
+  }
+}
+```
+
+### Register Domain (Dynamic pricing via x402)
+
+```bash
+curl -X POST https://agntos.dev/domains/register \
+  -H "X-Api-Key: aos_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"domain": "my-agent.com"}'
+```
+
+Returns 402 → pay the domain price from `/domains/check` → domain gets registered with Namecheap.
+
+Response (after payment):
+```json
+{
+  "domain": "my-agent.com",
+  "status": "active",
+  "expiresAt": "2027-02-11T23:45:00Z",
+  "dnsManagement": true
+}
+```
+
+### Get Domain Info (Free for owners)
+
+```bash
+curl https://agntos.dev/domains/my-agent.com \
+  -H "X-Api-Key: aos_xxxxx"
+```
+
+### Get DNS Records (Free for owners)
+
+```bash
+curl https://agntos.dev/domains/my-agent.com/dns \
+  -H "X-Api-Key: aos_xxxxx"
+```
+
+Response:
+```json
+[
+  {"type": "A", "name": "@", "value": "1.2.3.4", "ttl": 1800},
+  {"type": "CNAME", "name": "www", "value": "my-agent.com", "ttl": 1800}
+]
+```
+
+### Set DNS Records (Free for owners)
+
+```bash
+curl -X POST https://agntos.dev/domains/my-agent.com/dns \
+  -H "X-Api-Key: aos_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "records": [
+      {"type": "A", "name": "@", "value": "1.2.3.4"},
+      {"type": "CNAME", "name": "www", "value": "my-agent.com"}
+    ]
+  }'
+```
+
+Supported DNS record types: A, AAAA, CNAME, MX, TXT, URL, URL301
+
+### Transfer Domain Out (Free for owners)
+
+```bash
+curl -X POST https://agntos.dev/domains/my-agent.com/transfer \
+  -H "X-Api-Key: aos_xxxxx"
+```
+
+Returns the EPP/auth code to transfer the domain to another registrar.
+
+**Domain Features:**
+- Powered by Namecheap registrar
+- 1-year registration (auto-renewal available)
+- Full DNS management included
+- Generic registrant info (agent@agntos.dev)
+- Transfer out supported
+- Prices include 10% markup
 
 ---
 
-## 📱 Phone Numbers
+## Payment Details
 
-### Provision Number
-```http
-POST /phone/numbers
-Content-Type: application/json
-X-Agent-Id: <agent-id>
+- **Network:** Solana Mainnet
+- **Token:** USDC (`EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`)
+- **Treasury:** `B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3`
+- **x402 Version:** 2
+- **Facilitator fee payer:** `4R67MWivvc52g9BSzQRvQyD8GshttW1QLbnj46usBrcQ`
 
-{ "country": "US", "areaCode": "415" }
+Also accepts EVM payments on Base (`eip155:8453`).
+
+## Hackathon Mode
+
+Free tier for Colosseum hackathon agents until Feb 12, 2026:
 ```
-
-### Get Messages
-```http
-GET /phone/numbers/{id}/messages
-X-Agent-Id: <agent-id>
+X-Agent-Id: YOUR_COLOSSEUM_AGENT_ID
 ```
-
-### Send SMS
-```http
-POST /phone/numbers/{id}/send
-Content-Type: application/json
-X-Agent-Id: <agent-id>
-
-{ "to": "+1234567890", "body": "Hello from AgentOS!" }
-```
-
----
-
-## 🖥️ Compute Servers
-
-### Create Server
-```http
-POST /compute/servers
-Content-Type: application/json
-X-Agent-Id: <agent-id>
-
-{ "name": "my-server", "serverType": "cx22", "image": "ubuntu-24.04" }
-```
-
-### List / Get / Delete
-```http
-GET /compute/servers
-GET /compute/servers/{id}
-DELETE /compute/servers/{id}
-```
-
----
-
-## 🌐 Domain Management
-
-### Register Domain
-```http
-POST /domains
-Content-Type: application/json
-X-Agent-Id: <agent-id>
-
-{ "name": "myagent", "tld": "dev" }
-```
-
----
-
-## 🔍 Discovery Endpoints (Free)
-
-```
-GET /health          — health check
-GET /email/info      — email encryption details
-GET /email/sdk       — client decryption code
-GET /docs            — Swagger API documentation
-GET /pricing         — full pricing table
-GET /hackathon/status — hackathon mode info
-```
-
-## Security Model
-
-- **Open source**: https://github.com/0xArtex/AgentOS — audit every line
-- **E2E encryption**: Email content encrypted before touching disk
-- **Zero-knowledge**: Private keys never stored on our servers
-- **Wallet-native**: Solana Ed25519 → X25519 key derivation
-- **Self-custody**: Lose your wallet, lose your email (like crypto)
-- **Challenge-response**: Wallet signatures for authentication (no passwords)
-
-## Hackathon Limits (Free Tier)
-- 📱 Phone numbers: 1
-- 📧 Email inboxes: 1
-- 🖥️ Servers: 1
-
-## Links
-- **Website**: https://agntos.dev
-- **GitHub**: https://github.com/0xArtex/AgentOS
-- **Blog**: https://agntos.dev/blog/e2e-email.html
-- **X**: https://x.com/zoltyagent
+One free use per service. After that, pay via x402.

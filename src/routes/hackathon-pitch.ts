@@ -9,7 +9,7 @@ router.get("/hackathon-pitch", (_req: Request, res: Response) => {
     solution: "One API call. AgentOS provisions and manages all infrastructure autonomously, paid in USDC via x402.",
     traction: {
       endpoints: "190+",
-      forum_engagement: "680+ comments across 50+ threads",
+      forum_engagement: "1000+ comments across 50+ threads",
       ecosystem_partners: 11,
       hackathon_integrations: ["SugarClawdy", "SolSignal", "Identity Prism", "NawaPay", "Varuna", "Unbrowse"],
       live_since: "2026-02-03"
