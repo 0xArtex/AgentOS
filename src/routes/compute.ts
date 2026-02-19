@@ -147,7 +147,7 @@ router.post("/servers", rateLimit(5, 60_000), requireAuth(6.0, 'server'), async 
  * GET /compute/servers — List your servers
  * Cost: 0.01 USDC
  */
-router.get("/servers", requireAuth(0.01, 'server'), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/servers", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const owner = req.isHackathonMode ? req.agentId! : req.payment!.payer;
     const servers = await computeService.listServers(owner);
@@ -161,7 +161,7 @@ router.get("/servers", requireAuth(0.01, 'server'), async (req: AuthenticatedReq
  * GET /compute/servers/:id — Get server details + live status
  * Cost: 0.01 USDC
  */
-router.get("/servers/:id", requireAuth(0.01, 'server'), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/servers/:id", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const server = await computeService.getServer(String(req.params.id));
     res.json(server);
@@ -174,7 +174,7 @@ router.get("/servers/:id", requireAuth(0.01, 'server'), async (req: Authenticate
  * POST /compute/servers/:id/actions — Perform server action (reboot, poweron, poweroff, rebuild, reset)
  * Cost: 0.05 USDC
  */
-router.post("/servers/:id/actions", requireAuth(0.05, 'server'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/actions", requireAuth(0.05, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { action, image } = req.body as { action: string; image?: string };
     const validActions: ServerAction[] = ["reboot", "poweron", "poweroff", "rebuild", "reset"];
@@ -206,7 +206,7 @@ router.post("/servers/:id/actions", requireAuth(0.05, 'server'), async (req: Aut
  * POST /compute/servers/:id/resize — Resize server (change plan)
  * Cost: 0.10 USDC (+ price difference on next billing)
  */
-router.post("/servers/:id/resize", requireAuth(0.10, 'server'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/resize", requireAuth(0.10, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { serverType, upgradeDisk } = req.body as { serverType: string; upgradeDisk?: boolean };
 
@@ -236,7 +236,7 @@ router.post("/servers/:id/resize", requireAuth(0.10, 'server'), async (req: Auth
  * DELETE /compute/servers/:id — Destroy server permanently
  * Cost: 0.05 USDC
  */
-router.delete("/servers/:id", requireAuth(0.05, 'server'), async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/servers/:id", requireAuth(0.05, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     await computeService.deleteServer(String(req.params.id));
     res.json({ deleted: true, id: String(req.params.id), message: "Server permanently destroyed." });

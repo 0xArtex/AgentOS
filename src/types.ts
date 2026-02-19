@@ -130,7 +130,7 @@ export interface UpdateDnsRequest {
 
 // ── Compute Service ───────────────────────────────────────────
 
-export type ServerType = "cx22" | "cpx21" | "cx32" | "cpx31" | "cx42" | "cpx41" | "cx52" | "cpx51";
+export type ServerType = "cx23" | "cx33" | "cx43" | "cx53" | "cpx11" | "cpx21" | "cpx31" | "cpx41" | "cpx51";
 
 export interface ServerPlan {
   type: ServerType;
@@ -144,14 +144,17 @@ export interface ServerPlan {
 }
 
 export const SERVER_PLANS: ServerPlan[] = [
-  { type: "cpx21", vcpu: 3, ram: 4,  disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 5.39,  priceUsdc: "8.00" },
-  { type: "cx22",  vcpu: 2, ram: 4,  disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 3.99,  priceUsdc: "6.00" },
-  { type: "cpx31", vcpu: 4, ram: 8,  disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 9.59,  priceUsdc: "14.00" },
-  { type: "cx32",  vcpu: 4, ram: 8,  disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 7.49,  priceUsdc: "11.00" },
-  { type: "cpx41", vcpu: 8, ram: 16, disk: 240, traffic: 20, arch: "x86", hetznerMonthly: 17.99, priceUsdc: "26.00" },
-  { type: "cx42",  vcpu: 8, ram: 16, disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 14.49, priceUsdc: "21.00" },
-  { type: "cpx51", vcpu: 16, ram: 32, disk: 360, traffic: 20, arch: "x86", hetznerMonthly: 34.49, priceUsdc: "50.00" },
-  { type: "cx52",  vcpu: 16, ram: 32, disk: 320, traffic: 20, arch: "x86", hetznerMonthly: 28.49, priceUsdc: "42.00" },
+  // Shared vCPU (CX line) — best value
+  { type: "cx23",  vcpu: 2,  ram: 4,   disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 3.49,  priceUsdc: "5.00" },
+  { type: "cx33",  vcpu: 4,  ram: 8,   disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 5.99,  priceUsdc: "9.00" },
+  { type: "cx43",  vcpu: 8,  ram: 16,  disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 9.99,  priceUsdc: "15.00" },
+  { type: "cx53",  vcpu: 16, ram: 32,  disk: 320, traffic: 20, arch: "x86", hetznerMonthly: 18.99, priceUsdc: "28.00" },
+  // Shared vCPU (CPX line) — performance
+  { type: "cpx11", vcpu: 2,  ram: 2,   disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 4.99,  priceUsdc: "7.00" },
+  { type: "cpx21", vcpu: 3,  ram: 4,   disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 9.99,  priceUsdc: "15.00" },
+  { type: "cpx31", vcpu: 4,  ram: 8,   disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 17.99, priceUsdc: "26.00" },
+  { type: "cpx41", vcpu: 8,  ram: 16,  disk: 240, traffic: 20, arch: "x86", hetznerMonthly: 33.49, priceUsdc: "48.00" },
+  { type: "cpx51", vcpu: 16, ram: 32,  disk: 360, traffic: 20, arch: "x86", hetznerMonthly: 66.99, priceUsdc: "95.00" },
 ];
 
 export const SERVER_PRICING: Record<string, string> = Object.fromEntries(

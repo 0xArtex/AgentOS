@@ -133,7 +133,7 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS servers (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
-      server_type TEXT NOT NULL CHECK(server_type IN ('cx22', 'cx32', 'cx42', 'cx52')),
+      server_type TEXT NOT NULL,
       image TEXT NOT NULL,
       status TEXT NOT NULL,
       ipv4 TEXT,

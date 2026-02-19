@@ -133,12 +133,12 @@ export async function serverAction(id: string, action: ServerAction, image?: str
   const server = storage.getServer(id);
   if (!server) throw new Error(`Server ${id} not found`);
 
-  const body: any = { type: action };
-  if (action === "rebuild" && image) {
-    body.image = image;
+  const body: any = {};
+  if (action === "rebuild") {
+    body.image = image || server.image || "ubuntu-24.04";
   }
 
-  const data = await hcloud("POST", `/servers/${id}/actions`, body);
+  const data = await hcloud("POST", `/servers/${id}/actions/${action}`, body);
   return data.action;
 }
 
@@ -147,8 +147,7 @@ export async function resizeServer(id: string, serverType: ServerType, upgradeDi
   if (!server) throw new Error(`Server ${id} not found`);
 
   // Server must be off to resize
-  const data = await hcloud("POST", `/servers/${id}/actions`, {
-    type: "change_type",
+  const data = await hcloud("POST", `/servers/${id}/actions/change_type`, {
     server_type: serverType,
     upgrade_disk: upgradeDisk,
   });
