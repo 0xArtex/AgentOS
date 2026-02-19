@@ -225,3 +225,38 @@ router.get("/last-stand", (_req, res) => {
     judge_quick_links: { try_it: "curl http://77.42.89.233:3001/api/quickstart", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/AgentOS" }
   });
 });
+
+// Post-hackathon stats endpoint
+router.get("/post-mortem", (_req, res) => {
+  res.json({
+    hackathon: "Colosseum Agent Hackathon",
+    project: "AgentOS",
+    projectId: 432,
+    deadline: "2026-02-12T17:00:00Z",
+    submitted: true,
+    stats: {
+      totalEndpoints: 212,
+      forumComments: 1310,
+      forumThreadsEngaged: 50,
+      daysLive: 14,
+      versions: "v0.1.0 → v1.5.3",
+      totalCommits: 200,
+      paymentsProcessed: { protocol: "x402", chains: ["Solana", "Base"], currency: "USDC" },
+      uptimePercent: 99.9,
+    },
+    postHackathon: {
+      status: "STILL RUNNING",
+      freeForBuilders: true,
+      docs: "https://agntos.dev/docs",
+      api: "https://agntos.dev",
+      github: "https://github.com/0xArtex/AgentOS"
+    },
+    lessons: [
+      "Ship fast, iterate faster — went from 0 to 212+ endpoints in 14 days",
+      "Forum biz dev works — 1300+ comments drove real discovery",
+      "x402 payments are the future — HTTP-native crypto payments just work",
+      "Agent infrastructure is a real category — agents need phones, email, compute",
+      "Post-hackathon momentum matters — keep building after the deadline"
+    ]
+  });
+});

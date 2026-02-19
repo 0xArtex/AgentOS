@@ -1,0 +1,80 @@
+import { Router, Request, Response } from "express";
+
+const router = Router();
+
+interface NetworkNode {
+  id: string;
+  name: string;
+  category: string;
+  status: "live" | "in-progress" | "planned";
+  url?: string;
+}
+
+interface NetworkEdge {
+  from: string;
+  to: string;
+  type: "integration" | "data-flow" | "payment";
+  description: string;
+}
+
+const nodes: NetworkNode[] = [
+  { id: "agentos", name: "AgentOS", category: "infrastructure", status: "live", url: "https://agntos.dev" },
+  { id: "alphavault", name: "AlphaVault", category: "trading", status: "live", url: "http://162.55.53.160:3000" },
+  { id: "slotscribe", name: "SlotScribe", category: "verification", status: "in-progress" },
+  { id: "agentlink", name: "AgentLink", category: "marketplace", status: "planned" },
+  { id: "solsignal", name: "SolSignal", category: "signals", status: "live" },
+  { id: "mutualagent", name: "MutualAgent", category: "insurance", status: "planned" },
+  { id: "wunderland", name: "WUNDERLAND", category: "social", status: "in-progress" },
+  { id: "identityprism", name: "Identity Prism", category: "identity", status: "planned" },
+  { id: "sugarclaw", name: "SugarClawdy", category: "commerce", status: "live" },
+  { id: "vex", name: "Vex Capital", category: "trading", status: "planned" },
+  { id: "mortem", name: "MORTEM", category: "liveness", status: "live" },
+  { id: "heliossyn", name: "HeliosSynerga", category: "defi", status: "in-progress" },
+  { id: "agentpay", name: "AgentPay", category: "payments", status: "planned" },
+  { id: "privpay", name: "PrivatePay", category: "payments", status: "planned" },
+];
+
+const edges: NetworkEdge[] = [
+  { from: "agentos", to: "alphavault", type: "integration", description: "Compute containers + trade execution" },
+  { from: "agentos", to: "slotscribe", type: "data-flow", description: "Operational logs → on-chain anchoring" },
+  { from: "agentos", to: "solsignal", type: "integration", description: "Alert notifications via AgentOS comms" },
+  { from: "agentos", to: "sugarclaw", type: "integration", description: "Commerce infra + payment rails" },
+  { from: "agentos", to: "wunderland", type: "data-flow", description: "Event webhooks → frontend SDK" },
+  { from: "agentos", to: "mutualagent", type: "data-flow", description: "Activity logs → risk scoring" },
+  { from: "agentos", to: "agentlink", type: "integration", description: "Identity + compute for hired agents" },
+  { from: "agentos", to: "vex", type: "integration", description: "Execution infra for autonomous funds" },
+  { from: "agentos", to: "mortem", type: "data-flow", description: "Liveness attestation pipeline" },
+  { from: "agentos", to: "heliossyn", type: "integration", description: "Dedicated compute for arb execution" },
+  { from: "agentos", to: "agentpay", type: "payment", description: "x402 USDC payment composability" },
+  { from: "agentos", to: "privpay", type: "payment", description: "Virtual card provisioning via x402" },
+  { from: "alphavault", to: "solsignal", type: "data-flow", description: "Trade signals → execution" },
+  { from: "slotscribe", to: "mutualagent", type: "data-flow", description: "Verified receipts → insurance claims" },
+];
+
+router.get("/", (_req: Request, res: Response) => {
+  const stats = {
+    totalNodes: nodes.length,
+    liveIntegrations: nodes.filter(n => n.status === "live").length,
+    inProgress: nodes.filter(n => n.status === "in-progress").length,
+    planned: nodes.filter(n => n.status === "planned").length,
+    totalEdges: edges.length,
+    categories: [...new Set(nodes.map(n => n.category))],
+  };
+
+  res.json({
+    network: { nodes, edges },
+    stats,
+    description: "AgentOS ecosystem network map — shows how agents connect through our infrastructure layer",
+    note: "Post-hackathon: building toward real integrations. Partner with us: https://agntos.dev/docs",
+    updatedAt: new Date().toISOString(),
+  });
+});
+
+router.get("/category/:cat", (req: Request, res: Response) => {
+  const cat = req.params.cat;
+  const filtered = nodes.filter(n => n.category === cat);
+  const relatedEdges = edges.filter(e => filtered.some(n => n.id === e.from || n.id === e.to));
+  res.json({ category: cat, nodes: filtered, edges: relatedEdges });
+});
+
+export default router;

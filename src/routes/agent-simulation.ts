@@ -23,7 +23,7 @@ router.get("/api/agent-simulation", (req: Request, res: Response) => {
       action: "provision_phone",
       endpoint: "POST /api/phones/provision",
       curl: "curl -X POST http://77.42.89.233:3001/api/phones/provision -H 'X-Agent-Id: " + agentName + "' -H 'Content-Type: application/json' -d '{\"area_code\": \"415\"}'",
-      result: { phone_number: "+1-415-555-0142", provider: "twilio", sms_enabled: true, voice_enabled: true },
+      result: { phone_number: "+1-415-555-0142", provider: "telnyx", sms_enabled: true, voice_enabled: true },
       latency_ms: 340,
       description: "Agent gets a dedicated phone number for SMS/voice"
     },

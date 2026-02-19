@@ -182,7 +182,7 @@ export function initDatabase(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS inbound_sms (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      twilio_sid TEXT UNIQUE NOT NULL,
+      telnyx_id TEXT UNIQUE NOT NULL,
       from_number TEXT NOT NULL,
       to_number TEXT NOT NULL,
       body TEXT NOT NULL,

@@ -417,10 +417,10 @@ export const swaggerSpec = {
         }
       }
     },
-    '/webhooks/twilio/sms': {
+    '/phone/webhooks/telnyx': {
       post: {
-        summary: 'Twilio SMS webhook',
-        description: 'Handle inbound SMS messages from Twilio (webhook callback)',
+        summary: 'Telnyx SMS webhook',
+        description: 'Handle inbound SMS messages from Telnyx (webhook callback)',
         tags: ['Webhooks'],
         security: [],
         requestBody: {

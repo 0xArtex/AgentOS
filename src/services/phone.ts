@@ -1,18 +1,48 @@
-import twilio from "twilio";
+import Telnyx from "telnyx";
 import { v4 as uuid } from "uuid";
 import { config } from "../config";
 import { PhoneNumber, SmsMessage } from "../types";
 import { storage } from "./storage";
 
-function getClient(): twilio.Twilio {
-  if (!config.twilioAccountSid || !config.twilioAuthToken) {
-    throw new Error("Twilio credentials not configured");
+let _client: InstanceType<typeof Telnyx> | null = null;
+
+function getClient(): InstanceType<typeof Telnyx> {
+  if (!config.telnyxApiKey) {
+    throw new Error("Telnyx API key not configured — set TELNYX_API_KEY");
   }
-  return twilio(config.twilioAccountSid, config.twilioAuthToken);
+  if (!_client) {
+    _client = new Telnyx({ apiKey: config.telnyxApiKey });
+  }
+  return _client;
 }
 
 /**
- * Provision a new phone number for an agent.
+ * Search for available phone numbers.
+ */
+export async function searchNumbers(
+  country: string,
+  opts?: { areaCode?: string; limit?: number }
+): Promise<Array<{ phoneNumber: string; region: string; type: string }>> {
+  const client = getClient();
+  const params: any = {
+    "filter[country_code]": country,
+    "filter[limit]": opts?.limit ?? 5,
+  };
+  if (opts?.areaCode) {
+    params["filter[national_destination_code]"] = opts.areaCode;
+  }
+
+  const res = await client.availablePhoneNumbers.list(params);
+  const numbers = (res as any).data || [];
+  return numbers.map((n: any) => ({
+    phoneNumber: n.phone_number,
+    region: n.region_information?.[0]?.region_name || country,
+    type: n.phone_number_type || "local",
+  }));
+}
+
+/**
+ * Provision (purchase) a phone number for an agent.
  */
 export async function provisionNumber(
   country: string,
@@ -21,28 +51,44 @@ export async function provisionNumber(
 ): Promise<PhoneNumber> {
   const client = getClient();
 
-  // Search for available numbers
-  const searchParams: any = { limit: 1 };
-  if (areaCode) searchParams.areaCode = areaCode;
-
-  const available = await client
-    .availablePhoneNumbers(country)
-    .local.list(searchParams);
-
+  // 1. Search for available numbers
+  const available = await searchNumbers(country, { areaCode, limit: 1 });
   if (available.length === 0) {
-    throw new Error(`No available numbers in ${country}${areaCode ? ` (area code ${areaCode})` : ""}`);
+    throw new Error(
+      `No available numbers in ${country}${areaCode ? ` (area code ${areaCode})` : ""}`
+    );
   }
 
-  // Purchase the number
-  const purchased = await client.incomingPhoneNumbers.create({
-    phoneNumber: available[0].phoneNumber,
-    // TODO: Set SMS webhook URL for inbound messages
-    // smsUrl: `${BASE_URL}/webhooks/twilio/sms`,
-  });
+  const chosen = available[0].phoneNumber;
 
+  // 2. Create a number order to purchase
+  const order = await client.numberOrders.create({
+    phone_numbers: [{ phone_number: chosen }],
+    messaging_profile_id: config.telnyxMessagingProfileId || undefined,
+  } as any);
+
+  const orderData = (order as any).data || order;
+  const status = orderData.status;
+
+  if (status !== "success" && status !== "pending") {
+    throw new Error(`Number order failed with status: ${status}`);
+  }
+
+  // 3. If we have a messaging profile, assign it
+  if (config.telnyxMessagingProfileId) {
+    try {
+      await client.phoneNumbers.update(chosen, {
+        messaging_profile_id: config.telnyxMessagingProfileId,
+      } as any);
+    } catch (e: any) {
+      console.warn("[phone] Could not assign messaging profile:", e.message);
+    }
+  }
+
+  // 4. Store locally
   const record: PhoneNumber = {
     id: uuid(),
-    phoneNumber: purchased.phoneNumber,
+    phoneNumber: chosen,
     country,
     owner,
     provisionedAt: new Date().toISOString(),
@@ -78,14 +124,17 @@ export async function sendSms(
 
   const client = getClient();
 
-  await client.messages.create({
+  const res = await client.messages.send({
     from: number.phoneNumber,
     to,
-    body,
-  });
+    text: body,
+    messaging_profile_id: config.telnyxMessagingProfileId || undefined,
+  } as any);
+
+  const msgData = (res as any).data || res;
 
   const msg: SmsMessage = {
-    id: uuid(),
+    id: msgData.id || uuid(),
     phoneNumberId,
     direction: "outbound",
     from: number.phoneNumber,
@@ -99,7 +148,8 @@ export async function sendSms(
 }
 
 /**
- * Handle inbound SMS webhook from Twilio.
+ * Handle inbound SMS webhook from Telnyx.
+ * Telnyx sends webhooks as { data: { event_type, payload } }
  */
 export function handleInboundSms(from: string, to: string, body: string): void {
   const found = storage.findPhoneByNumber(to);
@@ -118,6 +168,7 @@ export function handleInboundSms(from: string, to: string, body: string): void {
     timestamp: new Date().toISOString(),
   };
   storage.pushSmsMessage(id, msg);
+  console.log(`[phone] Inbound SMS stored: ${from} → ${to}`);
 }
 
 /**
@@ -125,4 +176,32 @@ export function handleInboundSms(from: string, to: string, body: string): void {
  */
 export function getNumber(id: string): PhoneNumber | undefined {
   return storage.getPhoneNumber(id);
+}
+
+/**
+ * List all phone numbers for an owner.
+ */
+export function listNumbers(owner: string): PhoneNumber[] {
+  // TODO: add listPhoneNumbersByOwner to storage layer
+  return [];
+}
+
+/**
+ * Delete/release a phone number.
+ */
+export async function deleteNumber(phoneNumberId: string): Promise<void> {
+  const number = storage.getPhoneNumber(phoneNumberId);
+  if (!number) throw new Error(`Phone number ${phoneNumberId} not found`);
+
+  const client = getClient();
+
+  try {
+    await client.phoneNumbers.delete(number.phoneNumber);
+  } catch (e: any) {
+    console.warn("[phone] Could not release number from Telnyx:", e.message);
+  }
+
+  // Mark inactive locally
+  number.active = false;
+  storage.setPhoneNumber(phoneNumberId, number);
 }

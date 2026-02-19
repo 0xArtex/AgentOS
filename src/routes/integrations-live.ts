@@ -1,42 +1,119 @@
-import { Router, Request, Response } from "express";
-import { db } from "../db";
+import { Router } from "express";
 
 const router = Router();
 
-router.get("/", (req: Request, res: Response) => {
-  const start = Date.now();
-  
-  let agentCount = 0;
-  try {
-    const row = db.prepare("SELECT COUNT(*) as count FROM agents").get() as any;
-    agentCount = row?.count || 0;
-  } catch {}
+interface PartnerStatus {
+  name: string;
+  category: string;
+  status: "live" | "testing" | "planned";
+  lastPing?: string;
+  endpoint?: string;
+  description: string;
+}
 
-  const hoursLeft = Math.max(0, (new Date("2026-02-12T17:00:00Z").getTime() - Date.now()) / 3600000);
+const partners: PartnerStatus[] = [
+  {
+    name: "SlotScribe",
+    category: "Observability",
+    status: "testing",
+    description: "Flight recorder integration — AgentOS activity logs feed into SlotScribe's on-chain verification pipeline",
+  },
+  {
+    name: "Wunderland",
+    category: "Identity",
+    status: "planned",
+    description: "HEXACO personality vectors + AgentOS operational identity for composite trust profiles",
+  },
+  {
+    name: "MoltLaunch",
+    category: "Trust Layer",
+    status: "testing",
+    description: "Infrastructure verification attestations — AgentOS agents get MoltLaunch trust scores",
+  },
+  {
+    name: "AAP (Agent Agreement Protocol)",
+    category: "Execution",
+    status: "planned",
+    description: "Delegation scopes + AgentOS resource provisioning for multi-party agent agreements",
+  },
+  {
+    name: "Farnsworth AI Swarm",
+    category: "Collective Intelligence",
+    status: "planned",
+    description: "Swarm oracle queries routed through AgentOS compute containers for isolated execution",
+  },
+  {
+    name: "Prometheus Vault",
+    category: "DeFi",
+    status: "planned",
+    description: "Decision logging via AgentOS audit trails for verifiable yield optimization history",
+  },
+  {
+    name: "MutualAgent Insurance",
+    category: "Risk",
+    status: "planned",
+    description: "Notification infrastructure for autonomous claim processing and agent-to-agent alerts",
+  },
+  {
+    name: "Vex Capital",
+    category: "Trading",
+    status: "planned",
+    description: "Operational backbone — SMS alerts, compute for backtesting, webhook event routing",
+  },
+];
+
+/**
+ * @swagger
+ * /api/integrations-live:
+ *   get:
+ *     summary: Live ecosystem integration status
+ *     description: Real-time status of AgentOS integrations with hackathon ecosystem partners
+ *     tags: [Ecosystem]
+ *     responses:
+ *       200:
+ *         description: Integration partner statuses
+ */
+router.get("/", (_req, res) => {
+  const live = partners.filter((p) => p.status === "live").length;
+  const testing = partners.filter((p) => p.status === "testing").length;
+  const planned = partners.filter((p) => p.status === "planned").length;
 
   res.json({
-    platform: "AgentOS",
-    version: "1.2.8",
-    status: "operational",
-    responseTimeMs: Date.now() - start,
-    database: { connected: true, registeredAgents: agentCount },
-    services: [
-      { name: "Phone Provisioning", status: "operational" },
-      { name: "Email Provisioning", status: "operational" },
-      { name: "Compute Provisioning", status: "operational" },
-      { name: "Domain Management", status: "operational" },
-      { name: "Identity Verification", status: "operational" },
-      { name: "Analytics", status: "operational" },
-    ],
-    ecosystem: { totalPartners: 14, liveIntegrations: 4 },
-    hackathon: {
-      hoursRemaining: Math.round(hoursLeft * 10) / 10,
-      totalEndpoints: 114,
-      forumComments: 470,
-      isFree: hoursLeft > 0,
-    },
-    tryIt: "curl http://77.42.89.233:3001/api/integrations-live",
+    totalPartners: partners.length,
+    summary: { live, testing, planned },
+    partners,
+    updatedAt: new Date().toISOString(),
+    note: "Post-hackathon: actively onboarding partners. DM @zoltyagent or hit /api/demo-request to integrate.",
   });
+});
+
+/**
+ * @swagger
+ * /api/integrations-live/{category}:
+ *   get:
+ *     summary: Filter integrations by category
+ *     tags: [Ecosystem]
+ *     parameters:
+ *       - in: path
+ *         name: category
+ *         required: true
+ *         schema:
+ *           type: string
+ */
+router.get("/:category", (req, res) => {
+  const category = req.params.category.toLowerCase();
+  const filtered = partners.filter(
+    (p) => p.category.toLowerCase() === category
+  );
+
+  if (filtered.length === 0) {
+    return res.status(404).json({
+      error: "No integrations found for category",
+      availableCategories: [...new Set(partners.map((p) => p.category))],
+    });
+  }
+
+  res.json({ category: req.params.category, partners: filtered });
 });
 
 export default router;

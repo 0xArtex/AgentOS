@@ -1,6 +1,6 @@
 import { config } from "../config";
 import { storage } from "./storage";
-import { Server, ServerType, SERVER_PRICING } from "../types";
+import { Server, ServerType, ServerAction, SERVER_PRICING, SERVER_PLANS } from "../types";
 import crypto from "crypto";
 
 const HCLOUD_API = "https://api.hetzner.cloud/v1";
@@ -125,4 +125,54 @@ export async function listSshKeys(): Promise<any[]> {
 
 export async function deleteSshKey(id: number): Promise<void> {
   await hcloud("DELETE", `/ssh_keys/${id}`);
+}
+
+// ── Server Actions ────────────────────────────────────────────
+
+export async function serverAction(id: string, action: ServerAction, image?: string): Promise<any> {
+  const server = storage.getServer(id);
+  if (!server) throw new Error(`Server ${id} not found`);
+
+  const body: any = { type: action };
+  if (action === "rebuild" && image) {
+    body.image = image;
+  }
+
+  const data = await hcloud("POST", `/servers/${id}/actions`, body);
+  return data.action;
+}
+
+export async function resizeServer(id: string, serverType: ServerType, upgradeDisk: boolean = false): Promise<any> {
+  const server = storage.getServer(id);
+  if (!server) throw new Error(`Server ${id} not found`);
+
+  // Server must be off to resize
+  const data = await hcloud("POST", `/servers/${id}/actions`, {
+    type: "change_type",
+    server_type: serverType,
+    upgrade_disk: upgradeDisk,
+  });
+
+  // Update local record
+  const pricing = SERVER_PRICING[serverType];
+  if (pricing) {
+    server.serverType = serverType;
+    server.priceMonthly = pricing;
+    storage.setServer(id, server);
+  }
+
+  return data.action;
+}
+
+export function getPlans() {
+  return SERVER_PLANS.map(p => ({
+    type: p.type,
+    vcpu: p.vcpu,
+    ramGb: p.ram,
+    diskGb: p.disk,
+    trafficTb: p.traffic,
+    arch: p.arch,
+    priceUsdc: p.priceUsdc,
+    priceUsdcMonthly: p.priceUsdc,
+  }));
 }

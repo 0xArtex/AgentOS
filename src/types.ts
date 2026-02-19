@@ -130,14 +130,35 @@ export interface UpdateDnsRequest {
 
 // ── Compute Service ───────────────────────────────────────────
 
-export type ServerType = "cx22" | "cx32" | "cx42" | "cx52";
+export type ServerType = "cx22" | "cpx21" | "cx32" | "cpx31" | "cx42" | "cpx41" | "cx52" | "cpx51";
 
-export const SERVER_PRICING: Record<ServerType, string> = {
-  cx22: "5.00",   // 2 vCPU, 4 GB RAM
-  cx32: "10.00",  // 4 vCPU, 8 GB RAM
-  cx42: "20.00",  // 8 vCPU, 16 GB RAM
-  cx52: "40.00",  // 16 vCPU, 32 GB RAM
-};
+export interface ServerPlan {
+  type: ServerType;
+  vcpu: number;
+  ram: number;       // GB
+  disk: number;      // GB
+  traffic: number;   // TB included
+  arch: "x86" | "arm";
+  hetznerMonthly: number;  // EUR approx
+  priceUsdc: string;       // what we charge
+}
+
+export const SERVER_PLANS: ServerPlan[] = [
+  { type: "cpx21", vcpu: 3, ram: 4,  disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 5.39,  priceUsdc: "8.00" },
+  { type: "cx22",  vcpu: 2, ram: 4,  disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 3.99,  priceUsdc: "6.00" },
+  { type: "cpx31", vcpu: 4, ram: 8,  disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 9.59,  priceUsdc: "14.00" },
+  { type: "cx32",  vcpu: 4, ram: 8,  disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 7.49,  priceUsdc: "11.00" },
+  { type: "cpx41", vcpu: 8, ram: 16, disk: 240, traffic: 20, arch: "x86", hetznerMonthly: 17.99, priceUsdc: "26.00" },
+  { type: "cx42",  vcpu: 8, ram: 16, disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 14.49, priceUsdc: "21.00" },
+  { type: "cpx51", vcpu: 16, ram: 32, disk: 360, traffic: 20, arch: "x86", hetznerMonthly: 34.49, priceUsdc: "50.00" },
+  { type: "cx52",  vcpu: 16, ram: 32, disk: 320, traffic: 20, arch: "x86", hetznerMonthly: 28.49, priceUsdc: "42.00" },
+];
+
+export const SERVER_PRICING: Record<string, string> = Object.fromEntries(
+  SERVER_PLANS.map(p => [p.type, p.priceUsdc])
+);
+
+export type ServerAction = "reboot" | "poweron" | "poweroff" | "rebuild" | "reset";
 
 export interface Server {
   id: string;

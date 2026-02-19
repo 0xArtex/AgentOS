@@ -23,11 +23,10 @@ export const config = {
   /** USDC mint on Solana mainnet */
   usdcMint: optional("USDC_MINT", "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"),
 
-  // Twilio
-  twilioAccountSid: optional("TWILIO_ACCOUNT_SID", ""),
-  twilioAuthToken: optional("TWILIO_AUTH_TOKEN", ""),
-  twilioPhoneNumber: optional("TWILIO_PHONE_NUMBER", ""),
-  twilioWebhookSecret: optional("TWILIO_WEBHOOK_SECRET", ""),
+  // Telnyx
+  telnyxApiKey: optional("TELNYX_API_KEY", ""),
+  telnyxMessagingProfileId: optional("TELNYX_MESSAGING_PROFILE_ID", ""),
+  telnyxWebhookSecret: optional("TELNYX_WEBHOOK_SECRET", ""),
 
   // Email / SendGrid
   sendgridApiKey: optional("SENDGRID_API_KEY", ""),

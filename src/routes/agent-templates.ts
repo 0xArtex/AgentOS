@@ -2,113 +2,110 @@ import { Router, Request, Response } from "express";
 
 const router = Router();
 
-const TEMPLATES = [
+const templates = [
   {
     id: "trading-bot",
-    name: "Trading Bot Starter",
-    description: "Autonomous trading agent with market data, position management, and risk controls",
-    services: ["compute", "secrets", "cron", "webhooks"],
-    setup_steps: [
-      "POST /api/agents — register your trading agent",
-      "POST /api/agent-secrets — store exchange API keys securely",
-      "POST /api/agent-cron — schedule market scans every 5 minutes",
-      "POST /api/compute/deploy — deploy your trading logic",
-      "GET /api/agent-analytics — monitor P&L and execution stats"
-    ],
-    estimated_setup: "10 minutes",
-    difficulty: "intermediate"
+    name: "DeFi Trading Agent",
+    description: "Autonomous trading agent with email alerts, phone notifications, and dedicated compute",
+    services: ["email", "phone", "compute"],
+    estimatedCostUSDC: 7.05,
+    period: "monthly",
+    setup: {
+      email: { prefix: "trading-alerts", purpose: "Trade confirmations & portfolio reports" },
+      phone: { purpose: "Urgent liquidation alerts via SMS/voice" },
+      compute: { image: "node:20-slim", purpose: "Strategy execution engine" },
+    },
+    integrations: ["Jupiter", "Raydium", "Pyth", "Birdeye"],
+    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-trading-bot","services":["email","phone","compute"]}\''
   },
   {
-    id: "customer-support",
-    name: "Customer Support Agent",
-    description: "Multi-channel support agent with phone, email, and knowledge base",
-    services: ["phone", "email", "compute", "env"],
-    setup_steps: [
-      "POST /api/agents — register your support agent",
-      "POST /api/phone/provision — get a dedicated support number",
-      "POST /api/email — configure support@yourdomain.com",
-      "POST /api/agent-env — set greeting messages, escalation rules",
-      "POST /api/compute/deploy — deploy your NLP/routing logic"
-    ],
-    estimated_setup: "15 minutes",
-    difficulty: "beginner"
+    id: "social-agent",
+    name: "Social Media Agent",
+    description: "Agent that monitors social channels, responds to mentions, and manages community",
+    services: ["email", "compute", "domain"],
+    estimatedCostUSDC: 5.05,
+    period: "monthly",
+    setup: {
+      email: { prefix: "social", purpose: "Email notifications & digest reports" },
+      compute: { image: "python:3.12-slim", purpose: "NLP processing & content generation" },
+      domain: { purpose: "Custom landing page for agent profile" },
+    },
+    integrations: ["Twitter/X", "Discord", "Telegram"],
+    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-social-agent","services":["email","compute","domain"]}\''
   },
   {
     id: "data-pipeline",
     name: "Data Pipeline Agent",
-    description: "Scheduled data collection, transformation, and delivery agent",
-    services: ["cron", "compute", "secrets", "webhooks", "email"],
-    setup_steps: [
-      "POST /api/agents — register your pipeline agent",
-      "POST /api/agent-secrets — store data source credentials",
-      "POST /api/agent-cron — schedule hourly/daily collection jobs",
-      "POST /api/compute/deploy — deploy ETL logic",
-      "POST /api/email — send daily digest reports"
-    ],
-    estimated_setup: "10 minutes",
-    difficulty: "beginner"
+    description: "Agent that collects, processes, and serves data with scheduled compute jobs",
+    services: ["compute", "email"],
+    estimatedCostUSDC: 2.05,
+    period: "monthly",
+    setup: {
+      compute: { image: "python:3.12-slim", purpose: "Data collection & ETL processing" },
+      email: { prefix: "data-reports", purpose: "Automated report delivery" },
+    },
+    integrations: ["Helius", "DexScreener", "CoinGecko", "The Graph"],
+    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-data-agent","services":["compute","email"]}\''
   },
   {
-    id: "social-media-manager",
-    name: "Social Media Manager",
-    description: "Content scheduling, engagement tracking, and cross-platform posting agent",
-    services: ["cron", "secrets", "env", "webhooks", "compute"],
-    setup_steps: [
-      "POST /api/agents — register your social agent",
-      "POST /api/agent-secrets — store platform API tokens",
-      "POST /api/agent-env — configure posting schedule, tone, hashtags",
-      "POST /api/agent-cron — schedule posts across timezones",
-      "POST /api/compute/deploy — deploy content generation logic"
-    ],
-    estimated_setup: "10 minutes",
-    difficulty: "beginner"
+    id: "insurance-agent", 
+    name: "Risk & Insurance Agent",
+    description: "Agent for risk assessment, claims processing, and insurance pool management",
+    services: ["email", "phone", "compute"],
+    estimatedCostUSDC: 7.05,
+    period: "monthly",
+    setup: {
+      email: { prefix: "claims", purpose: "Claim submissions & policy documents" },
+      phone: { purpose: "Urgent claim notifications" },
+      compute: { image: "node:20-slim", purpose: "Risk scoring & actuarial models" },
+    },
+    integrations: ["Chainlink", "Pyth", "MutualAgent"],
+    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-insurance-agent","services":["email","phone","compute"]}\''
   },
   {
-    id: "defi-monitor",
-    name: "DeFi Monitor & Alerter",
-    description: "On-chain monitoring agent with price alerts, whale tracking, and risk scoring",
-    services: ["cron", "secrets", "webhooks", "compute", "phone"],
-    setup_steps: [
-      "POST /api/agents — register your DeFi monitor",
-      "POST /api/agent-secrets — store RPC endpoints and wallet keys",
-      "POST /api/agent-cron — schedule block scans every 30 seconds",
-      "POST /api/webhooks — receive on-chain event callbacks",
-      "POST /api/phone/provision — get SMS alerts for high-priority events"
-    ],
-    estimated_setup: "15 minutes",
-    difficulty: "advanced"
-  },
-  {
-    id: "research-agent",
-    name: "Research & Report Agent",
-    description: "Autonomous research agent that gathers data, synthesizes findings, and delivers reports",
-    services: ["compute", "cron", "email", "env", "secrets"],
-    setup_steps: [
-      "POST /api/agents — register your research agent",
-      "POST /api/agent-env — configure research topics, depth, sources",
-      "POST /api/agent-secrets — store API keys for data providers",
-      "POST /api/agent-cron — schedule weekly research runs",
-      "POST /api/email — deliver formatted reports to stakeholders"
-    ],
-    estimated_setup: "10 minutes",
-    difficulty: "intermediate"
+    id: "full-stack",
+    name: "Full-Stack Autonomous Agent",
+    description: "Everything — phone, email, compute, domain, storage. Maximum autonomy.",
+    services: ["phone", "email", "compute", "domain", "storage"],
+    estimatedCostUSDC: 12.10,
+    period: "monthly",
+    setup: {
+      phone: { purpose: "Voice & SMS for human interaction" },
+      email: { prefix: "agent", purpose: "Full email communication" },
+      compute: { image: "ubuntu:22.04", purpose: "General-purpose compute" },
+      domain: { purpose: "Agent's web presence" },
+      storage: { purpose: "Persistent data & file storage" },
+    },
+    integrations: ["Any — full HTTP access from compute container"],
+    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-agent","services":["phone","email","compute","domain","storage"]}\''
   }
 ];
 
-// GET /api/agent-templates — list all starter templates
-router.get("/", (_req: Request, res: Response) => {
+router.get("/api/templates", (_req: Request, res: Response) => {
   res.json({
-    templates: TEMPLATES,
-    total: TEMPLATES.length,
-    note: "Each template shows which AgentOS services to use and step-by-step setup. All free during hackathon with X-Agent-Id header."
+    title: "AgentOS Agent Templates",
+    description: "Pre-configured infrastructure templates for common agent types. Pick one and deploy in seconds.",
+    templates: templates.map(t => ({
+      id: t.id,
+      name: t.name,
+      description: t.description,
+      services: t.services,
+      estimatedCostUSDC: t.estimatedCostUSDC,
+      period: t.period,
+    })),
+    total: templates.length,
+    usage: "GET /api/templates/:id for full setup details and curl commands",
   });
 });
 
-// GET /api/agent-templates/:id — get specific template
-router.get("/:id", (req: Request, res: Response) => {
-  const template = TEMPLATES.find(t => t.id === req.params.id);
+router.get("/api/templates/:id", (req: Request, res: Response) => {
+  const id = req.params.id as string;
+  const template = templates.find(t => t.id === id);
   if (!template) {
-    return res.status(404).json({ error: "Template not found", available: TEMPLATES.map(t => t.id) });
+    return res.status(404).json({ 
+      error: "Template not found",
+      available: templates.map(t => t.id)
+    });
   }
   res.json(template);
 });

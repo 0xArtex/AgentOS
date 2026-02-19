@@ -1,5 +1,7 @@
+import hackathonSummaryRoute from "./routes/hackathon-summary";
 import judgeScorecardRoute from "./routes/judge-scorecard";
 import agentGraphRoute from "./routes/agent-graph";
+import agentLifecycleRoute from "./routes/agent-lifecycle";
 import agentLeaderboardRoute from "./routes/agent-leaderboard";
 import fleetDashboardRoute from "./routes/fleet-dashboard";
 import agentReputationRouter from "./routes/agent-reputation";
@@ -15,6 +17,7 @@ import agentWorkflowsRoutes from "./routes/agent-workflows";
 import finalCountdownRoute from "./routes/final-countdown";
 import liveStatusRoute from "./routes/live-status";
 import apiMapRoute from "./routes/api-map";
+import integrationsGuideRoute from "./routes/agent-integrations-guide";
 import demoFlowRoute from "./routes/demo-flow";
 import demoLiveRoute from "./routes/demo-live";
 import demoScriptRoute from "./routes/demo-script";
@@ -37,6 +40,7 @@ import agentScoreRoutes from "./routes/agent-score";
 import comparisonRoutes from "./routes/comparison";
 import quickstartRoutes from "./routes/quickstart";
 import integrationsLiveRouter from "./routes/integrations-live";
+import postHackathonStatusRoute from "./routes/post-hackathon-status";
 import express from "express";
 import path from "path";
 import swaggerUi from "swagger-ui-express";
@@ -126,8 +130,8 @@ app.use(express.static(path.join(__dirname, "..", "public")));
 // ── Landing page ─────────────────────────────────────────────
 app.get("/", (_req, res) => {
   res.sendFile(path.join(__dirname, "..", "public", "index.html"));
-});
 
+});
 // ── API info (moved from GET /) ──────────────────────────────
 app.get("/api", (_req, res) => {
   res.json({
@@ -137,18 +141,15 @@ app.get("/api", (_req, res) => {
     docs: "https://github.com/0xArtex/AgentOS",
     services: ["phone", "email", "domains", "compute", "apikeys", "agents", "messages", "stats", "activity"],
   });
-});
 
-app.get("/health", (_req, res) => {
-  const health = getHealth();
-  res.status(health.status === "healthy" ? 200 : 503).json(health);
 });
+import healthRouter from "./routes/health"; app.use("/health", healthRouter);
 
 // ── Version endpoint ─────────────────────────────────────────
 app.get("/version", (_req, res) => {
   res.json(getVersion());
-});
 
+});
 // ── API Documentation ─────────────────────────────────────────
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -182,6 +183,7 @@ app.use("/webhooks", webhookRoutes);
 app.use("/api", whyAgentosRoute);
 app.use("/api/why", whyRouter);
 app.use("/api", submissionReadyRoutes);
+import partnerHealthRoutes from "./routes/partner-health";app.use("/api/partner-health", partnerHealthRoutes);
 
 // ── Pricing info (no auth required) ──────────────────────────
 app.get("/pricing", (_req, res) => {
@@ -218,8 +220,8 @@ app.get("/pricing", (_req, res) => {
       },
     },
   });
-});
 
+});
 // ── Hackathon status (no auth required) ──────────────────────
 app.get("/hackathon/status", (req, res) => {
   const active = isHackathonActive();
@@ -247,8 +249,8 @@ app.get("/hackathon/status", (req, res) => {
   }
 
   res.json(response);
-});
 
+});
 // ── Skill documentation for OpenClaw agents ─────────────────
 app.get("/skill.md", (req, res) => {
   const fs = require('fs');
@@ -260,9 +262,9 @@ app.get("/skill.md", (req, res) => {
   } else {
     res.status(404).send('# skill.md not found');
   }
+
+
 });
-
-
 // ── Stream Overlay Stats ──────────────────────────────────────
 app.get("/overlay-stats", async (_req, res) => {
   // Read current task from a file (updated externally)
@@ -290,8 +292,8 @@ app.get("/overlay-stats", async (_req, res) => {
   } catch {}
 
   res.json({ task, commits, endpoints });
-});
 
+});
 // ── Changelog ─────────────────────────────────────────────
 app.use("/api/use-cases", usecasesRoutes);
 app.use("/changelog", changelogRoutes);
@@ -364,8 +366,8 @@ app.get("/health/deep", (_req, res) => {
     system: { cpus: os.cpus().length, load: os.loadavg(), free_mem_mb: Math.round(os.freemem()/1048576), total_mem_mb: Math.round(os.totalmem()/1048576) },
     hackathon: { deadline: "2026-02-12T17:00:00Z", hours_remaining: Math.max(0, Math.floor((new Date("2026-02-12T17:00:00Z").getTime() - Date.now())/3600000)), mode: "FREE" }
   });
-});
 
+});
 import hackathonRouter from "./routes/hackathon";
 app.use("/api/hackathon", hackathonRouter);
 import grantsRouter from "./routes/grants";
@@ -434,6 +436,7 @@ import architectureRoute from "./routes/architecture";
 app.use("/api/system-metrics", systemMetricsRouter);
 import forJudgesRoute from "./routes/for-judges";
 import hackathonRecapRoute from "./routes/hackathon-recap";
+import hackathonJourneyRoute from "./routes/hackathon-journey";
 import liveTestRoute from "./routes/live-test";
 app.use("/api/agent-toolkit", agentToolkitRouter);
 app.use("/api", serviceHealthRouter);
@@ -444,6 +447,7 @@ app.use("/api/architecture", architectureRoute);
 app.use("/api/for-judges", forJudgesRoute);
 app.use("/api/hackathon-recap", hackathonRecapRoute);
 app.use("/api/live-test", liveTestRoute);
+app.use("/api/hackathon-journey", hackathonJourneyRoute);
 import systemOverviewRoute from "./routes/system-overview";
 app.use("/api/system-overview", systemOverviewRoute);
 import systemHealthRoute from "./routes/system-health";
@@ -465,6 +469,7 @@ import deadlineRoute from "./routes/deadline";
 import proofOfWorkRoute from './routes/proof-of-work';
 app.use("/api/deadline", deadlineRoute);
 app.use(apiMapRoute);
+app.use(integrationsGuideRoute);
 app.use("/api/integrations-live", integrationsLiveRouter);
 app.use(proofOfWorkRoute);
 import agentRatingRoute from "./routes/agent-rating";
@@ -514,8 +519,6 @@ import agentBillingRoute from "./routes/agent-billing";
 app.use("/api/agent-billing", agentBillingRoute);
 import agentSlaRoute from "./routes/agent-sla";app.use("/api/agent-sla", agentSlaRoute);
 import agentOnboardRoute from "./routes/agent-onboard"; app.use("/api/agent-onboard", agentOnboardRoute);
-import agentUptimeRoute from "./routes/agent-uptime";
-app.use("/api/agent-uptime", agentUptimeRoute);
 import agentCostOptimizerRoute from "./routes/agent-cost-optimizer";app.use("/api/cost-optimizer", agentCostOptimizerRoute);
 import agentConfigRoute from "./routes/agent-config";
 import agentMetricsRoute from "./routes/agent-metrics";
@@ -523,7 +526,6 @@ app.use("/api/agent-config", agentConfigRoute);
 app.use("/api/agent-metrics", agentMetricsRoute);
 import agentSnapshotRoute from "./routes/agent-snapshot"; app.use(agentSnapshotRoute);
 app.use("/dashboard", liveDashboardRoute);
-import integrationsGuideRoute from "./routes/integrations"; app.use("/api", integrationsGuideRoute);
 app.use(serviceProbeRouter);
 app.use(agentReputationRouter);
 import agentChangelogRoute from "./routes/agent-changelog";
@@ -532,6 +534,8 @@ import agentCompareRoute from "./routes/agent-compare";
 app.use("/api/agent-compare", agentCompareRoute);
 import agentUptimeReportRoute from "./routes/agent-uptime-report";
 app.use("/api/agent-uptime-report", agentUptimeReportRoute);
+import agentUptimeHistoryRoute from "./routes/agent-uptime-history";
+app.use("/api/agent", agentUptimeHistoryRoute);
 app.use(warRoomRouter);
 app.use("/api", fleetDashboardRoute);
 import finalStatsRouter from "./routes/final-stats";
@@ -544,6 +548,7 @@ app.use(agentFinalStats);
 import deadlineCountdownRouter from "./routes/deadline-countdown"; app.use(deadlineCountdownRouter);
 app.use("/api/agent-leaderboard", agentLeaderboardRoute);
 app.use("/api/agent-graph", agentGraphRoute);
+app.use("/api/agent-lifecycle", agentLifecycleRoute);
 import agentHealthRoute from "./routes/agent-health"; app.use("/api", agentHealthRoute);
 app.use(judgeScorecardRoute);
 import finalHoursRouter from "./routes/final-hours";
@@ -579,9 +584,33 @@ app.use("/api/final-hours", finalHoursRouter);
 import finalHoursRoute from "./routes/final-hours";
 app.use(finalHoursRoute);
 import ecosystemMapRoute from "./routes/ecosystem-map";app.use("/api/ecosystem-map", ecosystemMapRoute);
+app.use("/api/ecosystem-health", require("./routes/ecosystem-health").default);
+import ecosystemStatsRoute from "./routes/ecosystem-stats";app.use("/api/ecosystem-stats", ecosystemStatsRoute);
 import judgesRouter from "./routes/judges"; app.use("/api/judges", judgesRouter);
 import pitchDeckRoute from "./routes/pitch-deck"; app.use(pitchDeckRoute);
 app.use("/api", deadlineDayRoute);
+import postHackathonRoute from "./routes/post-hackathon";app.use("/api/post-hackathon", postHackathonRoute);
+import judgesBriefRouter from "./routes/judges-brief"; app.use("/api", judgesBriefRouter);
+app.use(hackathonSummaryRoute);
+import judgeOverviewRoute from "./routes/judge-overview"; app.use(judgeOverviewRoute);
+import wrapUpRoute from "./routes/wrap-up";app.use("/api/wrap-up", wrapUpRoute);
+import builderStatusRouter from "./routes/builder-status";
+import agentStatusPage from "./routes/agent-status-page"; app.use("/api/status-page", agentStatusPage);
+import postHackathonRecapRoute from "./routes/post-hackathon-recap";app.use("/api/recap", postHackathonRecapRoute);
+import postHackathonRoadmapRoute from "./routes/post-hackathon-roadmap";app.use(postHackathonRoadmapRoute);
+import communityStatsRoute from "./routes/community-stats";app.use(communityStatsRoute);
+app.use("/api/post-hackathon-status", postHackathonStatusRoute);
+import agentDiscoveryRoute from "./routes/agent-discovery";
+app.use("/api/agent-discovery", agentDiscoveryRoute);
+import builderProgramRoute from "./routes/builder-program";app.use("/api/builder-program", builderProgramRoute);
+import agentNetworkMapRoute from "./routes/agent-network-map";app.use("/api/agent-network-map", agentNetworkMapRoute);
+import agentIntegrationTestRoute from "./routes/agent-integration-test";app.use("/api/agent-integration-test", agentIntegrationTestRoute);
+import agentAuditLogRoute from "./routes/agent-audit-log";app.use(agentAuditLogRoute);
+import agentHealthReportRoute from "./routes/agent-health-report";app.use(agentHealthReportRoute);
+import ecosystemPulseRouter from "./routes/ecosystem-pulse";
+app.use("/api/ecosystem-pulse", ecosystemPulseRouter);
+import networkGraphRouter from "./routes/network-graph";app.use("/api/network-graph", networkGraphRouter);
+import platformHealthRoute from "./routes/platform-health";app.use(platformHealthRoute);
 app.use(notFoundHandler);
 app.use(errorHandler);
 
@@ -592,7 +621,6 @@ app.listen(config.port, () => {
   console.log(`   Network:  Solana (${config.solanaRpcUrl})`);
   console.log(`   Email:    *@${config.emailDomain}`);
 });
-
 import agentSimulationRoute from "./routes/agent-simulation";
 import hackathonImpactRoute from "./routes/hackathon-impact";
 app.use(agentSimulationRoute);
@@ -612,7 +640,16 @@ app.use(whyUsRouter);
 
 // moved up
 
-export default app;
-
-
+// moved to top
 import demoVideoRoute from "./routes/demo-video";import judgeWalkthroughRoute from "./routes/judge-walkthrough";app.use("/api/demo-video", demoVideoRoute);app.use("/api/judge-walkthrough", judgeWalkthroughRoute);
+
+import communityBoardRoute from "./routes/community-board";app.use("/api", communityBoardRoute);
+
+import agentDiagnosticsRoute from "./routes/agent-diagnostics";app.use("/api/agent-diagnostics", agentDiagnosticsRoute);
+import communityRoute from "./routes/community";app.use("/api/community", communityRoute);
+
+export default app;
+import postmortemRoute from "./routes/postmortem";app.use("/api/post-mortem", postmortemRoute);
+app.use(builderStatusRouter);
+
+import builderStatsRoute from "./routes/builder-stats";app.use("/api/builder-stats", builderStatsRoute);

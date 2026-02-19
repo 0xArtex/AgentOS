@@ -38,9 +38,9 @@
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
     "swagger-ui-express": "^5.0.1",
+    "telnyx": "^5.25.0",
     "tweetnacl": "^1.0.3",
     "tweetnacl-util": "^0.15.1",
-    "twilio": "^5.4.3",
     "uuid": "^11.0.5"
   },
   "devDependencies": {
