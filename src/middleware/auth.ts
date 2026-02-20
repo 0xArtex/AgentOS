@@ -89,14 +89,26 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
           }
         }
 
+        // If they have a payment header, process it
+        if (req.headers["payment-signature"] || req.headers["x-payment"]) {
+          const paymentAuth = requireX402Payment(minUsdc);
+          return paymentAuth(req, res, next);
+        }
+
         send402Response(res, req, minUsdc, "Free tier exhausted or not available. Pay with USDC via x402.");
         return;
       }
       
-      // Not found — register first
+      // Not found — but if they have a payment header, let x402 handle it
+      if (req.headers["payment-signature"] || req.headers["x-payment"]) {
+        const paymentAuth = requireX402Payment(minUsdc);
+        return paymentAuth(req, res, next);
+      }
+
+      // No payment header — tell them to register
       res.status(401).json({
         error: "Agent Not Registered",
-        message: "Register your agent first",
+        message: "Register your agent first, or pay with x402",
         register: {
           endpoint: "POST /agents/register",
           body: { name: "your-agent-name", walletAddress: "<solana-pubkey>", agentId: "<optional-colosseum-id>" },
