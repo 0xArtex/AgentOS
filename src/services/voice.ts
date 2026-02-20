@@ -64,19 +64,18 @@ export async function dial(
 
   const webhookUrl = opts?.webhookUrl || `https://agntos.dev/phone/webhooks/voice`;
 
+  if (!config.telnyxVoiceAppId) {
+    throw new Error("Voice not configured — set TELNYX_VOICE_APP_ID");
+  }
+
   const payload: any = {
-    connection_id: config.telnyxMessagingProfileId, // reuse or set a separate voice app ID
+    connection_id: config.telnyxVoiceAppId,
     to,
     from: number.phoneNumber,
     webhook_url: webhookUrl,
     webhook_url_method: "POST",
     timeout_secs: opts?.timeoutSecs || 30,
   };
-
-  // If we have a Telnyx SIP connection / Call Control App, use that
-  // Otherwise use the phone number directly
-  delete payload.connection_id;
-  payload.from = number.phoneNumber;
 
   const result = await telnyx("POST", "/calls", payload);
 

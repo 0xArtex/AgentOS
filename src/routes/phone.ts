@@ -70,7 +70,7 @@ router.post("/numbers", requireAuth(2.0, "phone"), async (req: AuthenticatedRequ
  * GET /phone/numbers/:id/messages — Get all messages for a number
  * Cost: 0.01 USDC (or free during hackathon)
  */
-router.get("/numbers/:id/messages", requireAuth(0.01, "phone"), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/numbers/:id/messages", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const phoneNumberId = req.params.id as string;
     const msgs = phoneService.getMessages(phoneNumberId);
@@ -88,7 +88,7 @@ router.get("/numbers/:id/messages", requireAuth(0.01, "phone"), async (req: Auth
  * POST /phone/numbers/:id/send — Send an SMS
  * Cost: 0.05 USDC (or free during hackathon)
  */
-router.post("/numbers/:id/send", requireAuth(0.05, "phone"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/numbers/:id/send", requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { to, body } = req.body as SendSmsRequest;
     const phoneNumberId = req.params.id as string;
@@ -118,7 +118,7 @@ router.post("/numbers/:id/send", requireAuth(0.05, "phone"), async (req: Authent
  * DELETE /phone/numbers/:id — Release a phone number
  * Cost: 0.01 USDC (or free during hackathon)
  */
-router.delete("/numbers/:id", requireAuth(0.01, "phone"), async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/numbers/:id", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     await phoneService.deleteNumber(req.params.id as string);
     res.json({ success: true, message: "Phone number released" });

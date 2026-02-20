@@ -27,6 +27,7 @@ export const config = {
   telnyxApiKey: optional("TELNYX_API_KEY", ""),
   telnyxMessagingProfileId: optional("TELNYX_MESSAGING_PROFILE_ID", ""),
   telnyxWebhookSecret: optional("TELNYX_WEBHOOK_SECRET", ""),
+  telnyxVoiceAppId: optional("TELNYX_VOICE_APP_ID", ""),
 
   // Email / SendGrid
   sendgridApiKey: optional("SENDGRID_API_KEY", ""),
