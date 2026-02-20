@@ -611,6 +611,25 @@ import ecosystemPulseRouter from "./routes/ecosystem-pulse";
 app.use("/api/ecosystem-pulse", ecosystemPulseRouter);
 import networkGraphRouter from "./routes/network-graph";app.use("/api/network-graph", networkGraphRouter);
 import platformHealthRoute from "./routes/platform-health";app.use(platformHealthRoute);
+// ── x402 Facilitator Proxy ────────────────────────────────────
+app.all("/x402/*", async (req, res) => {
+  try {
+    const targetPath = req.path.replace("/x402", "");
+    const targetUrl = `http://localhost:8090${targetPath}`;
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    if (req.headers.authorization) headers["Authorization"] = req.headers.authorization as string;
+    const resp = await fetch(targetUrl, {
+      method: req.method,
+      headers,
+      body: ["GET", "HEAD"].includes(req.method) ? undefined : JSON.stringify(req.body),
+    });
+    const data = await resp.text();
+    res.status(resp.status).set("Content-Type", resp.headers.get("content-type") || "application/json").send(data);
+  } catch (err: any) {
+    res.status(502).json({ error: "Facilitator proxy error", message: err.message });
+  }
+});
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 

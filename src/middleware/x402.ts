@@ -9,7 +9,10 @@ const payToEvm = config.treasuryEvmWallet;
 const payToSolana = config.treasuryWallet;
 
 // Self-hosted x402 facilitator (for EVM)
-const FACILITATOR_URL = "http://localhost:8090";
+// Internal: used for server-side verify/settle
+const FACILITATOR_URL_INTERNAL = "http://localhost:8090";
+// External: shown in 402 response for clients that need it
+const FACILITATOR_URL = "https://agntos.dev/x402";
 const FACILITATOR_BEARER = "agntos-facilitator-secret-2026";
 
 // Fee payer for Solana (must match the key in x402-svm-verify)
@@ -108,7 +111,7 @@ async function handleEvmPayment(
   matchedRequirement: any,
 ): Promise<{ verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string }> {
   // Use facilitator for EVM
-  const verifyResp = await fetch(FACILITATOR_URL + "/verify", {
+  const verifyResp = await fetch(FACILITATOR_URL_INTERNAL + "/verify", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + FACILITATOR_BEARER },
     body: JSON.stringify({
@@ -126,7 +129,7 @@ async function handleEvmPayment(
 
   // Settle
   try {
-    const settleResp = await fetch(FACILITATOR_URL + "/settle", {
+    const settleResp = await fetch(FACILITATOR_URL_INTERNAL + "/settle", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + FACILITATOR_BEARER },
       body: JSON.stringify({
