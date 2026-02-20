@@ -381,6 +381,60 @@ class Storage {
     `);
     stmt.run(signature, payer, amountLamports.toString(), new Date().toISOString(), endpoint);
   }
+
+  // ── Voice Calls ────────────────────────────────────────────
+
+  private calls = new Map<string, any>();
+  private callsByControlId = new Map<string, string>();
+  private callPendingActions = new Map<string, any>();
+  private callGatheredDigits = new Map<string, string>();
+
+  setCall(id: string, record: any): void {
+    this.calls.set(id, record);
+    if (record.callControlId) {
+      this.callsByControlId.set(record.callControlId, id);
+    }
+  }
+
+  getCall(id: string): any | undefined {
+    return this.calls.get(id);
+  }
+
+  getCallByControlId(callControlId: string): any | undefined {
+    const id = this.callsByControlId.get(callControlId);
+    if (!id) return undefined;
+    return this.calls.get(id);
+  }
+
+  listCalls(phoneNumberId: string): any[] {
+    const results: any[] = [];
+    for (const call of this.calls.values()) {
+      if (call.phoneNumberId === phoneNumberId) results.push(call);
+    }
+    return results.sort((a: any, b: any) => 
+      new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime()
+    );
+  }
+
+  setCallPendingAction(callControlId: string, action: any): void {
+    this.callPendingActions.set(callControlId, action);
+  }
+
+  getCallPendingAction(callControlId: string): any | undefined {
+    return this.callPendingActions.get(callControlId);
+  }
+
+  clearCallPendingAction(callControlId: string): void {
+    this.callPendingActions.delete(callControlId);
+  }
+
+  setCallGatheredDigits(callControlId: string, digits: string): void {
+    this.callGatheredDigits.set(callControlId, digits);
+  }
+
+  getCallGatheredDigits(callControlId: string): string | undefined {
+    return this.callGatheredDigits.get(callControlId);
+  }
 }
 
 /** Singleton storage instance */

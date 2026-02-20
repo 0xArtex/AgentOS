@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest, ProvisionNumberRequest, SendSmsRequest } from "../types";
 import * as phoneService from "../services/phone";
+import * as voiceService from "../services/voice";
 import { trackHackathonUsage } from "../middleware/hackathon";
 import { config } from "../config";
 
@@ -129,6 +130,222 @@ router.delete("/numbers/:id", requireAuth(0.01, "phone"), async (req: Authentica
   }
 });
 
+// ── Voice / Calling ─────────────────────────────────────────
+
+/**
+ * POST /phone/numbers/:id/call — Place an outbound call
+ * Cost: 0.10 USDC
+ */
+router.post("/numbers/:id/call", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { to, tts, ttsVoice, audioUrl, record, timeoutSecs } = req.body as {
+      to: string;
+      tts?: string;
+      ttsVoice?: string;
+      audioUrl?: string;
+      record?: boolean;
+      timeoutSecs?: number;
+    };
+
+    if (!to) {
+      res.status(400).json({
+        error: "Missing 'to' field",
+        message: "Provide the phone number to call in E.164 format",
+        hint: "Example: +15551234567",
+      });
+      return;
+    }
+
+    const call = await voiceService.dial(String(req.params.id), to, {
+      tts,
+      ttsVoice,
+      audioUrl,
+      record,
+      timeoutSecs,
+    });
+
+    res.status(201).json({
+      ...call,
+      message: `Calling ${to} from ${call.from}`,
+      hint: tts ? "TTS will play when the call is answered" : "Call initiated. Use /actions to control it.",
+    });
+  } catch (err: any) {
+    console.error("[voice] Call error:", err);
+    res.status(500).json({ error: "Call Failed", message: err.message });
+  }
+});
+
+/**
+ * GET /phone/numbers/:id/calls — List calls for a number
+ * Cost: 0.01 USDC
+ */
+router.get("/numbers/:id/calls", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const calls = voiceService.listCalls(String(req.params.id));
+    res.json({ calls, count: calls.length });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to list calls", message: err.message });
+  }
+});
+
+/**
+ * GET /phone/calls/:id — Get call details
+ * Cost: 0.01 USDC
+ */
+router.get("/calls/:id", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const call = voiceService.getCall(String(req.params.id));
+    if (!call) {
+      res.status(404).json({ error: "Call not found" });
+      return;
+    }
+    res.json(call);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to get call", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/calls/:callControlId/speak — TTS on active call
+ * Cost: 0.05 USDC
+ */
+router.post("/calls/:callControlId/speak", requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { text, voice, language } = req.body as { text: string; voice?: string; language?: string };
+    if (!text) {
+      res.status(400).json({ error: "Missing 'text' field" });
+      return;
+    }
+    await voiceService.speakText(String(req.params.callControlId), text, voice, language);
+    res.json({ success: true, message: "Speaking text on call" });
+  } catch (err: any) {
+    res.status(500).json({ error: "Speak Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/calls/:callControlId/play — Play audio URL on active call
+ * Cost: 0.05 USDC
+ */
+router.post("/calls/:callControlId/play", requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { audioUrl } = req.body as { audioUrl: string };
+    if (!audioUrl) {
+      res.status(400).json({ error: "Missing 'audioUrl' field" });
+      return;
+    }
+    await voiceService.playAudio(String(req.params.callControlId), audioUrl);
+    res.json({ success: true, message: "Playing audio on call" });
+  } catch (err: any) {
+    res.status(500).json({ error: "Play Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/calls/:callControlId/dtmf — Send DTMF tones
+ * Cost: 0.02 USDC
+ */
+router.post("/calls/:callControlId/dtmf", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { digits } = req.body as { digits: string };
+    if (!digits) {
+      res.status(400).json({ error: "Missing 'digits' field", hint: "e.g. '1234#'" });
+      return;
+    }
+    await voiceService.sendDtmf(String(req.params.callControlId), digits);
+    res.json({ success: true, message: `Sent DTMF: ${digits}` });
+  } catch (err: any) {
+    res.status(500).json({ error: "DTMF Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/calls/:callControlId/gather — Collect DTMF input from caller
+ * Cost: 0.05 USDC
+ */
+router.post("/calls/:callControlId/gather", requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { minDigits, maxDigits, timeoutMillis, terminatingDigit, prompt, promptVoice } = req.body as any;
+    await voiceService.gatherDtmf(String(req.params.callControlId), {
+      minDigits, maxDigits, timeoutMillis, terminatingDigit, prompt, promptVoice,
+    });
+    res.json({ success: true, message: "Gathering DTMF input" });
+  } catch (err: any) {
+    res.status(500).json({ error: "Gather Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/calls/:callControlId/record — Start recording
+ * Cost: 0.05 USDC
+ */
+router.post("/calls/:callControlId/record", requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { format } = req.body as { format?: string };
+    await voiceService.startRecording(String(req.params.callControlId), format);
+    res.json({ success: true, message: "Recording started" });
+  } catch (err: any) {
+    res.status(500).json({ error: "Record Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/calls/:callControlId/record/stop — Stop recording
+ * Cost: free
+ */
+router.post("/calls/:callControlId/record/stop", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await voiceService.stopRecording(String(req.params.callControlId));
+    res.json({ success: true, message: "Recording stopped" });
+  } catch (err: any) {
+    res.status(500).json({ error: "Stop Record Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/calls/:callControlId/hangup — End a call
+ * Cost: free
+ */
+router.post("/calls/:callControlId/hangup", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await voiceService.hangup(String(req.params.callControlId));
+    res.json({ success: true, message: "Call ended" });
+  } catch (err: any) {
+    res.status(500).json({ error: "Hangup Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/calls/:callControlId/answer — Answer an inbound call
+ * Cost: free
+ */
+router.post("/calls/:callControlId/answer", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    await voiceService.answer(String(req.params.callControlId));
+    res.json({ success: true, message: "Call answered" });
+  } catch (err: any) {
+    res.status(500).json({ error: "Answer Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/calls/:callControlId/transfer — Transfer call to another number
+ * Cost: 0.10 USDC
+ */
+router.post("/calls/:callControlId/transfer", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { to } = req.body as { to: string };
+    if (!to) {
+      res.status(400).json({ error: "Missing 'to' field" });
+      return;
+    }
+    await voiceService.transfer(String(req.params.callControlId), to);
+    res.json({ success: true, message: `Transferring call to ${to}` });
+  } catch (err: any) {
+    res.status(500).json({ error: "Transfer Failed", message: err.message });
+  }
+});
+
 /**
  * POST /phone/webhooks/telnyx — Inbound SMS webhook from Telnyx
  * No auth required — verified by webhook signature
@@ -170,11 +387,34 @@ router.post("/webhooks/telnyx", (req: Request, res: Response) => {
       }
     }
 
+    // Handle voice/call events
+    if (eventType?.startsWith("call.")) {
+      voiceService.handleCallEvent(event).catch((e: any) =>
+        console.error("[voice] Webhook handler error:", e.message)
+      );
+    }
+
     // Always respond 200 to Telnyx
     res.status(200).json({ received: true });
   } catch (err: any) {
     console.error("[phone] Webhook error:", err);
     res.status(200).json({ received: true }); // Don't retry on errors
+  }
+});
+
+/**
+ * POST /phone/webhooks/voice — Voice-specific webhook from Telnyx
+ */
+router.post("/webhooks/voice", async (req: Request, res: Response) => {
+  try {
+    const event = req.body?.data;
+    if (event) {
+      await voiceService.handleCallEvent(event);
+    }
+    res.status(200).json({ received: true });
+  } catch (err: any) {
+    console.error("[voice] Webhook error:", err);
+    res.status(200).json({ received: true });
   }
 });
 
