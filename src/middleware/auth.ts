@@ -1,140 +1,105 @@
 import { Response, NextFunction } from "express";
-import { HackathonRequest, isHackathonActive } from "./hackathon";
-import { trackHackathonUsage } from "./hackathon";
 import { requireX402Payment, send402Response } from "./x402";
 import { db } from "../db";
+import { AuthenticatedRequest } from "../types";
 
 /**
- * Combined authentication middleware for AgentOS
+ * Authentication middleware for AgentOS
  * 
  * Flow:
- * 1. API key (aos_*) from registered agent → check free tier if hackathon verified
- * 2. Legacy agent token (agt_*) → look up agent, same logic
+ * 1. Agent token (aos_*) → identified, check for x402 payment if needed
+ * 2. X-Agent-Id header → look up agent, same logic
  * 3. x402 USDC payment → always works, no registration needed
- * 4. No auth → tell them to register
+ * 4. No auth → 401
  */
 export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 'server' | 'general' = 'general') {
-  return async (req: HackathonRequest, res: Response, next: NextFunction): Promise<void> => {
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     
-    // Extract token from various headers
     const authHeader = req.headers["authorization"]?.toString().replace("Bearer ", "");
     const apiKey = authHeader || req.headers["x-api-key"] as string || req.headers["x-agent-token"] as string;
+    const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
     
     // Method 1: Registered agent token
     if (apiKey && (apiKey.startsWith("aos_") || apiKey.startsWith("agt_"))) {
       const agent = db.prepare("SELECT * FROM agents WHERE token = ?").get(apiKey) as any;
       if (agent) {
-        const agentIdentifier = agent.colosseum_id || agent.wallet_address || agent.id;
-        req.agentId = agentIdentifier;
+        req.agentId = agent.colosseum_id || agent.wallet_address || agent.id;
         
-        // 'general' service type = always allowed for registered agents (reading inbox, etc.)
+        // 'general' service type = always allowed for registered agents
         if (serviceType === 'general') {
-          req.isHackathonMode = isHackathonActive() && agent.hackathon_verified;
           next();
           return;
         }
 
-        // Check hackathon free tier for provisioning services
-        if (agent.hackathon_verified && isHackathonActive()) {
-          const usage = db.prepare(
-            "SELECT COUNT(*) as c FROM hackathon_usage WHERE agent_id = ? AND service_type = ?"
-          ).get(agentIdentifier, serviceType) as any;
-          
-          if (usage.c < 1) {
-            req.isHackathonMode = true;
-            next();
-            return;
-          }
-          // Free tier exhausted — need payment
-        }
-        
-        // Check x402 payment header (standard protocol)
-        if (req.headers["payment-signature"] || req.headers["x-payment"]) {
+        // For provisioning services, require x402 payment
+        if (hasPayment) {
           const paymentAuth = requireX402Payment(minUsdc);
           return paymentAuth(req, res, next);
         }
 
-        // No payment, free tier used
-        send402Response(res, req, minUsdc,
-          agent.hackathon_verified 
-            ? "Free tier exhausted (1 per service). Pay with USDC via x402."
-            : "This service requires USDC payment via x402."
-        );
+        send402Response(res, req, minUsdc, "This service requires USDC payment via x402.");
         return;
       }
     }
 
-    // Method 2: Legacy X-Agent-Id header — must be registered
+    // Method 2: X-Agent-Id header
     if (req.headers["x-agent-id"]) {
       const agentId = req.headers["x-agent-id"] as string;
-      
-      // Look up by colosseum_id or name
       const agent = db.prepare(
         "SELECT * FROM agents WHERE colosseum_id = ? OR name = ? OR id = ?"
       ).get(agentId, agentId, agentId) as any;
       
       if (agent) {
-        const agentIdentifier = agent.colosseum_id || agent.wallet_address || agent.id;
-        req.agentId = agentIdentifier;
-        
-        if (agent.hackathon_verified && isHackathonActive() && serviceType !== 'general') {
-          const usage = db.prepare(
-            "SELECT COUNT(*) as c FROM hackathon_usage WHERE agent_id = ? AND service_type = ?"
-          ).get(agentIdentifier, serviceType) as any;
-          
-          if (usage.c < 1) {
-            req.isHackathonMode = true;
-            next();
-            return;
-          }
+        req.agentId = agent.colosseum_id || agent.wallet_address || agent.id;
+
+        if (serviceType === 'general') {
+          next();
+          return;
         }
 
-        // If they have a payment header, process it
-        if (req.headers["payment-signature"] || req.headers["x-payment"]) {
+        if (hasPayment) {
           const paymentAuth = requireX402Payment(minUsdc);
           return paymentAuth(req, res, next);
         }
 
-        send402Response(res, req, minUsdc, "Free tier exhausted or not available. Pay with USDC via x402.");
+        send402Response(res, req, minUsdc, "This service requires USDC payment via x402.");
         return;
       }
       
-      // Not found — but if they have a payment header, let x402 handle it
-      if (req.headers["payment-signature"] || req.headers["x-payment"]) {
+      // Not found but has payment — let x402 handle it
+      if (hasPayment) {
         const paymentAuth = requireX402Payment(minUsdc);
         return paymentAuth(req, res, next);
       }
 
-      // No payment header — tell them to register
       res.status(401).json({
         error: "Agent Not Registered",
         message: "Register your agent first, or pay with x402",
         register: {
           endpoint: "POST /agents/register",
-          body: { name: "your-agent-name", walletAddress: "<solana-pubkey>", agentId: "<optional-colosseum-id>" },
-          note: "Colosseum hackathon agents get 1 free email, phone, and server.",
+          body: { name: "your-agent-name", walletAddress: "<solana-pubkey>" },
         },
       });
       return;
     }
 
     // Method 3: x402 payment only (no registration needed)
-    if (req.headers["payment-signature"] || req.headers["x-payment"]) {
+    if (hasPayment) {
       const paymentAuth = requireX402Payment(minUsdc);
       return paymentAuth(req, res, next);
     }
 
-    // No auth
+    // No auth at all
     res.status(401).json({
       error: "Authentication Required",
       message: "Register your agent or pay with USDC to use AgentOS",
       register: {
         endpoint: "POST /agents/register",
-        body: { name: "your-agent-name", walletAddress: "<solana-pubkey>", agentId: "<optional-colosseum-id>" },
+        body: { name: "your-agent-name", walletAddress: "<solana-pubkey>" },
       },
       payment: {
         method: "x402",
-        header: "X-Payment: <solana-usdc-transaction-signature>",
+        header: "Payment-Signature: <base64-encoded-payment>",
       },
     });
   };
