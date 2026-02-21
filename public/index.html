@@ -38,9 +38,9 @@ img{max-width:100%;display:block}
 .corner-accents .ca-bl{bottom:-1px;left:-1px;border-bottom:1px solid var(--accent);border-left:1px solid var(--accent)}
 .corner-accents .ca-br{bottom:-1px;right:-1px;border-bottom:1px solid var(--accent);border-right:1px solid var(--accent)}
 
-/* NAV */
-nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(0,0,0,0.8);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border-bottom:1px solid var(--w10)}
-.nav-inner{max-width:1200px;margin:0 auto;padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between}
+/* NAV - floating pill */
+nav{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;background:rgba(0,0,0,0.7);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--w10);border-radius:50px;width:auto;max-width:calc(100% - 32px)}
+.nav-inner{padding:0 8px 0 20px;height:48px;display:flex;align-items:center;justify-content:space-between;gap:24px}
 .nav-logo{font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px;letter-spacing:-0.01em}
 .nav-logo svg{width:20px;height:20px}
 .nav-links{display:flex;align-items:center;gap:28px}
@@ -50,15 +50,15 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(0,0,0,0.8);b
 .nav-mobile{display:none;background:none;border:none;color:#fff;cursor:pointer}
 
 /* BUTTONS */
-.btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 16px;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .2s;position:relative}
+.btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 16px;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .2s;position:relative;border-radius:8px}
 .btn-primary{background:var(--accent);color:#000}
-.btn-primary:hover{filter:brightness(1.1)}
-.btn-secondary{background:transparent;color:#fff;border:1px solid var(--w10)}
-.btn-secondary:hover{border-color:var(--w30)}
+.btn-primary:hover{filter:brightness(1.15);transform:translateY(-1px)}
+.btn-secondary{background:rgba(255,255,255,0.05);color:#fff;border:1px solid var(--w10);border-radius:8px}
+.btn-secondary:hover{border-color:var(--w30);background:rgba(255,255,255,0.08)}
 .btn-arrow::after{content:'';display:inline-block;width:14px;height:14px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M12 5l7 7-7 7'/%3E%3C/svg%3E") center/contain no-repeat}
 
 /* HERO */
-.hero{padding:140px 0 80px;position:relative;overflow:hidden}
+.hero{padding:120px 0 80px;position:relative;overflow:hidden}
 .hero::before{content:'';position:absolute;top:0;left:0;right:0;bottom:0;background:radial-gradient(277.967% 317.817% at 39.7076% -124.314%,rgba(255,169,133,0.5) 20.8781%,rgba(245,73,0,0.5) 31.2499%,rgba(0,0,0,0.5) 53.6356%,rgba(0,0,0,1) 100%);pointer-events:none}
 .hero-content{position:relative;z-index:1}
 .hero h1{font-size:52px;font-weight:500;letter-spacing:-0.02em;line-height:1.1;max-width:700px;margin-bottom:20px}
@@ -68,8 +68,8 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(0,0,0,0.8);b
 .hero-badges span{font-size:13px;color:var(--w50);display:flex;align-items:center;gap:6px}
 .hero-image{position:relative;max-width:1000px;margin:0 auto}
 .hero-image::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:120%;height:120%;background:radial-gradient(50% 50%,var(--accent-glow) 0%,rgba(245,73,0,0.54) 46.2891%,rgba(245,73,0,0) 100%);opacity:0.15;pointer-events:none}
-.hero-image img{position:relative;z-index:1;width:100%;border:1px solid var(--w10)}
-.hero-image .placeholder{position:relative;z-index:1;width:100%;height:400px;background:var(--w03);border:1px solid var(--w10);display:flex;align-items:center;justify-content:center;color:var(--w30);font-family:'JetBrains Mono',monospace;font-size:14px}
+.hero-image img{position:relative;z-index:1;width:100%;border:1px solid var(--w10);border-radius:12px}
+.hero-image .placeholder{position:relative;z-index:1;width:100%;height:400px;background:var(--w03);border:1px solid var(--w10);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--w30);font-family:'JetBrains Mono',monospace;font-size:14px}
 
 /* LOGO STRIP */
 .logos{padding:64px 0;border-top:1px solid var(--w10);border-bottom:1px solid var(--w10)}
@@ -89,7 +89,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(0,0,0,0.8);b
 .feature-card h3{font-size:18px;font-weight:500;margin-bottom:12px;letter-spacing:-0.01em}
 .feature-card p{font-size:14px;color:var(--w70);line-height:1.6}
 .feature-card .feature-stat{font-size:36px;font-weight:600;color:var(--accent);margin-top:20px;font-family:'JetBrains Mono',monospace}
-.feature-card .feature-img{margin-top:20px;height:180px;background:var(--w03);border:1px solid var(--w10);display:flex;align-items:center;justify-content:center;overflow:hidden}
+.feature-card .feature-img{margin-top:20px;height:180px;background:var(--w03);border:1px solid var(--w10);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .feature-card .feature-img img{width:100%;height:100%;object-fit:cover}
 
 /* HOW IT WORKS */
@@ -98,16 +98,16 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(0,0,0,0.8);b
 .step{padding:28px 0;border-bottom:1px solid var(--w10);cursor:pointer;transition:all .3s}
 .step:first-child{border-top:1px solid var(--w10)}
 .step-header{display:flex;align-items:center;gap:16px}
-.step-num{width:32px;height:32px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:500;color:var(--accent);border:1px solid var(--accent);flex-shrink:0;font-family:'JetBrains Mono',monospace}
+.step-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:500;color:var(--accent);border:1px solid var(--accent);flex-shrink:0;font-family:'JetBrains Mono',monospace;transition:all .2s}
 .step-title{font-size:16px;font-weight:500}
 .step-body{padding-left:48px;margin-top:12px;font-size:14px;color:var(--w70);line-height:1.6;max-height:0;overflow:hidden;transition:max-height .3s}
 .step.active .step-body{max-height:200px}
 .step.active .step-num{background:var(--accent);color:#000}
-.steps-visual{background:var(--w03);border:1px solid var(--w10);height:360px;display:flex;align-items:center;justify-content:center;position:relative}
+.steps-visual{background:var(--w03);border:1px solid var(--w10);border-radius:12px;height:360px;display:flex;align-items:center;justify-content:center;position:relative}
 .steps-visual .mock-form{padding:32px;width:100%}
-.mock-input{width:100%;height:40px;background:var(--w05);border:1px solid rgba(136,136,136,0.1);color:var(--w100);padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:13px;margin-bottom:12px;outline:none}
+.mock-input{width:100%;height:40px;background:var(--w05);border:1px solid rgba(136,136,136,0.1);border-radius:6px;color:var(--w100);padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:13px;margin-bottom:12px;outline:none}
 .mock-input::placeholder{color:var(--w30)}
-.mock-code{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);background:var(--w05);padding:16px;border:1px solid var(--w10);margin-top:8px;line-height:1.8;overflow-x:auto}
+.mock-code{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);background:var(--w05);padding:16px;border:1px solid var(--w10);border-radius:6px;margin-top:8px;line-height:1.8;overflow-x:auto}
 
 /* RESOURCES */
 .resources-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--w10)}
@@ -133,7 +133,7 @@ nav{position:fixed;top:0;left:0;right:0;z-index:100;background:rgba(0,0,0,0.8);b
 .pricing-card .features-label{font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--w30);margin-bottom:16px}
 .pricing-card ul{list-style:none;display:flex;flex-direction:column;gap:10px;flex:1}
 .pricing-card li{font-size:14px;color:var(--w70);display:flex;align-items:flex-start;gap:8px}
-.pricing-card li::before{content:'';width:16px;height:16px;flex-shrink:0;margin-top:2px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2314F195' stroke-width='2'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center/contain no-repeat}
+.pricing-card li::before{content:'';width:16px;height:16px;flex-shrink:0;margin-top:2px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f54900' stroke-width='2'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center/contain no-repeat}
 
 /* FAQ */
 .faq-list{max-width:700px}
@@ -185,6 +185,7 @@ footer{border-top:1px solid var(--w10);padding:48px 0 24px;position:relative}
 
 /* RESPONSIVE */
 @media(max-width:768px){
+nav{left:16px;right:16px;transform:none;width:auto}
 .nav-links{display:none}
 .nav-mobile{display:block}
 .hero{padding:100px 0 60px}
@@ -226,17 +227,11 @@ AgentOS
 <a href="#how-it-works">How it works</a>
 <a href="#pricing">Pricing</a>
 <a href="#faq">FAQ</a>
-<a href="https://github.com/zolty-dev/AgentOS" target="_blank">GitHub</a>
+<a href="https://github.com/0xArtex/AgentOS" target="_blank">GitHub</a>
 </div>
 <div class="nav-right">
-<a href="https://github.com/zolty-dev/AgentOS" target="_blank" class="btn btn-secondary corner-accents" style="height:32px;font-size:13px">
-<span class="ca ca-tl"></span><span class="ca ca-br"></span>
-View docs
-</a>
-<a href="/skill.md" class="btn btn-primary btn-arrow corner-accents" style="height:32px;font-size:13px">
-<span class="ca ca-tl"></span><span class="ca ca-br"></span>
-Get started
-</a>
+<a href="https://github.com/0xArtex/AgentOS" target="_blank" class="btn btn-secondary" style="height:32px;font-size:13px">View docs</a>
+<a href="/skill.md" class="btn btn-primary btn-arrow" style="height:32px;font-size:13px">Get started</a>
 </div>
 <button class="nav-mobile" onclick="document.querySelector('.nav-links').style.display=document.querySelector('.nav-links').style.display==='flex'?'none':'flex'">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
