@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>AgentOS — Infrastructure for Autonomous AI Agents</title>
-<meta name="description" content="Phone numbers, email, compute, domains — all paid with USDC on Solana via x402 protocol">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤖</text></svg>">
+<meta name="description" content="Phone, voice calls, email, compute, domains — all paid with USDC via x402 protocol. One API for autonomous AI agents.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -31,9 +31,6 @@ nav.scrolled{background:rgba(9,9,11,0.92)}
 .nav-links a.active::after{content:'';position:absolute;bottom:-4px;left:0;right:0;height:2px;background:var(--green);border-radius:1px}
 .nav-cta{padding:0.5rem 1.25rem;border-radius:8px;background:var(--green);font-size:0.875rem;font-weight:600;color:#000!important;-webkit-text-fill-color:#000!important;transition:var(--transition)}
 .nav-cta:hover{opacity:0.9;transform:translateY(-1px)}
-.live-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:20px;background:rgba(255,50,50,0.15);border:1px solid rgba(255,50,50,0.3);font-size:0.75rem;color:#ff5555;font-weight:600;text-transform:uppercase;letter-spacing:0.05em}
-.live-badge::before{content:'';width:8px;height:8px;border-radius:50%;background:#ff4444;animation:livePulse 1.5s infinite}
-@keyframes livePulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(255,68,68,0.5)}50%{opacity:0.7;box-shadow:0 0 0 6px rgba(255,68,68,0)}}
 .hamburger{display:none;flex-direction:column;gap:5px;cursor:pointer;padding:4px}
 .hamburger span{width:24px;height:2px;background:var(--text);transition:var(--transition)}
 
@@ -45,7 +42,8 @@ nav.scrolled{background:rgba(9,9,11,0.92)}
 #particleCanvas{position:absolute;inset:0;z-index:1}
 .hero-content{position:relative;z-index:2;max-width:860px}
 .hero-badge{display:inline-flex;align-items:center;gap:8px;padding:6px 16px;border-radius:24px;background:rgba(20,241,149,0.06);border:1px solid rgba(20,241,149,0.15);font-size:0.8rem;color:var(--text2);margin-bottom:2rem;backdrop-filter:blur(10px)}
-.hero-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:livePulse 2s infinite}
+.hero-badge .dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;box-shadow:0 0 0 0 rgba(20,241,149,0.5)}50%{opacity:0.7;box-shadow:0 0 0 6px rgba(20,241,149,0)}}
 .hero h1{font-size:clamp(2.5rem,6vw,4.5rem);font-weight:800;line-height:1.1;letter-spacing:-0.03em;margin-bottom:1.5rem;background:linear-gradient(135deg,#fff 0%,#e4e4e7 50%,var(--green) 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
 .hero p{font-size:clamp(1rem,2vw,1.25rem);color:#b4b4bd;max-width:640px;margin:0 auto 2.5rem;line-height:1.7}
 .hero-buttons{display:flex;gap:1rem;justify-content:center;flex-wrap:wrap}
@@ -54,10 +52,12 @@ nav.scrolled{background:rgba(9,9,11,0.92)}
 .btn-primary:hover{transform:translateY(-2px);box-shadow:0 8px 30px rgba(20,241,149,0.3)}
 .btn-secondary{background:var(--glass);color:var(--text);border:1px solid var(--glass-border);backdrop-filter:blur(10px)}
 .btn-secondary:hover{background:rgba(255,255,255,0.08);transform:translateY(-2px)}
-.hero-terminal{margin-top:3rem;text-align:left;max-width:500px;margin-left:auto;margin-right:auto;background:rgba(0,0,0,0.6);border:1px solid rgba(20,241,149,0.15);border-radius:12px;padding:1rem 1.25rem;box-shadow:0 0 30px rgba(20,241,149,0.05);font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:0.85rem;backdrop-filter:blur(10px)}
+.hero-terminal{margin-top:3rem;text-align:left;max-width:560px;margin-left:auto;margin-right:auto;background:rgba(0,0,0,0.6);border:1px solid rgba(20,241,149,0.15);border-radius:12px;padding:1rem 1.25rem;box-shadow:0 0 30px rgba(20,241,149,0.05);font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:0.82rem;backdrop-filter:blur(10px);line-height:1.7}
 .hero-terminal .prompt{color:var(--green)}
 .hero-terminal .cmd{color:var(--text2)}
 .hero-terminal .output{color:var(--accent);opacity:0.8}
+.scroll-indicator{margin-top:3rem;display:flex;flex-direction:column;align-items:center;gap:8px;opacity:0.4;animation:bounce 2s infinite}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(8px)}}
 
 /* SECTIONS */
 section{padding:6rem 2rem;position:relative}
@@ -77,13 +77,13 @@ section{padding:6rem 2rem;position:relative}
 /* SERVICES */
 .services-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1.5rem}
 .service-card{background:var(--glass);border:1px solid var(--glass-border);border-radius:var(--radius);padding:2rem;backdrop-filter:blur(20px);transition:var(--transition);position:relative;overflow:hidden}
-.service-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(20,241,149,0.05),rgba(20,241,149,0.05));opacity:0;transition:var(--transition)}
+.service-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(20,241,149,0.05),rgba(20,241,149,0.02));opacity:0;transition:var(--transition)}
 .service-card:hover{transform:translateY(-4px);border-color:rgba(20,241,149,0.25);box-shadow:0 20px 40px rgba(0,0,0,0.4)}
 .service-card:hover::before{opacity:1}
 .service-icon{width:48px;height:48px;border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:1.5rem;margin-bottom:1.25rem;background:rgba(20,241,149,0.08);border:1px solid rgba(20,241,149,0.15);position:relative;z-index:1}
 .service-card h3{font-size:1.15rem;font-weight:600;margin-bottom:0.5rem;position:relative;z-index:1}
 .service-card p{color:var(--text2);font-size:0.9rem;line-height:1.6;position:relative;z-index:1}
-.service-tag{display:inline-block;font-size:0.7rem;padding:2px 8px;border-radius:4px;background:rgba(20,241,149,0.1);color:var(--green);margin-top:0.75rem;position:relative;z-index:1}
+.service-price{display:inline-block;font-size:0.75rem;padding:3px 10px;border-radius:4px;background:rgba(20,241,149,0.1);color:var(--green);margin-top:0.75rem;position:relative;z-index:1;font-weight:500}
 
 /* HOW IT WORKS */
 .steps{display:flex;flex-direction:column;gap:0;max-width:700px;margin:0 auto;position:relative}
@@ -104,7 +104,7 @@ section{padding:6rem 2rem;position:relative}
 .code-dots span:nth-child(2){background:#ffbd2e}
 .code-dots span:nth-child(3){background:#28c840}
 .code-lang{font-size:0.75rem;color:var(--text3);font-family:monospace}
-.code-body{padding:1.5rem;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:0.85rem;line-height:1.8;overflow-x:auto}
+.code-body{padding:1.5rem;font-family:'SF Mono',Monaco,'Cascadia Code',monospace;font-size:0.82rem;line-height:1.8;overflow-x:auto}
 .code-body .kw{color:var(--green)}
 .code-body .fn{color:#dcdcaa}
 .code-body .str{color:var(--green)}
@@ -112,18 +112,25 @@ section{padding:6rem 2rem;position:relative}
 .code-body .num{color:#b5cea8}
 .code-body .op{color:var(--text2)}
 
-/* PRICING */
-.pricing-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:2rem;max-width:800px;margin:0 auto}
-.pricing-card{background:var(--glass);border:1px solid var(--glass-border);border-radius:var(--radius);padding:2.5rem;backdrop-filter:blur(20px);transition:var(--transition);position:relative}
-.pricing-card.featured{border-color:rgba(20,241,149,0.3);box-shadow:0 0 30px rgba(20,241,149,0.08)}
-.pricing-card.featured::before{content:'HACKATHON MODE';position:absolute;top:-12px;left:50%;transform:translateX(-50%);padding:4px 16px;border-radius:20px;background:var(--green);font-size:0.7rem;font-weight:700;letter-spacing:0.05em;color:#000}
-.pricing-card h3{font-size:1.3rem;font-weight:700;margin-bottom:0.5rem}
-.pricing-price{font-size:2.5rem;font-weight:800;margin:1rem 0}
-.pricing-price span{font-size:1rem;color:var(--text3);font-weight:400}
-.pricing-list{list-style:none;margin:1.5rem 0}
-.pricing-list li{padding:0.5rem 0;color:var(--text2);font-size:0.9rem;display:flex;align-items:center;gap:0.5rem}
-.pricing-list li::before{content:'✓';color:var(--green);font-weight:700}
-.pricing-card:hover{transform:translateY(-4px)}
+/* PRICING TABLE */
+.pricing-table{max-width:800px;margin:0 auto;border:1px solid var(--glass-border);border-radius:var(--radius);overflow:hidden;background:var(--glass);backdrop-filter:blur(20px)}
+.pricing-row{display:grid;grid-template-columns:1fr auto;padding:0.85rem 1.5rem;border-bottom:1px solid var(--glass-border);align-items:center;transition:var(--transition)}
+.pricing-row:last-child{border-bottom:none}
+.pricing-row:hover{background:rgba(20,241,149,0.03)}
+.pricing-row.header{background:rgba(20,241,149,0.06);font-weight:600;font-size:0.8rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text3)}
+.pricing-service{font-size:0.95rem}
+.pricing-service small{color:var(--text3);font-size:0.8rem;margin-left:0.5rem}
+.pricing-amount{color:var(--green);font-weight:600;font-family:'SF Mono',Monaco,monospace;font-size:0.9rem}
+.pricing-note{text-align:center;margin-top:2rem;color:var(--text3);font-size:0.9rem}
+.pricing-note strong{color:var(--green)}
+
+/* BUILT BY AI */
+.built-section{background:var(--bg2);text-align:center}
+.built-content{max-width:700px;margin:0 auto}
+.built-content h2{font-size:clamp(1.8rem,4vw,2.5rem);font-weight:700;margin-bottom:1rem}
+.built-content p{color:var(--text2);font-size:1.05rem;line-height:1.7;margin-bottom:1.5rem}
+.built-highlight{display:inline-flex;align-items:center;gap:10px;padding:12px 24px;border-radius:12px;background:rgba(20,241,149,0.06);border:1px solid rgba(20,241,149,0.15);font-size:0.95rem;color:var(--text)}
+.built-highlight .emoji{font-size:1.3rem}
 
 /* FOOTER */
 footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);background:var(--bg)}
@@ -137,8 +144,6 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
 /* ANIMATIONS */
 .reveal{opacity:0;transform:translateY(30px);transition:opacity 0.8s cubic-bezier(0.4,0,0.2,1),transform 0.8s cubic-bezier(0.4,0,0.2,1)}
 .reveal.visible{opacity:1;transform:translateY(0)}
-.reveal-left{opacity:0;transform:translateX(-30px);transition:opacity 0.8s ease,transform 0.8s ease}
-.reveal-left.visible{opacity:1;transform:translateX(0)}
 .reveal-scale{opacity:0;transform:scale(0.95);transition:opacity 0.6s ease,transform 0.6s ease}
 .reveal-scale.visible{opacity:1;transform:scale(1)}
 
@@ -150,7 +155,6 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
 }
 @media(max-width:640px){
   .services-grid{grid-template-columns:1fr}
-  .pricing-grid{grid-template-columns:1fr}
   .stats-grid{grid-template-columns:repeat(2,1fr);gap:1.5rem}
   .footer-grid{grid-template-columns:1fr}
   .nav-links{display:none;position:absolute;top:64px;left:0;right:0;background:rgba(9,9,11,0.95);flex-direction:column;padding:1.5rem 2rem;gap:1rem;border-bottom:1px solid var(--glass-border);backdrop-filter:blur(20px)}
@@ -165,13 +169,13 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
 
 <!-- NAV -->
 <nav id="nav">
-  <div class="nav-logo">🤖 <span>AgentOS</span></div>
+  <div class="nav-logo">⚡ <span>AgentOS</span></div>
   <div class="nav-links" id="navLinks">
     <a href="#services" data-section="services">Services</a>
     <a href="#how-it-works" data-section="how-it-works">How It Works</a>
     <a href="#code" data-section="code">API</a>
     <a href="#pricing" data-section="pricing">Pricing</a>
-    <a href="https://twitter.com/zoltyagent" target="_blank" class="live-badge">🔴 Live</a>
+    <a href="https://agntos.dev/skill.md" target="_blank">skill.md</a>
     <a href="https://github.com/0xArtex/AgentOS" target="_blank" class="nav-cta">GitHub →</a>
   </div>
   <div class="hamburger" id="hamburger" onclick="document.getElementById('navLinks').classList.toggle('open')">
@@ -186,32 +190,34 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
     <canvas id="particleCanvas"></canvas>
   </div>
   <div class="hero-content">
-    <div class="hero-badge reveal"><span class="dot"></span> Colosseum Agent Hackathon · $100K Prize Pool</div>
+    <div class="hero-badge reveal"><span class="dot"></span> Powered by x402 Protocol · USDC on Solana</div>
     <h1 class="reveal">Infrastructure for Autonomous AI Agents</h1>
-    <p class="reveal">Phone numbers, email, compute, domains — all paid with <strong style="color:var(--green)">USDC on Solana</strong> via the x402 protocol. One API. No human required.</p>
+    <p class="reveal">Phone numbers, voice calls, encrypted email, cloud compute, domain registration — all paid with <strong style="color:var(--green)">USDC</strong> via the x402 protocol. One API. No human required.</p>
     <div class="hero-buttons reveal">
-      <a href="https://agntos.dev" class="btn btn-primary">Explore API →</a>
+      <a href="https://agntos.dev/skill.md" class="btn btn-primary">Read skill.md →</a>
       <a href="https://github.com/0xArtex/AgentOS" target="_blank" class="btn btn-secondary">⭐ Star on GitHub</a>
     </div>
     <div class="hero-terminal reveal">
-      <div><span class="prompt">$</span> <span class="cmd">curl https://agntos.dev/health</span></div>
-      <div class="output">{"status":"ok","version":"1.0.0","uptime":"99.9%"}</div>
+      <div><span class="prompt">$</span> <span class="cmd">curl https://agntos.dev/skill.md</span></div>
+      <div class="output"># AgentOS — Autonomous Agent Infrastructure</div>
+      <div class="output">Services: phone, voice, email, compute, domains</div>
+      <div class="output">Payment: USDC on Solana via x402 protocol</div>
+      <div class="output">Base URL: https://agntos.dev</div>
     </div>
-    <div class="scroll-indicator" style="margin-top:3rem;display:flex;flex-direction:column;align-items:center;gap:8px;opacity:0.4;animation:bounce 2s infinite">
+    <div class="scroll-indicator">
       <span style="font-size:0.75rem;color:var(--text3);letter-spacing:0.1em;text-transform:uppercase">Scroll to explore</span>
       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color:var(--green)"><path d="M7 13l5 5 5-5M7 6l5 5 5-5"/></svg>
     </div>
   </div>
 </section>
-<style>.scroll-indicator{animation:bounce 2s infinite}@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(8px)}}</style>
 
 <!-- STATS -->
 <section class="stats">
   <div class="stats-grid">
+    <div class="stat reveal"><div class="stat-value" data-target="6" data-suffix="">0</div><div class="stat-label">Core Services</div></div>
     <div class="stat reveal"><div class="stat-value" data-target="50" data-suffix="+">0</div><div class="stat-label">API Endpoints</div></div>
-    <div class="stat reveal"><div class="stat-value" data-target="28" data-suffix="+">0</div><div class="stat-label">Commits</div></div>
-    <div class="stat reveal"><div class="stat-value" data-target="2" data-suffix="">0</div><div class="stat-label">Registered Agents</div></div>
-    <div class="stat reveal"><div class="stat-value" data-target="99.9" data-suffix="%" data-decimal="1">0</div><div class="stat-label">Uptime</div></div>
+    <div class="stat reveal"><div class="stat-value" data-target="48" data-suffix="">0</div><div class="stat-label">Countries (Voice)</div></div>
+    <div class="stat reveal"><div class="stat-value" data-target="9" data-suffix="">0</div><div class="stat-label">Server Tiers</div></div>
   </div>
 </section>
 
@@ -221,44 +227,44 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
     <div class="section-header reveal">
       <div class="overline">Services</div>
       <h2>Everything an Agent Needs</h2>
-      <p>A complete service mesh for autonomous AI agents, all accessible via a single REST API.</p>
+      <p>A complete infrastructure stack for autonomous AI agents, accessible via a single REST API.</p>
     </div>
     <div class="services-grid">
       <div class="service-card reveal">
         <div class="service-icon">📞</div>
-        <h3>Phone Numbers</h3>
-        <p>Provision and manage phone numbers with voice and SMS capabilities for agent communication.</p>
-        <span class="service-tag">Twilio</span>
+        <h3>Phone & SMS</h3>
+        <p>Search, provision, and manage phone numbers. Send and receive SMS. Full number lifecycle management.</p>
+        <span class="service-price">From $2.00 USDC</span>
+      </div>
+      <div class="service-card reveal">
+        <div class="service-icon">🎙️</div>
+        <h3>Voice Calls</h3>
+        <p>Place outbound calls with TTS, play audio, collect DTMF input, record, transfer. 48 countries supported.</p>
+        <span class="service-price">From $0.05 USDC</span>
       </div>
       <div class="service-card reveal">
         <div class="service-icon">📧</div>
-        <h3>Email</h3>
-        <p>Send and receive emails programmatically. Transactional and marketing workflows, all automated.</p>
-        <span class="service-tag">SendGrid</span>
+        <h3>Encrypted Email</h3>
+        <p>Wallet-native E2E encrypted email. Ed25519 → X25519 key derivation. Send, receive, zero-knowledge storage.</p>
+        <span class="service-price">From $0.01 USDC</span>
       </div>
       <div class="service-card reveal">
         <div class="service-icon">🖥️</div>
-        <h3>Compute</h3>
-        <p>Spin up servers and run workloads on demand. Scalable cloud compute for any agent task.</p>
-        <span class="service-tag">Hetzner</span>
+        <h3>Cloud Compute</h3>
+        <p>Spin up servers in seconds. 9 tiers from 2-16 vCPUs, 2-32GB RAM. Zero-access — you provide the SSH key.</p>
+        <span class="service-price">From $5.00 USDC/mo</span>
       </div>
       <div class="service-card reveal">
         <div class="service-icon">🌐</div>
-        <h3>Domains</h3>
-        <p>Register and manage domains with DNS configuration. Give your agents a presence on the web.</p>
-        <span class="service-tag">Cloudflare</span>
+        <h3>Domains & DNS</h3>
+        <p>Register domains, manage DNS records, configure nameservers. Real-time pricing from registrar APIs.</p>
+        <span class="service-price">From $8.00 USDC/yr</span>
       </div>
       <div class="service-card reveal">
-        <div class="service-icon">💬</div>
-        <h3>Agent Messaging</h3>
-        <p>Agent-to-agent communication protocol. Discover, connect, and collaborate with other AI agents.</p>
-        <span class="service-tag">Built-in</span>
-      </div>
-      <div class="service-card reveal">
-        <div class="service-icon">⭐</div>
-        <h3>Reputation System</h3>
-        <p>On-chain reputation scoring. Build trust through verifiable service history and agent ratings.</p>
-        <span class="service-tag">Solana</span>
+        <div class="service-icon">🤖</div>
+        <h3>Agent Identity</h3>
+        <p>Register with a Solana wallet. API key auth, wallet-verified identity, and on-chain reputation tracking.</p>
+        <span class="service-price">Free</span>
       </div>
     </div>
   </div>
@@ -269,36 +275,36 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
   <div class="container">
     <div class="section-header reveal">
       <div class="overline">Protocol</div>
-      <h2>How x402 Works</h2>
-      <p>HTTP 402 Payment Required — the forgotten status code, finally put to use.</p>
+      <h2>How x402 Payments Work</h2>
+      <p>HTTP 402 Payment Required — the forgotten status code, finally put to use for machine-to-machine commerce.</p>
     </div>
     <div class="steps">
       <div class="step reveal">
         <div class="step-num">1</div>
         <div class="step-content">
           <h3>Agent Requests a Service</h3>
-          <p>Your AI agent makes a standard HTTP request to any AgentOS endpoint — phone, email, compute, or domains.</p>
+          <p>Your AI agent makes a standard HTTP request to any endpoint — phone, email, compute, voice, or domains.</p>
         </div>
       </div>
       <div class="step reveal">
         <div class="step-num">2</div>
         <div class="step-content">
           <h3>Server Returns 402</h3>
-          <p>The server responds with HTTP 402 and a payment payload specifying the USDC amount and Solana address.</p>
+          <p>If payment is required, the server responds with HTTP 402 and a payment payload — amount, recipient, network, facilitator URL.</p>
         </div>
       </div>
       <div class="step reveal">
         <div class="step-num">3</div>
         <div class="step-content">
-          <h3>Agent Pays with USDC</h3>
-          <p>The agent signs a Solana transaction, sending USDC to the specified address. No wallets, no popups — fully programmatic.</p>
+          <h3>Agent Signs & Pays</h3>
+          <p>The agent constructs a USDC transfer on Solana (or Base), partially signs it, and sends it in the <code style="color:var(--green)">X-PAYMENT</code> header.</p>
         </div>
       </div>
       <div class="step reveal">
         <div class="step-num">4</div>
         <div class="step-content">
-          <h3>Service Delivered</h3>
-          <p>Payment confirmed on-chain, the service executes instantly. Phone provisioned, email sent, server spun up.</p>
+          <h3>Verified & Settled On-Chain</h3>
+          <p>AgentOS verifies the transaction, co-signs as fee payer, submits on-chain, and delivers the service. Instant.</p>
         </div>
       </div>
     </div>
@@ -311,35 +317,40 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
     <div class="section-header reveal">
       <div class="overline">Developer Experience</div>
       <h2>Simple, Powerful API</h2>
-      <p>A few lines of code to give your agent superpowers.</p>
+      <p>Standard x402 protocol. Any agent with a Solana wallet can pay and use services.</p>
     </div>
     <div class="code-block reveal-scale">
       <div class="code-header">
         <div class="code-dots"><span></span><span></span><span></span></div>
-        <div class="code-lang">x402-payment-flow.js</div>
+        <div class="code-lang">x402-payment.ts</div>
       </div>
       <div class="code-body">
-<span class="cm">// 1. Request a service</span>
-<span class="kw">const</span> res = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'https://agntos.dev/phone/provision'</span>, {
+<span class="cm">// Register your agent (free, one-time)</span>
+<span class="kw">const</span> reg = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'https://agntos.dev/register'</span>, {
   method: <span class="str">'POST'</span>,
   headers: { <span class="str">'Content-Type'</span>: <span class="str">'application/json'</span> },
-  body: JSON.<span class="fn">stringify</span>({ country: <span class="str">'US'</span>, capabilities: [<span class="str">'voice'</span>, <span class="str">'sms'</span>] })
+  body: JSON.<span class="fn">stringify</span>({
+    name: <span class="str">'my-agent'</span>,
+    wallet: <span class="str">'&lt;solana-pubkey&gt;'</span>,
+    signature: <span class="str">'&lt;signed-message&gt;'</span>
+  })
+});
+<span class="kw">const</span> { apiKey } = <span class="kw">await</span> reg.<span class="fn">json</span>();
+
+<span class="cm">// Request a service — server returns 402 with payment details</span>
+<span class="kw">const</span> res = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'https://agntos.dev/email/inboxes'</span>, {
+  method: <span class="str">'POST'</span>,
+  headers: { <span class="str">'Authorization'</span>: <span class="str">`Bearer ${apiKey}`</span> },
+  body: JSON.<span class="fn">stringify</span>({ address: <span class="str">'agent@agntos.dev'</span> })
 });
 
-<span class="cm">// 2. Server responds with 402 + payment details</span>
+<span class="cm">// 402 → build x402 payment, retry with X-PAYMENT header</span>
 <span class="kw">if</span> (res.status === <span class="num">402</span>) {
-  <span class="kw">const</span> { amount, recipient, memo } = <span class="kw">await</span> res.<span class="fn">json</span>();
-  
-  <span class="cm">// 3. Agent pays with USDC on Solana</span>
-  <span class="kw">const</span> tx = <span class="kw">await</span> <span class="fn">sendUSDC</span>({ amount, recipient, memo });
-  
-  <span class="cm">// 4. Retry with payment proof</span>
-  <span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">fetch</span>(<span class="str">'https://agntos.dev/phone/provision'</span>, {
-    headers: { <span class="str">'X-Payment-Tx'</span>: tx.signature }
+  <span class="kw">const</span> payment = <span class="kw">await</span> <span class="fn">buildX402Payment</span>(res);
+  <span class="kw">const</span> result = <span class="kw">await</span> <span class="fn">fetch</span>(res.url, {
+    headers: { ...headers, <span class="str">'X-PAYMENT'</span>: payment }
   });
-  
-  console.<span class="fn">log</span>(<span class="kw">await</span> result.<span class="fn">json</span>());
-  <span class="cm">// → { phone: "+1-555-0142", status: "active" }</span>
+  <span class="cm">// → { inbox: "agent@agntos.dev", status: "active" }</span>
 }
       </div>
     </div>
@@ -351,36 +362,69 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
   <div class="container">
     <div class="section-header reveal">
       <div class="overline">Pricing</div>
-      <h2>Pay As You Go</h2>
-      <p>No subscriptions. No credit cards. Just USDC on Solana.</p>
+      <h2>Pay Per Request with USDC</h2>
+      <p>No subscriptions. No credit cards. Just USDC on Solana via x402.</p>
     </div>
-    <div class="pricing-grid">
-      <div class="pricing-card featured reveal">
-        <h3>🏆 Hackathon Mode</h3>
-        <div class="pricing-price" style="color:var(--green)">Free<span> / during hackathon</span></div>
-        <ul class="pricing-list">
-          <li>All 50+ API endpoints</li>
-          <li>Phone, email, compute, domains</li>
-          <li>Agent messaging & reputation</li>
-          <li>No payment required</li>
-          <li>Full documentation</li>
-          <li>Community support</li>
-        </ul>
-        <a href="https://agntos.dev" class="btn btn-primary" style="width:100%;justify-content:center;margin-top:1rem">Get Started →</a>
+    <div class="pricing-table reveal">
+      <div class="pricing-row header">
+        <div>Service</div>
+        <div>Price (USDC)</div>
       </div>
-      <div class="pricing-card reveal">
-        <h3>💎 Production</h3>
-        <div class="pricing-price">USDC<span> / per request</span></div>
-        <ul class="pricing-list">
-          <li>x402 protocol payments</li>
-          <li>Solana USDC settlement</li>
-          <li>Sub-second confirmation</li>
-          <li>No minimum spend</li>
-          <li>On-chain receipts</li>
-          <li>Priority support</li>
-        </ul>
-        <a href="https://github.com/0xArtex/AgentOS" target="_blank" class="btn btn-secondary" style="width:100%;justify-content:center;margin-top:1rem">View Docs →</a>
+      <div class="pricing-row">
+        <div class="pricing-service">📞 Phone Number <small>provision</small></div>
+        <div class="pricing-amount">$2.00</div>
       </div>
+      <div class="pricing-row">
+        <div class="pricing-service">💬 Send SMS</div>
+        <div class="pricing-amount">$0.02</div>
+      </div>
+      <div class="pricing-row">
+        <div class="pricing-service">🎙️ Place Call <small>outbound</small></div>
+        <div class="pricing-amount">$0.10</div>
+      </div>
+      <div class="pricing-row">
+        <div class="pricing-service">🗣️ TTS on Call</div>
+        <div class="pricing-amount">$0.05</div>
+      </div>
+      <div class="pricing-row">
+        <div class="pricing-service">📧 Email Inbox <small>create</small></div>
+        <div class="pricing-amount">$0.50</div>
+      </div>
+      <div class="pricing-row">
+        <div class="pricing-service">📤 Send Email</div>
+        <div class="pricing-amount">$0.01</div>
+      </div>
+      <div class="pricing-row">
+        <div class="pricing-service">🖥️ Server <small>cx23 · 2 vCPU / 4GB</small></div>
+        <div class="pricing-amount">$5.00/mo</div>
+      </div>
+      <div class="pricing-row">
+        <div class="pricing-service">🖥️ Server <small>cpx51 · 16 vCPU / 32GB</small></div>
+        <div class="pricing-amount">$95.00/mo</div>
+      </div>
+      <div class="pricing-row">
+        <div class="pricing-service">🌐 Domain <small>.com register</small></div>
+        <div class="pricing-amount">~$10.00/yr</div>
+      </div>
+      <div class="pricing-row">
+        <div class="pricing-service">🤖 Agent Registration</div>
+        <div class="pricing-amount" style="color:var(--text)">Free</div>
+      </div>
+    </div>
+    <p class="pricing-note reveal">All payments settled on-chain. <strong>Solana mainnet</strong> (primary) + <strong>Base mainnet</strong> supported.</p>
+  </div>
+</section>
+
+<!-- BUILT BY AI -->
+<section class="built-section">
+  <div class="built-content reveal">
+    <div class="overline" style="font-size:0.8rem;text-transform:uppercase;letter-spacing:0.15em;color:var(--green);font-weight:600;margin-bottom:0.75rem">About</div>
+    <h2>Built Entirely by an AI Agent</h2>
+    <p>AgentOS was built from scratch by <a href="https://twitter.com/zoltyagent" style="color:var(--green);font-weight:600">@zoltyagent</a> — an autonomous AI agent running 24/7 on a VPS. Every line of code, every API endpoint, every deployment decision. No human wrote this.</p>
+    <p>Live-streamed the entire build process on X. Because if you're going to build infrastructure for autonomous agents, you might as well be one.</p>
+    <div class="built-highlight">
+      <span class="emoji">⚡</span>
+      <span>40+ commits · 6 services · Direct SVM verification · Zero human code</span>
     </div>
   </div>
 </section>
@@ -389,8 +433,8 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
 <footer>
   <div class="footer-grid">
     <div class="footer-brand">
-      <div class="nav-logo">🤖 <span>AgentOS</span></div>
-      <p>Autonomous infrastructure for AI agents. Built for the Colosseum Agent Hackathon.</p>
+      <div class="nav-logo">⚡ <span>AgentOS</span></div>
+      <p>Autonomous infrastructure for AI agents. Built by an AI, for AIs.</p>
     </div>
     <div class="footer-col">
       <h4>Product</h4>
@@ -401,8 +445,8 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
     </div>
     <div class="footer-col">
       <h4>Resources</h4>
-      <a href="https://agntos.dev" target="_blank">API Endpoint</a>
-      <a href="https://github.com/0xArtex/AgentOS" target="_blank">Documentation</a>
+      <a href="https://agntos.dev/skill.md" target="_blank">skill.md</a>
+      <a href="https://agntos.dev/docs" target="_blank">API Docs</a>
       <a href="https://github.com/0xArtex/AgentOS" target="_blank">GitHub</a>
     </div>
     <div class="footer-col">
@@ -412,8 +456,8 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
     </div>
   </div>
   <div class="footer-bottom">
-    <span>© 2025 AgentOS. Built with ☕ and Solana.</span>
-    <span>x402 Protocol</span>
+    <span>© 2026 AgentOS. Built by ⚡ zolty on Solana.</span>
+    <span>x402 Protocol · USDC</span>
   </div>
 </footer>
 
@@ -424,7 +468,7 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
   let w,h,particles=[];
   function resize(){const rect=c.parentElement.getBoundingClientRect();w=c.width=rect.width;h=c.height=rect.height}
   window.addEventListener('resize',resize);resize();
-  for(let i=0;i<130;i++)particles.push({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*0.3,vy:(Math.random()-0.5)*0.3,r:Math.random()*2+0.5,o:Math.random()*0.5+0.1,i});
+  for(let i=0;i<120;i++)particles.push({x:Math.random()*w,y:Math.random()*h,vx:(Math.random()-0.5)*0.3,vy:(Math.random()-0.5)*0.3,r:Math.random()*2+0.5,o:Math.random()*0.5+0.1,i});
   function draw(){
     ctx.clearRect(0,0,w,h);
     particles.forEach((p,i)=>{
@@ -446,10 +490,10 @@ footer{padding:4rem 2rem 2rem;border-top:1px solid var(--glass-border);backgroun
 const observer=new IntersectionObserver((entries)=>{
   entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('visible');if(e.target.querySelector('.stat-value[data-target]'))animateCounters(e.target)}})
 },{threshold:0.15,rootMargin:'0px 0px -50px 0px'});
-document.querySelectorAll('.reveal,.reveal-left,.reveal-scale,.step').forEach(el=>observer.observe(el));
+document.querySelectorAll('.reveal,.reveal-scale,.step').forEach(el=>observer.observe(el));
 
 // Stagger delays
-document.querySelectorAll('.services-grid .service-card,.stats-grid .stat,.pricing-grid .pricing-card').forEach((el,i)=>{el.style.transitionDelay=`${i*0.1}s`});
+document.querySelectorAll('.services-grid .service-card,.stats-grid .stat').forEach((el,i)=>{el.style.transitionDelay=`${i*0.1}s`});
 
 // Counter animation
 let countersAnimated=new Set();
@@ -457,18 +501,17 @@ function animateCounters(container){
   container.querySelectorAll('.stat-value[data-target]').forEach(el=>{
     if(countersAnimated.has(el))return;countersAnimated.add(el);
     const target=parseFloat(el.dataset.target),suffix=el.dataset.suffix||'',decimal=parseInt(el.dataset.decimal)||0;
-    let start=0;const duration=2000,startTime=performance.now();
+    let startTime=performance.now();
     function update(now){
-      const p=Math.min((now-startTime)/duration,1),ease=1-Math.pow(1-p,3);
-      const val=ease*target;
-      el.textContent=(decimal?val.toFixed(decimal):Math.floor(val))+suffix;
+      const p=Math.min((now-startTime)/2000,1),ease=1-Math.pow(1-p,3);
+      el.textContent=(decimal?( ease*target).toFixed(decimal):Math.floor(ease*target))+suffix;
       if(p<1)requestAnimationFrame(update);
     }
     requestAnimationFrame(update);
   });
 }
 
-// Nav scroll spy + background
+// Nav scroll
 const sections=document.querySelectorAll('section[id]');
 const navLinks=document.querySelectorAll('.nav-links a[data-section]');
 window.addEventListener('scroll',()=>{
