@@ -28,7 +28,7 @@ html{scroll-behavior:smooth}
 body{background:var(--bg);color:var(--w100);font-family:'Inter',system-ui,sans-serif;font-size:16px;line-height:1.6;overflow-x:hidden;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 a{color:inherit;text-decoration:none}
 img{max-width:100%;display:block}
-.container{max-width:1100px;margin:0 auto;padding:0 48px}
+.container{max-width:1440px;margin:0 auto;padding:0 clamp(24px, 10vw, 160px)}
 
 /* Corner accents — L-brackets */
 .corner-accents{position:relative}
@@ -100,7 +100,7 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 @keyframes heroGlow{0%{opacity:0.8;transform:scale(1)}100%{opacity:1;transform:scale(1.05)}}
 .hero::after{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:100%;height:100%;background:radial-gradient(circle at center,rgba(245,73,0,0.15) 0%,transparent 50%);pointer-events:none}
 .hero-content{position:relative;z-index:1}
-.hero h1{font-size:68px;font-weight:400;letter-spacing:-0.035em;line-height:1.08;max-width:750px;margin-bottom:28px;color:#fff}
+.hero h1{font-size:68px;font-weight:400;letter-spacing:-0.035em;line-height:1.08;max-width:550px;margin-bottom:28px;color:#fff}
 .hero .subtitle{font-size:16px;color:var(--w50);max-width:480px;margin-bottom:40px;line-height:1.7}
 .hero-buttons{display:flex;gap:14px;margin-bottom:32px}
 .hero-badges{display:flex;gap:32px;margin-bottom:72px}
@@ -248,6 +248,7 @@ footer{border-top:1px solid var(--w10);padding:48px 0 24px;position:relative}
 
 /* RESPONSIVE */
 @media(max-width:768px){
+.container{padding:0 24px}
 nav{top:12px;max-width:calc(100% - 24px)}
 .nav-container{padding:10px 12px}
 .nav-links{display:none}
