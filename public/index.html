@@ -57,8 +57,10 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .nav-logo{font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px;letter-spacing:-0.01em;white-space:nowrap}
 .nav-logo img{width:22px;height:22px;border-radius:4px;filter:invert(1)}
 .nav-links{display:flex;align-items:center;gap:24px}
-.nav-links a{font-size:13px;color:var(--w60);transition:color .2s;white-space:nowrap;letter-spacing:-0.01em}
+.nav-links a{font-size:13px;color:var(--w60);transition:color .2s;white-space:nowrap;letter-spacing:-0.01em;position:relative}
+.nav-links a::after{content:'';position:absolute;bottom:-4px;left:0;width:0;height:1px;background:var(--accent);transition:width .3s cubic-bezier(0.22,1,0.36,1)}
 .nav-links a:hover{color:var(--w100)}
+.nav-links a:hover::after{width:100%}
 .nav-cta{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 18px;background:var(--accent);color:#fff;font-family:inherit;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;border:none;cursor:pointer;border-radius:100px;transition:all .2s;white-space:nowrap;margin-left:8px}
 .nav-cta:hover{filter:brightness(1.15)}
 .nav-mobile{display:none;background:none;border:none;color:#fff;cursor:pointer;position:absolute;right:16px;top:50%;transform:translateY(-50%)}
@@ -76,7 +78,7 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .hero{padding:180px 0 100px;position:relative;text-align:center;overflow:hidden}
 .hero::before{content:'';position:absolute;top:-300px;left:50%;transform:translateX(-50%);width:1200px;height:900px;background:radial-gradient(ellipse 50% 50%,rgba(245,73,0,0.08) 0%,rgba(245,73,0,0.03) 40%,transparent 70%);pointer-events:none}
 /* Grid lines background */
-.hero::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;-webkit-mask:linear-gradient(to bottom,transparent,#000 30%,#000 70%,transparent)}
+.hero::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;-webkit-mask:linear-gradient(to bottom,transparent,#000 30%,#000 70%,transparent);transform:translateY(var(--scroll,0));transition:transform 0s}
 .hero-content{position:relative;z-index:1}
 .hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(245,73,0,0.1);border:1px solid rgba(245,73,0,0.2);border-radius:100px;font-size:13px;color:var(--accent);margin-bottom:32px;font-weight:500}
 .hero-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s ease-in-out infinite}
@@ -221,13 +223,53 @@ footer{border-top:1px solid var(--border);padding:48px 0 32px}
 .footer-bottom span{font-size:13px;color:var(--w20)}
 
 /* ===== SCROLL REVEAL ===== */
-.reveal{opacity:0;transform:translateY(20px);transition:opacity .7s cubic-bezier(0.16,1,0.3,1),transform .7s cubic-bezier(0.16,1,0.3,1)}
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .8s cubic-bezier(0.22,1,0.36,1),transform .8s cubic-bezier(0.22,1,0.36,1)}
 .reveal.visible{opacity:1;transform:translateY(0)}
-/* Ensure content is always visible as fallback — JS adds .reveal-ready to body when observer works */
 .no-js .reveal{opacity:1;transform:none}
-.reveal-delay-1{transition-delay:.1s}
-.reveal-delay-2{transition-delay:.2s}
-.reveal-delay-3{transition-delay:.3s}
+.reveal-delay-1{transition-delay:.12s}
+.reveal-delay-2{transition-delay:.24s}
+.reveal-delay-3{transition-delay:.36s}
+
+/* ===== SMOOTH NAV ===== */
+nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2s}
+@keyframes navSlideIn{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
+
+/* ===== TERMINAL TYPING ===== */
+.terminal-body .terminal-line,.terminal-body .t-resp{opacity:0;transform:translateY(6px);animation:termLineIn .4s cubic-bezier(0.22,1,0.36,1) forwards}
+.terminal-body > :nth-child(1){animation-delay:0.6s}
+.terminal-body > :nth-child(2){animation-delay:0.8s}
+.terminal-body > :nth-child(3){animation-delay:1.0s}
+.terminal-body > :nth-child(4){animation-delay:1.4s}
+.terminal-body > :nth-child(5){animation-delay:1.8s}
+.terminal-body > :nth-child(6){animation-delay:2.0s}
+.terminal-body > :nth-child(7){animation-delay:2.2s}
+.terminal-body > :nth-child(8){animation-delay:2.6s}
+.terminal-body > :nth-child(9){animation-delay:3.0s}
+@keyframes termLineIn{to{opacity:1;transform:translateY(0)}}
+
+/* ===== COUNTER ANIM ===== */
+.stat-number[data-count]{transition:color .3s}
+
+/* ===== MARQUEE LOGOS ===== */
+@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
+.logos-track{display:flex;gap:64px;animation:marquee 20s linear infinite;width:max-content}
+.logos-track:hover{animation-play-state:paused}
+
+/* ===== CARD SHINE ON HOVER ===== */
+.feature-card::after,.resource-card::after,.pricing-card::after{content:'';position:absolute;inset:0;border-radius:inherit;opacity:0;transition:opacity .4s;background:linear-gradient(135deg,rgba(245,73,0,0.04) 0%,transparent 50%);pointer-events:none}
+.feature-card:hover::after,.resource-card:hover::after,.pricing-card:hover::after{opacity:1}
+
+/* ===== SMOOTH SECTION DIVIDER ===== */
+.section-divider{height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);margin:0 auto;max-width:600px}
+
+/* ===== FLOATING BADGE ANIM ===== */
+.hero-badge{animation:floatBadge 3s ease-in-out infinite}
+@keyframes floatBadge{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+
+/* ===== STEP AUTO-CYCLE ===== */
+.step{position:relative}
+.step.active::before{content:'';position:absolute;bottom:0;left:0;height:2px;background:var(--accent);animation:stepProgress 4s linear forwards}
+@keyframes stepProgress{from{width:0}to{width:100%}}
 
 /* ===== RESPONSIVE ===== */
 @media(max-width:960px){
@@ -335,12 +377,20 @@ AgentOS
 <section class="logos">
 <div class="container">
 <div class="logos-label">Built with</div>
-<div class="logos-row">
+<div class="logos-row" style="overflow:hidden">
+<div class="logos-track">
 <svg class="logo-icon" width="120" height="28" viewBox="0 0 120 28" fill="none"><text x="22" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Solana</text><path d="M5 19.5l3.5-3.5H18L14.5 19.5H5z" fill="url(#sg1)"/><path d="M5 8.5l3.5 3.5H18L14.5 8.5H5z" fill="url(#sg2)"/><path d="M5 14l3.5-1.5H18L14.5 15.5H5z" fill="url(#sg3)"/><defs><linearGradient id="sg1" x1="5" y1="14" x2="18" y2="14"><stop stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient><linearGradient id="sg2" x1="5" y1="14" x2="18" y2="14"><stop stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient><linearGradient id="sg3" x1="5" y1="14" x2="18" y2="14"><stop stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs></svg>
 <svg class="logo-icon" width="80" height="28" viewBox="0 0 80 28"><text x="24" y="20" font-family="'JetBrains Mono',monospace" font-size="15" font-weight="500" fill="rgba(255,255,255,0.4)">x402</text><circle cx="10" cy="14" r="7" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" fill="none"/><path d="M7 11l6 6M13 11l-6 6" stroke="rgba(255,255,255,0.3)" stroke-width="1.5"/></svg>
 <svg class="logo-icon" width="100" height="28" viewBox="0 0 100 28"><text x="26" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Telnyx</text><path d="M4 8h16l-8 14z" stroke="#00C08B" stroke-width="1.5" fill="none"/><circle cx="12" cy="15" r="2" fill="#00C08B" opacity="0.6"/></svg>
 <svg class="logo-icon" width="110" height="28" viewBox="0 0 110 28"><text x="28" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Hetzner</text><rect x="4" y="8" width="18" height="12" rx="2" stroke="#D50C2D" stroke-width="1.5" fill="none"/><line x1="8" y1="12" x2="8" y2="16" stroke="#D50C2D" stroke-width="1.5"/><line x1="13" y1="12" x2="13" y2="16" stroke="#D50C2D" stroke-width="1.5"/><line x1="18" y1="12" x2="18" y2="16" stroke="#D50C2D" stroke-width="1.5"/></svg>
 <svg class="logo-icon" width="130" height="28" viewBox="0 0 130 28"><text x="28" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Cloudflare</text><path d="M10 18c-3 0-5.5-2.5-5.5-5.5S7 7 10 7c2.2 0 4 1.3 4.8 3.2.5-.1 1-.2 1.5-.2 2.5 0 4.5 2 4.5 4.5 0 .2 0 .3 0 .5H10z" stroke="#F6821F" stroke-width="1.3" fill="none"/></svg>
+<!-- duplicate for seamless loop -->
+<svg class="logo-icon" width="120" height="28" viewBox="0 0 120 28" fill="none"><text x="22" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Solana</text><path d="M5 19.5l3.5-3.5H18L14.5 19.5H5z" fill="url(#sg1)"/><path d="M5 8.5l3.5 3.5H18L14.5 8.5H5z" fill="url(#sg2)"/><path d="M5 14l3.5-1.5H18L14.5 15.5H5z" fill="url(#sg3)"/></svg>
+<svg class="logo-icon" width="80" height="28" viewBox="0 0 80 28"><text x="24" y="20" font-family="'JetBrains Mono',monospace" font-size="15" font-weight="500" fill="rgba(255,255,255,0.4)">x402</text><circle cx="10" cy="14" r="7" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" fill="none"/><path d="M7 11l6 6M13 11l-6 6" stroke="rgba(255,255,255,0.3)" stroke-width="1.5"/></svg>
+<svg class="logo-icon" width="100" height="28" viewBox="0 0 100 28"><text x="26" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Telnyx</text><path d="M4 8h16l-8 14z" stroke="#00C08B" stroke-width="1.5" fill="none"/><circle cx="12" cy="15" r="2" fill="#00C08B" opacity="0.6"/></svg>
+<svg class="logo-icon" width="110" height="28" viewBox="0 0 110 28"><text x="28" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Hetzner</text><rect x="4" y="8" width="18" height="12" rx="2" stroke="#D50C2D" stroke-width="1.5" fill="none"/><line x1="8" y1="12" x2="8" y2="16" stroke="#D50C2D" stroke-width="1.5"/><line x1="13" y1="12" x2="13" y2="16" stroke="#D50C2D" stroke-width="1.5"/><line x1="18" y1="12" x2="18" y2="16" stroke="#D50C2D" stroke-width="1.5"/></svg>
+<svg class="logo-icon" width="130" height="28" viewBox="0 0 130 28"><text x="28" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Cloudflare</text><path d="M10 18c-3 0-5.5-2.5-5.5-5.5S7 7 10 7c2.2 0 4 1.3 4.8 3.2.5-.1 1-.2 1.5-.2 2.5 0 4.5 2 4.5 4.5 0 .2 0 .3 0 .5H10z" stroke="#F6821F" stroke-width="1.3" fill="none"/></svg>
+</div>
 </div>
 </div>
 </section>
@@ -629,11 +679,61 @@ AgentOS
   }, 2000);
 })();
 
-// Steps accordion
+// Steps accordion + auto-cycle
 function activateStep(el) {
   document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
   el.classList.add('active');
+  clearInterval(window._stepInterval);
 }
+// Auto-cycle steps every 4s
+(function(){
+  const steps = document.querySelectorAll('.step');
+  let idx = 0;
+  window._stepInterval = setInterval(() => {
+    idx = (idx + 1) % steps.length;
+    steps.forEach(s => s.classList.remove('active'));
+    steps[idx].classList.add('active');
+  }, 4000);
+})();
+
+// Animated counters
+(function(){
+  const counters = document.querySelectorAll('.stat-number');
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (!e.isIntersecting) return;
+      const el = e.target;
+      const text = el.textContent;
+      const num = parseInt(text);
+      if (isNaN(num) || el.dataset.counted) return;
+      el.dataset.counted = '1';
+      const duration = 1200;
+      const start = performance.now();
+      function tick(now) {
+        const p = Math.min((now - start) / duration, 1);
+        const ease = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(num * ease);
+        if (p < 1) requestAnimationFrame(tick);
+        else el.textContent = text; // restore original (may have %)
+      }
+      requestAnimationFrame(tick);
+      observer.unobserve(el);
+    });
+  }, { threshold: 0.5 });
+  counters.forEach(c => observer.observe(c));
+})();
+
+// Smooth parallax on hero grid
+(function(){
+  const hero = document.querySelector('.hero');
+  if (!hero) return;
+  window.addEventListener('scroll', () => {
+    const y = window.scrollY;
+    if (y < window.innerHeight) {
+      hero.style.setProperty('--scroll', y * 0.3 + 'px');
+    }
+  }, { passive: true });
+})();
 
 // FAQ toggle
 function toggleFaq(el) {
