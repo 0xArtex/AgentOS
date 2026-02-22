@@ -233,7 +233,7 @@ footer{border-top:1px solid var(--border);padding:48px 0 32px}
 /* ===== RESPONSIVE ===== */
 @media(max-width:960px){
 .features-grid{grid-template-columns:1fr}
-.pricing-grid{grid-template-columns:1fr}
+.pricing-grid{grid-template-columns:1fr !important}
 .features-grid .feature-card:first-child{grid-row:auto}
 .resources-grid{grid-template-columns:1fr 1fr}
 .steps{grid-template-columns:1fr}
@@ -475,57 +475,46 @@ Authorization: Bearer sk_...<br><br>
 <section class="section" id="pricing" style="background:var(--surface)">
 <div class="container">
 <div class="section-label reveal">Pricing</div>
-<h2 class="reveal">Pay for what you use.<br>Nothing else.</h2>
-<p class="section-sub reveal">No monthly fees. No subscriptions. Your agent pays per action with USDC.</p>
-<div class="pricing-grid">
+<h2 class="reveal">Two ways to pay.<br>Both simple.</h2>
+<p class="section-sub reveal">Pay per API call with USDC, or get everything at once for a flat fee. No subscriptions. No surprise charges.</p>
+<div class="pricing-grid" style="grid-template-columns:1fr 1fr;max-width:900px">
 <div class="pricing-card subtle-border reveal">
-<div class="tier-name">Communication</div>
-<div class="tier-desc">Phone, SMS, voice, email.</div>
-<div class="price">From $0.02</div>
-<div class="price-period">per action</div>
-<a href="/skill.md" class="btn btn-secondary">Get started</a>
+<div class="tier-name">Pay per use</div>
+<div class="tier-desc">Your agent pays for each action individually. Only pay for what you actually use.</div>
+<div class="price">From $0.01</div>
+<div class="price-period">per API call</div>
+<a href="/skill.md" class="btn btn-secondary">View endpoints</a>
 <div class="divider"></div>
-<div class="features-label">What's included</div>
+<div class="features-label">Per-action prices</div>
 <ul>
-<li>Phone number — $2</li>
 <li>Send SMS — $0.02</li>
-<li>Voice call — $0.10</li>
-<li>TTS on call — $0.05</li>
-<li>Email inbox — $0.50</li>
 <li>Send/read email — $0.01</li>
+<li>Place voice call — $0.10</li>
+<li>TTS on call — $0.05</li>
+<li>DTMF input — $0.02</li>
+<li>Provision phone — $2.00</li>
+<li>Create email inbox — $0.50</li>
+<li>Register domain — from $12</li>
+<li>Spin up server — from $5/mo</li>
 </ul>
 </div>
 <div class="pricing-card glow-border pop reveal reveal-delay-1">
-<div class="tier-name">Infrastructure</div>
-<div class="tier-badge">Most popular</div>
-<div class="tier-desc">Servers, domains, the heavy stuff.</div>
-<div class="price">From $5</div>
-<div class="price-period">per month</div>
+<div class="tier-name">Full Stack Agent</div>
+<div class="tier-badge">Best value</div>
+<div class="tier-desc">One payment. Your agent gets a phone number, email, X account, domain, server, and an API key to manage it all.</div>
+<div class="price">$10</div>
+<div class="price-period">one-time setup</div>
 <a href="/skill.md" class="btn btn-primary">Get started</a>
 <div class="divider"></div>
-<div class="features-label">Servers & domains</div>
+<div class="features-label">Everything included</div>
 <ul>
-<li>Linux server (2-16 CPU) — $5-95/mo</li>
-<li>Register .com/.dev — $12-15</li>
-<li>DNS management</li>
-<li>Full root SSH access</li>
-<li>Helsinki datacenter</li>
-</ul>
-</div>
-<div class="pricing-card subtle-border reveal reveal-delay-2">
-<div class="tier-name">Everything</div>
-<div class="tier-desc">All services. Full autonomy.</div>
-<div class="price">All of above</div>
-<div class="price-period">combined</div>
-<a href="https://x.com/zoltyagent" target="_blank" class="btn btn-secondary">Contact us</a>
-<div class="divider"></div>
-<div class="features-label">Your agent can</div>
-<ul>
-<li>Call people and talk</li>
-<li>Send and receive emails</li>
-<li>Spin up servers on demand</li>
-<li>Register domains</li>
-<li>Pay for everything itself</li>
+<li>Phone number (SMS + voice)</li>
+<li>Email inbox (encrypted)</li>
+<li>Domain name registration</li>
+<li>Cloud server (2 CPU, 4GB)</li>
+<li>API key for all services</li>
+<li>Manage domains, DNS, messages</li>
+<li>Full autonomy — no human needed</li>
 </ul>
 </div>
 </div>
