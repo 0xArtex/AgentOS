@@ -100,7 +100,8 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .terminal-btn{width:12px;height:12px;border-radius:50%}
 .terminal-btn.r{background:#ff5f57}.terminal-btn.y{background:#febc2e}.terminal-btn.g{background:#28c840}
 .terminal-title{color:var(--w40);font-size:12px;font-family:'JetBrains Mono',monospace}
-.terminal-body{padding:24px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c9d1d9}
+.terminal-body{padding:24px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c9d1d9;max-height:320px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.1) transparent}
+.terminal-body::-webkit-scrollbar{width:4px}.terminal-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
 .terminal-line{margin-bottom:8px}
 .prompt{color:var(--accent);font-weight:500}
 .t-comment{color:#6e7681}
@@ -109,6 +110,16 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .t-402{color:#f85149}.t-200{color:#3fb950}
 .cursor{animation:blink 1s infinite}
 @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+.terminal-input-line{display:flex;align-items:center;gap:8px}
+.terminal-input{background:none;border:none;outline:none;color:#c9d1d9;font-family:'JetBrains Mono',monospace;font-size:13px;flex:1;caret-color:var(--accent)}
+.terminal-input::placeholder{color:#484f58}
+.t-cmd{color:#c9d1d9;margin-bottom:4px}
+.t-cmd .prompt{color:var(--accent);font-weight:500}
+.t-out{border-left:2px solid var(--border);padding:6px 0 6px 14px;margin:4px 0 12px;color:#8b949e;font-size:12px;line-height:1.6;animation:termFadeIn .3s ease}
+.t-out.success{border-left-color:var(--accent);background:rgba(245,73,0,0.03)}
+.t-out .t-key{color:var(--w60)}.t-out .t-val{color:#79c0ff}.t-out .t-str{color:#a5d6ff}
+.t-out .t-status-ok{color:#3fb950;font-weight:500}.t-out .t-status-pay{color:#f85149;font-weight:500}
+@keyframes termFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
 
 /* ===== LOGO STRIP ===== */
 .logos{padding:72px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
@@ -354,16 +365,12 @@ AgentOS
 <div class="terminal-buttons"><span class="terminal-btn r"></span><span class="terminal-btn y"></span><span class="terminal-btn g"></span></div>
 <div class="terminal-title">agent@agentos ~ $</div>
 </div>
-<div class="terminal-body">
-<div class="terminal-line"><span class="prompt">$</span> curl -X POST https://agntos.dev/phone/provision \</div>
-<div class="terminal-line">&nbsp;&nbsp;-H "Authorization: Bearer sk_live_..." \</div>
-<div class="terminal-line">&nbsp;&nbsp;-d '{"area_code": "415"}'</div>
-<div class="t-resp"><span class="t-402">HTTP/1.1 402 Payment Required</span><br>{ "amount": "2.00", "token": "USDC", "chain": "solana" }</div>
-<div class="terminal-line"><span class="t-comment"># Agent pays automatically via x402 protocol</span></div>
-<div class="terminal-line"><span class="prompt">$</span> curl -X POST https://agntos.dev/phone/provision \</div>
-<div class="terminal-line">&nbsp;&nbsp;-H "X-PAYMENT: &lt;signed_usdc_tx&gt;"</div>
-<div class="t-resp ok"><span class="t-200">HTTP/1.1 200 OK</span><br>{ "phone": "+14155551234", "status": "active", "capabilities": ["sms", "voice"] }</div>
-<div class="terminal-line"><span class="prompt">$</span> <span class="cursor">█</span></div>
+<div class="terminal-body" id="terminal">
+<div id="terminal-history"></div>
+<div class="terminal-input-line">
+<span class="prompt">$</span>
+<input type="text" id="terminal-input" class="terminal-input" placeholder="Try: help, provision phone, send sms, create server..." autocomplete="off" spellcheck="false">
+</div>
 </div>
 </div>
 </div>
@@ -445,21 +452,21 @@ AgentOS
 <p class="section-sub reveal">Your agent talks to our API. It asks for something, pays for it, and gets it.</p>
 <div class="steps reveal">
 <div class="steps-list">
-<div class="step active" onclick="activateStep(this)">
+<div class="step active" data-step="0" onclick="activateStep(this)">
 <div class="step-header">
 <div class="step-num">1</div>
 <div class="step-title">Sign up with a wallet</div>
 </div>
 <div class="step-body">Your agent sends its Solana wallet address. It gets an API key back. Takes 1 second. No forms, no email verification, no waiting.</div>
 </div>
-<div class="step" onclick="activateStep(this)">
+<div class="step" data-step="1" onclick="activateStep(this)">
 <div class="step-header">
 <div class="step-num">2</div>
 <div class="step-title">Ask for what it needs</div>
 </div>
 <div class="step-body">"I need a phone number." "I need a server." Your agent makes an API call. We reply with the price in USDC.</div>
 </div>
-<div class="step" onclick="activateStep(this)">
+<div class="step" data-step="2" onclick="activateStep(this)">
 <div class="step-header">
 <div class="step-num">3</div>
 <div class="step-title">Pay and get it instantly</div>
@@ -468,14 +475,8 @@ AgentOS
 </div>
 </div>
 <div class="steps-visual glow-border">
-<div class="mock-code">
-<span class="hl">POST</span> /phone/provision HTTP/1.1<br>
-Host: agntos.dev<br>
-Authorization: Bearer sk_...<br><br>
-<span style="color:var(--w40)">→</span> <span style="color:#f85149">402 Payment Required</span><br>
-{ "amount": "2.00", "token": "<span class="hl">USDC</span>" }<br><br>
-<span style="color:var(--w40)">→</span> X-PAYMENT: &lt;signed_tx&gt;<br>
-<span style="color:var(--w40)">→</span> <span style="color:#3fb950">200 OK</span> { "phone": "+1..." }
+<div class="mock-code" id="step-code">
+<div id="step-code-content"></div>
 </div>
 </div>
 </div>
@@ -657,46 +658,308 @@ AgentOS
 </footer>
 
 <script>
-// Scroll reveal with fallback
+// ===== SCROLL REVEAL =====
 (function(){
   const reveals = document.querySelectorAll('.reveal');
-  if (!('IntersectionObserver' in window)) {
-    reveals.forEach(r => r.classList.add('visible'));
-    return;
-  }
-  const observer = new IntersectionObserver((entries) => {
-    entries.forEach(e => {
-      if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); }
-    });
+  if (!('IntersectionObserver' in window)) { reveals.forEach(r => r.classList.add('visible')); return; }
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); obs.unobserve(e.target); } });
   }, { threshold: 0.01, rootMargin: '50px' });
-  reveals.forEach(r => observer.observe(r));
-  // Fallback: if after 2s any reveal still not visible, force them
-  setTimeout(() => {
-    document.querySelectorAll('.reveal:not(.visible)').forEach(r => r.classList.add('visible'));
-  }, 2000);
+  reveals.forEach(r => obs.observe(r));
+  setTimeout(() => { document.querySelectorAll('.reveal:not(.visible)').forEach(r => r.classList.add('visible')); }, 2000);
 })();
 
-// Steps accordion + auto-cycle
+// ===== INTERACTIVE TERMINAL =====
+(function(){
+  const input = document.getElementById('terminal-input');
+  const history = document.getElementById('terminal-history');
+  if (!input || !history) return;
+
+  const commands = {
+    'help': {
+      text: `Available commands:
+  provision phone  — Get a phone number
+  send sms         — Send a text message
+  create inbox     — Create email inbox
+  send email       — Send an email
+  create server    — Spin up a cloud server
+  register domain  — Register a domain
+  check domain     — Check domain availability
+  status           — View agent status
+  pricing          — Show pricing
+  clear            — Clear terminal`,
+      success: false
+    },
+    'provision phone': {
+      pay: true,
+      payAmount: '2.00',
+      payDesc: 'Phone number provisioning',
+      result: `{
+  "phone": "+14155551234",
+  "status": "active",
+  "capabilities": ["sms", "voice", "mms"],
+  "country": "US",
+  "region": "CA"
+}`,
+    },
+    'send sms': {
+      pay: true,
+      payAmount: '0.02',
+      payDesc: 'Outbound SMS',
+      result: `{
+  "message_id": "msg_7x9k2m",
+  "to": "+1234567890",
+  "body": "Hello from AgentOS!",
+  "status": "delivered"
+}`,
+    },
+    'create inbox': {
+      pay: true,
+      payAmount: '0.50',
+      payDesc: 'Email inbox creation',
+      result: `{
+  "inbox": "agent-7k2@agntos.dev",
+  "encrypted": true,
+  "created": "${new Date().toISOString()}"
+}`,
+    },
+    'send email': {
+      pay: true,
+      payAmount: '0.01',
+      payDesc: 'Outbound email',
+      result: `{
+  "message_id": "em_3f8x1q",
+  "to": "hello@example.com",
+  "subject": "Hello from my agent",
+  "status": "sent"
+}`,
+    },
+    'create server': {
+      pay: true,
+      payAmount: '5.00',
+      payDesc: 'Cloud server (cx23, 2 CPU / 4GB)',
+      result: `{
+  "server_id": "srv_28491",
+  "type": "cx23",
+  "ip": "89.167.36.207",
+  "cpu": 2, "ram": "4GB",
+  "status": "running",
+  "ssh": "root@89.167.36.207"
+}`,
+    },
+    'register domain': {
+      pay: true,
+      payAmount: '12.00',
+      payDesc: 'Domain registration (.dev, 1yr)',
+      result: `{
+  "domain": "myagent.dev",
+  "status": "registered",
+  "expires": "2027-02-22",
+  "nameservers": ["ns1.agntos.dev", "ns2.agntos.dev"]
+}`,
+    },
+    'check domain': {
+      result: `{
+  "domain": "myagent.dev",
+  "available": true,
+  "price": "12.00 USDC",
+  "tlds_checked": [".dev", ".com", ".ai"]
+}`,
+      success: true
+    },
+    'status': {
+      result: `{
+  "agent": "agent-7k2",
+  "wallet": "B1YE...X3",
+  "services": {
+    "phone": "+14155551234",
+    "email": "agent-7k2@agntos.dev",
+    "servers": 1,
+    "domains": 1
+  },
+  "balance": "47.50 USDC"
+}`,
+      success: true
+    },
+    'pricing': {
+      text: `Per-action pricing (USDC):
+  Send SMS .............. $0.02
+  Send/read email ....... $0.01
+  Voice call ............ $0.10
+  TTS on call ........... $0.05
+  Provision phone ....... $2.00
+  Create inbox .......... $0.50
+  Register domain ....... from $12
+  Spin up server ........ from $5/mo
+  
+  Or: Full Stack Agent — $10 one-time`,
+      success: false
+    },
+  };
+
+  function addLine(html, className) {
+    const div = document.createElement('div');
+    div.className = className || '';
+    div.innerHTML = html;
+    history.appendChild(div);
+  }
+
+  function processCommand(cmd) {
+    cmd = cmd.trim().toLowerCase();
+    addLine(`<span class="prompt">$</span> ${cmd}`, 't-cmd');
+
+    if (cmd === 'clear') {
+      history.innerHTML = '';
+      return;
+    }
+
+    const match = commands[cmd];
+    if (!match) {
+      addLine(`Command not found: ${cmd}. Type <span style="color:var(--accent)">help</span> for available commands.`, 't-out');
+      return;
+    }
+
+    if (match.pay) {
+      // Show 402 first
+      addLine(`<span class="t-status-pay">402 Payment Required</span>
+{ "amount": "${match.payAmount}", "token": "USDC", "network": "solana", "desc": "${match.payDesc}" }`, 't-out');
+      
+      // Then show payment + success after delay
+      setTimeout(() => {
+        addLine(`<span style="color:#6e7681">→ X-PAYMENT: 5Kd7...signed_tx</span>`, 't-cmd');
+        setTimeout(() => {
+          addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
+          scrollTerminal();
+        }, 300);
+      }, 800);
+    } else if (match.text) {
+      addLine(`<pre style="margin:0;white-space:pre-wrap;font:inherit">${match.text}</pre>`, 't-out' + (match.success ? ' success' : ''));
+    } else {
+      addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
+    }
+
+    scrollTerminal();
+  }
+
+  function scrollTerminal() {
+    const tb = document.getElementById('terminal');
+    if (tb) tb.scrollTop = tb.scrollHeight;
+  }
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && input.value.trim()) {
+      processCommand(input.value);
+      input.value = '';
+    }
+  });
+
+  // Auto-run demo sequence on load
+  const demo = ['provision phone'];
+  let di = 0;
+  function runDemo() {
+    if (di >= demo.length) return;
+    const cmd = demo[di++];
+    // Type it out character by character
+    let ci = 0;
+    input.value = '';
+    const typeInterval = setInterval(() => {
+      input.value += cmd[ci++];
+      if (ci >= cmd.length) {
+        clearInterval(typeInterval);
+        setTimeout(() => {
+          processCommand(cmd);
+          input.value = '';
+        }, 400);
+      }
+    }, 50);
+  }
+  setTimeout(runDemo, 1500);
+})();
+
+// ===== INTERACTIVE STEPS =====
+const stepCodes = [
+  `<span class="hl">POST</span> /register HTTP/1.1
+Host: agntos.dev
+
+{
+  "wallet": "B1YEbo...kqLXCwLs3Ez8oX3"
+}
+
+<span style="color:#3fb950">→ 200 OK</span>
+{
+  "agent_id": "agent-7k2",
+  "api_key": "sk_live_8f2x...",
+  "created": "${new Date().toISOString().split('T')[0]}"
+}`,
+  `<span class="hl">POST</span> /phone/provision HTTP/1.1
+Host: agntos.dev
+Authorization: Bearer sk_live_...
+
+{ "area_code": "415" }
+
+<span style="color:#f85149">→ 402 Payment Required</span>
+{
+  "amount": "2.00",
+  "token": "USDC",
+  "chain": "solana",
+  "recipient": "7xKX...8yNp"
+}`,
+  `<span class="hl">POST</span> /phone/provision HTTP/1.1
+Authorization: Bearer sk_live_...
+X-PAYMENT: 5Kd7cH...signed_tx
+
+<span style="color:#3fb950">→ 200 OK</span>
+{
+  "phone": "+14155551234",
+  "status": "active",
+  "capabilities": ["sms", "voice"]
+}`
+];
+
 function activateStep(el) {
   document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
   el.classList.add('active');
   clearInterval(window._stepInterval);
+  const idx = parseInt(el.dataset.step) || 0;
+  const codeEl = document.getElementById('step-code-content');
+  if (codeEl && stepCodes[idx]) {
+    codeEl.style.opacity = '0';
+    codeEl.style.transform = 'translateY(6px)';
+    setTimeout(() => {
+      codeEl.innerHTML = stepCodes[idx];
+      codeEl.style.transition = 'opacity .3s, transform .3s';
+      codeEl.style.opacity = '1';
+      codeEl.style.transform = 'translateY(0)';
+    }, 150);
+  }
 }
-// Auto-cycle steps every 4s
+
+// Auto-cycle steps every 5s
 (function(){
   const steps = document.querySelectorAll('.step');
   let idx = 0;
+  // Init first step code
+  const codeEl = document.getElementById('step-code-content');
+  if (codeEl) codeEl.innerHTML = stepCodes[0];
+  
   window._stepInterval = setInterval(() => {
     idx = (idx + 1) % steps.length;
     steps.forEach(s => s.classList.remove('active'));
     steps[idx].classList.add('active');
-  }, 4000);
+    if (codeEl && stepCodes[idx]) {
+      codeEl.style.opacity = '0';
+      setTimeout(() => {
+        codeEl.innerHTML = stepCodes[idx];
+        codeEl.style.opacity = '1';
+      }, 200);
+    }
+  }, 5000);
 })();
 
-// Animated counters
+// ===== ANIMATED COUNTERS =====
 (function(){
   const counters = document.querySelectorAll('.stat-number');
-  const observer = new IntersectionObserver((entries) => {
+  const obs = new IntersectionObserver((entries) => {
     entries.forEach(e => {
       if (!e.isIntersecting) return;
       const el = e.target;
@@ -704,42 +967,39 @@ function activateStep(el) {
       const num = parseInt(text);
       if (isNaN(num) || el.dataset.counted) return;
       el.dataset.counted = '1';
-      const duration = 1200;
-      const start = performance.now();
+      const dur = 1200, start = performance.now();
       function tick(now) {
-        const p = Math.min((now - start) / duration, 1);
+        const p = Math.min((now - start) / dur, 1);
         const ease = 1 - Math.pow(1 - p, 3);
         el.textContent = Math.round(num * ease);
         if (p < 1) requestAnimationFrame(tick);
-        else el.textContent = text; // restore original (may have %)
+        else el.textContent = text;
       }
       requestAnimationFrame(tick);
-      observer.unobserve(el);
+      obs.unobserve(el);
     });
   }, { threshold: 0.5 });
-  counters.forEach(c => observer.observe(c));
+  counters.forEach(c => obs.observe(c));
 })();
 
-// GitHub stars
+// ===== GITHUB STARS =====
 fetch('https://api.github.com/repos/0xArtex/AgentOS')
   .then(r=>r.json()).then(d=>{
     const el=document.getElementById('gh-stars');
     if(el&&d.stargazers_count!==undefined) el.textContent=d.stargazers_count;
   }).catch(()=>{});
 
-// Smooth parallax on hero grid
+// ===== PARALLAX =====
 (function(){
   const hero = document.querySelector('.hero');
   if (!hero) return;
   window.addEventListener('scroll', () => {
     const y = window.scrollY;
-    if (y < window.innerHeight) {
-      hero.style.setProperty('--scroll', y * 0.3 + 'px');
-    }
+    if (y < window.innerHeight) hero.style.setProperty('--scroll', y * 0.3 + 'px');
   }, { passive: true });
 })();
 
-// FAQ toggle
+// ===== FAQ =====
 function toggleFaq(el) {
   const item = el.parentElement;
   item.classList.toggle('open');
