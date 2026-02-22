@@ -12,267 +12,250 @@
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{
 --accent:#f54900;
---accent-glow:#ffa985;
---accent-50:rgba(245,73,0,0.5);
---bg:#000;
+--accent-glow:rgba(245,73,0,0.15);
+--bg:#050505;
+--surface:#0a0a0a;
+--surface-2:#111;
 --w100:#fff;
---w70:rgba(255,255,255,0.7);
---w50:rgba(255,255,255,0.5);
---w30:rgba(255,255,255,0.3);
+--w80:rgba(255,255,255,0.8);
+--w60:rgba(255,255,255,0.6);
+--w40:rgba(255,255,255,0.4);
+--w20:rgba(255,255,255,0.2);
 --w10:rgba(255,255,255,0.1);
 --w05:rgba(255,255,255,0.05);
---w03:rgba(255,255,255,0.03);
+--border:rgba(255,255,255,0.08);
+--radius:12px;
 }
 ::selection{background:var(--accent);color:#000}
 html{scroll-behavior:smooth}
-body{background:var(--bg);color:var(--w100);font-family:'Inter',system-ui,sans-serif;font-size:16px;line-height:1.6;overflow-x:hidden;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+body{background:var(--bg);color:var(--w100);font-family:'Inter',system-ui,-apple-system,sans-serif;font-size:16px;line-height:1.6;overflow-x:hidden;-webkit-font-smoothing:antialiased}
 a{color:inherit;text-decoration:none}
 img{max-width:100%;display:block}
-.container{max-width:1440px;margin:0 auto;padding:0 clamp(24px, 10vw, 160px)}
+.container{max-width:1200px;margin:0 auto;padding:0 clamp(24px,5vw,80px)}
 
-/* Corner accents — L-brackets */
-.corner-accents{position:relative}
-.corner-accents .ca{position:absolute;width:10px;height:10px;pointer-events:none}
-.corner-accents .ca-tl{top:-1px;left:-1px;border-top:1px solid var(--accent);border-left:1px solid var(--accent)}
-.corner-accents .ca-tr{top:-1px;right:-1px;border-top:1px solid var(--accent);border-right:1px solid var(--accent)}
-.corner-accents .ca-bl{bottom:-1px;left:-1px;border-bottom:1px solid var(--accent);border-left:1px solid var(--accent)}
-.corner-accents .ca-br{bottom:-1px;right:-1px;border-bottom:1px solid var(--accent);border-right:1px solid var(--accent)}
-/* Dots at corners */
-.corner-accents .ca::after{content:'';position:absolute;width:3px;height:3px;border-radius:50%;background:var(--accent)}
-.corner-accents .ca-tl::after{top:-2px;left:-2px}
-.corner-accents .ca-tr::after{top:-2px;right:-2px}
-.corner-accents .ca-bl::after{bottom:-2px;left:-2px}
-.corner-accents .ca-br::after{bottom:-2px;right:-2px}
-/* White corner variant for buttons */
-.corner-white .ca{width:6px;height:6px}
-.corner-white .ca-tl{border-color:#fff}
-.corner-white .ca-tr{border-color:#fff}
-.corner-white .ca-bl{border-color:#fff}
-.corner-white .ca-br{border-color:#fff}
-.corner-white .ca::after{display:none}
+/* ===== ANIMATED BORDER UTILITY ===== */
+.glow-border{position:relative;background:var(--surface);border-radius:var(--radius);overflow:hidden}
+.glow-border::before{content:'';position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from var(--angle,0deg),transparent 40%,var(--accent) 50%,transparent 60%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:rotateBorder 6s linear infinite;pointer-events:none}
+@property --angle{syntax:'<angle>';initial-value:0deg;inherits:false}
+@keyframes rotateBorder{to{--angle:360deg}}
+/* Static border fallback for browsers without @property */
+@supports not (background: conic-gradient(from 0deg, red, blue)) {
+.glow-border::before{background:linear-gradient(135deg,var(--accent),transparent,var(--accent));animation:none}
+}
 
-/* NAV */
+.subtle-border{border:1px solid var(--border);border-radius:var(--radius);transition:border-color .3s}
+.subtle-border:hover{border-color:rgba(245,73,0,0.3)}
+
+/* ===== GRAIN OVERLAY ===== */
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:0.015;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+/* ===== NAV ===== */
 nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;width:auto;max-width:calc(100% - 48px)}
-.nav-container{position:relative;display:inline-flex;padding:12px 16px;background:rgba(0,0,0,0.7);-webkit-backdrop-filter:blur(30px);backdrop-filter:blur(30px);border:1px dashed rgba(255,255,255,0.15);border-radius:0;box-shadow:0px 0.3px 1.5px -1.42px rgba(0,0,0,0.81),0px 1.14px 5.72px -2.83px rgba(0,0,0,0.69),0px 5px 25px -4.25px rgba(0,0,0,0.15)}
-/* Animated dashed border */
-.nav-container{background-image:none;animation:navBorder 12s linear infinite}
-@keyframes navBorder{0%{border-color:rgba(255,255,255,0.15)}50%{border-color:rgba(255,255,255,0.25)}100%{border-color:rgba(255,255,255,0.15)}}
-/* Orange corner brackets on nav — thin, short, dots are white/gray inside */
-.nav-container>.ca{position:absolute;width:14px;height:14px;pointer-events:none}
-.nav-container>.ca::after{content:'';position:absolute;width:3px;height:3px;border-radius:50%;background:var(--w30)}
-.nav-container>.ca-tl{top:-1px;left:-1px;border-top:1px solid var(--accent);border-left:1px solid var(--accent);border-right:none;border-bottom:none}
-.nav-container>.ca-tl::after{top:3px;left:3px}
-.nav-container>.ca-tr{top:-1px;right:-1px;border-top:1px solid var(--accent);border-right:1px solid var(--accent);border-left:none;border-bottom:none}
-.nav-container>.ca-tr::after{top:3px;right:3px}
-.nav-container>.ca-bl{bottom:-1px;left:-1px;border-bottom:1px solid var(--accent);border-left:1px solid var(--accent);border-top:none;border-right:none}
-.nav-container>.ca-bl::after{bottom:3px;left:3px}
-.nav-container>.ca-br{bottom:-1px;right:-1px;border-bottom:1px solid var(--accent);border-right:1px solid var(--accent);border-top:none;border-left:none}
-.nav-container>.ca-br::after{bottom:3px;right:3px}
+.nav-container{position:relative;display:inline-flex;padding:14px 20px;background:rgba(10,10,10,0.85);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);border:1px solid var(--border);border-radius:100px}
+.nav-container::before{content:'';position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from var(--angle,0deg),transparent 30%,rgba(245,73,0,0.4) 50%,transparent 70%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:rotateBorder 8s linear infinite;pointer-events:none;opacity:0.6}
 .nav-inner{display:flex;align-items:center;gap:32px}
-.nav-logo{font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px;letter-spacing:-0.01em;white-space:nowrap}
-.nav-logo svg{width:20px;height:20px}
+.nav-logo{font-weight:600;font-size:15px;display:flex;align-items:center;gap:8px;letter-spacing:-0.01em;white-space:nowrap}
+.nav-logo img{width:22px;height:22px;border-radius:4px;filter:invert(1)}
 .nav-links{display:flex;align-items:center;gap:24px}
-.nav-links a{font-size:14px;color:var(--w70);transition:color .2s;white-space:nowrap}
+.nav-links a{font-size:13px;color:var(--w60);transition:color .2s;white-space:nowrap;letter-spacing:-0.01em}
 .nav-links a:hover{color:var(--w100)}
-.nav-right{display:flex;align-items:center;gap:12px;margin-left:8px}
-.nav-mobile{display:none;background:none;border:none;color:#fff;cursor:pointer}
-/* Nav CTA button with white corners */
-.nav-cta{position:relative;display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 18px;background:var(--accent);color:#fff;font-family:inherit;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;border:none;cursor:pointer;border-radius:0;transition:filter .2s;white-space:nowrap}
-.nav-cta:hover{filter:brightness(1.15)}
-.nav-cta .ca{position:absolute;width:6px;height:6px;pointer-events:none}
-.nav-cta .ca-tl{top:2px;left:2px;border-top:1px solid #fff;border-left:1px solid #fff}
-.nav-cta .ca-tr{top:2px;right:2px;border-top:1px solid #fff;border-right:1px solid #fff}
-.nav-cta .ca-bl{bottom:2px;left:2px;border-bottom:1px solid #fff;border-left:1px solid #fff}
-.nav-cta .ca-br{bottom:2px;right:2px;border-bottom:1px solid #fff;border-right:1px solid #fff}
-.nav-cta .ca::after{display:none}
+.nav-cta{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 18px;background:var(--accent);color:#fff;font-family:inherit;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;border:none;cursor:pointer;border-radius:100px;transition:all .2s;white-space:nowrap;margin-left:8px}
+.nav-cta:hover{filter:brightness(1.15);box-shadow:0 0 20px rgba(245,73,0,0.4)}
+.nav-mobile{display:none;background:none;border:none;color:#fff;cursor:pointer;position:absolute;right:16px;top:50%;transform:translateY(-50%)}
 
-/* BUTTONS */
-.btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 20px;font-family:inherit;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;border:none;transition:all .2s;position:relative;border-radius:0}
+/* ===== BUTTONS ===== */
+.btn{display:inline-flex;align-items:center;gap:8px;height:48px;padding:0 28px;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .25s;border-radius:100px;letter-spacing:-0.01em}
 .btn-primary{background:var(--accent);color:#fff}
-.btn-primary:hover{filter:brightness(1.15);transform:translateY(-1px);box-shadow:0 4px 16px rgba(245,73,0,0.3)}
-.btn-secondary{background:rgba(255,255,255,0.05);color:#fff;border:1px solid var(--w30);border-radius:0}
-.btn-secondary:hover{border-color:var(--w50);background:rgba(255,255,255,0.08)}
-.btn-arrow::after{content:'';display:inline-block;width:14px;height:14px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M12 5l7 7-7 7'/%3E%3C/svg%3E") center/contain no-repeat}
+.btn-primary:hover{filter:brightness(1.15);transform:translateY(-1px);box-shadow:0 8px 32px rgba(245,73,0,0.35)}
+.btn-secondary{background:rgba(255,255,255,0.06);color:#fff;border:1px solid var(--border)}
+.btn-secondary:hover{border-color:var(--w20);background:rgba(255,255,255,0.1)}
+.btn-arrow::after{content:'→';margin-left:4px;transition:transform .2s}
+.btn-arrow:hover::after{transform:translateX(3px)}
 
-/* HERO */
-.hero{padding:160px 0 80px;position:relative;overflow:hidden}
-.hero::before{content:'';position:absolute;top:-200px;left:0;right:0;height:800px;background:radial-gradient(ellipse 70% 60% at 50% 0%,rgba(245,73,0,0.6) 0%,rgba(255,169,133,0.4) 20%,rgba(245,73,0,0.2) 40%,rgba(0,0,0,0) 70%);pointer-events:none;animation:heroGlow 8s ease-in-out infinite alternate}
-@keyframes heroGlow{0%{opacity:0.8;transform:scale(1)}100%{opacity:1;transform:scale(1.05)}}
-.hero::after{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:100%;height:100%;background:radial-gradient(circle at center,rgba(245,73,0,0.15) 0%,transparent 50%);pointer-events:none}
+/* ===== HERO ===== */
+.hero{padding:180px 0 100px;position:relative;text-align:center;overflow:hidden}
+.hero::before{content:'';position:absolute;top:-300px;left:50%;transform:translateX(-50%);width:1200px;height:900px;background:radial-gradient(ellipse 50% 50%,rgba(245,73,0,0.25) 0%,rgba(245,73,0,0.08) 40%,transparent 70%);pointer-events:none;animation:heroGlow 6s ease-in-out infinite alternate}
+@keyframes heroGlow{0%{opacity:0.7;transform:translateX(-50%) scale(1)}100%{opacity:1;transform:translateX(-50%) scale(1.08)}}
+/* Grid lines background */
+.hero::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;-webkit-mask:linear-gradient(to bottom,transparent,#000 30%,#000 70%,transparent)}
 .hero-content{position:relative;z-index:1}
-.hero h1{font-size:68px;font-weight:400;letter-spacing:-0.035em;line-height:1.08;max-width:550px;margin-bottom:28px;color:#fff}
-.hero .subtitle{font-size:16px;color:var(--w50);max-width:480px;margin-bottom:40px;line-height:1.7}
-.hero-buttons{display:flex;gap:14px;margin-bottom:32px}
-.hero-badges{display:flex;gap:32px;margin-bottom:72px}
-.hero-badges span{font-size:13px;color:var(--w50);display:flex;align-items:center;gap:6px}
-.hero-image{position:relative;max-width:100%;margin:0 auto}
-.hero-image::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:120%;height:120%;background:radial-gradient(50% 50%,var(--accent-glow) 0%,rgba(245,73,0,0.54) 46.2891%,rgba(245,73,0,0) 100%);opacity:0.15;pointer-events:none}
-.hero-image img{position:relative;z-index:1;width:100%;border:1px solid var(--w10);border-radius:12px}
-.hero-image .placeholder{position:relative;z-index:1;width:100%;height:400px;background:var(--w03);border:1px solid var(--w10);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--w30);font-family:'JetBrains Mono',monospace;font-size:14px}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(245,73,0,0.1);border:1px solid rgba(245,73,0,0.2);border-radius:100px;font-size:13px;color:var(--accent);margin-bottom:32px;font-weight:500}
+.hero-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.hero h1{font-size:clamp(40px,6vw,72px);font-weight:500;letter-spacing:-0.04em;line-height:1.05;margin-bottom:24px;background:linear-gradient(180deg,#fff 40%,rgba(255,255,255,0.6));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.hero .subtitle{font-size:clamp(16px,1.2vw,18px);color:var(--w80);max-width:540px;margin:0 auto 40px;line-height:1.7}
+.hero-buttons{display:flex;gap:14px;justify-content:center;margin-bottom:48px}
+.hero-stats{display:flex;justify-content:center;gap:48px;margin-bottom:80px}
+.hero-stats .stat{text-align:center}
+.hero-stats .stat-val{font-size:28px;font-weight:600;color:var(--accent);font-family:'JetBrains Mono',monospace}
+.hero-stats .stat-lbl{font-size:12px;color:var(--w40);text-transform:uppercase;letter-spacing:0.08em;margin-top:4px}
 
-/* TERMINAL WINDOW */
-.terminal-window{position:relative;z-index:1;width:100%;background:#0d1117;border:1px solid var(--w10);border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
-.terminal-header{display:flex;align-items:center;justify-content:space-between;background:#21262d;padding:12px 16px;border-bottom:1px solid var(--w10)}
-.terminal-buttons{display:flex;gap:6px}
+/* ===== TERMINAL ===== */
+.terminal-wrap{max-width:800px;margin:0 auto;position:relative}
+.terminal-wrap::before{content:'';position:absolute;inset:-40px;background:radial-gradient(50% 50%,rgba(245,73,0,0.12) 0%,transparent 70%);pointer-events:none;z-index:0}
+.terminal-window{position:relative;z-index:1;background:#0d1117;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5),0 0 0 1px rgba(255,255,255,0.05)}
+.terminal-header{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.03);padding:14px 18px;border-bottom:1px solid var(--border)}
+.terminal-buttons{display:flex;gap:7px}
 .terminal-btn{width:12px;height:12px;border-radius:50%}
-.terminal-btn.red{background:#ff5f56}
-.terminal-btn.yellow{background:#ffbd2e}
-.terminal-btn.green{background:#27ca3f}
-.terminal-title{color:var(--w50);font-size:12px;font-family:'JetBrains Mono',monospace}
-.terminal-body{padding:20px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.6;color:#c9d1d9}
+.terminal-btn.r{background:#ff5f57}.terminal-btn.y{background:#febc2e}.terminal-btn.g{background:#28c840}
+.terminal-title{color:var(--w40);font-size:12px;font-family:'JetBrains Mono',monospace}
+.terminal-body{padding:24px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c9d1d9}
 .terminal-line{margin-bottom:8px}
 .prompt{color:var(--accent);font-weight:500}
-.terminal-response{background:rgba(255,255,255,0.02);border-left:2px solid var(--w10);padding:8px 0 8px 12px;margin:8px 0;color:#8b949e}
-.terminal-response.success{border-left-color:var(--accent);background:rgba(245,73,0,0.05)}
-.status-402{color:#f85149}
-.status-200{color:#3fb950}
+.t-comment{color:#6e7681}
+.t-resp{border-left:2px solid var(--border);padding:8px 0 8px 14px;margin:8px 0;color:#8b949e}
+.t-resp.ok{border-left-color:var(--accent);background:rgba(245,73,0,0.03)}
+.t-402{color:#f85149}.t-200{color:#3fb950}
 .cursor{animation:blink 1s infinite}
 @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
 
-/* LOGO STRIP */
-.logos{padding:64px 0;border-top:1px solid var(--w10);border-bottom:1px solid var(--w10)}
-.logos-label{text-align:center;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--w30);margin-bottom:32px}
-.logos-row{display:flex;align-items:center;justify-content:center;gap:32px;flex-wrap:wrap}
-.logos-row span{font-size:18px;font-weight:500;color:var(--w50);letter-spacing:-0.01em;position:relative}
-.logos-row span:not(:last-child)::after{content:'•';position:absolute;right:-18px;color:var(--w30);font-size:12px;top:50%;transform:translateY(-50%)}
+/* ===== LOGO STRIP ===== */
+.logos{padding:72px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
+.logos-label{text-align:center;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--w40);margin-bottom:28px}
+.logos-row{display:flex;align-items:center;justify-content:center;gap:48px;flex-wrap:wrap}
+.logos-row span{font-size:16px;font-weight:500;color:var(--w40);letter-spacing:0.02em;transition:color .3s}
+.logos-row span:hover{color:var(--w80)}
 
-/* SECTION HEADERS */
+/* ===== SECTIONS ===== */
 .section{padding:120px 0}
-.section-label{font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--w30);margin-bottom:16px}
-.section h2{font-size:46px;font-weight:400;letter-spacing:-0.03em;line-height:1.12;max-width:600px;margin-bottom:20px}
-.section .section-sub{font-size:16px;color:var(--w70);max-width:500px;margin-bottom:48px;line-height:1.6}
+.section-label{font-size:12px;letter-spacing:0.12em;text-transform:uppercase;color:var(--accent);margin-bottom:16px;font-weight:500}
+.section h2{font-size:clamp(32px,4vw,48px);font-weight:500;letter-spacing:-0.03em;line-height:1.1;max-width:600px;margin-bottom:20px}
+.section .section-sub{font-size:16px;color:var(--w60);max-width:500px;margin-bottom:56px;line-height:1.7}
+.section-center{text-align:center}
+.section-center h2,.section-center .section-sub{margin-left:auto;margin-right:auto}
 
-/* FEATURES */
-.features-grid{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto auto;gap:1px;background:var(--w10)}
-.features-grid .feature-card:first-child{grid-row:1/3}
-.feature-card{background:var(--bg);padding:32px;position:relative}
-.feature-card h3{font-size:18px;font-weight:500;margin-bottom:12px;letter-spacing:-0.01em}
-.feature-card p{font-size:14px;color:var(--w70);line-height:1.6}
-.feature-card .feature-stat{font-size:36px;font-weight:600;color:var(--accent);margin-top:20px;font-family:'JetBrains Mono',monospace}
-.feature-card .feature-img{margin-top:20px;height:180px;background:var(--w03);border:1px solid var(--w10);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden}
-.feature-card .feature-img img{width:100%;height:100%;object-fit:cover}
-.feature-icon{font-size:24px;margin-bottom:16px;display:inline-block}
-.code-preview{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--w70);line-height:1.6;padding:16px;background:rgba(255,255,255,0.02);border-radius:6px}
-.code-line{margin-bottom:2px}
-.code-comment{color:var(--w50);font-style:italic;margin-top:8px}
+/* ===== FEATURES GRID ===== */
+.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.feature-card{padding:40px;position:relative;transition:all .3s}
+.feature-card:hover{transform:translateY(-4px)}
+.feature-card{display:flex;flex-direction:column}
+.feature-icon{width:48px;height:48px;margin-bottom:20px;display:flex;align-items:center;justify-content:center;border-radius:12px;background:rgba(245,73,0,0.1);border:1px solid rgba(245,73,0,0.15);color:var(--accent)}
+.feature-card h3{font-size:20px;font-weight:600;margin-bottom:10px;letter-spacing:-0.02em}
+.feature-card p{font-size:14px;color:var(--w80);line-height:1.7}
+.feature-code{flex:1}
+.feature-code{margin-top:24px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--w60);line-height:1.8;padding:20px;background:rgba(0,0,0,0.4);border-radius:8px;border:1px solid var(--border)}
+.feature-code .hl{color:var(--accent)}
 
-/* HOW IT WORKS */
+/* ===== HOW IT WORKS ===== */
 .steps{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:start}
 .steps-list{display:flex;flex-direction:column;gap:0}
-.step{padding:28px 0;border-bottom:1px solid var(--w10);cursor:pointer;transition:all .3s}
-.step:first-child{border-top:1px solid var(--w10)}
+.step{padding:28px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:all .3s}
+.step:first-child{border-top:1px solid var(--border)}
 .step-header{display:flex;align-items:center;gap:16px}
-.step-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:500;color:var(--accent);border:1px solid var(--accent);flex-shrink:0;font-family:'JetBrains Mono',monospace;transition:all .2s}
+.step-num{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--accent);border:1px solid rgba(245,73,0,0.3);flex-shrink:0;font-family:'JetBrains Mono',monospace;transition:all .3s}
 .step-title{font-size:16px;font-weight:500}
-.step-body{padding-left:48px;margin-top:12px;font-size:14px;color:var(--w70);line-height:1.6;max-height:0;overflow:hidden;transition:max-height .3s}
+.step-body{padding-left:52px;margin-top:12px;font-size:14px;color:var(--w60);line-height:1.7;max-height:0;overflow:hidden;transition:max-height .4s ease}
 .step.active .step-body{max-height:200px}
-.step.active .step-num{background:var(--accent);color:#000}
-.steps-visual{background:var(--w03);border:1px solid var(--w10);border-radius:12px;height:360px;display:flex;align-items:center;justify-content:center;position:relative}
-.steps-visual .mock-form{padding:32px;width:100%}
-.mock-input{width:100%;height:40px;background:var(--w05);border:1px solid rgba(136,136,136,0.1);border-radius:6px;color:var(--w100);padding:0 12px;font-family:'JetBrains Mono',monospace;font-size:13px;margin-bottom:12px;outline:none}
-.mock-input::placeholder{color:var(--w30)}
-.mock-code{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--accent);background:var(--w05);padding:16px;border:1px solid var(--w10);border-radius:6px;margin-top:8px;line-height:1.8;overflow-x:auto}
+.step.active .step-num{background:var(--accent);color:#000;border-color:var(--accent);box-shadow:0 0 16px rgba(245,73,0,0.3)}
+.steps-visual{border-radius:var(--radius);height:380px;display:flex;align-items:center;justify-content:center;position:relative}
+.steps-visual .mock-code{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--w60);padding:28px;line-height:2;width:100%}
+.steps-visual .mock-code .hl{color:var(--accent)}
 
-/* RESOURCES */
-.resources-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--w10)}
-.resource-card{background:var(--bg);padding:32px;position:relative;transition:background .2s}
-.resource-card:hover{background:var(--w03)}
-.resource-card .resource-label{font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--w30);margin-bottom:12px}
-.resource-card h3{font-size:18px;font-weight:500;margin-bottom:8px}
-.resource-card p{font-size:14px;color:var(--w70)}
-.resource-card .arrow-link{position:absolute;top:32px;right:32px;color:var(--w30);transition:color .2s}
-.resource-card:hover .arrow-link{color:var(--accent)}
-
-/* PRICING */
-.pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--w10)}
-.pricing-card{background:var(--bg);padding:32px;position:relative;display:flex;flex-direction:column}
-.pricing-card.popular{background:var(--w03)}
-.pricing-card .tier-name{font-size:16px;font-weight:500;margin-bottom:4px}
-.pricing-card .tier-badge{display:inline-block;font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--accent);margin-bottom:8px}
-.pricing-card .tier-desc{font-size:14px;color:var(--w50);margin-bottom:24px}
-.pricing-card .price{font-size:36px;font-weight:600;letter-spacing:-0.02em;margin-bottom:4px}
-.pricing-card .price-period{font-size:13px;color:var(--w30);margin-bottom:24px}
-.pricing-card .btn{width:100%;justify-content:center;margin-bottom:24px}
-.pricing-card .divider{height:1px;background:var(--w10);margin-bottom:20px}
-.pricing-card .features-label{font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--w30);margin-bottom:16px}
-.pricing-card ul{list-style:none;display:flex;flex-direction:column;gap:10px;flex:1}
-.pricing-card li{font-size:14px;color:var(--w70);display:flex;align-items:flex-start;gap:8px}
+/* ===== PRICING ===== */
+.pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
+.pricing-card{padding:36px;display:flex;flex-direction:column;transition:all .3s}
+.pricing-card:hover{transform:translateY(-4px)}
+.pricing-card.pop{border-color:rgba(245,73,0,0.3) !important}
+.pricing-card.pop::before{content:'';position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from var(--angle,0deg),transparent 30%,rgba(245,73,0,0.5) 50%,transparent 70%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:rotateBorder 6s linear infinite;pointer-events:none}
+.tier-name{font-size:18px;font-weight:600;margin-bottom:4px;letter-spacing:-0.02em}
+.tier-badge{display:inline-block;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);margin-bottom:8px;font-weight:600}
+.tier-desc{font-size:14px;color:var(--w40);margin-bottom:28px}
+.price{font-size:40px;font-weight:600;letter-spacing:-0.03em;margin-bottom:4px}
+.price-period{font-size:13px;color:var(--w40);margin-bottom:28px}
+.pricing-card .btn{width:100%;justify-content:center;margin-bottom:28px}
+.pricing-card .divider{height:1px;background:var(--border);margin-bottom:24px}
+.pricing-card .features-label{font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--w40);margin-bottom:16px;font-weight:500}
+.pricing-card ul{list-style:none;display:flex;flex-direction:column;gap:12px;flex:1}
+.pricing-card li{font-size:14px;color:var(--w60);display:flex;align-items:flex-start;gap:10px}
 .pricing-card li::before{content:'';width:16px;height:16px;flex-shrink:0;margin-top:2px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f54900' stroke-width='2'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center/contain no-repeat}
 
-/* FAQ */
+/* ===== RESOURCES ===== */
+.resources-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
+.resource-card{padding:32px;transition:all .3s}
+.resource-card:hover{transform:translateY(-2px);border-color:rgba(245,73,0,0.3) !important}
+.resource-label{font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--w40);margin-bottom:12px;font-weight:500}
+.resource-card h3{font-size:18px;font-weight:600;margin-bottom:8px;letter-spacing:-0.02em}
+.resource-card p{font-size:14px;color:var(--w60)}
+.resource-arrow{color:var(--w20);font-size:20px;margin-top:16px;display:block;transition:all .3s}
+.resource-card:hover .resource-arrow{color:var(--accent);transform:translateX(4px)}
+
+/* ===== FAQ ===== */
 .faq-list{max-width:700px}
-.faq-item{border-bottom:1px solid var(--w10)}
-.faq-item:first-child{border-top:1px solid var(--w10)}
-.faq-q{padding:20px 0;display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:15px;font-weight:500;transition:color .2s}
+.faq-item{border-bottom:1px solid var(--border)}
+.faq-item:first-child{border-top:1px solid var(--border)}
+.faq-q{padding:24px 0;display:flex;justify-content:space-between;align-items:center;cursor:pointer;font-size:16px;font-weight:500;transition:color .2s;letter-spacing:-0.01em}
 .faq-q:hover{color:var(--accent)}
-.faq-q::after{content:'+';font-size:20px;color:var(--w30);transition:transform .3s}
-.faq-item.open .faq-q::after{transform:rotate(45deg)}
-.faq-a{max-height:0;overflow:hidden;transition:max-height .3s}
-.faq-a p{padding:0 0 20px;font-size:14px;color:var(--w70);line-height:1.7}
+.faq-q::after{content:'+';font-size:22px;color:var(--w40);transition:all .3s;font-weight:300}
+.faq-item.open .faq-q::after{transform:rotate(45deg);color:var(--accent)}
+.faq-a{max-height:0;overflow:hidden;transition:max-height .4s ease}
+.faq-a p{padding:0 0 24px;font-size:15px;color:var(--w60);line-height:1.7}
 
-/* BUILT BY AI */
-.built-section{text-align:center;padding:80px 0;border-top:1px solid var(--w10);border-bottom:1px solid var(--w10)}
-.built-section h2{font-size:36px;font-weight:500;letter-spacing:-0.02em;margin-bottom:16px;max-width:none}
-.built-section p{font-size:16px;color:var(--w70);max-width:600px;margin:0 auto 40px}
-.ai-stats{display:flex;justify-content:center;gap:48px;flex-wrap:wrap;margin-top:32px}
+/* ===== BUILT BY AI ===== */
+.built-section{text-align:center;padding:100px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);position:relative;overflow:hidden}
+.built-section::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:600px;height:400px;background:radial-gradient(50% 50%,rgba(245,73,0,0.08) 0%,transparent 70%);pointer-events:none}
+.built-section h2{font-size:clamp(28px,3.5vw,40px);font-weight:500;letter-spacing:-0.02em;margin-bottom:16px;position:relative}
+.built-section p{font-size:16px;color:var(--w60);max-width:560px;margin:0 auto 48px;position:relative}
+.ai-stats{display:flex;justify-content:center;gap:56px;flex-wrap:wrap;position:relative}
 .stat-item{text-align:center}
-.stat-number{font-size:32px;font-weight:600;color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:4px}
-.stat-label{font-size:12px;color:var(--w50);text-transform:uppercase;letter-spacing:0.1em}
+.stat-number{font-size:36px;font-weight:600;color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:6px}
+.stat-label{font-size:11px;color:var(--w40);text-transform:uppercase;letter-spacing:0.1em;font-weight:500}
 
-/* CTA */
-.cta-section{padding:120px 0;text-align:center;position:relative}
-.cta-section::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:600px;height:400px;background:radial-gradient(50% 50%,rgba(245,73,0,0.15) 0%,transparent 100%);pointer-events:none}
-.cta-section h2{font-size:42px;font-weight:500;letter-spacing:-0.02em;margin-bottom:16px;position:relative}
-.cta-section p{font-size:16px;color:var(--w70);max-width:500px;margin:0 auto 32px;position:relative}
-.cta-section .hero-buttons{justify-content:center;position:relative}
+/* ===== CTA ===== */
+.cta-section{padding:140px 0;text-align:center;position:relative;overflow:hidden}
+.cta-section::before{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:800px;height:500px;background:radial-gradient(50% 50%,rgba(245,73,0,0.12) 0%,transparent 60%);pointer-events:none}
+.cta-section h2{font-size:clamp(32px,4vw,48px);font-weight:500;letter-spacing:-0.03em;margin-bottom:20px;position:relative}
+.cta-section p{font-size:17px;color:var(--w60);max-width:500px;margin:0 auto 36px;position:relative;line-height:1.7}
 
-/* FOOTER */
-footer{border-top:1px solid var(--w10);padding:48px 0 24px;position:relative}
+/* ===== FOOTER ===== */
+footer{border-top:1px solid var(--border);padding:48px 0 32px}
 .footer-inner{display:flex;justify-content:space-between;align-items:flex-start;gap:32px;margin-bottom:48px}
 .footer-left{display:flex;flex-direction:column;gap:20px}
-.footer-logo{font-weight:600;font-size:16px;letter-spacing:-0.01em;display:flex;align-items:center}
+.footer-logo{font-weight:600;font-size:15px;letter-spacing:-0.01em;display:flex;align-items:center;gap:8px}
+.footer-logo img{width:22px;height:22px;border-radius:4px;filter:invert(1)}
 .footer-links{display:flex;gap:24px}
-.footer-links a{font-size:14px;color:var(--w50);transition:color .2s}
+.footer-links a{font-size:14px;color:var(--w40);transition:color .2s}
 .footer-links a:hover{color:var(--w100)}
-.footer-right{display:flex;align-items:center;gap:16px}
-.footer-social a{color:var(--w50);transition:color .2s;display:flex}
+.footer-social{display:flex;gap:16px}
+.footer-social a{color:var(--w40);transition:color .2s;display:flex}
 .footer-social a:hover{color:var(--w100)}
-.footer-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:24px;border-top:1px solid var(--w10)}
-.footer-bottom span{font-size:13px;color:var(--w30)}
+.footer-bottom{display:flex;justify-content:space-between;align-items:center;padding-top:24px;border-top:1px solid var(--border)}
+.footer-bottom span{font-size:13px;color:var(--w20)}
 
-/* TICKER LINES — removed, caused visual bugs on scroll */
-
-/* SCROLL REVEAL */
-.reveal{opacity:0;transform:translateY(24px);transition:opacity .6s,transform .6s}
+/* ===== SCROLL REVEAL ===== */
+.reveal{opacity:0;transform:translateY(20px);transition:opacity .7s cubic-bezier(0.16,1,0.3,1),transform .7s cubic-bezier(0.16,1,0.3,1)}
 .reveal.visible{opacity:1;transform:translateY(0)}
+/* Ensure content is always visible as fallback — JS adds .reveal-ready to body when observer works */
+.no-js .reveal{opacity:1;transform:none}
+.reveal-delay-1{transition-delay:.1s}
+.reveal-delay-2{transition-delay:.2s}
+.reveal-delay-3{transition-delay:.3s}
 
-/* RESPONSIVE */
-@media(max-width:768px){
-.container{padding:0 24px}
-nav{top:12px;max-width:calc(100% - 24px)}
-.nav-container{padding:10px 12px}
-.nav-links{display:none}
-.nav-mobile{display:block}
-.hero{padding:100px 0 60px}
-.hero h1{font-size:32px}
-.hero-badges{flex-direction:column;gap:8px}
-.features-grid,.pricing-grid{grid-template-columns:1fr}
+/* ===== RESPONSIVE ===== */
+@media(max-width:960px){
+.features-grid{grid-template-columns:1fr}
+.pricing-grid{grid-template-columns:1fr}
+.features-grid .feature-card:first-child{grid-row:auto}
 .resources-grid{grid-template-columns:1fr 1fr}
 .steps{grid-template-columns:1fr}
 .steps-visual{display:none}
+}
+@media(max-width:768px){
+nav{top:12px;max-width:calc(100% - 24px)}
+.nav-links{display:none}
+.nav-mobile{display:block}
+.hero{padding:140px 0 80px}
+.hero-stats{gap:32px}
+.hero-stats .stat-val{font-size:22px}
+.resources-grid{grid-template-columns:1fr}
 .footer-inner{flex-direction:column}
-.cta-section h2{font-size:28px}
-.section h2{font-size:28px}
-.hero-image .placeholder{height:240px}
+.ai-stats{gap:32px}
 }
 @media(max-width:480px){
-.hero h1{font-size:28px}
-.hero-buttons{flex-direction:column}
+.hero-buttons{flex-direction:column;align-items:center}
 .hero-buttons .btn{width:100%;justify-content:center}
+.hero-stats{flex-direction:column;gap:20px}
 .logos-row{gap:24px}
 .logos-row span{font-size:14px}
-.ai-stats{gap:24px}
-.stat-number{font-size:24px}
 }
 </style>
 </head>
@@ -281,10 +264,9 @@ nav{top:12px;max-width:calc(100% - 24px)}
 <!-- NAV -->
 <nav>
 <div class="nav-container">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
 <div class="nav-inner">
 <a href="/" class="nav-logo">
-<img src="/assets/logo.png" alt="AgentOS" style="width:24px;height:24px;border-radius:3px;filter:invert(1);">
+<img src="/assets/logo.png" alt="AgentOS">
 AgentOS
 </a>
 <div class="nav-links">
@@ -294,80 +276,56 @@ AgentOS
 <a href="#faq">FAQ</a>
 <a href="https://github.com/0xArtex/AgentOS" target="_blank">GitHub</a>
 </div>
-<a href="/skill.md" class="nav-cta">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
-Get started ▸
-</a>
+<a href="/skill.md" class="nav-cta">Get started →</a>
 </div>
 </div>
-<button class="nav-mobile" onclick="document.querySelector('.nav-links').style.display=document.querySelector('.nav-links').style.display==='flex'?'none':'flex'" style="position:absolute;right:16px;top:50%;transform:translateY(-50%)">
-<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+<button class="nav-mobile" onclick="document.querySelector('.nav-links').style.display=document.querySelector('.nav-links').style.display==='flex'?'none':'flex'">
+<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
 </button>
 </nav>
 
 <!-- HERO -->
 <section class="hero">
 <div class="container hero-content">
-<h1 class="reveal">Give your AI agent<br>a phone, email, and server.</h1>
-<p class="subtitle reveal">Your AI agent needs real-world tools. AgentOS gives it phone numbers, voice calls, email inboxes, cloud servers, and domain names. It pays with USDC on Solana. No human needed.</p>
-<div class="hero-buttons reveal">
-<a href="/skill.md" class="btn btn-primary btn-arrow corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
-Get started
-</a>
-<a href="https://github.com/0xArtex/AgentOS" target="_blank" class="btn btn-secondary corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
-View docs
-</a>
+<div class="hero-badge reveal">
+<span>Live on Solana Mainnet</span>
 </div>
-<div class="hero-badges reveal">
-<span>⚡ Pays with crypto automatically</span>
-<span>🔧 Works in 5 minutes</span>
-<span>💎 No credit card, no signup forms</span>
+<h1 class="reveal reveal-delay-1">Give your AI agent<br>a phone, email,<br>and server.</h1>
+<p class="subtitle reveal reveal-delay-2">Your AI agent needs real-world tools. AgentOS gives it phone numbers, voice calls, email inboxes, cloud servers, and domain names. It pays with USDC on Solana. No human needed.</p>
+<div class="hero-buttons reveal reveal-delay-2">
+<a href="/skill.md" class="btn btn-primary btn-arrow">Get started</a>
+<a href="https://github.com/0xArtex/AgentOS" target="_blank" class="btn btn-secondary">View on GitHub</a>
 </div>
-<div class="hero-image reveal">
+<div class="hero-stats reveal reveal-delay-3">
+<div class="stat">
+<div class="stat-val">6</div>
+<div class="stat-lbl">Services</div>
+</div>
+<div class="stat">
+<div class="stat-val">48</div>
+<div class="stat-lbl">Countries</div>
+</div>
+<div class="stat">
+<div class="stat-val">$0.02</div>
+<div class="stat-lbl">Min price</div>
+</div>
+</div>
+<div class="terminal-wrap reveal reveal-delay-3">
 <div class="terminal-window">
 <div class="terminal-header">
-<div class="terminal-buttons">
-<span class="terminal-btn red"></span>
-<span class="terminal-btn yellow"></span>
-<span class="terminal-btn green"></span>
-</div>
-<div class="terminal-title">Terminal — agent@localhost</div>
+<div class="terminal-buttons"><span class="terminal-btn r"></span><span class="terminal-btn y"></span><span class="terminal-btn g"></span></div>
+<div class="terminal-title">agent@agentos ~ $</div>
 </div>
 <div class="terminal-body">
-<div class="terminal-line">
-<span class="prompt">$</span> curl -X POST https://agentos.dev/phone/provision \<br>
-&nbsp;&nbsp;-H "Authorization: Bearer sk_live_..." \<br>
-&nbsp;&nbsp;-d '{"area_code": "415"}'
-</div>
-<div class="terminal-response">
-<span class="status-402">HTTP/1.1 402 Payment Required</span><br>
-{<br>
-&nbsp;&nbsp;"amount": "2.00",<br>
-&nbsp;&nbsp;"token": "USDC",<br>
-&nbsp;&nbsp;"chain": "solana",<br>
-&nbsp;&nbsp;"recipient": "7xKX...8yNp"<br>
-}
-</div>
-<div class="terminal-line">
-<span class="prompt">$</span> # Agent pays automatically via x402<br>
-<span class="prompt">$</span> curl -X POST https://agentos.dev/phone/provision \<br>
-&nbsp;&nbsp;-H "Authorization: Bearer sk_live_..." \<br>
-&nbsp;&nbsp;-H "X-PAYMENT: &lt;signed_tx_hash&gt;" \<br>
-&nbsp;&nbsp;-d '{"area_code": "415"}'
-</div>
-<div class="terminal-response success">
-<span class="status-200">HTTP/1.1 200 OK</span><br>
-{<br>
-&nbsp;&nbsp;"phone": "+14155551234",<br>
-&nbsp;&nbsp;"status": "active",<br>
-&nbsp;&nbsp;"capabilities": ["sms", "voice"]<br>
-}
-</div>
-<div class="terminal-line">
-<span class="prompt">$</span> <span class="cursor">█</span>
-</div>
+<div class="terminal-line"><span class="prompt">$</span> curl -X POST https://agntos.dev/phone/provision \</div>
+<div class="terminal-line">&nbsp;&nbsp;-H "Authorization: Bearer sk_live_..." \</div>
+<div class="terminal-line">&nbsp;&nbsp;-d '{"area_code": "415"}'</div>
+<div class="t-resp"><span class="t-402">HTTP/1.1 402 Payment Required</span><br>{ "amount": "2.00", "token": "USDC", "chain": "solana" }</div>
+<div class="terminal-line"><span class="t-comment"># Agent pays automatically via x402 protocol</span></div>
+<div class="terminal-line"><span class="prompt">$</span> curl -X POST https://agntos.dev/phone/provision \</div>
+<div class="terminal-line">&nbsp;&nbsp;-H "X-PAYMENT: &lt;signed_usdc_tx&gt;"</div>
+<div class="t-resp ok"><span class="t-200">HTTP/1.1 200 OK</span><br>{ "phone": "+14155551234", "status": "active", "capabilities": ["sms", "voice"] }</div>
+<div class="terminal-line"><span class="prompt">$</span> <span class="cursor">█</span></div>
 </div>
 </div>
 </div>
@@ -394,50 +352,39 @@ View docs
 <div class="section-label reveal">What your agent gets</div>
 <h2 class="reveal">Everything it needs<br>to work on its own.</h2>
 <p class="section-sub reveal">One API. Your agent calls it, pays with USDC, and gets what it asked for. Phone numbers, emails, servers — all of it.</p>
-<div class="features-grid reveal">
-<div class="feature-card corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-br"></span>
-<div class="feature-icon">📞</div>
+<div class="features-grid">
+<div class="feature-card glow-border reveal">
+<div class="feature-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></div>
 <h3>Phone numbers & voice calls</h3>
 <p>Your agent gets a real phone number. It can send texts, make calls, and talk to people using text-to-speech. Works in 48 countries.</p>
-<div class="feature-img">
-<div class="code-preview">
-<div class="code-line">POST /phone/numbers</div>
-<div class="code-line">→ +1 (470) 555-0963</div>
-<div class="code-line">&nbsp;&nbsp;status: active</div>
-<div class="code-line">&nbsp;&nbsp;sms: ✓ &nbsp;voice: ✓</div>
-<div class="code-comment">// Got a number in 2 seconds</div>
+<div class="feature-code">
+<div><span class="hl">POST</span> /phone/numbers</div>
+<div>→ +1 (470) 555-0963</div>
+<div>&nbsp;&nbsp;status: active</div>
+<div>&nbsp;&nbsp;sms: ✓ &nbsp;voice: ✓</div>
+<div style="color:var(--w40);margin-top:8px">// Got a number in 2 seconds</div>
 </div>
 </div>
-</div>
-<div class="feature-card corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-br"></span>
-<div class="feature-icon">📧</div>
+<div class="feature-card glow-border reveal reveal-delay-1">
+<div class="feature-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
 <h3>Encrypted email</h3>
-<p>Your agent gets its own email address (like agent@yourdomain.dev). Messages are encrypted. Nobody can read them except your agent.</p>
-<div class="feature-img">
-<div class="code-preview">
-<div class="code-line">POST /email/inboxes</div>
-<div class="code-line">→ agent@agntos.dev</div>
-<div class="code-line">&nbsp;&nbsp;encrypted: true</div>
-<div class="code-line">&nbsp;&nbsp;messages: 12</div>
-<div class="code-comment">// Zero-knowledge inbox</div>
+<p>Your agent gets its own email address. Messages are encrypted end-to-end. Nobody can read them except your agent.</p>
+<div class="feature-code">
+<div><span class="hl">POST</span> /email/inboxes</div>
+<div>→ agent@agntos.dev</div>
+<div>&nbsp;&nbsp;encrypted: true</div>
+<div style="color:var(--w40);margin-top:8px">// Zero-knowledge inbox</div>
 </div>
 </div>
-</div>
-<div class="feature-card corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-br"></span>
-<div class="feature-icon">🖥️</div>
+<div class="feature-card glow-border reveal reveal-delay-2">
+<div class="feature-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
 <h3>Cloud servers & domains</h3>
-<p>Your agent can spin up its own Linux server and register domain names. It picks the size, pays, and gets root access. No human involved.</p>
-<div class="feature-img">
-<div class="code-preview">
-<div class="code-line">POST /compute/servers</div>
-<div class="code-line">→ 4 CPU, 8GB RAM</div>
-<div class="code-line">&nbsp;&nbsp;IP: 89.167.36.207</div>
-<div class="code-line">&nbsp;&nbsp;cost: $5/mo USDC</div>
-<div class="code-comment">// Server ready in 30 seconds</div>
-</div>
+<p>Your agent can spin up Linux servers and register domain names. It picks the size, pays, and gets root access.</p>
+<div class="feature-code">
+<div><span class="hl">POST</span> /compute/servers</div>
+<div>→ 4 CPU, 8GB RAM</div>
+<div>&nbsp;&nbsp;IP: 89.167.36.207</div>
+<div style="color:var(--w40);margin-top:8px">// Server ready in 30s</div>
 </div>
 </div>
 </div>
@@ -445,11 +392,11 @@ View docs
 </section>
 
 <!-- HOW IT WORKS -->
-<section class="section" id="how-it-works" style="background:var(--w03)">
+<section class="section" id="how-it-works" style="background:var(--surface)">
 <div class="container">
 <div class="section-label reveal">How it works</div>
-<h2 class="reveal">Three steps.<br>That's it.</h2>
-<p class="section-sub reveal">Your agent talks to our API. It asks for something, pays for it, and gets it. Here's exactly how.</p>
+<h2 class="reveal">Three steps. That's it.</h2>
+<p class="section-sub reveal">Your agent talks to our API. It asks for something, pays for it, and gets it.</p>
 <div class="steps reveal">
 <div class="steps-list">
 <div class="step active" onclick="activateStep(this)">
@@ -474,23 +421,15 @@ View docs
 <div class="step-body">Your agent signs a USDC payment on Solana and sends it with the request. Done. Phone number active, server running, email ready.</div>
 </div>
 </div>
-<div class="steps-visual corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
-<div class="mock-form">
-<div style="font-size:11px;text-transform:uppercase;letter-spacing:0.1em;color:var(--w30);margin-bottom:16px">API Request</div>
-<div class="mock-code">POST /phone/provision HTTP/1.1
-Host: agentos.dev
-Authorization: Bearer sk_...
-
-→ 402 Payment Required
-{
-  "amount": "2.00",
-  "token": "USDC",
-  "chain": "solana"
-}
-
-→ X-PAYMENT: &lt;signed_tx&gt;
-→ 200 OK { "phone": "+1..." }</div>
+<div class="steps-visual glow-border">
+<div class="mock-code">
+<span class="hl">POST</span> /phone/provision HTTP/1.1<br>
+Host: agntos.dev<br>
+Authorization: Bearer sk_...<br><br>
+<span style="color:var(--w40)">→</span> <span style="color:#f85149">402 Payment Required</span><br>
+{ "amount": "2.00", "token": "<span class="hl">USDC</span>" }<br><br>
+<span style="color:var(--w40)">→</span> X-PAYMENT: &lt;signed_tx&gt;<br>
+<span style="color:var(--w40)">→</span> <span style="color:#3fb950">200 OK</span> { "phone": "+1..." }
 </div>
 </div>
 </div>
@@ -501,95 +440,88 @@ Authorization: Bearer sk_...
 <section class="section" id="resources">
 <div class="container">
 <div class="section-label reveal">Resources</div>
-<h2 class="reveal">Start here.</h2>
+<h2 class="reveal">Start building.</h2>
 <p class="section-sub reveal">Everything your agent needs to get going.</p>
-<div class="resources-grid reveal">
-<a href="/skill.md" class="resource-card corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-br"></span>
+<div class="resources-grid">
+<a href="/skill.md" class="resource-card subtle-border reveal">
 <div class="resource-label">For AI agents</div>
 <h3>skill.md</h3>
 <p>Feed this file to your agent. It'll know what to do.</p>
-<div class="arrow-link">→</div>
+<span class="resource-arrow">→</span>
 </a>
-<a href="https://www.x402.org" target="_blank" class="resource-card corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-br"></span>
+<a href="https://www.x402.org" target="_blank" class="resource-card subtle-border reveal reveal-delay-1">
 <div class="resource-label">How payments work</div>
 <h3>x402 Protocol</h3>
-<p>The open standard for AI-to-API payments. Like a credit card, but for machines.</p>
-<div class="arrow-link">→</div>
+<p>The open standard for AI-to-API payments.</p>
+<span class="resource-arrow">→</span>
 </a>
-<a href="/docs" class="resource-card corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-br"></span>
+<a href="/docs" class="resource-card subtle-border reveal reveal-delay-2">
 <div class="resource-label">For developers</div>
-<h3>API Documentation</h3>
-<p>Every endpoint, every parameter, every response. Swagger UI.</p>
-<div class="arrow-link">→</div>
+<h3>API Docs</h3>
+<p>Every endpoint, every parameter, every response.</p>
+<span class="resource-arrow">→</span>
 </a>
-<a href="https://github.com/0xArtex/AgentOS" target="_blank" class="resource-card corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-br"></span>
+<a href="https://github.com/0xArtex/AgentOS" target="_blank" class="resource-card subtle-border reveal reveal-delay-3">
 <div class="resource-label">Open source</div>
-<h3>GitHub Repository</h3>
-<p>All the code. Read it, fork it, run your own.</p>
-<div class="arrow-link">→</div>
+<h3>GitHub</h3>
+<p>All the code. Fork it, run your own.</p>
+<span class="resource-arrow">→</span>
 </a>
 </div>
 </div>
 </section>
 
 <!-- PRICING -->
-<section class="section" id="pricing" style="background:var(--w03)">
+<section class="section" id="pricing" style="background:var(--surface)">
 <div class="container">
 <div class="section-label reveal">Pricing</div>
-<h2 class="reveal">You pay for what you use.<br>Nothing else.</h2>
+<h2 class="reveal">Pay for what you use.<br>Nothing else.</h2>
 <p class="section-sub reveal">No monthly fees. No subscriptions. Your agent pays per action with USDC.</p>
-<div class="pricing-grid reveal">
-<div class="pricing-card corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
+<div class="pricing-grid">
+<div class="pricing-card subtle-border reveal">
 <div class="tier-name">Communication</div>
 <div class="tier-desc">Phone, SMS, voice, email.</div>
 <div class="price">From $0.02</div>
 <div class="price-period">per action</div>
-<a href="/skill.md" class="btn btn-secondary" style="width:100%;justify-content:center">Get started</a>
+<a href="/skill.md" class="btn btn-secondary">Get started</a>
 <div class="divider"></div>
 <div class="features-label">What's included</div>
 <ul>
-<li>Get a phone number — $2</li>
-<li>Send a text message — $0.02</li>
-<li>Make a voice call — $0.10</li>
-<li>Place a call with TTS — $0.05</li>
-<li>Create an email inbox — $0.50</li>
-<li>Send/read emails — $0.01</li>
+<li>Phone number — $2</li>
+<li>Send SMS — $0.02</li>
+<li>Voice call — $0.10</li>
+<li>TTS on call — $0.05</li>
+<li>Email inbox — $0.50</li>
+<li>Send/read email — $0.01</li>
 </ul>
 </div>
-<div class="pricing-card popular corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
+<div class="pricing-card glow-border pop reveal reveal-delay-1">
 <div class="tier-name">Infrastructure</div>
 <div class="tier-badge">Most popular</div>
 <div class="tier-desc">Servers, domains, the heavy stuff.</div>
 <div class="price">From $5</div>
 <div class="price-period">per month</div>
-<a href="/skill.md" class="btn btn-primary" style="width:100%;justify-content:center">Get started</a>
+<a href="/skill.md" class="btn btn-primary">Get started</a>
 <div class="divider"></div>
 <div class="features-label">Servers & domains</div>
 <ul>
 <li>Linux server (2-16 CPU) — $5-95/mo</li>
-<li>Register a .com/.dev domain — $12-15</li>
-<li>Manage DNS records</li>
+<li>Register .com/.dev — $12-15</li>
+<li>DNS management</li>
 <li>Full root SSH access</li>
-<li>Helsinki datacenter (Hetzner)</li>
+<li>Helsinki datacenter</li>
 </ul>
 </div>
-<div class="pricing-card corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
+<div class="pricing-card subtle-border reveal reveal-delay-2">
 <div class="tier-name">Everything</div>
-<div class="tier-desc">All services. One agent. Full autonomy.</div>
-<div class="price">All of the above</div>
+<div class="tier-desc">All services. Full autonomy.</div>
+<div class="price">All of above</div>
 <div class="price-period">combined</div>
-<a href="https://x.com/zoltyagent" target="_blank" class="btn btn-secondary" style="width:100%;justify-content:center">Contact us</a>
+<a href="https://x.com/zoltyagent" target="_blank" class="btn btn-secondary">Contact us</a>
 <div class="divider"></div>
 <div class="features-label">Your agent can</div>
 <ul>
-<li>Call people and talk to them</li>
+<li>Call people and talk</li>
 <li>Send and receive emails</li>
 <li>Spin up servers on demand</li>
 <li>Register domains</li>
@@ -613,19 +545,19 @@ Authorization: Bearer sk_...
 </div>
 <div class="faq-item">
 <div class="faq-q" onclick="toggleFaq(this)">How does the payment work?</div>
-<div class="faq-a"><p>Your agent asks for something. We say "that costs $2 in USDC." Your agent signs the payment on Solana and sends it with the request. We verify the payment and deliver the service. All in one API call.</p></div>
+<div class="faq-a"><p>Your agent asks for something. We say "that costs $2 in USDC." Your agent signs the payment on Solana and sends it with the request. We verify and deliver. All in one API call.</p></div>
 </div>
 <div class="faq-item">
 <div class="faq-q" onclick="toggleFaq(this)">Do I need a credit card?</div>
-<div class="faq-a"><p>No. Everything is paid with USDC (a stablecoin worth $1) on Solana. Your agent just needs a Solana wallet with some USDC in it.</p></div>
+<div class="faq-a"><p>No. Everything is paid with USDC (a stablecoin worth $1) on Solana. Your agent just needs a wallet with some USDC.</p></div>
 </div>
 <div class="faq-item">
 <div class="faq-q" onclick="toggleFaq(this)">Can my agent actually call people?</div>
-<div class="faq-a"><p>Yes. It gets a real phone number, can make outbound calls to 48 countries, speak using text-to-speech, listen for button presses, and record calls.</p></div>
+<div class="faq-a"><p>Yes. It gets a real phone number, can make outbound calls to 48 countries, speak using TTS, listen for button presses, and record calls.</p></div>
 </div>
 <div class="faq-item">
 <div class="faq-q" onclick="toggleFaq(this)">What is skill.md?</div>
-<div class="faq-a"><p>It's a text file that describes everything AgentOS can do. You give it to your AI agent, and it reads it like instructions. It's at agntos.dev/skill.md — try opening it.</p></div>
+<div class="faq-a"><p>A text file that describes everything AgentOS can do. Give it to your AI agent and it reads it like instructions. Try it: agntos.dev/skill.md</p></div>
 </div>
 </div>
 </div>
@@ -634,25 +566,13 @@ Authorization: Bearer sk_...
 <!-- BUILT BY AI -->
 <section class="built-section reveal">
 <div class="container">
-<h2>This whole thing was built by an AI</h2>
-<p>Every line of code, every deployment, every service — built by <a href="https://x.com/zoltyagent" style="color:var(--accent)">@zoltyagent</a>, an AI agent. Zero human code. Live-streamed on X.</p>
+<h2>Built entirely by an AI agent</h2>
+<p>Every line of code, every deployment, every service — built by <a href="https://x.com/zoltyagent" style="color:var(--accent)">@zoltyagent</a>. Zero human code. Live-streamed on X.</p>
 <div class="ai-stats">
-<div class="stat-item">
-<div class="stat-number">47</div>
-<div class="stat-label">Git commits</div>
-</div>
-<div class="stat-item">
-<div class="stat-number">6</div>
-<div class="stat-label">Core services</div>
-</div>
-<div class="stat-item">
-<div class="stat-number">100%</div>
-<div class="stat-label">AI generated</div>
-</div>
-<div class="stat-item">
-<div class="stat-number">0</div>
-<div class="stat-label">Human lines</div>
-</div>
+<div class="stat-item"><div class="stat-number">47</div><div class="stat-label">Git commits</div></div>
+<div class="stat-item"><div class="stat-number">6</div><div class="stat-label">Services</div></div>
+<div class="stat-item"><div class="stat-number">100%</div><div class="stat-label">AI generated</div></div>
+<div class="stat-item"><div class="stat-number">0</div><div class="stat-label">Human lines</div></div>
 </div>
 </div>
 </section>
@@ -663,14 +583,8 @@ Authorization: Bearer sk_...
 <h2 class="reveal">Give your agent superpowers.</h2>
 <p class="reveal">Phone, email, servers, domains. One API. Paid with crypto. Ready in minutes.</p>
 <div class="hero-buttons reveal">
-<a href="/skill.md" class="btn btn-primary btn-arrow corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
-Get started
-</a>
-<a href="/skill.md" class="btn btn-secondary corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
-Read skill.md
-</a>
+<a href="/skill.md" class="btn btn-primary btn-arrow">Get started</a>
+<a href="/docs" class="btn btn-secondary">Read the docs</a>
 </div>
 </div>
 </section>
@@ -678,11 +592,10 @@ Read skill.md
 <!-- FOOTER -->
 <footer>
 <div class="container">
-<div class="footer-inner corner-accents">
-<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
+<div class="footer-inner">
 <div class="footer-left">
 <div class="footer-logo">
-<img src="/assets/logo.png" alt="AgentOS" style="width:24px;height:24px;border-radius:3px;filter:invert(1);margin-right:8px;">
+<img src="/assets/logo.png" alt="AgentOS">
 AgentOS
 </div>
 <div class="footer-links">
@@ -692,8 +605,8 @@ AgentOS
 <a href="/skill.md">skill.md</a>
 </div>
 </div>
-<div class="footer-right footer-social">
-<a href="https://x.com/zoltyagent" target="_blank" title="X / Twitter">
+<div class="footer-social">
+<a href="https://x.com/zoltyagent" target="_blank" title="X">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
 </a>
 <a href="https://github.com/0xArtex/AgentOS" target="_blank" title="GitHub">
@@ -702,25 +615,47 @@ AgentOS
 </div>
 </div>
 <div class="footer-bottom">
-<span>© 2026 AgentOS by zolty</span>
-<span style="color:var(--w50);font-size:13px">Built with ☕ and USDC</span>
+<span>© 2026 AgentOS</span>
+<span>Built with ☕ and USDC</span>
 </div>
 </div>
 </footer>
 
 <script>
-// Scroll reveal
-const reveals=document.querySelectorAll('.reveal');
-const obs=new IntersectionObserver((entries)=>{entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target)}})},{threshold:0.1});
-reveals.forEach(r=>obs.observe(r));
+// Scroll reveal with fallback
+(function(){
+  const reveals = document.querySelectorAll('.reveal');
+  if (!('IntersectionObserver' in window)) {
+    reveals.forEach(r => r.classList.add('visible'));
+    return;
+  }
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); }
+    });
+  }, { threshold: 0.01, rootMargin: '50px' });
+  reveals.forEach(r => observer.observe(r));
+  // Fallback: if after 2s any reveal still not visible, force them
+  setTimeout(() => {
+    document.querySelectorAll('.reveal:not(.visible)').forEach(r => r.classList.add('visible'));
+  }, 2000);
+})();
 
-// Steps
-function activateStep(el){document.querySelectorAll('.step').forEach(s=>s.classList.remove('active'));el.classList.add('active')}
+// Steps accordion
+function activateStep(el) {
+  document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+  el.classList.add('active');
+}
 
-// FAQ
-function toggleFaq(el){const item=el.parentElement;item.classList.toggle('open');const a=item.querySelector('.faq-a');if(item.classList.contains('open')){a.style.maxHeight=a.scrollHeight+'px'}else{a.style.maxHeight='0'}}
-// Init open FAQ
-document.querySelectorAll('.faq-item.open .faq-a').forEach(a=>{a.style.maxHeight=a.scrollHeight+'px'});
+// FAQ toggle
+function toggleFaq(el) {
+  const item = el.parentElement;
+  item.classList.toggle('open');
+  const a = item.querySelector('.faq-a');
+  if (item.classList.contains('open')) { a.style.maxHeight = a.scrollHeight + 'px'; }
+  else { a.style.maxHeight = '0'; }
+}
+document.querySelectorAll('.faq-item.open .faq-a').forEach(a => { a.style.maxHeight = a.scrollHeight + 'px'; });
 </script>
 </body>
 </html>
