@@ -30,24 +30,61 @@ a{color:inherit;text-decoration:none}
 img{max-width:100%;display:block}
 .container{max-width:1200px;margin:0 auto;padding:0 24px}
 
-/* Corner accents */
+/* Corner accents — L-brackets */
 .corner-accents{position:relative}
-.corner-accents .ca{position:absolute;width:8px;height:8px;pointer-events:none}
+.corner-accents .ca{position:absolute;width:10px;height:10px;pointer-events:none}
 .corner-accents .ca-tl{top:-1px;left:-1px;border-top:1px solid var(--accent);border-left:1px solid var(--accent)}
 .corner-accents .ca-tr{top:-1px;right:-1px;border-top:1px solid var(--accent);border-right:1px solid var(--accent)}
 .corner-accents .ca-bl{bottom:-1px;left:-1px;border-bottom:1px solid var(--accent);border-left:1px solid var(--accent)}
 .corner-accents .ca-br{bottom:-1px;right:-1px;border-bottom:1px solid var(--accent);border-right:1px solid var(--accent)}
+/* Dots at corners */
+.corner-accents .ca::after{content:'';position:absolute;width:3px;height:3px;border-radius:50%;background:var(--accent)}
+.corner-accents .ca-tl::after{top:-2px;left:-2px}
+.corner-accents .ca-tr::after{top:-2px;right:-2px}
+.corner-accents .ca-bl::after{bottom:-2px;left:-2px}
+.corner-accents .ca-br::after{bottom:-2px;right:-2px}
+/* White corner variant for buttons */
+.corner-white .ca{width:6px;height:6px}
+.corner-white .ca-tl{border-color:#fff}
+.corner-white .ca-tr{border-color:#fff}
+.corner-white .ca-bl{border-color:#fff}
+.corner-white .ca-br{border-color:#fff}
+.corner-white .ca::after{display:none}
 
 /* NAV */
-nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;flex-direction:row;justify-content:center;align-items:center;padding:16px;-webkit-backdrop-filter:blur(30px);backdrop-filter:blur(30px);box-shadow:0px 0.3px 1.5px -1.42px rgba(0,0,0,0.81),0px 1.14px 5.72px -2.83px rgba(0,0,0,0.69),0px 5px 25px -4.25px rgba(0,0,0,0.15);background-color:rgba(0,0,0,0.6);border-radius:0}
-.nav-inner{display:flex;align-items:center;justify-content:space-between;gap:40px;width:100%;max-width:1200px}
-.nav-logo{font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px;letter-spacing:-0.01em}
+nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;width:auto;max-width:calc(100% - 48px)}
+.nav-container{position:relative;display:inline-flex;padding:12px 16px;background:rgba(0,0,0,0.7);-webkit-backdrop-filter:blur(30px);backdrop-filter:blur(30px);border:1px dashed rgba(255,255,255,0.15);border-radius:0;box-shadow:0px 0.3px 1.5px -1.42px rgba(0,0,0,0.81),0px 1.14px 5.72px -2.83px rgba(0,0,0,0.69),0px 5px 25px -4.25px rgba(0,0,0,0.15)}
+/* Animated dashed border */
+.nav-container{background-image:none;animation:navBorder 12s linear infinite}
+@keyframes navBorder{0%{border-color:rgba(255,255,255,0.15)}50%{border-color:rgba(255,255,255,0.25)}100%{border-color:rgba(255,255,255,0.15)}}
+/* Orange corner brackets on nav */
+.nav-container>.ca{width:10px;height:10px}
+.nav-container .ca::after{content:'';position:absolute;width:3px;height:3px;border-radius:50%;background:var(--accent)}
+.nav-container .ca-tl{top:-1px;left:-1px;border-top:1.5px solid var(--accent);border-left:1.5px solid var(--accent)}
+.nav-container .ca-tl::after{top:-3px;left:-3px}
+.nav-container .ca-tr{top:-1px;right:-1px;border-top:1.5px solid var(--accent);border-right:1.5px solid var(--accent)}
+.nav-container .ca-tr::after{top:-3px;right:-3px}
+.nav-container .ca-bl{bottom:-1px;left:-1px;border-bottom:1.5px solid var(--accent);border-left:1.5px solid var(--accent)}
+.nav-container .ca-bl::after{bottom:-3px;left:-3px}
+.nav-container .ca-br{bottom:-1px;right:-1px;border-bottom:1.5px solid var(--accent);border-right:1.5px solid var(--accent)}
+.nav-container .ca-br::after{bottom:-3px;right:-3px}
+.nav-inner{display:flex;align-items:center;gap:32px}
+.nav-logo{font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px;letter-spacing:-0.01em;white-space:nowrap}
 .nav-logo svg{width:20px;height:20px}
-.nav-links{display:flex;align-items:center;gap:28px}
-.nav-links a{font-size:14px;color:var(--w70);transition:color .2s}
+.nav-links{display:flex;align-items:center;gap:24px}
+.nav-links a{font-size:14px;color:var(--w70);transition:color .2s;white-space:nowrap}
 .nav-links a:hover{color:var(--w100)}
-.nav-right{display:flex;align-items:center;gap:12px}
+.nav-right{display:flex;align-items:center;gap:12px;margin-left:8px}
 .nav-mobile{display:none;background:none;border:none;color:#fff;cursor:pointer}
+/* Nav CTA button with white corners */
+.nav-cta{position:relative;display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 18px;background:var(--accent);color:#fff;font-family:inherit;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;border:none;cursor:pointer;border-radius:0;transition:filter .2s;white-space:nowrap}
+.nav-cta:hover{filter:brightness(1.15)}
+.nav-cta .ca{position:absolute;width:6px;height:6px;pointer-events:none}
+.nav-cta .ca-tl{top:2px;left:2px;border-top:1px solid #fff;border-left:1px solid #fff}
+.nav-cta .ca-tr{top:2px;right:2px;border-top:1px solid #fff;border-right:1px solid #fff}
+.nav-cta .ca-bl{bottom:2px;left:2px;border-bottom:1px solid #fff;border-left:1px solid #fff}
+.nav-cta .ca-br{bottom:2px;right:2px;border-bottom:1px solid #fff;border-right:1px solid #fff}
+.nav-cta .ca::after{display:none}
 
 /* BUTTONS */
 .btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 16px;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .2s;position:relative;border-radius:8px}
@@ -210,7 +247,8 @@ footer{border-top:1px solid var(--w10);padding:48px 0 24px;position:relative}
 
 /* RESPONSIVE */
 @media(max-width:768px){
-nav{padding:12px 16px}
+nav{top:12px;max-width:calc(100% - 24px)}
+.nav-container{padding:10px 12px}
 .nav-links{display:none}
 .nav-mobile{display:block}
 .hero{padding:100px 0 60px}
@@ -240,9 +278,11 @@ nav{padding:12px 16px}
 
 <!-- NAV -->
 <nav>
+<div class="nav-container">
+<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
 <div class="nav-inner">
 <a href="/" class="nav-logo">
-<img src="/assets/logo.png" alt="AgentOS" style="width:28px;height:28px;border-radius:4px;filter:invert(1);">
+<img src="/assets/logo.png" alt="AgentOS" style="width:24px;height:24px;border-radius:3px;filter:invert(1);">
 AgentOS
 </a>
 <div class="nav-links">
@@ -252,14 +292,15 @@ AgentOS
 <a href="#faq">FAQ</a>
 <a href="https://github.com/0xArtex/AgentOS" target="_blank">GitHub</a>
 </div>
-<div class="nav-right">
-<a href="https://github.com/0xArtex/AgentOS" target="_blank" class="btn btn-secondary" style="height:32px;font-size:13px">View docs</a>
-<a href="/skill.md" class="btn btn-primary btn-arrow" style="height:32px;font-size:13px">Get started</a>
+<a href="/skill.md" class="nav-cta">
+<span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
+Get started ▸
+</a>
 </div>
-<button class="nav-mobile" onclick="document.querySelector('.nav-links').style.display=document.querySelector('.nav-links').style.display==='flex'?'none':'flex'">
+</div>
+<button class="nav-mobile" onclick="document.querySelector('.nav-links').style.display=document.querySelector('.nav-links').style.display==='flex'?'none':'flex'" style="position:absolute;right:16px;top:50%;transform:translateY(-50%)">
 <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
 </button>
-</div>
 </nav>
 
 <!-- HERO -->
