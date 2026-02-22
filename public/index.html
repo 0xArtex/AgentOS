@@ -92,34 +92,65 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .hero-stats .stat-lbl{font-size:12px;color:var(--w40);text-transform:uppercase;letter-spacing:0.08em;margin-top:4px}
 
 /* ===== TERMINAL ===== */
-.terminal-wrap{max-width:800px;margin:0 auto;position:relative}
-.terminal-wrap::before{display:none}
-.terminal-window{position:relative;z-index:1;background:#0d1117;border:1px solid var(--border);border-radius:var(--radius);overflow:hidden;box-shadow:0 8px 24px rgba(0,0,0,0.3)}
-.terminal-header{display:flex;align-items:center;justify-content:space-between;background:rgba(255,255,255,0.03);padding:14px 18px;border-bottom:1px solid var(--border)}
+.terminal-wrap{max-width:860px;margin:0 auto;position:relative;perspective:1200px}
+.terminal-window{position:relative;z-index:1;background:#080c14;border-radius:16px;overflow:hidden;transform:rotateX(2deg) rotateY(0deg);transform-style:preserve-3d;transition:transform .4s cubic-bezier(0.22,1,0.36,1);box-shadow:0 30px 80px -20px rgba(0,0,0,0.8),0 0 0 1px rgba(255,255,255,0.06),inset 0 1px 0 rgba(255,255,255,0.05)}
+.terminal-window:hover{transform:rotateX(0deg) rotateY(0deg)}
+/* Scanline overlay */
+.terminal-window::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:10;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);mix-blend-mode:multiply}
+/* Animated border glow */
+.terminal-window::before{content:'';position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from var(--angle,0deg),rgba(245,73,0,0) 0%,rgba(245,73,0,0.3) 12%,rgba(59,130,246,0.2) 25%,rgba(245,73,0,0) 37%,rgba(16,185,129,0.2) 50%,rgba(245,73,0,0) 62%,rgba(168,85,247,0.2) 75%,rgba(245,73,0,0.3) 87%,rgba(245,73,0,0) 100%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:rotateBorder 8s linear infinite;pointer-events:none;opacity:0.7}
+/* Header with tabs */
+.terminal-header{display:flex;align-items:center;background:rgba(255,255,255,0.02);padding:0;border-bottom:1px solid rgba(255,255,255,0.06)}
+.terminal-header-left{display:flex;align-items:center;padding:14px 16px;gap:8px}
 .terminal-buttons{display:flex;gap:7px}
-.terminal-btn{width:12px;height:12px;border-radius:50%}
+.terminal-btn{width:11px;height:11px;border-radius:50%;transition:all .15s}
 .terminal-btn.r{background:#ff5f57}.terminal-btn.y{background:#febc2e}.terminal-btn.g{background:#28c840}
-.terminal-title{color:var(--w40);font-size:12px;font-family:'JetBrains Mono',monospace}
-.terminal-body{padding:24px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c9d1d9;max-height:320px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.1) transparent}
-.terminal-body::-webkit-scrollbar{width:4px}.terminal-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px}
-.terminal-line{margin-bottom:8px}
-.prompt{color:var(--accent);font-weight:500}
-.t-comment{color:#6e7681}
-.t-resp{border-left:2px solid var(--border);padding:8px 0 8px 14px;margin:8px 0;color:#8b949e}
-.t-resp.ok{border-left-color:var(--accent);background:rgba(245,73,0,0.03)}
-.t-402{color:#f85149}.t-200{color:#3fb950}
-.cursor{animation:blink 1s infinite}
-@keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
-.terminal-input-line{display:flex;align-items:center;gap:8px}
-.terminal-input{background:none;border:none;outline:none;color:#c9d1d9;font-family:'JetBrains Mono',monospace;font-size:13px;flex:1;caret-color:var(--accent)}
-.terminal-input::placeholder{color:#484f58}
-.t-cmd{color:#c9d1d9;margin-bottom:4px}
-.t-cmd .prompt{color:var(--accent);font-weight:500}
-.t-out{border-left:2px solid var(--border);padding:6px 0 6px 14px;margin:4px 0 12px;color:#8b949e;font-size:12px;line-height:1.6;animation:termFadeIn .3s ease}
-.t-out.success{border-left-color:var(--accent);background:rgba(245,73,0,0.03)}
-.t-out .t-key{color:var(--w60)}.t-out .t-val{color:#79c0ff}.t-out .t-str{color:#a5d6ff}
-.t-out .t-status-ok{color:#3fb950;font-weight:500}.t-out .t-status-pay{color:#f85149;font-weight:500}
-@keyframes termFadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+.terminal-btn:hover{transform:scale(1.2)}
+.terminal-tabs{display:flex;flex:1;overflow:hidden}
+.terminal-tab{padding:10px 20px;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--w40);border-right:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;white-space:nowrap}
+.terminal-tab.active{background:rgba(245,73,0,0.06);color:var(--accent)}
+.terminal-tab .tab-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:0.5}
+.terminal-tab.active .tab-dot{opacity:1;animation:pulse 2s infinite}
+.terminal-header-right{padding:14px 16px;display:flex;align-items:center;gap:12px}
+.terminal-status{display:flex;align-items:center;gap:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--w40)}
+.terminal-status .status-dot{width:6px;height:6px;border-radius:50%;background:#3fb950;animation:pulse 2s infinite}
+/* Body with line numbers gutter */
+.terminal-body-wrap{display:flex;position:relative}
+.terminal-gutter{padding:20px 0;width:40px;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.04);background:rgba(0,0,0,0.2);display:flex;flex-direction:column;align-items:center;gap:0;font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(255,255,255,0.12);user-select:none;counter-reset:line}
+.terminal-gutter span{display:block;height:22.1px;line-height:22.1px}
+.terminal-body{padding:20px 24px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c9d1d9;max-height:340px;overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.08) transparent;position:relative}
+.terminal-body::-webkit-scrollbar{width:4px}.terminal-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px}
+/* Status bar */
+.terminal-statusbar{display:flex;align-items:center;justify-content:space-between;padding:6px 16px;background:rgba(245,73,0,0.08);border-top:1px solid rgba(255,255,255,0.04);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--w40)}
+.terminal-statusbar .sb-left{display:flex;align-items:center;gap:12px}
+.terminal-statusbar .sb-right{display:flex;align-items:center;gap:12px}
+.sb-tag{padding:1px 6px;border-radius:3px;background:rgba(245,73,0,0.15);color:var(--accent);font-weight:500}
+/* Activity indicator */
+.terminal-activity{display:flex;align-items:flex-end;gap:2px;height:12px}
+.terminal-activity span{width:2px;background:var(--accent);border-radius:1px;animation:eqBar 0.8s ease-in-out infinite alternate}
+.terminal-activity span:nth-child(1){height:4px;animation-delay:0s}
+.terminal-activity span:nth-child(2){height:8px;animation-delay:0.15s}
+.terminal-activity span:nth-child(3){height:5px;animation-delay:0.3s}
+.terminal-activity span:nth-child(4){height:10px;animation-delay:0.45s}
+.terminal-activity span:nth-child(5){height:6px;animation-delay:0.6s}
+@keyframes eqBar{0%{height:3px}100%{height:12px}}
+/* Input line */
+.terminal-input-line{display:flex;align-items:center;gap:8px;margin-top:4px}
+.terminal-input{background:none;border:none;outline:none;color:#e6edf3;font-family:'JetBrains Mono',monospace;font-size:13px;flex:1;caret-color:var(--accent)}
+.terminal-input::placeholder{color:rgba(255,255,255,0.15)}
+.prompt{color:var(--accent);font-weight:600}
+.prompt-user{color:#79c0ff}.prompt-at{color:var(--w40)}.prompt-path{color:#7ee787}
+/* Output styles */
+.t-cmd{color:#e6edf3;margin-bottom:4px}
+.t-cmd .prompt{color:var(--accent);font-weight:600}
+.t-out{border-left:2px solid rgba(255,255,255,0.06);padding:8px 0 8px 14px;margin:4px 0 12px;color:#8b949e;font-size:12px;line-height:1.7;animation:termFadeIn .3s cubic-bezier(0.22,1,0.36,1);position:relative}
+.t-out::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;border-radius:1px}
+.t-out.success{border-left-color:transparent;background:linear-gradient(90deg,rgba(245,73,0,0.04),transparent 80%)}
+.t-out.success::before{background:linear-gradient(to bottom,var(--accent),rgba(245,73,0,0.3))}
+.t-out .t-status-ok{color:#3fb950;font-weight:600;text-shadow:0 0 12px rgba(63,185,80,0.3)}.t-out .t-status-pay{color:#f85149;font-weight:600;text-shadow:0 0 12px rgba(248,81,73,0.3)}
+@keyframes termFadeIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
+.cursor{animation:cursorBlink 1s step-end infinite}
+@keyframes cursorBlink{0%,50%{opacity:1;background:var(--accent);color:var(--accent)}51%,100%{opacity:0}}
 
 /* ===== LOGO STRIP ===== */
 .logos{padding:72px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
@@ -354,16 +385,42 @@ AgentOS
 <a href="https://github.com/0xArtex/AgentOS" target="_blank" class="btn btn-secondary"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>View on GitHub<span style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 8px;background:rgba(255,255,255,0.1);border-radius:100px;font-size:12px">★ <span id="gh-stars">0</span></span></a>
 </div>
 <div class="terminal-wrap reveal reveal-delay-3">
-<div class="terminal-window">
+<div class="terminal-window" id="terminal-window">
 <div class="terminal-header">
+<div class="terminal-header-left">
 <div class="terminal-buttons"><span class="terminal-btn r"></span><span class="terminal-btn y"></span><span class="terminal-btn g"></span></div>
-<div class="terminal-title">agent@agentos ~ $</div>
 </div>
+<div class="terminal-tabs">
+<div class="terminal-tab active"><span class="tab-dot"></span>agent@agntos.dev</div>
+<div class="terminal-tab">x402-payments</div>
+<div class="terminal-tab">logs</div>
+</div>
+<div class="terminal-header-right">
+<div class="terminal-activity"><span></span><span></span><span></span><span></span><span></span></div>
+<div class="terminal-status"><span class="status-dot"></span>connected</div>
+</div>
+</div>
+<div class="terminal-body-wrap">
+<div class="terminal-gutter" id="terminal-gutter"></div>
 <div class="terminal-body" id="terminal">
 <div id="terminal-history"></div>
 <div class="terminal-input-line">
-<span class="prompt">$</span>
-<input type="text" id="terminal-input" class="terminal-input" placeholder="Try: help, provision phone, send sms, create server..." autocomplete="off" spellcheck="false">
+<span class="prompt-user">agent</span><span class="prompt-at">@</span><span class="prompt-path">agntos</span><span style="color:var(--w40);margin:0 6px">›</span>
+<input type="text" id="terminal-input" class="terminal-input" placeholder="type a command..." autocomplete="off" spellcheck="false">
+</div>
+</div>
+</div>
+<div class="terminal-statusbar">
+<div class="sb-left">
+<span class="sb-tag">x402</span>
+<span>solana mainnet</span>
+<span>·</span>
+<span>base mainnet</span>
+</div>
+<div class="sb-right">
+<span>UTF-8</span>
+<span>·</span>
+<span id="term-line-count">Ln 1</span>
 </div>
 </div>
 </div>
@@ -807,7 +864,7 @@ AgentOS
 
   function processCommand(cmd) {
     cmd = cmd.trim().toLowerCase();
-    addLine(`<span class="prompt">$</span> ${cmd}`, 't-cmd');
+    addLine(`<span class="prompt-user">agent</span><span class="prompt-at">@</span><span class="prompt-path">agntos</span><span style="color:rgba(255,255,255,0.3);margin:0 4px">›</span> ${cmd}`, 't-cmd');
 
     if (cmd === 'clear') {
       history.innerHTML = '';
@@ -854,13 +911,36 @@ AgentOS
     }
   });
 
+  // Update line numbers
+  function updateGutter() {
+    const gutter = document.getElementById('terminal-gutter');
+    const lineCount = document.getElementById('term-line-count');
+    if (!gutter) return;
+    const lines = history.children.length + 1;
+    let html = '';
+    for (let i = 1; i <= Math.max(lines, 12); i++) {
+      html += '<span>' + i + '</span>';
+    }
+    gutter.innerHTML = html;
+    if (lineCount) lineCount.textContent = 'Ln ' + lines;
+  }
+  
+  const origProcess = processCommand;
+  processCommand = function(cmd) {
+    origProcess(cmd);
+    setTimeout(updateGutter, 100);
+    setTimeout(updateGutter, 1200);
+  };
+
+  // Initial gutter
+  setTimeout(updateGutter, 100);
+
   // Auto-run demo sequence on load
   const demo = ['provision phone'];
   let di = 0;
   function runDemo() {
     if (di >= demo.length) return;
     const cmd = demo[di++];
-    // Type it out character by character
     let ci = 0;
     input.value = '';
     const typeInterval = setInterval(() => {
@@ -875,6 +955,20 @@ AgentOS
     }, 50);
   }
   setTimeout(runDemo, 1500);
+
+  // 3D tilt on mouse move
+  const termWin = document.getElementById('terminal-window');
+  if (termWin) {
+    termWin.addEventListener('mousemove', (e) => {
+      const rect = termWin.getBoundingClientRect();
+      const x = (e.clientX - rect.left) / rect.width - 0.5;
+      const y = (e.clientY - rect.top) / rect.height - 0.5;
+      termWin.style.transform = `rotateX(${-y * 4}deg) rotateY(${x * 4}deg)`;
+    });
+    termWin.addEventListener('mouseleave', () => {
+      termWin.style.transform = 'rotateX(2deg) rotateY(0deg)';
+    });
+  }
 })();
 
 // ===== INTERACTIVE STEPS =====
