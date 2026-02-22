@@ -87,25 +87,25 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .nav-cta .ca::after{display:none}
 
 /* BUTTONS */
-.btn{display:inline-flex;align-items:center;gap:8px;height:36px;padding:0 16px;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .2s;position:relative;border-radius:8px}
+.btn{display:inline-flex;align-items:center;gap:8px;height:40px;padding:0 20px;font-family:inherit;font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;cursor:pointer;border:none;transition:all .2s;position:relative;border-radius:0}
 .btn-primary{background:var(--accent);color:#fff}
 .btn-primary:hover{filter:brightness(1.15);transform:translateY(-1px);box-shadow:0 4px 16px rgba(245,73,0,0.3)}
-.btn-secondary{background:rgba(255,255,255,0.05);color:#fff;border:1px solid var(--w10);border-radius:8px}
-.btn-secondary:hover{border-color:var(--w30);background:rgba(255,255,255,0.08)}
+.btn-secondary{background:rgba(255,255,255,0.05);color:#fff;border:1px solid var(--w30);border-radius:0}
+.btn-secondary:hover{border-color:var(--w50);background:rgba(255,255,255,0.08)}
 .btn-arrow::after{content:'';display:inline-block;width:14px;height:14px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M5 12h14M12 5l7 7-7 7'/%3E%3C/svg%3E") center/contain no-repeat}
 
 /* HERO */
-.hero{padding:140px 0 80px;position:relative;overflow:hidden}
+.hero{padding:160px 0 80px;position:relative;overflow:hidden}
 .hero::before{content:'';position:absolute;top:-200px;left:0;right:0;height:800px;background:radial-gradient(ellipse 70% 60% at 50% 0%,rgba(245,73,0,0.6) 0%,rgba(255,169,133,0.4) 20%,rgba(245,73,0,0.2) 40%,rgba(0,0,0,0) 70%);pointer-events:none;animation:heroGlow 8s ease-in-out infinite alternate}
 @keyframes heroGlow{0%{opacity:0.8;transform:scale(1)}100%{opacity:1;transform:scale(1.05)}}
 .hero::after{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:100%;height:100%;background:radial-gradient(circle at center,rgba(245,73,0,0.15) 0%,transparent 50%);pointer-events:none}
 .hero-content{position:relative;z-index:1}
-.hero h1{font-size:56px;font-weight:400;letter-spacing:-0.03em;line-height:1.1;max-width:700px;margin-bottom:24px;color:#fff}
-.hero .subtitle{font-size:17px;color:var(--w70);max-width:520px;margin-bottom:36px;line-height:1.65}
-.hero-buttons{display:flex;gap:14px;margin-bottom:28px}
-.hero-badges{display:flex;gap:28px;margin-bottom:64px}
+.hero h1{font-size:68px;font-weight:400;letter-spacing:-0.035em;line-height:1.08;max-width:750px;margin-bottom:28px;color:#fff}
+.hero .subtitle{font-size:16px;color:var(--w50);max-width:480px;margin-bottom:40px;line-height:1.7}
+.hero-buttons{display:flex;gap:14px;margin-bottom:32px}
+.hero-badges{display:flex;gap:32px;margin-bottom:72px}
 .hero-badges span{font-size:13px;color:var(--w50);display:flex;align-items:center;gap:6px}
-.hero-image{position:relative;max-width:1000px;margin:0 auto}
+.hero-image{position:relative;max-width:100%;margin:0 auto}
 .hero-image::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:120%;height:120%;background:radial-gradient(50% 50%,var(--accent-glow) 0%,rgba(245,73,0,0.54) 46.2891%,rgba(245,73,0,0) 100%);opacity:0.15;pointer-events:none}
 .hero-image img{position:relative;z-index:1;width:100%;border:1px solid var(--w10);border-radius:12px}
 .hero-image .placeholder{position:relative;z-index:1;width:100%;height:400px;background:var(--w03);border:1px solid var(--w10);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--w30);font-family:'JetBrains Mono',monospace;font-size:14px}
