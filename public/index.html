@@ -112,9 +112,9 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 /* ===== LOGO STRIP ===== */
 .logos{padding:72px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
 .logos-label{text-align:center;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--w40);margin-bottom:28px}
-.logos-row{display:flex;align-items:center;justify-content:center;gap:48px;flex-wrap:wrap}
-.logos-row span{font-size:16px;font-weight:500;color:var(--w40);letter-spacing:0.02em;transition:color .3s}
-.logos-row span:hover{color:var(--w80)}
+.logos-row{display:flex;align-items:center;justify-content:center;gap:40px;flex-wrap:wrap}
+.logos-row .logo-icon{opacity:0.5;transition:opacity .3s;height:28px}
+.logos-row .logo-icon:hover{opacity:0.9}
 
 /* ===== SECTIONS ===== */
 .section{padding:120px 0}
@@ -337,11 +337,11 @@ AgentOS
 <div class="container">
 <div class="logos-label">Built with</div>
 <div class="logos-row">
-<span>Solana</span>
-<span>x402</span>
-<span>Telnyx</span>
-<span>Hetzner</span>
-<span>Cloudflare</span>
+<svg class="logo-icon" width="120" height="28" viewBox="0 0 120 28" fill="none"><text x="22" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Solana</text><path d="M5 19.5l3.5-3.5H18L14.5 19.5H5z" fill="url(#sg1)"/><path d="M5 8.5l3.5 3.5H18L14.5 8.5H5z" fill="url(#sg2)"/><path d="M5 14l3.5-1.5H18L14.5 15.5H5z" fill="url(#sg3)"/><defs><linearGradient id="sg1" x1="5" y1="14" x2="18" y2="14"><stop stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient><linearGradient id="sg2" x1="5" y1="14" x2="18" y2="14"><stop stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient><linearGradient id="sg3" x1="5" y1="14" x2="18" y2="14"><stop stop-color="#9945FF"/><stop offset="1" stop-color="#14F195"/></linearGradient></defs></svg>
+<svg class="logo-icon" width="80" height="28" viewBox="0 0 80 28"><text x="24" y="20" font-family="'JetBrains Mono',monospace" font-size="15" font-weight="500" fill="rgba(255,255,255,0.4)">x402</text><circle cx="10" cy="14" r="7" stroke="rgba(255,255,255,0.3)" stroke-width="1.5" fill="none"/><path d="M7 11l6 6M13 11l-6 6" stroke="rgba(255,255,255,0.3)" stroke-width="1.5"/></svg>
+<svg class="logo-icon" width="100" height="28" viewBox="0 0 100 28"><text x="26" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Telnyx</text><path d="M4 8h16l-8 14z" stroke="#00C08B" stroke-width="1.5" fill="none"/><circle cx="12" cy="15" r="2" fill="#00C08B" opacity="0.6"/></svg>
+<svg class="logo-icon" width="110" height="28" viewBox="0 0 110 28"><text x="28" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Hetzner</text><rect x="4" y="8" width="18" height="12" rx="2" stroke="#D50C2D" stroke-width="1.5" fill="none"/><line x1="8" y1="12" x2="8" y2="16" stroke="#D50C2D" stroke-width="1.5"/><line x1="13" y1="12" x2="13" y2="16" stroke="#D50C2D" stroke-width="1.5"/><line x1="18" y1="12" x2="18" y2="16" stroke="#D50C2D" stroke-width="1.5"/></svg>
+<svg class="logo-icon" width="130" height="28" viewBox="0 0 130 28"><text x="28" y="20" font-family="Inter,system-ui" font-size="16" font-weight="600" fill="rgba(255,255,255,0.4)" letter-spacing="-0.5">Cloudflare</text><path d="M10 18c-3 0-5.5-2.5-5.5-5.5S7 7 10 7c2.2 0 4 1.3 4.8 3.2.5-.1 1-.2 1.5-.2 2.5 0 4.5 2 4.5 4.5 0 .2 0 .3 0 .5H10z" stroke="#F6821F" stroke-width="1.3" fill="none"/></svg>
 </div>
 </div>
 </section>
