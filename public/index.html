@@ -293,10 +293,10 @@ nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2
 .stat-number[data-count]{transition:color .3s}
 
 /* ===== MARQUEE LOGOS ===== */
-@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(calc(-50% - 40px))}}
+@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .logos-track{display:flex;align-items:center;animation:marquee 20s linear infinite;width:max-content}
 .logos-track:hover{animation-play-state:paused}
-.logos-set{display:flex;align-items:center;gap:80px;padding:0 40px}
+.logos-set{display:flex;align-items:center;gap:80px;padding-right:80px}
 .logos-row{position:relative}
 .logos-row::before,.logos-row::after{content:'';position:absolute;top:0;bottom:0;width:120px;z-index:2;pointer-events:none}
 .logos-row::before{left:0;background:linear-gradient(90deg,var(--bg),transparent)}
