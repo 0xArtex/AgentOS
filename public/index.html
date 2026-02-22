@@ -262,9 +262,10 @@ nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2
 .stat-number[data-count]{transition:color .3s}
 
 /* ===== MARQUEE LOGOS ===== */
-@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-.logos-track{display:flex;align-items:center;gap:80px;animation:marquee 25s linear infinite;width:max-content;padding:0 40px}
+@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(calc(-50% - 40px))}}
+.logos-track{display:flex;align-items:center;animation:marquee 20s linear infinite;width:max-content}
 .logos-track:hover{animation-play-state:paused}
+.logos-set{display:flex;align-items:center;gap:80px;padding:0 40px}
 .logos-row{position:relative}
 .logos-row::before,.logos-row::after{content:'';position:absolute;top:0;bottom:0;width:120px;z-index:2;pointer-events:none}
 .logos-row::before{left:0;background:linear-gradient(90deg,var(--bg),transparent)}
@@ -376,21 +377,7 @@ AgentOS
 <div style="width:100%">
 <div class="logos-row" style="overflow:hidden">
 <div class="logos-track">
-<!-- Solana -->
-<div class="logo-item"><img src="/assets/logos/solana-logotype.svg" alt="Solana" style="height:16px;opacity:0.45"></div>
-<!-- Base -->
-<div class="logo-item"><img src="/assets/logos/base.svg" alt="Base" style="height:20px;opacity:0.5;filter:grayscale(1) brightness(2)"></div>
-<!-- x402 -->
-<div class="logo-item"><span style="font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;color:rgba(255,255,255,0.35);letter-spacing:-0.05em">x402</span></div>
-<!-- Telnyx -->
-<div class="logo-item"><img src="/assets/logos/telnyx.png" alt="Telnyx" style="height:18px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
-<!-- Hetzner -->
-<div class="logo-item"><img src="/assets/logos/hetzner.jpg" alt="Hetzner" style="height:16px;opacity:0.45;filter:invert(1) grayscale(1)"></div>
-<!-- Cloudflare -->
-<div class="logo-item"><img src="/assets/logos/cloudflare-full.svg" alt="Cloudflare" style="height:20px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
-<!-- USDC -->
-<div class="logo-item"><img src="/assets/logos/usdc-icon.jpg" alt="USDC" style="height:22px;border-radius:50%;opacity:0.45;filter:invert(1)"><span>USDC</span></div>
-<!-- duplicate for seamless loop -->
+<div class="logos-set">
 <div class="logo-item"><img src="/assets/logos/solana-logotype.svg" alt="Solana" style="height:16px;opacity:0.45"></div>
 <div class="logo-item"><img src="/assets/logos/base.svg" alt="Base" style="height:20px;opacity:0.5;filter:grayscale(1) brightness(2)"></div>
 <div class="logo-item"><span style="font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;color:rgba(255,255,255,0.35);letter-spacing:-0.05em">x402</span></div>
@@ -398,6 +385,16 @@ AgentOS
 <div class="logo-item"><img src="/assets/logos/hetzner.jpg" alt="Hetzner" style="height:16px;opacity:0.45;filter:invert(1) grayscale(1)"></div>
 <div class="logo-item"><img src="/assets/logos/cloudflare-full.svg" alt="Cloudflare" style="height:20px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
 <div class="logo-item"><img src="/assets/logos/usdc-icon.jpg" alt="USDC" style="height:22px;border-radius:50%;opacity:0.45;filter:invert(1)"><span>USDC</span></div>
+</div>
+<div class="logos-set" aria-hidden="true">
+<div class="logo-item"><img src="/assets/logos/solana-logotype.svg" alt="Solana" style="height:16px;opacity:0.45"></div>
+<div class="logo-item"><img src="/assets/logos/base.svg" alt="Base" style="height:20px;opacity:0.5;filter:grayscale(1) brightness(2)"></div>
+<div class="logo-item"><span style="font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;color:rgba(255,255,255,0.35);letter-spacing:-0.05em">x402</span></div>
+<div class="logo-item"><img src="/assets/logos/telnyx.png" alt="Telnyx" style="height:18px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
+<div class="logo-item"><img src="/assets/logos/hetzner.jpg" alt="Hetzner" style="height:16px;opacity:0.45;filter:invert(1) grayscale(1)"></div>
+<div class="logo-item"><img src="/assets/logos/cloudflare-full.svg" alt="Cloudflare" style="height:20px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
+<div class="logo-item"><img src="/assets/logos/usdc-icon.jpg" alt="USDC" style="height:22px;border-radius:50%;opacity:0.45;filter:invert(1)"><span>USDC</span></div>
+</div>
 </div>
 </div>
 </div>
