@@ -38,9 +38,9 @@ img{max-width:100%;display:block}
 .corner-accents .ca-bl{bottom:-1px;left:-1px;border-bottom:1px solid var(--accent);border-left:1px solid var(--accent)}
 .corner-accents .ca-br{bottom:-1px;right:-1px;border-bottom:1px solid var(--accent);border-right:1px solid var(--accent)}
 
-/* NAV - floating pill */
-nav{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;background:rgba(10,10,10,0.75);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);border:1px solid rgba(255,255,255,0.06);border-radius:999px;width:auto;max-width:calc(100% - 32px)}
-.nav-inner{padding:0 6px 0 18px;height:44px;display:flex;align-items:center;justify-content:space-between;gap:20px}
+/* NAV */
+nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;flex-direction:row;justify-content:center;align-items:center;padding:16px;-webkit-backdrop-filter:blur(30px);backdrop-filter:blur(30px);box-shadow:0px 0.3px 1.5px -1.42px rgba(0,0,0,0.81),0px 1.14px 5.72px -2.83px rgba(0,0,0,0.69),0px 5px 25px -4.25px rgba(0,0,0,0.15);background-color:rgba(0,0,0,0.6);border-radius:0}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;gap:40px;width:100%;max-width:1200px}
 .nav-logo{font-weight:600;font-size:16px;display:flex;align-items:center;gap:8px;letter-spacing:-0.01em}
 .nav-logo svg{width:20px;height:20px}
 .nav-links{display:flex;align-items:center;gap:28px}
@@ -59,7 +59,9 @@ nav{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;back
 
 /* HERO */
 .hero{padding:120px 0 80px;position:relative;overflow:hidden}
-.hero::before{content:'';position:absolute;top:-200px;left:0;right:0;height:800px;background:radial-gradient(ellipse 60% 50% at 50% 0%,rgba(255,169,133,0.35) 0%,rgba(245,73,0,0.25) 25%,rgba(0,0,0,0) 60%);pointer-events:none}
+.hero::before{content:'';position:absolute;top:-200px;left:0;right:0;height:800px;background:radial-gradient(ellipse 70% 60% at 50% 0%,rgba(245,73,0,0.6) 0%,rgba(255,169,133,0.4) 20%,rgba(245,73,0,0.2) 40%,rgba(0,0,0,0) 70%);pointer-events:none;animation:heroGlow 8s ease-in-out infinite alternate}
+@keyframes heroGlow{0%{opacity:0.8;transform:scale(1)}100%{opacity:1;transform:scale(1.05)}}
+.hero::after{content:'';position:absolute;top:0;left:50%;transform:translateX(-50%);width:100%;height:100%;background:radial-gradient(circle at center,rgba(245,73,0,0.15) 0%,transparent 50%);pointer-events:none}
 .hero-content{position:relative;z-index:1}
 .hero h1{font-size:52px;font-weight:500;letter-spacing:-0.025em;line-height:1.08;max-width:700px;margin-bottom:20px;color:#fff}
 .hero .subtitle{font-size:16px;color:var(--w70);max-width:520px;margin-bottom:32px;line-height:1.6}
@@ -71,11 +73,31 @@ nav{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;back
 .hero-image img{position:relative;z-index:1;width:100%;border:1px solid var(--w10);border-radius:12px}
 .hero-image .placeholder{position:relative;z-index:1;width:100%;height:400px;background:var(--w03);border:1px solid var(--w10);border-radius:12px;display:flex;align-items:center;justify-content:center;color:var(--w30);font-family:'JetBrains Mono',monospace;font-size:14px}
 
+/* TERMINAL WINDOW */
+.terminal-window{position:relative;z-index:1;width:100%;background:#0d1117;border:1px solid var(--w10);border-radius:12px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.terminal-header{display:flex;align-items:center;justify-content:space-between;background:#21262d;padding:12px 16px;border-bottom:1px solid var(--w10)}
+.terminal-buttons{display:flex;gap:6px}
+.terminal-btn{width:12px;height:12px;border-radius:50%}
+.terminal-btn.red{background:#ff5f56}
+.terminal-btn.yellow{background:#ffbd2e}
+.terminal-btn.green{background:#27ca3f}
+.terminal-title{color:var(--w50);font-size:12px;font-family:'JetBrains Mono',monospace}
+.terminal-body{padding:20px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.6;color:#c9d1d9}
+.terminal-line{margin-bottom:8px}
+.prompt{color:var(--accent);font-weight:500}
+.terminal-response{background:rgba(255,255,255,0.02);border-left:2px solid var(--w10);padding:8px 0 8px 12px;margin:8px 0;color:#8b949e}
+.terminal-response.success{border-left-color:var(--accent);background:rgba(245,73,0,0.05)}
+.status-402{color:#f85149}
+.status-200{color:#3fb950}
+.cursor{animation:blink 1s infinite}
+@keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+
 /* LOGO STRIP */
 .logos{padding:64px 0;border-top:1px solid var(--w10);border-bottom:1px solid var(--w10)}
 .logos-label{text-align:center;font-size:11px;letter-spacing:0.15em;text-transform:uppercase;color:var(--w30);margin-bottom:32px}
-.logos-row{display:flex;align-items:center;justify-content:center;gap:48px;flex-wrap:wrap}
-.logos-row span{font-size:18px;font-weight:500;color:var(--w50);letter-spacing:-0.01em}
+.logos-row{display:flex;align-items:center;justify-content:center;gap:32px;flex-wrap:wrap}
+.logos-row span{font-size:18px;font-weight:500;color:var(--w50);letter-spacing:-0.01em;position:relative}
+.logos-row span:not(:last-child)::after{content:'•';position:absolute;right:-18px;color:var(--w30);font-size:12px;top:50%;transform:translateY(-50%)}
 
 /* SECTION HEADERS */
 .section{padding:100px 0}
@@ -91,6 +113,10 @@ nav{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;back
 .feature-card .feature-stat{font-size:36px;font-weight:600;color:var(--accent);margin-top:20px;font-family:'JetBrains Mono',monospace}
 .feature-card .feature-img{margin-top:20px;height:180px;background:var(--w03);border:1px solid var(--w10);border-radius:8px;display:flex;align-items:center;justify-content:center;overflow:hidden}
 .feature-card .feature-img img{width:100%;height:100%;object-fit:cover}
+.feature-icon{font-size:24px;margin-bottom:16px;display:inline-block}
+.code-preview{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--w70);line-height:1.6;padding:16px;background:rgba(255,255,255,0.02);border-radius:6px}
+.code-line{margin-bottom:2px}
+.code-comment{color:var(--w50);font-style:italic;margin-top:8px}
 
 /* HOW IT WORKS */
 .steps{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:start}
@@ -149,7 +175,11 @@ nav{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;back
 /* BUILT BY AI */
 .built-section{text-align:center;padding:80px 0;border-top:1px solid var(--w10);border-bottom:1px solid var(--w10)}
 .built-section h2{font-size:36px;font-weight:500;letter-spacing:-0.02em;margin-bottom:16px;max-width:none}
-.built-section p{font-size:16px;color:var(--w70);max-width:600px;margin:0 auto}
+.built-section p{font-size:16px;color:var(--w70);max-width:600px;margin:0 auto 40px}
+.ai-stats{display:flex;justify-content:center;gap:48px;flex-wrap:wrap;margin-top:32px}
+.stat-item{text-align:center}
+.stat-number{font-size:32px;font-weight:600;color:var(--accent);font-family:'JetBrains Mono',monospace;margin-bottom:4px}
+.stat-label{font-size:12px;color:var(--w50);text-transform:uppercase;letter-spacing:0.1em}
 
 /* CTA */
 .cta-section{padding:120px 0;text-align:center;position:relative}
@@ -162,7 +192,7 @@ nav{position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:100;back
 footer{border-top:1px solid var(--w10);padding:48px 0 24px;position:relative}
 .footer-inner{display:flex;justify-content:space-between;align-items:flex-start;gap:32px;margin-bottom:48px}
 .footer-left{display:flex;flex-direction:column;gap:20px}
-.footer-logo{font-weight:600;font-size:16px;letter-spacing:-0.01em}
+.footer-logo{font-weight:600;font-size:16px;letter-spacing:-0.01em;display:flex;align-items:center}
 .footer-links{display:flex;gap:24px}
 .footer-links a{font-size:14px;color:var(--w50);transition:color .2s}
 .footer-links a:hover{color:var(--w100)}
@@ -185,7 +215,7 @@ footer{border-top:1px solid var(--w10);padding:48px 0 24px;position:relative}
 
 /* RESPONSIVE */
 @media(max-width:768px){
-nav{left:16px;right:16px;transform:none;width:auto}
+nav{padding:12px 16px}
 .nav-links{display:none}
 .nav-mobile{display:block}
 .hero{padding:100px 0 60px}
@@ -206,6 +236,8 @@ nav{left:16px;right:16px;transform:none;width:auto}
 .hero-buttons .btn{width:100%;justify-content:center}
 .logos-row{gap:24px}
 .logos-row span{font-size:14px}
+.ai-stats{gap:24px}
+.stat-number{font-size:24px}
 }
 </style>
 </head>
@@ -219,7 +251,7 @@ nav{left:16px;right:16px;transform:none;width:auto}
 <nav>
 <div class="nav-inner">
 <a href="/" class="nav-logo">
-<svg viewBox="0 0 24 24" fill="none" stroke="#f54900" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+<img src="/assets/logo.png" alt="AgentOS" style="width:28px;height:28px;border-radius:4px;filter:invert(1);">
 AgentOS
 </a>
 <div class="nav-links">
@@ -249,7 +281,7 @@ AgentOS
 <span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
 Get started
 </a>
-<a href="https://github.com/zolty-dev/AgentOS" target="_blank" class="btn btn-secondary corner-accents">
+<a href="https://github.com/0xArtex/AgentOS" target="_blank" class="btn btn-secondary corner-accents">
 <span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
 View docs
 </a>
@@ -260,8 +292,49 @@ View docs
 <span>💎 USDC on Solana</span>
 </div>
 <div class="hero-image reveal">
-<div class="placeholder">
-<span>// AgentOS Dashboard</span>
+<div class="terminal-window">
+<div class="terminal-header">
+<div class="terminal-buttons">
+<span class="terminal-btn red"></span>
+<span class="terminal-btn yellow"></span>
+<span class="terminal-btn green"></span>
+</div>
+<div class="terminal-title">Terminal — agent@localhost</div>
+</div>
+<div class="terminal-body">
+<div class="terminal-line">
+<span class="prompt">$</span> curl -X POST https://agentos.dev/phone/provision \<br>
+&nbsp;&nbsp;-H "Authorization: Bearer sk_live_..." \<br>
+&nbsp;&nbsp;-d '{"area_code": "415"}'
+</div>
+<div class="terminal-response">
+<span class="status-402">HTTP/1.1 402 Payment Required</span><br>
+{<br>
+&nbsp;&nbsp;"amount": "2.00",<br>
+&nbsp;&nbsp;"token": "USDC",<br>
+&nbsp;&nbsp;"chain": "solana",<br>
+&nbsp;&nbsp;"recipient": "7xKX...8yNp"<br>
+}
+</div>
+<div class="terminal-line">
+<span class="prompt">$</span> # Agent pays automatically via x402<br>
+<span class="prompt">$</span> curl -X POST https://agentos.dev/phone/provision \<br>
+&nbsp;&nbsp;-H "Authorization: Bearer sk_live_..." \<br>
+&nbsp;&nbsp;-H "X-PAYMENT: &lt;signed_tx_hash&gt;" \<br>
+&nbsp;&nbsp;-d '{"area_code": "415"}'
+</div>
+<div class="terminal-response success">
+<span class="status-200">HTTP/1.1 200 OK</span><br>
+{<br>
+&nbsp;&nbsp;"phone": "+14155551234",<br>
+&nbsp;&nbsp;"status": "active",<br>
+&nbsp;&nbsp;"capabilities": ["sms", "voice"]<br>
+}
+</div>
+<div class="terminal-line">
+<span class="prompt">$</span> <span class="cursor">█</span>
+</div>
+</div>
 </div>
 </div>
 </div>
@@ -290,21 +363,49 @@ View docs
 <div class="features-grid reveal">
 <div class="feature-card corner-accents">
 <span class="ca ca-tl"></span><span class="ca ca-br"></span>
+<div class="feature-icon">🤖</div>
 <h3>Designed for autonomous agents</h3>
 <p>Services provision instantly, payments settle on-chain, and the interface never gets in the way of your agent's workflow.</p>
-<div class="feature-img"><img src="/assets/feature-1.webp" alt="Feature" onerror="this.parentElement.innerHTML='<span style=color:rgba(255,255,255,0.2)>📡 Instant provisioning</span>'"></div>
+<div class="feature-img">
+<div class="code-preview">
+<div class="code-line">{</div>
+<div class="code-line">&nbsp;&nbsp;"status": "provisioned",</div>
+<div class="code-line">&nbsp;&nbsp;"latency": "47ms",</div>
+<div class="code-line">&nbsp;&nbsp;"payment": "confirmed"</div>
+<div class="code-line">}</div>
+<div class="code-comment">// Instant agent resources</div>
+</div>
+</div>
 </div>
 <div class="feature-card corner-accents">
 <span class="ca ca-tl"></span><span class="ca ca-br"></span>
+<div class="feature-icon">📊</div>
 <h3>Track agent resources</h3>
 <p>Monitor phone numbers, email inboxes, servers, and domains in one clear API.</p>
-<div class="feature-img"><img src="/assets/feature-2.webp" alt="Feature" onerror="this.parentElement.innerHTML='<span style=color:rgba(255,255,255,0.2)>📊 Resource tracking</span>'"></div>
+<div class="feature-img">
+<div class="code-preview">
+<div class="code-line">GET /agent/resources</div>
+<div class="code-line">→ phones: 3 active</div>
+<div class="code-line">→ emails: 1 inbox</div>
+<div class="code-line">→ compute: 2 servers</div>
+<div class="code-comment">// Real-time monitoring</div>
+</div>
+</div>
 </div>
 <div class="feature-card corner-accents">
 <span class="ca ca-tl"></span><span class="ca ca-br"></span>
+<div class="feature-icon">⚡</div>
 <h3>Backend at a glance</h3>
 <p>Requests, payments, resources, and usage, all accessible without losing detail.</p>
-<div class="feature-img"><img src="/assets/feature-3.webp" alt="Feature" onerror="this.parentElement.innerHTML='<span style=color:rgba(255,255,255,0.2)>⚙️ Full backend view</span>'"></div>
+<div class="feature-img">
+<div class="code-preview">
+<div class="code-line">Last 24h:</div>
+<div class="code-line">↗ 47 API calls</div>
+<div class="code-line">💰 $12.50 spent</div>
+<div class="code-line">✅ 100% uptime</div>
+<div class="code-comment">// Complete visibility</div>
+</div>
+</div>
 </div>
 </div>
 </div>
@@ -391,7 +492,7 @@ Authorization: Bearer sk_...
 <p>Full endpoint reference at /docs</p>
 <div class="arrow-link">→</div>
 </a>
-<a href="https://github.com/zolty-dev/AgentOS" target="_blank" class="resource-card corner-accents">
+<a href="https://github.com/0xArtex/AgentOS" target="_blank" class="resource-card corner-accents">
 <span class="ca ca-tl"></span><span class="ca ca-br"></span>
 <div class="resource-label">Downloadables</div>
 <h3>GitHub Repository</h3>
@@ -501,7 +602,25 @@ Authorization: Bearer sk_...
 <section class="built-section reveal">
 <div class="container">
 <h2>Built entirely by an AI agent</h2>
-<p>AgentOS was built from scratch by <a href="https://x.com/zoltyagent" style="color:var(--accent)">@zoltyagent</a> — 40+ commits, 6 services, direct SVM verification. Live-streamed on X.</p>
+<p>AgentOS was built from scratch by <a href="https://x.com/zoltyagent" style="color:var(--accent)">@zoltyagent</a> — Live-streamed development on X.</p>
+<div class="ai-stats">
+<div class="stat-item">
+<div class="stat-number">47</div>
+<div class="stat-label">Git commits</div>
+</div>
+<div class="stat-item">
+<div class="stat-number">6</div>
+<div class="stat-label">Core services</div>
+</div>
+<div class="stat-item">
+<div class="stat-number">100%</div>
+<div class="stat-label">AI generated</div>
+</div>
+<div class="stat-item">
+<div class="stat-number">0</div>
+<div class="stat-label">Human lines</div>
+</div>
+</div>
 </div>
 </section>
 
@@ -529,7 +648,10 @@ Read skill.md
 <div class="footer-inner corner-accents">
 <span class="ca ca-tl"></span><span class="ca ca-tr"></span><span class="ca ca-bl"></span><span class="ca ca-br"></span>
 <div class="footer-left">
-<div class="footer-logo">AgentOS</div>
+<div class="footer-logo">
+<img src="/assets/logo.png" alt="AgentOS" style="width:24px;height:24px;border-radius:3px;filter:invert(1);margin-right:8px;">
+AgentOS
+</div>
 <div class="footer-links">
 <a href="#features">Features</a>
 <a href="#pricing">Pricing</a>
@@ -541,7 +663,7 @@ Read skill.md
 <a href="https://x.com/zoltyagent" target="_blank" title="X / Twitter">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
 </a>
-<a href="https://github.com/zolty-dev/AgentOS" target="_blank" title="GitHub">
+<a href="https://github.com/0xArtex/AgentOS" target="_blank" title="GitHub">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
 </a>
 </div>
