@@ -1507,17 +1507,28 @@ fetch('https://api.github.com/repos/0xArtex/AgentOS').then(r=>r.json()).then(d=>
 // ===== SEAMLESS MARQUEE =====
 (function(){
   const track = document.querySelector('.logos-track');
-  const firstSet = track && track.querySelector('.logos-set');
-  if (!track || !firstSet) return;
+  const sets = track ? track.querySelectorAll('.logos-set') : [];
+  if (!track || sets.length < 2) return;
   function initMarquee() {
-    const w = firstSet.offsetWidth;
+    // Ensure both sets have identical content width
+    const w = sets[0].getBoundingClientRect().width;
+    if (w < 100) { setTimeout(initMarquee, 200); return; } // images not loaded yet
+    const id = 'mq' + Date.now();
     const style = document.createElement('style');
-    style.textContent = '@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-' + w + 'px)}}';
+    style.textContent = '@keyframes ' + id + '{0%{transform:translate3d(0,0,0)}100%{transform:translate3d(-' + w + 'px,0,0)}}';
     document.head.appendChild(style);
-    track.style.animation = 'marquee 25s linear infinite';
+    track.style.willChange = 'transform';
+    track.style.animation = id + ' ' + Math.max(15, w / 40) + 's linear infinite';
   }
-  if (document.readyState === 'complete') initMarquee();
-  else window.addEventListener('load', initMarquee);
+  // Wait for all logo images to load
+  const imgs = track.querySelectorAll('img');
+  let loaded = 0;
+  function check() { if (++loaded >= imgs.length) initMarquee(); }
+  imgs.forEach(img => {
+    if (img.complete) check();
+    else { img.addEventListener('load', check); img.addEventListener('error', check); }
+  });
+  if (imgs.length === 0) initMarquee();
 })();
 
 function toggleFaq(el) {
