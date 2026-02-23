@@ -119,7 +119,8 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .terminal-body-wrap{display:flex;position:relative}
 .terminal-gutter{padding:16px 0;width:36px;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.3);display:flex;flex-direction:column;align-items:center;gap:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.1);user-select:none}
 .terminal-gutter span{display:block;height:22px;line-height:22px}
-.terminal-body{padding:16px 20px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c9d1d9;max-height:380px;overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.06) transparent;position:relative}
+.terminal-body{padding:16px 20px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c9d1d9;max-height:200px;overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.06) transparent;position:relative;transition:max-height .4s ease}
+.terminal-body.expanded{max-height:450px}
 .terminal-body::-webkit-scrollbar{width:3px}.terminal-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.06)}
 /* Status bar */
 .terminal-statusbar{display:flex;align-items:center;justify-content:space-between;padding:5px 16px;background:rgba(245,73,0,0.06);border-top:1px solid rgba(255,255,255,0.06);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--w40)}
@@ -1052,15 +1053,16 @@ AgentOS
     history.appendChild(div);
   }
 
+  function expandTerminal() {
+    const tb = document.querySelector('.terminal-body');
+    if (tb && !tb.classList.contains('expanded')) tb.classList.add('expanded');
+  }
+
   function scrollTerminal() {
     const tb = document.querySelector('.terminal-body');
-    if (tb) tb.scrollTop = tb.scrollHeight;
-    const tw = document.querySelector('.terminal-window');
-    if (tw) {
-      const r = tw.getBoundingClientRect();
-      if (r.bottom > window.innerHeight || r.top < 0) {
-        tw.scrollIntoView({ behavior:'smooth', block:'center' });
-      }
+    if (tb) {
+      expandTerminal();
+      requestAnimationFrame(() => { tb.scrollTop = tb.scrollHeight; });
     }
   }
 
@@ -1296,11 +1298,13 @@ AgentOS
   setInterval(() => { miniNetData.shift(); miniNetData.push(Math.random()*14+2); renderMiniNet(); }, 1500);
 
 
-  // Click terminal to focus input
+  // Click terminal to focus input + expand
   document.getElementById('terminal')?.addEventListener('click', (e) => {
     if (e.target.closest('.term-chip')) return;
+    expandTerminal();
     input.focus();
   });
+  input.addEventListener('focus', expandTerminal);
 })();
 
 // ===== INTERACTIVE STEPS =====
