@@ -350,6 +350,35 @@ footer{border-top:1px solid var(--border);padding:48px 0 32px}
 nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2s}
 @keyframes navSlideIn{from{opacity:0;transform:translateX(-50%) translateY(-12px)}to{opacity:1;transform:translateX(-50%) translateY(0)}}
 
+/* ===== TERMINAL RICH CARDS ===== */
+.tcard{border:1px solid var(--border);padding:12px 16px;margin:6px 0;max-width:340px;font-size:13px;line-height:1.6;background:rgba(255,255,255,0.02)}
+.tcard-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:600;font-size:13px;color:#e6edf3}
+.tcard-header .tcard-icon{font-size:16px}
+.tcard-row{display:flex;justify-content:space-between;color:var(--w40);font-size:12px}
+.tcard-row span:last-child{color:#e6edf3}
+.tcard-tag{display:inline-block;padding:2px 8px;font-size:10px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-top:8px}
+.tcard-tag.active{border:1px solid #3fb950;color:#3fb950}
+.tcard-tag.sent{border:1px solid #58a6ff;color:#58a6ff}
+.tcard-tag.running{border:1px solid var(--accent);color:var(--accent)}
+.tcard-sms{border-left:2px solid var(--accent);padding:8px 12px;margin:6px 0;max-width:280px;font-size:13px;color:#e6edf3;background:rgba(255,255,255,0.02)}
+.tcard-sms .tcard-to{font-size:11px;color:var(--w40);margin-bottom:4px}
+.tcard-call{border:1px solid var(--border);padding:12px 16px;margin:6px 0;max-width:340px;background:rgba(255,255,255,0.02)}
+.tcard-call-top{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.tcard-call-avatar{width:32px;height:32px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--w40)}
+.tcard-call-info{font-size:13px;color:#e6edf3}
+.tcard-call-info span{display:block;font-size:11px;color:#3fb950}
+.tcard-wave{display:flex;align-items:center;gap:2px;height:20px}
+.tcard-wave i{display:block;width:3px;background:var(--accent);animation:tcWave .6s ease-in-out infinite alternate}
+.tcard-wave i:nth-child(2){animation-delay:.1s}
+.tcard-wave i:nth-child(3){animation-delay:.2s}
+.tcard-wave i:nth-child(4){animation-delay:.3s}
+.tcard-wave i:nth-child(5){animation-delay:.15s}
+.tcard-wave i:nth-child(6){animation-delay:.25s}
+.tcard-wave i:nth-child(7){animation-delay:.05s}
+@keyframes tcWave{0%{height:4px}100%{height:18px}}
+.tcard-email{border:1px solid var(--border);padding:12px 16px;margin:6px 0;max-width:340px;background:rgba(255,255,255,0.02)}
+.tcard-email-subj{font-size:13px;font-weight:600;color:#e6edf3;margin-bottom:6px}
+.tcard-email-meta{font-size:11px;color:var(--w40);line-height:1.6}
 /* ===== TERMINAL TYPING ===== */
 .terminal-body .terminal-line,.terminal-body .t-resp{opacity:0;transform:translateY(6px);animation:termLineIn .4s cubic-bezier(0.22,1,0.36,1) forwards}
 .terminal-body > :nth-child(1){animation-delay:0.6s}
@@ -919,6 +948,7 @@ AgentOS
   let cmdHistory = [];
   let cmdHistoryIdx = -1;
   let busy = false;
+  let userTookOver = false;
 
   // Command definitions with suggested next commands
   const commandList = [
@@ -970,55 +1000,31 @@ AgentOS
     },
     'provision phone': {
       pay:true, payAmount:'2.00', payDesc:'Phone provisioning',
-      result:`+1 (415) 555-1234
-  status: active
-  sms: ✓  voice: ✓  mms: ✓`},
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">📞</span> +1 (415) 555-1234</div><div class="tcard-row"><span>SMS</span><span style="color:#3fb950">✓</span></div><div class="tcard-row"><span>Voice</span><span style="color:#3fb950">✓</span></div><div class="tcard-row"><span>MMS</span><span style="color:#3fb950">✓</span></div><span class="tcard-tag active">active</span></div>`},
     'send sms': {
       pay:true, payAmount:'0.02', payDesc:'Outbound SMS',
-      result:`to: +1 (234) 567-890
-  body: "Hello from AgentOS!"
-  status: delivered`},
+      rich:`<div class="tcard-sms"><div class="tcard-to">→ +1 (234) 567-890</div>Hello from AgentOS! 👋<div style="margin-top:6px"><span class="tcard-tag sent">delivered</span></div></div>`},
     'dial call': {
       pay:true, payAmount:'0.10', payDesc:'Outbound voice call',
-      result:`to: +1 (234) 567-890
-  status: ringing
-  tts: "Hello, this is agent-7k2."`},
+      rich:`<div class="tcard-call"><div class="tcard-call-top"><div class="tcard-call-avatar">📞</div><div class="tcard-call-info">+1 (234) 567-890<span>connected · 0:03</span></div></div><div class="tcard-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div style="font-size:11px;color:var(--w40);margin-top:8px">tts: "Hello, this is agent-7k2."</div></div>`},
     'create inbox': {
       pay:true, payAmount:'0.50', payDesc:'E2E encrypted inbox',
-      result:`inbox: agent-7k2@agntos.dev
-  encrypted: true
-  status: ready`},
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">✉️</span> agent-7k2@agntos.dev</div><div class="tcard-row"><span>Encryption</span><span style="color:#3fb950">E2E ✓</span></div><div class="tcard-row"><span>Storage</span><span>on-chain keys</span></div><span class="tcard-tag active">ready</span></div>`},
     'send email': {
       pay:true, payAmount:'0.01', payDesc:'Outbound email',
-      result:`to: hello@example.com
-  subject: "Hello from my agent"
-  status: sent`},
+      rich:`<div class="tcard-email"><div class="tcard-email-subj">Hello from my agent</div><div class="tcard-email-meta">to: hello@example.com<br>from: agent-7k2@agntos.dev</div><div style="margin-top:8px"><span class="tcard-tag sent">sent</span></div></div>`},
     'create server': {
       pay:true, payAmount:'5.00', payDesc:'Cloud server (cx23)',
-      result:`type: cx23 — 2 vCPU, 4GB RAM
-  ip: 89.167.36.207
-  status: running
-  ssh: root@89.167.36.207`},
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">🖥️</span> cx23 — 2 vCPU, 4GB RAM</div><div class="tcard-row"><span>IP</span><span>89.167.36.207</span></div><div class="tcard-row"><span>SSH</span><span>root@89.167.36.207</span></div><div class="tcard-row"><span>Location</span><span>Helsinki</span></div><span class="tcard-tag running">running</span></div>`},
     'register domain': {
       pay:true, payAmount:'12.00', payDesc:'Domain (.dev, 1yr)',
-      result:`domain: myagent.dev
-  status: registered
-  expires: 2027-02-22`},
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">🌐</span> myagent.dev</div><div class="tcard-row"><span>Registrar</span><span>Cloudflare</span></div><div class="tcard-row"><span>Expires</span><span>2027-02-22</span></div><div class="tcard-row"><span>DNS</span><span style="color:#3fb950">configured</span></div><span class="tcard-tag active">registered</span></div>`},
     'check domain': {
-      result:`myagent.dev  — available — 12.00 USDC
-  myagent.com  — taken
-  myagent.ai   — available — 48.00 USDC`, success:true },
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">🔍</span> Domain search</div><div class="tcard-row"><span>myagent.dev</span><span style="color:#3fb950">available · 12 USDC</span></div><div class="tcard-row"><span>myagent.com</span><span style="color:#f85149">taken</span></div><div class="tcard-row"><span>myagent.ai</span><span style="color:#3fb950">available · 48 USDC</span></div></div>`, success:true },
     'status': {
-      result:`agent: agent-7k2
-  balance: 47.50 USDC
-  phone: +1 (415) 555-1234
-  email: agent-7k2@agntos.dev
-  servers: 1 running`, success:true },
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">⚡</span> agent-7k2</div><div class="tcard-row"><span>Balance</span><span style="color:#3fb950">47.50 USDC</span></div><div class="tcard-row"><span>Phone</span><span>+1 (415) 555-1234</span></div><div class="tcard-row"><span>Email</span><span>agent-7k2@agntos.dev</span></div><div class="tcard-row"><span>Servers</span><span>1 running</span></div><div class="tcard-row"><span>Uptime</span><span>3d 14h</span></div></div>`, success:true },
     'whoami': {
-      result:`agent: agent-7k2
-  wallet: B1YEbo...kqLXCwLs3Ez8oX3
-  auth: x402
-  chains: solana, base`, success:true },
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">🤖</span> agent-7k2</div><div class="tcard-row"><span>Wallet</span><span>B1YE...8oX3</span></div><div class="tcard-row"><span>Auth</span><span>x402</span></div><div class="tcard-row"><span>Chains</span><span>Solana, Base</span></div></div>`, success:true },
     'pricing': {
       text: `<span style="color:var(--accent);font-weight:700">PRICING</span> <span style="color:var(--w40)">(USDC)</span>
   Send SMS ·················· <span style="color:#e6edf3">$0.02</span>
@@ -1090,18 +1096,20 @@ AgentOS
     onCommandDone = callback || null;
     let ci = 0;
     input.value = '';
-    const typeInterval = setInterval(() => {
-      input.value += cmd[ci++];
-      updateGhost();
+    function typeNext() {
       if (ci >= cmd.length) {
-        clearInterval(typeInterval);
         setTimeout(() => {
           runCommand(cmd);
           input.value = '';
           ghost.textContent = '';
         }, 300);
+        return;
       }
-    }, 40 + Math.random() * 30);
+      input.value += cmd[ci++];
+      updateGhost();
+      setTimeout(typeNext, 40 + Math.random() * 30);
+    }
+    typeNext();
   }
 
   function runCommand(cmd) {
@@ -1132,7 +1140,12 @@ AgentOS
         addLine(`<span style="color:var(--w40)">→ paid</span>`, 't-out');
         bumpReqCount();
         setTimeout(() => {
-          addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
+          if (match.rich) {
+            addLine(`<span class="t-status-ok">200 OK</span>`, 't-out success');
+            addLine(match.rich, '');
+          } else {
+            addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
+          }
           scrollTerminal(); updateGutter();
           const next = nextSuggestions[cmd];
           if (next) showChips(next);
@@ -1147,7 +1160,12 @@ AgentOS
     } else {
       bumpReqCount();
       suggestions.innerHTML = '';
-      addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
+      if (match.rich) {
+        addLine(`<span class="t-status-ok">200 OK</span>`, 't-out success');
+        addLine(match.rich, '');
+      } else {
+        addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
+      }
       scrollTerminal(); updateGutter();
       const next = nextSuggestions[cmd];
       if (next) showChips(next);
@@ -1293,7 +1311,6 @@ AgentOS
   renderMiniNet();
   setInterval(() => { miniNetData.shift(); miniNetData.push(Math.random()*14+2); renderMiniNet(); }, 1500);
 
-  let userTookOver = false;
 
   // Click terminal to focus input
   document.getElementById('terminal')?.addEventListener('click', (e) => {
