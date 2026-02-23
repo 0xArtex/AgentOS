@@ -352,6 +352,9 @@ nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2
 
 /* ===== TERMINAL RICH CARDS ===== */
 .tcard{border:1px solid var(--border);padding:12px 16px;margin:6px 0;max-width:340px;font-size:13px;line-height:1.6;background:rgba(255,255,255,0.02)}
+.tcard-pay{display:flex;align-items:center;gap:8px;font-size:10px;color:var(--w40);margin-bottom:8px;letter-spacing:0.02em}
+.tcard-pay .tp-amount{color:var(--accent);font-weight:600}
+.tcard-pay .tp-ok{color:#3fb950;font-weight:600}
 .tcard-header{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-weight:600;font-size:13px;color:#e6edf3}
 .tcard-header .tcard-icon{font-size:16px}
 .tcard-row{display:flex;justify-content:space-between;color:var(--w40);font-size:12px}
@@ -1119,25 +1122,25 @@ AgentOS
     if (match.pay) {
       bumpReqCount();
       suggestions.innerHTML = '';
-      addLine(`<span style="color:var(--w40)">402 — ${match.payAmount} USDC</span>`, 't-out');
       scrollTerminal();
 
       setTimeout(() => {
-        addLine(`<span style="color:var(--w40)">→ paid</span>`, 't-out');
         bumpReqCount();
-        setTimeout(() => {
-          if (match.rich) {
-            addLine(`<span class="t-status-ok">200 OK</span>`, 't-out success');
-            addLine(match.rich, '');
-          } else {
-            addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
-          }
-          scrollTerminal(); updateGutter();
-          const next = nextSuggestions[cmd];
-          if (next) showChips(next);
-          busy = false; if (onCommandDone) { const cb = onCommandDone; onCommandDone = null; cb(); }
-        }, 400);
-      }, 600);
+        const payStrip = `<div class="tcard-pay"><span class="tp-amount">402 · ${match.payAmount} USDC</span><span>→ paid</span><span class="tp-ok">200 OK</span></div>`;
+        if (match.rich) {
+          // Inject pay strip at the top of the card
+          const card = match.rich.replace(/^<div class="tcard/, '<div class="tcard');
+          const firstClose = card.indexOf('>') + 1;
+          const enriched = card.slice(0, firstClose) + payStrip + card.slice(firstClose);
+          addLine(enriched, '');
+        } else {
+          addLine(payStrip + `<div style="font-size:12px;color:var(--w60);white-space:pre-wrap">${match.result}</div>`, 't-out success');
+        }
+        scrollTerminal(); updateGutter();
+        const next = nextSuggestions[cmd];
+        if (next) showChips(next);
+        busy = false; if (onCommandDone) { const cb = onCommandDone; onCommandDone = null; cb(); }
+      }, 800);
     } else if (match.text) {
       addLine(`<pre style="margin:0;white-space:pre-wrap;font:inherit">${match.text}</pre>`, 't-out' + (match.success ? ' success' : ''));
       const next = nextSuggestions[cmd];
