@@ -92,42 +92,43 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .hero-stats .stat-lbl{font-size:12px;color:var(--w40);text-transform:uppercase;letter-spacing:0.08em;margin-top:4px}
 
 /* ===== TERMINAL ===== */
-.terminal-wrap{max-width:860px;margin:0 auto;position:relative;perspective:1200px}
-.terminal-window{position:relative;z-index:1;background:#080c14;border-radius:16px;overflow:hidden;transform:rotateX(2deg) rotateY(0deg);transform-style:preserve-3d;transition:transform .4s cubic-bezier(0.22,1,0.36,1);box-shadow:0 30px 80px -20px rgba(0,0,0,0.8),0 0 0 1px rgba(255,255,255,0.06),inset 0 1px 0 rgba(255,255,255,0.05)}
-.terminal-window:hover{transform:rotateX(0deg) rotateY(0deg)}
-/* Scanline overlay */
-.terminal-window::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:10;background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);mix-blend-mode:multiply}
-/* Animated border glow */
-.terminal-window::before{content:'';position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from var(--angle,0deg),rgba(245,73,0,0) 0%,rgba(245,73,0,0.3) 12%,rgba(59,130,246,0.2) 25%,rgba(245,73,0,0) 37%,rgba(16,185,129,0.2) 50%,rgba(245,73,0,0) 62%,rgba(168,85,247,0.2) 75%,rgba(245,73,0,0.3) 87%,rgba(245,73,0,0) 100%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:rotateBorder 8s linear infinite;pointer-events:none;opacity:0.7}
-/* Header with tabs */
-.terminal-header{display:flex;align-items:center;background:rgba(255,255,255,0.02);padding:0;border-bottom:1px solid rgba(255,255,255,0.06)}
-.terminal-header-left{display:flex;align-items:center;padding:14px 16px;gap:8px}
-.terminal-buttons{display:flex;gap:7px}
-.terminal-btn{width:11px;height:11px;border-radius:50%;transition:all .15s}
-.terminal-btn.r{background:#ff5f57}.terminal-btn.y{background:#febc2e}.terminal-btn.g{background:#28c840}
-.terminal-btn:hover{transform:scale(1.2)}
+.terminal-wrap{max-width:900px;margin:0 auto;position:relative}
+.terminal-window{position:relative;z-index:1;background:#06080c;border:1px solid rgba(255,255,255,0.08);overflow:hidden;border-radius:0}
+.terminal-window::after{content:'';position:absolute;inset:0;pointer-events:none;z-index:10;background:repeating-linear-gradient(0deg,transparent,transparent 3px,rgba(0,0,0,0.015) 3px,rgba(0,0,0,0.015) 4px)}
+/* Header */
+.terminal-header{display:flex;align-items:center;background:rgba(255,255,255,0.02);padding:0;border-bottom:1px solid rgba(255,255,255,0.08)}
+.terminal-header-left{display:flex;align-items:center;padding:12px 16px;gap:10px}
+.terminal-buttons{display:flex;gap:2px}
+.terminal-btn{width:10px;height:10px;border-radius:0;transition:all .15s;border:1px solid rgba(255,255,255,0.1);background:transparent}
+.terminal-btn.r{border-color:#ff5f57;background:rgba(255,95,87,0.2)}.terminal-btn.y{border-color:#febc2e;background:rgba(254,188,46,0.2)}.terminal-btn.g{border-color:#28c840;background:rgba(40,200,64,0.2)}
+.terminal-btn:hover{transform:none;opacity:0.7}
 .terminal-tabs{display:flex;flex:1;overflow:hidden}
-.terminal-tab{padding:10px 20px;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--w40);border-right:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:8px;white-space:nowrap}
-.terminal-tab.active{background:rgba(245,73,0,0.06);color:var(--accent)}
-.terminal-tab .tab-dot{width:6px;height:6px;border-radius:50%;background:currentColor;opacity:0.5}
-.terminal-tab.active .tab-dot{opacity:1;animation:pulse 2s infinite}
-.terminal-header-right{padding:14px 16px;display:flex;align-items:center;gap:12px}
+.terminal-tab{padding:10px 20px;font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--w40);border-right:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:8px;white-space:nowrap;position:relative}
+.terminal-tab::after{content:'';position:absolute;bottom:0;left:0;right:0;height:2px;background:var(--accent);transform:scaleX(0);transition:transform .2s}
+.terminal-tab.active{color:var(--accent)}
+.terminal-tab.active::after{transform:scaleX(1)}
+.terminal-tab .tab-dot{width:5px;height:5px;border-radius:0;background:currentColor;opacity:0.5}
+.terminal-tab.active .tab-dot{opacity:1;background:var(--accent);animation:pulse 2s infinite}
+.terminal-header-right{padding:12px 16px;display:flex;align-items:center;gap:14px}
 .terminal-status{display:flex;align-items:center;gap:6px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--w40)}
-.terminal-status .status-dot{width:6px;height:6px;border-radius:50%;background:#3fb950;animation:pulse 2s infinite}
-/* Body with line numbers gutter */
+.terminal-status .status-dot{width:5px;height:5px;border-radius:0;background:#3fb950;animation:pulse 2s infinite}
+/* Network graph */
+.term-net{display:flex;align-items:flex-end;gap:1px;height:16px}
+.term-net span{width:2px;background:var(--accent);opacity:0.4;transition:height .3s;border-radius:0}
+/* Body */
 .terminal-body-wrap{display:flex;position:relative}
-.terminal-gutter{padding:20px 0;width:40px;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.04);background:rgba(0,0,0,0.2);display:flex;flex-direction:column;align-items:center;gap:0;font-family:'JetBrains Mono',monospace;font-size:11px;color:rgba(255,255,255,0.12);user-select:none;counter-reset:line}
-.terminal-gutter span{display:block;height:22.1px;line-height:22.1px}
-.terminal-body{padding:20px 24px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c9d1d9;max-height:340px;overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.08) transparent;position:relative}
-.terminal-body::-webkit-scrollbar{width:4px}.terminal-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.08);border-radius:2px}
+.terminal-gutter{padding:16px 0;width:36px;flex-shrink:0;border-right:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.3);display:flex;flex-direction:column;align-items:center;gap:0;font-family:'JetBrains Mono',monospace;font-size:10px;color:rgba(255,255,255,0.1);user-select:none}
+.terminal-gutter span{display:block;height:22px;line-height:22px}
+.terminal-body{padding:16px 20px;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;color:#c9d1d9;max-height:380px;overflow-y:auto;flex:1;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,0.06) transparent;position:relative}
+.terminal-body::-webkit-scrollbar{width:3px}.terminal-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.06)}
 /* Status bar */
-.terminal-statusbar{display:flex;align-items:center;justify-content:space-between;padding:6px 16px;background:rgba(245,73,0,0.08);border-top:1px solid rgba(255,255,255,0.04);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--w40)}
+.terminal-statusbar{display:flex;align-items:center;justify-content:space-between;padding:5px 16px;background:rgba(245,73,0,0.06);border-top:1px solid rgba(255,255,255,0.06);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--w40)}
 .terminal-statusbar .sb-left{display:flex;align-items:center;gap:12px}
 .terminal-statusbar .sb-right{display:flex;align-items:center;gap:12px}
-.sb-tag{padding:1px 6px;border-radius:3px;background:rgba(245,73,0,0.15);color:var(--accent);font-weight:500}
-/* Activity indicator */
-.terminal-activity{display:flex;align-items:flex-end;gap:2px;height:12px}
-.terminal-activity span{width:2px;background:var(--accent);border-radius:1px;animation:eqBar 0.8s ease-in-out infinite alternate}
+.sb-tag{padding:1px 6px;background:rgba(245,73,0,0.15);color:var(--accent);font-weight:600;border-radius:0}
+/* Activity bars */
+.terminal-activity{display:flex;align-items:flex-end;gap:1px;height:12px}
+.terminal-activity span{width:2px;background:var(--accent);animation:eqBar 0.8s ease-in-out infinite alternate;border-radius:0}
 .terminal-activity span:nth-child(1){height:4px;animation-delay:0s}
 .terminal-activity span:nth-child(2){height:8px;animation-delay:0.15s}
 .terminal-activity span:nth-child(3){height:5px;animation-delay:0.3s}
@@ -135,22 +136,51 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .terminal-activity span:nth-child(5){height:6px;animation-delay:0.6s}
 @keyframes eqBar{0%{height:3px}100%{height:12px}}
 /* Input line */
-.terminal-input-line{display:flex;align-items:center;gap:8px;margin-top:4px}
+.terminal-input-line{display:flex;align-items:center;gap:8px;margin-top:4px;position:relative}
 .terminal-input{background:none;border:none;outline:none;color:#e6edf3;font-family:'JetBrains Mono',monospace;font-size:13px;flex:1;caret-color:var(--accent)}
-.terminal-input::placeholder{color:rgba(255,255,255,0.15)}
+.terminal-input::placeholder{color:rgba(255,255,255,0.12)}
+.terminal-ghost{position:absolute;left:0;top:0;pointer-events:none;color:rgba(255,255,255,0.12);font-family:'JetBrains Mono',monospace;font-size:13px;white-space:nowrap;height:100%;display:flex;align-items:center}
+.term-suggestions{display:flex;flex-wrap:wrap;gap:6px;padding:8px 20px 4px;min-height:0}
+.term-chip{font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 12px;border:1px solid rgba(255,255,255,0.06);color:var(--w40);cursor:pointer;transition:all .15s;background:rgba(255,255,255,0.02);user-select:none}
+.term-chip:hover{border-color:var(--accent);color:var(--accent);background:rgba(245,73,0,0.06)}
+.term-chip.popular{border-color:rgba(245,73,0,0.2);color:rgba(255,255,255,0.5)}
+.term-welcome{font-size:12px;line-height:1.8;color:var(--w40);margin-bottom:8px}
+.term-welcome .tw-accent{color:var(--accent);font-weight:600}
+.term-welcome .tw-dim{color:rgba(255,255,255,0.15)}
 .prompt{color:var(--accent);font-weight:600}
 .prompt-user{color:#79c0ff}.prompt-at{color:var(--w40)}.prompt-path{color:#7ee787}
 /* Output styles */
-.t-cmd{color:#e6edf3;margin-bottom:4px}
-.t-cmd .prompt{color:var(--accent);font-weight:600}
-.t-out{border-left:2px solid rgba(255,255,255,0.06);padding:8px 0 8px 14px;margin:4px 0 12px;color:#8b949e;font-size:12px;line-height:1.7;animation:termFadeIn .3s cubic-bezier(0.22,1,0.36,1);position:relative}
-.t-out::before{content:'';position:absolute;left:0;top:0;bottom:0;width:2px;border-radius:1px}
-.t-out.success{border-left-color:transparent;background:linear-gradient(90deg,rgba(245,73,0,0.04),transparent 80%)}
-.t-out.success::before{background:linear-gradient(to bottom,var(--accent),rgba(245,73,0,0.3))}
-.t-out .t-status-ok{color:#3fb950;font-weight:600;text-shadow:0 0 12px rgba(63,185,80,0.3)}.t-out .t-status-pay{color:#f85149;font-weight:600;text-shadow:0 0 12px rgba(248,81,73,0.3)}
-@keyframes termFadeIn{from{opacity:0;transform:translateX(-8px)}to{opacity:1;transform:translateX(0)}}
-.cursor{animation:cursorBlink 1s step-end infinite}
-@keyframes cursorBlink{0%,50%{opacity:1;background:var(--accent);color:var(--accent)}51%,100%{opacity:0}}
+.t-cmd{color:#e6edf3;margin-bottom:2px}
+.t-out{padding:4px 0 4px 0;margin:2px 0 8px;color:var(--w60);font-size:12px;line-height:1.7;animation:termFadeIn .25s ease-out;white-space:pre-wrap}
+.t-out.success{border-left:2px solid rgba(255,255,255,0.06);padding-left:12px}
+.t-out .t-status-ok{color:var(--w60);font-weight:600}.t-out .t-status-pay{color:var(--w40);font-weight:600}
+@keyframes termFadeIn{from{opacity:0;transform:translateX(-4px)}to{opacity:1;transform:translateX(0)}}
+.cursor{animation:cursorBlink 0.6s step-end infinite}
+@keyframes cursorBlink{0%,50%{opacity:1;background:var(--accent)}51%,100%{opacity:0}}
+/* Spinner */
+.term-spinner{display:inline-block;width:12px;height:12px;border:2px solid rgba(255,255,255,0.1);border-top-color:var(--accent);border-radius:0;animation:termSpin 0.6s linear infinite;vertical-align:middle;margin-right:8px}
+@keyframes termSpin{to{transform:rotate(360deg)}}
+/* Progress bar */
+.term-progress{height:2px;background:rgba(255,255,255,0.06);margin:8px 0;position:relative;overflow:hidden}
+.term-progress-bar{height:100%;background:var(--accent);transition:width .4s ease-out}
+.term-progress-bar::after{content:'';position:absolute;top:0;right:0;bottom:0;width:40px;background:linear-gradient(90deg,transparent,rgba(245,73,0,0.4));animation:progressShine 1s ease-in-out infinite}
+@keyframes progressShine{0%,100%{opacity:0}50%{opacity:1}}
+/* Tab content areas */
+.tab-content{display:none}.tab-content.active{display:block}
+/* Logs tab */
+.log-line{font-size:11px;line-height:1.8;opacity:0;animation:logIn .3s forwards}
+.log-line .log-time{color:rgba(255,255,255,0.2)}.log-line .log-method{color:var(--accent);font-weight:700}
+.log-line .log-ok{color:#3fb950}.log-line .log-err{color:#f85149}.log-line .log-path{color:#79c0ff}
+@keyframes logIn{to{opacity:1}}
+/* Network tab */
+.net-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:16px}
+.net-stat{padding:12px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.01)}
+.net-stat-label{font-size:10px;color:var(--w40);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:4px}
+.net-stat-value{font-size:18px;font-weight:700;color:#e6edf3;font-family:'JetBrains Mono',monospace}
+.net-stat-value .accent{color:var(--accent)}
+.net-graph-container{border:1px solid rgba(255,255,255,0.06);padding:12px;height:80px;position:relative}
+.net-graph{display:flex;align-items:flex-end;gap:2px;height:100%}
+.net-graph-bar{flex:1;background:var(--accent);opacity:0.6;transition:height .5s ease-out;min-height:2px}
 
 /* ===== LOGO STRIP ===== */
 .logos{padding:72px 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border)}
@@ -168,16 +198,51 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .section-center h2,.section-center .section-sub{margin-left:auto;margin-right:auto}
 
 /* ===== FEATURES GRID ===== */
-.features-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
-.feature-card{padding:40px;position:relative;transition:all .3s}
-.feature-card:hover{transform:translateY(-4px)}
+.features-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:2px;background:rgba(255,255,255,0.04)}
+.feature-card{padding:0;position:relative;transition:all .3s;background:var(--bg);overflow:hidden}
+.feature-card:hover{z-index:2}
 .feature-card{display:flex;flex-direction:column}
-.feature-icon{width:48px;height:48px;margin-bottom:20px;display:flex;align-items:center;justify-content:center;border-radius:12px;background:rgba(245,73,0,0.1);border:1px solid rgba(245,73,0,0.15);color:var(--accent)}
-.feature-card h3{font-size:20px;font-weight:600;margin-bottom:10px;letter-spacing:-0.02em}
-.feature-card p{font-size:14px;color:var(--w80);line-height:1.7}
-.feature-code{flex:1}
-.feature-code{margin-top:24px;font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--w60);line-height:1.8;padding:20px;background:rgba(0,0,0,0.4);border-radius:8px;border:1px solid var(--border)}
-.feature-code .hl{color:var(--accent)}
+.feature-card-inner{padding:36px 32px;flex:1;display:flex;flex-direction:column}
+.feature-card-top{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.feature-icon{width:36px;height:36px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.1);color:var(--accent);flex-shrink:0;background:rgba(255,255,255,0.02)}
+.feature-powered{position:absolute;bottom:16px;right:16px;display:flex;align-items:center;gap:5px;font-size:9px;color:rgba(255,255,255,0.15);letter-spacing:0.03em}
+.feature-powered img{height:10px;opacity:0.2;filter:grayscale(1) brightness(2)}
+.feature-card h3{font-size:18px;font-weight:600;letter-spacing:-0.02em;margin:0}
+.feature-card p{font-size:13px;color:var(--w60);line-height:1.7;margin-bottom:auto}
+/* ===== CREATE AGENT ===== */
+.ca-layout{display:grid;grid-template-columns:1fr 1fr;gap:2px;max-width:900px;margin:0 auto}
+.ca-left,.ca-right{background:#06080c;border:1px solid rgba(255,255,255,0.06);padding:32px}
+.ca-label{font-size:10px;letter-spacing:0.12em;text-transform:uppercase;color:var(--w40);margin-bottom:20px;font-weight:500}
+.ca-code-block{font-family:'JetBrains Mono',monospace;font-size:13px;line-height:2;padding:20px;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.04)}
+.ca-price-row{display:flex;align-items:center;justify-content:space-between;margin-top:24px;padding-top:20px;border-top:1px solid rgba(255,255,255,0.06)}
+.ca-price-big{font-family:'JetBrains Mono',monospace;font-size:28px;font-weight:700;color:var(--accent)}
+.ca-items{display:flex;flex-direction:column;gap:0}
+.ca-item{display:flex;align-items:center;gap:14px;padding:12px 0;border-bottom:1px solid rgba(255,255,255,0.04);transition:all .4s}
+.ca-item:last-child{border-bottom:none}
+.ca-item-icon{width:22px;height:22px;display:flex;align-items:center;justify-content:center;border:1px solid rgba(255,255,255,0.1);font-size:11px;color:var(--w40);flex-shrink:0;transition:all .3s;font-family:'JetBrains Mono',monospace}
+.ca-item.done .ca-item-icon{border-color:#3fb950;color:#3fb950;background:rgba(63,185,80,0.1)}
+.ca-item.done .ca-item-title{color:#e6edf3}
+.ca-item-info{flex:1}
+.ca-item-title{font-size:14px;font-weight:600;color:var(--w60);transition:color .3s}
+.ca-item-desc{font-size:12px;color:var(--w40);margin-top:2px}
+
+.feature-code{margin-top:auto;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--w40);line-height:1.8;padding:16px;background:rgba(0,0,0,0.5);border:1px solid rgba(255,255,255,0.04)}
+.feature-code .hl{color:var(--accent);font-weight:700}
+.feature-demo{margin-top:auto;font-family:'JetBrains Mono',monospace;font-size:11px;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.4)}
+.fd-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--w40);font-size:11px}
+.fd-method{color:var(--accent);font-weight:700;font-size:10px;padding:1px 6px;border:1px solid rgba(245,73,0,0.2);margin-right:4px}
+.fd-run{margin-left:auto;padding:3px 12px;border:1px solid rgba(255,255,255,0.1);color:#e6edf3;cursor:pointer;font-size:10px;font-weight:600;transition:all .15s;user-select:none}
+.fd-run:hover{border-color:var(--accent);color:var(--accent);background:rgba(245,73,0,0.06)}
+.fd-run.running{pointer-events:none;color:var(--w40);border-color:rgba(255,255,255,0.04)}
+.fd-output{padding:12px;min-height:60px;line-height:1.6;transition:all .3s}
+.fd-output .fd-status{font-weight:700;font-size:10px;margin-bottom:6px}
+.fd-output .fd-status.pay{color:#f85149}
+.fd-output .fd-status.ok{color:#3fb950}
+.feature-tag{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--w40);border:1px solid rgba(255,255,255,0.06);letter-spacing:0.05em;text-transform:uppercase;margin-top:16px;width:fit-content}
+.feature-tag .ft-dot{width:5px;height:5px;background:var(--accent)}
+.feature-card:hover .feature-icon{border-color:var(--accent);background:rgba(245,73,0,0.08)}
+.feature-card::after{content:'';position:absolute;inset:0;opacity:0;transition:opacity .4s;background:linear-gradient(135deg,rgba(245,73,0,0.03) 0%,transparent 50%);pointer-events:none}
+.feature-card:hover::after{opacity:1}
 
 /* ===== HOW IT WORKS ===== */
 .steps{display:grid;grid-template-columns:1fr 1fr;gap:64px;align-items:start}
@@ -211,6 +276,13 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .pricing-card ul{list-style:none;display:flex;flex-direction:column;gap:12px;flex:1}
 .pricing-card li{font-size:14px;color:var(--w60);display:flex;align-items:flex-start;gap:10px}
 .pricing-card li::before{content:'';width:16px;height:16px;flex-shrink:0;margin-top:2px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f54900' stroke-width='2'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center/contain no-repeat}
+.calc-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:all .15s;font-size:14px;color:var(--w60)}
+.calc-row:hover{color:#e6edf3}
+.calc-row input[type=checkbox]{appearance:none;width:16px;height:16px;border:1px solid rgba(255,255,255,0.15);background:transparent;cursor:pointer;flex-shrink:0;position:relative;transition:all .15s}
+.calc-row input[type=checkbox]:checked{border-color:var(--accent);background:rgba(245,73,0,0.15)}
+.calc-row input[type=checkbox]:checked::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:11px;font-weight:700}
+.calc-name{flex:1}
+.calc-price{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--w40)}
 
 /* ===== RESOURCES ===== */
 .resources-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
@@ -296,7 +368,7 @@ nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2
 @keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
 .logos-track{display:flex;align-items:center;animation:marquee 20s linear infinite;width:max-content}
 .logos-track:hover{animation-play-state:paused}
-.logos-set{display:flex;align-items:center;gap:80px;padding-right:80px}
+.logos-set{display:inline-flex;align-items:center;gap:80px;padding-right:80px;flex-shrink:0}
 .logos-row{position:relative}
 .logos-row::before,.logos-row::after{content:'';position:absolute;top:0;bottom:0;width:120px;z-index:2;pointer-events:none}
 .logos-row::before{left:0;background:linear-gradient(90deg,var(--bg),transparent)}
@@ -306,8 +378,8 @@ nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2
 .logo-item span{font-size:15px;font-weight:600;color:rgba(255,255,255,0.35);letter-spacing:-0.01em}
 
 /* ===== CARD SHINE ON HOVER ===== */
-.feature-card::after,.resource-card::after,.pricing-card::after{content:'';position:absolute;inset:0;border-radius:inherit;opacity:0;transition:opacity .4s;background:linear-gradient(135deg,rgba(245,73,0,0.04) 0%,transparent 50%);pointer-events:none}
-.feature-card:hover::after,.resource-card:hover::after,.pricing-card:hover::after{opacity:1}
+.resource-card::after,.pricing-card::after{content:'';position:absolute;inset:0;border-radius:inherit;opacity:0;transition:opacity .4s;background:linear-gradient(135deg,rgba(245,73,0,0.04) 0%,transparent 50%);pointer-events:none}
+.resource-card:hover::after,.pricing-card:hover::after{opacity:1}
 
 /* ===== SMOOTH SECTION DIVIDER ===== */
 .section-divider{height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);margin:0 auto;max-width:600px}
@@ -323,9 +395,10 @@ nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2
 
 /* ===== RESPONSIVE ===== */
 @media(max-width:960px){
+.ca-layout{grid-template-columns:1fr}
 .features-grid{grid-template-columns:1fr}
 .pricing-grid{grid-template-columns:1fr !important}
-.features-grid .feature-card:first-child{grid-row:auto}
+.features-grid{gap:1px}
 .resources-grid{grid-template-columns:1fr 1fr}
 .steps{grid-template-columns:1fr}
 .steps-visual{display:none}
@@ -391,23 +464,46 @@ AgentOS
 <div class="terminal-buttons"><span class="terminal-btn r"></span><span class="terminal-btn y"></span><span class="terminal-btn g"></span></div>
 </div>
 <div class="terminal-tabs">
-<div class="terminal-tab active"><span class="tab-dot"></span>agent@agntos.dev</div>
-<div class="terminal-tab">x402-payments</div>
-<div class="terminal-tab">logs</div>
+<div class="terminal-tab active" data-tab="shell"><span class="tab-dot"></span>shell</div>
+<div class="terminal-tab" data-tab="logs"><span class="tab-dot"></span>logs</div>
+<div class="terminal-tab" data-tab="network"><span class="tab-dot"></span>network</div>
 </div>
 <div class="terminal-header-right">
-<div class="terminal-activity"><span></span><span></span><span></span><span></span><span></span></div>
-<div class="terminal-status"><span class="status-dot"></span>connected</div>
+<div class="term-net" id="term-net"></div>
+<div class="terminal-status"><span class="status-dot"></span><span id="term-status-text">connected</span></div>
 </div>
 </div>
+<!-- SHELL TAB -->
+<div class="tab-content active" data-tab="shell">
 <div class="terminal-body-wrap">
 <div class="terminal-gutter" id="terminal-gutter"></div>
 <div class="terminal-body" id="terminal">
 <div id="terminal-history"></div>
+<div id="term-suggestions" class="term-suggestions"></div>
 <div class="terminal-input-line">
 <span class="prompt-user">agent</span><span class="prompt-at">@</span><span class="prompt-path">agntos</span><span style="color:var(--w40);margin:0 6px">›</span>
-<input type="text" id="terminal-input" class="terminal-input" placeholder="type a command..." autocomplete="off" spellcheck="false">
+<div style="position:relative;flex:1;display:flex;align-items:center">
+<span id="term-ghost" class="terminal-ghost"></span>
+<input type="text" id="terminal-input" class="terminal-input" placeholder="type a command or click below..." autocomplete="off" spellcheck="false">
 </div>
+</div>
+</div>
+</div>
+</div>
+<!-- LOGS TAB -->
+<div class="tab-content" data-tab="logs">
+<div class="terminal-body" id="logs-body" style="max-height:380px;min-height:200px"></div>
+</div>
+<!-- NETWORK TAB -->
+<div class="tab-content" data-tab="network">
+<div class="terminal-body" style="max-height:380px;min-height:200px;padding:20px">
+<div class="net-stats">
+<div class="net-stat"><div class="net-stat-label">requests / min</div><div class="net-stat-value" id="net-rpm">0</div></div>
+<div class="net-stat"><div class="net-stat-label">avg latency</div><div class="net-stat-value" id="net-latency"><span class="accent">--</span>ms</div></div>
+<div class="net-stat"><div class="net-stat-label">uptime</div><div class="net-stat-value" id="net-uptime">99.9<span class="accent">%</span></div></div>
+</div>
+<div style="font-size:10px;color:var(--w40);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px">Traffic — last 60s</div>
+<div class="net-graph-container"><div class="net-graph" id="net-graph"></div></div>
 </div>
 </div>
 <div class="terminal-statusbar">
@@ -418,7 +514,7 @@ AgentOS
 <span>base mainnet</span>
 </div>
 <div class="sb-right">
-<span>UTF-8</span>
+<span id="term-req-count">0 requests</span>
 <span>·</span>
 <span id="term-line-count">Ln 1</span>
 </div>
@@ -436,7 +532,7 @@ AgentOS
 <div class="logos-track">
 <div class="logos-set">
 <div class="logo-item"><img src="/assets/logos/solana-logotype.svg" alt="Solana" style="height:16px;opacity:0.45"></div>
-<div class="logo-item"><img src="/assets/logos/cloudflare-full.svg" alt="Cloudflare" style="height:20px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
+<div class="logo-item"><img src="/assets/logos/cloudflare.png" alt="Cloudflare" style="height:20px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
 <div class="logo-item"><span style="font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;color:rgba(255,255,255,0.35);letter-spacing:-0.05em">x402</span></div>
 <div class="logo-item"><img src="/assets/logos/base.svg" alt="Base" style="height:20px;opacity:0.5;filter:grayscale(1) brightness(2)"></div>
 <div class="logo-item"><img src="/assets/logos/telnyx.png" alt="Telnyx" style="height:18px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
@@ -445,7 +541,7 @@ AgentOS
 </div>
 <div class="logos-set" aria-hidden="true">
 <div class="logo-item"><img src="/assets/logos/solana-logotype.svg" alt="Solana" style="height:16px;opacity:0.45"></div>
-<div class="logo-item"><img src="/assets/logos/cloudflare-full.svg" alt="Cloudflare" style="height:20px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
+<div class="logo-item"><img src="/assets/logos/cloudflare.png" alt="Cloudflare" style="height:20px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
 <div class="logo-item"><span style="font-family:'JetBrains Mono',monospace;font-size:17px;font-weight:700;color:rgba(255,255,255,0.35);letter-spacing:-0.05em">x402</span></div>
 <div class="logo-item"><img src="/assets/logos/base.svg" alt="Base" style="height:20px;opacity:0.5;filter:grayscale(1) brightness(2)"></div>
 <div class="logo-item"><img src="/assets/logos/telnyx.png" alt="Telnyx" style="height:18px;opacity:0.45;filter:grayscale(1) brightness(1.5)"></div>
@@ -462,42 +558,77 @@ AgentOS
 <div class="container">
 <div class="section-label reveal">What your agent gets</div>
 <h2 class="reveal">Everything it needs<br>to work on its own.</h2>
-<p class="section-sub reveal">One API. Your agent calls it, pays with USDC, and gets what it asked for. Phone numbers, emails, servers — all of it.</p>
+<p class="section-sub reveal">One API. Your agent calls it, pays with crypto, and gets what it asked for.</p>
 <div class="features-grid">
-<div class="feature-card glow-border reveal">
-<div class="feature-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></div>
-<h3>Phone numbers & voice calls</h3>
-<p>Your agent gets a real phone number. It can send texts, make calls, and talk to people using text-to-speech. Works in 48 countries.</p>
+
+<div class="feature-card reveal">
+<div class="feature-card-inner">
+<div class="feature-powered">powered by <img src="/assets/logos/telnyx.png" alt="Telnyx"></div>
+<div class="feature-card-top">
+<div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></div>
+<h3>Phone numbers & voice</h3>
+</div>
+<p>Real phone numbers with SMS, MMS, and voice calling. Your agent can talk to humans using text-to-speech. Works in 180+ countries.</p>
+<div class="feature-tag"><span class="ft-dot"></span>180+ countries</div>
 <div class="feature-code">
-<div><span class="hl">POST</span> /phone/numbers</div>
-<div>→ +1 (470) 555-0963</div>
-<div>&nbsp;&nbsp;status: active</div>
-<div>&nbsp;&nbsp;sms: ✓ &nbsp;voice: ✓</div>
-<div style="color:var(--w40);margin-top:8px">// Got a number in 2 seconds</div>
+<div><span class="hl">POST</span> /phone/provision</div>
+<div><span style="color:#3fb950">→</span> +1 (470) 533-0963</div>
+<div>&nbsp;&nbsp;sms: ✓ &nbsp;voice: ✓ &nbsp;mms: ✓</div>
 </div>
 </div>
-<div class="feature-card glow-border reveal reveal-delay-1">
-<div class="feature-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
+</div>
+
+<div class="feature-card reveal reveal-delay-1">
+<div class="feature-card-inner">
+<div class="feature-powered">powered by <img src="/assets/logos/cloudflare.png" alt="Cloudflare"></div>
+<div class="feature-card-top">
+<div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
 <h3>Encrypted email</h3>
-<p>Your agent gets its own email address. Messages are encrypted end-to-end. Nobody can read them except your agent.</p>
+</div>
+<p>End-to-end encrypted inboxes. Your agent's messages are sealed with its own wallet keys. Zero-knowledge — nobody reads them but the agent.</p>
+<div class="feature-tag"><span class="ft-dot"></span>E2E encrypted</div>
 <div class="feature-code">
 <div><span class="hl">POST</span> /email/inboxes</div>
-<div>→ agent@agntos.dev</div>
-<div>&nbsp;&nbsp;encrypted: true</div>
-<div style="color:var(--w40);margin-top:8px">// Zero-knowledge inbox</div>
+<div><span style="color:#3fb950">→</span> agent-7k2@agntos.dev</div>
+<div>&nbsp;&nbsp;cipher: x25519-xsalsa20</div>
 </div>
 </div>
-<div class="feature-card glow-border reveal reveal-delay-2">
-<div class="feature-icon"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+</div>
+
+<div class="feature-card reveal reveal-delay-1">
+<div class="feature-card-inner">
+<div class="feature-powered">powered by <img src="/assets/logos/hetzner.jpg" alt="Hetzner" style="filter:invert(1) grayscale(1) brightness(1.5)"></div>
+<div class="feature-card-top">
+<div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="0"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
 <h3>Cloud servers & domains</h3>
-<p>Your agent can spin up Linux servers and register domain names. It picks the size, pays, and gets root access.</p>
+</div>
+<p>Spin up Linux VPS instances from 2 to 16 vCPUs. Register domains. Your agent picks the specs, pays, and gets root SSH access instantly.</p>
+<div class="feature-tag"><span class="ft-dot"></span>9 server tiers</div>
 <div class="feature-code">
 <div><span class="hl">POST</span> /compute/servers</div>
-<div>→ 4 CPU, 8GB RAM</div>
-<div>&nbsp;&nbsp;IP: 89.167.36.207</div>
-<div style="color:var(--w40);margin-top:8px">// Server ready in 30s</div>
+<div><span style="color:#3fb950">→</span> cx23 — 2 vCPU, 4GB RAM</div>
+<div>&nbsp;&nbsp;ip: 89.167.36.207</div>
 </div>
 </div>
+</div>
+
+<div class="feature-card reveal reveal-delay-2">
+<div class="feature-card-inner">
+<div class="feature-powered">powered by <svg width="10" height="10" viewBox="0 0 24 24" fill="rgba(255,255,255,0.2)"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></div>
+<div class="feature-card-top">
+<div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></div>
+<h3>X account — ready to post</h3>
+</div>
+<p>Your agent gets a fully configured X account with active session cookies, browser profile, and API access. Log in and start posting. No setup, no captchas.</p>
+<div class="feature-tag"><span class="ft-dot"></span>Pre-authenticated</div>
+<div class="feature-code">
+<div><span class="hl">POST</span> /x/accounts</div>
+<div><span style="color:#3fb950">→</span> @your-agent</div>
+<div>&nbsp;&nbsp;session: active · cookies: ✓</div>
+</div>
+</div>
+</div>
+
 </div>
 </div>
 </section>
@@ -535,6 +666,47 @@ AgentOS
 <div class="steps-visual glow-border">
 <div class="mock-code" id="step-code">
 <div id="step-code-content"></div>
+</div>
+</div>
+</div>
+</div>
+</section>
+
+<!-- CREATE AGENT -->
+<section class="section" id="create-agent">
+<div class="container">
+<div class="section-label reveal">One command</div>
+<h2 class="reveal">Spawn a full agent.<br>Ready in 30 seconds.</h2>
+<p class="section-sub reveal" style="max-width:580px">One API call creates a complete <a href="https://openclaw.ai" target="_blank" style="color:var(--accent);text-decoration:none;font-weight:600">OpenClaw</a> agent on its own VPS with custom skills. It gets everything it needs to work on its own. $20/month.</p>
+
+<div class="ca-layout reveal" id="create-agent-demo">
+<!-- Left: what you send -->
+<div class="ca-left">
+<div class="ca-label">What you send</div>
+<div class="ca-code-block">
+<div style="color:var(--accent);font-weight:700;margin-bottom:8px">POST <span style="color:#79c0ff">/agents/create</span></div>
+<div style="color:var(--w40)">{</div>
+<div style="color:var(--w40)">&nbsp;&nbsp;"name": <span style="color:#e6edf3">"my-agent"</span>,</div>
+<div style="color:var(--w40)">&nbsp;&nbsp;"skills": <span style="color:#e6edf3">["trading", "social"]</span></div>
+<div style="color:var(--w40)">}</div>
+</div>
+<div class="ca-price-row">
+<span style="color:var(--w40);font-size:13px">Total cost</span>
+<span class="ca-price-big">$20<span style="font-size:14px;color:var(--w40);font-weight:400">/month</span></span>
+</div>
+</div>
+
+<!-- Right: what the agent gets -->
+<div class="ca-right">
+<div class="ca-label">What the agent gets</div>
+<div class="ca-items">
+<div class="ca-item" id="cac-0"><div class="ca-item-icon" id="cac-0-icon">○</div><div class="ca-item-info"><div class="ca-item-title">Private VPS</div><div class="ca-item-desc">2 vCPU, 4GB RAM, full root access</div></div></div>
+<div class="ca-item" id="cac-1"><div class="ca-item-icon" id="cac-1-icon">○</div><div class="ca-item-info"><div class="ca-item-title">Domain & website</div><div class="ca-item-desc">my-agent.agntos.dev — live instantly</div></div></div>
+<div class="ca-item" id="cac-2"><div class="ca-item-icon" id="cac-2-icon">○</div><div class="ca-item-info"><div class="ca-item-title">X account</div><div class="ca-item-desc">Authenticated session, ready to post</div></div></div>
+<div class="ca-item" id="cac-3"><div class="ca-item-icon" id="cac-3-icon">○</div><div class="ca-item-info"><div class="ca-item-title">Email inbox</div><div class="ca-item-desc">my-agent@agntos.dev — encrypted</div></div></div>
+<div class="ca-item" id="cac-4"><div class="ca-item-icon" id="cac-4-icon">○</div><div class="ca-item-info"><div class="ca-item-title">Phone number</div><div class="ca-item-desc">SMS + voice calls in 180+ countries</div></div></div>
+<div class="ca-item" id="cac-5"><div class="ca-item-icon" id="cac-5-icon">○</div><div class="ca-item-info"><div class="ca-item-title">Crypto wallet</div><div class="ca-item-desc">Solana + Base, ready to transact</div></div></div>
+<div class="ca-item" id="cac-6"><div class="ca-item-icon" id="cac-6-icon">○</div><div class="ca-item-info"><div class="ca-item-title">Custom skills</div><div class="ca-item-desc">Your tools loaded and configured</div></div></div>
 </div>
 </div>
 </div>
@@ -585,23 +757,22 @@ AgentOS
 <div class="pricing-grid" style="grid-template-columns:1fr 1fr;max-width:900px">
 <div class="pricing-card subtle-border reveal">
 <div class="tier-name">Pay per use</div>
-<div class="tier-desc">Your agent pays for each action individually. Only pay for what you actually use.</div>
-<div class="price">From $0.01</div>
-<div class="price-period">per API call</div>
-<a href="/skill.md" class="btn btn-secondary">View endpoints</a>
+<div class="tier-desc">Your agent pays for each action individually. Pick what you need — see the total live.</div>
+<div class="price" id="calc-total">$0.00</div>
+<div class="price-period">estimated total</div>
 <div class="divider"></div>
-<div class="features-label">Per-action prices</div>
-<ul>
-<li>Send SMS — $0.02</li>
-<li>Send/read email — $0.01</li>
-<li>Place voice call — $0.10</li>
-<li>TTS on call — $0.05</li>
-<li>DTMF input — $0.02</li>
-<li>Provision phone — $2.00</li>
-<li>Create email inbox — $0.50</li>
-<li>Register domain — from $12</li>
-<li>Spin up server — from $5/mo</li>
-</ul>
+<div class="features-label">Build your stack</div>
+<div class="calc-items" id="calc-items">
+<div class="calc-row"><input type="checkbox" data-price="2.00"><span class="calc-name">Phone number</span><span class="calc-price">$2.00</span></div>
+<div class="calc-row"><input type="checkbox" data-price="0.50"><span class="calc-name">Email inbox</span><span class="calc-price">$0.50</span></div>
+<div class="calc-row"><input type="checkbox" data-price="5.00"><span class="calc-name">Cloud server</span><span class="calc-price">$5.00</span></div>
+<div class="calc-row"><input type="checkbox" data-price="12.00"><span class="calc-name">Domain (.dev)</span><span class="calc-price">$12.00</span></div>
+<div class="calc-row"><input type="checkbox" data-price="5.00"><span class="calc-name">X account</span><span class="calc-price">$5.00</span></div>
+<div class="calc-row"><input type="checkbox" data-price="0.20"><span class="calc-name">10 SMS messages</span><span class="calc-price">$0.20</span></div>
+<div class="calc-row"><input type="checkbox" data-price="0.50"><span class="calc-name">5 voice calls</span><span class="calc-price">$0.50</span></div>
+<div class="calc-row"><input type="checkbox" data-price="0.50"><span class="calc-name">50 emails</span><span class="calc-price">$0.50</span></div>
+</div>
+<a href="/skill.md" class="btn btn-secondary" style="margin-top:16px">View all endpoints</a>
 </div>
 <div class="pricing-card glow-border pop reveal reveal-delay-1">
 <div class="tier-name">Full Stack Agent</div>
@@ -615,10 +786,10 @@ AgentOS
 <ul>
 <li>Phone number (SMS + voice)</li>
 <li>Email inbox (encrypted)</li>
+<li>X account (pre-authenticated)</li>
 <li>Domain name registration</li>
 <li>Cloud server (2 CPU, 4GB)</li>
 <li>API key for all services</li>
-<li>Manage domains, DNS, messages</li>
 <li>Full autonomy — no human needed</li>
 </ul>
 </div>
@@ -647,11 +818,31 @@ AgentOS
 </div>
 <div class="faq-item">
 <div class="faq-q" onclick="toggleFaq(this)">Can my agent actually call people?</div>
-<div class="faq-a"><p>Yes. It gets a real phone number, can make outbound calls to 48 countries, speak using TTS, listen for button presses, and record calls.</p></div>
+<div class="faq-a"><p>Yes. It gets a real phone number, can make outbound calls to 180+ countries, speak using TTS, listen for button presses, and record calls.</p></div>
 </div>
 <div class="faq-item">
 <div class="faq-q" onclick="toggleFaq(this)">What is skill.md?</div>
 <div class="faq-a"><p>A text file that describes everything AgentOS can do. Give it to your AI agent and it reads it like instructions. Try it: agntos.dev/skill.md</p></div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)">What blockchains do you support?</div>
+<div class="faq-a"><p>Solana (primary) and Base. All payments are in USDC — a stablecoin pegged to $1. No volatile tokens, no surprises.</p></div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)">Is there a free tier?</div>
+<div class="faq-a"><p>During the hackathon, every agent gets 1 free phone number, 1 email inbox, and 1 server. After that, everything is pay-per-use — no subscriptions, no monthly fees.</p></div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)">How do I get started?</div>
+<div class="faq-a"><p>Give your AI agent our skill.md file. It'll read the instructions and know exactly how to use every endpoint. Or just hit the API directly — it's a standard REST API with x402 payment headers.</p></div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)">What's x402?</div>
+<div class="faq-a"><p>An open protocol for paying APIs with crypto. Your agent sends a payment signature in the HTTP header. The server verifies it and delivers the service. No accounts, no API keys, no sign-up forms.</p></div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)">Can I use this for my own project?</div>
+<div class="faq-a"><p>Yes. AgentOS is built for any AI agent that needs real-world infrastructure. Chatbots, autonomous agents, AI assistants — if it can make an HTTP request, it can use AgentOS.</p></div>
 </div>
 </div>
 </div>
@@ -731,129 +922,156 @@ AgentOS
 (function(){
   const input = document.getElementById('terminal-input');
   const history = document.getElementById('terminal-history');
+  const ghost = document.getElementById('term-ghost');
+  const suggestions = document.getElementById('term-suggestions');
   if (!input || !history) return;
+
+  let reqCount = 0;
+  let cmdHistory = [];
+  let cmdHistoryIdx = -1;
+  let busy = false;
+
+  // Command definitions with suggested next commands
+  const commandList = [
+    { cmd:'provision phone', label:'Get a phone number', icon:'📞', popular:true },
+    { cmd:'send sms', label:'Send a text', icon:'💬' },
+    { cmd:'dial call', label:'Make a voice call', icon:'🔊' },
+    { cmd:'create inbox', label:'Create email', icon:'✉️', popular:true },
+    { cmd:'send email', label:'Send an email', icon:'📤' },
+    { cmd:'create server', label:'Spin up a server', icon:'🖥️', popular:true },
+    { cmd:'register domain', label:'Register domain', icon:'🌐' },
+    { cmd:'check domain', label:'Check availability', icon:'🔍' },
+    { cmd:'status', label:'Agent dashboard', icon:'📊' },
+    { cmd:'pricing', label:'See costs', icon:'💰' },
+  ];
+
+  const allCmds = commandList.map(c => c.cmd).concat(['help','clear','whoami']);
+
+  // What to suggest after running a command
+  const nextSuggestions = {
+    'provision phone': ['send sms','dial call','status'],
+    'send sms': ['dial call','create inbox','status'],
+    'dial call': ['send sms','provision phone','status'],
+    'create inbox': ['send email','create server','status'],
+    'send email': ['create inbox','register domain','status'],
+    'create server': ['register domain','status','pricing'],
+    'register domain': ['check domain','create server','status'],
+    'check domain': ['register domain','create server','pricing'],
+    'status': ['provision phone','create inbox','create server'],
+    'pricing': ['provision phone','create inbox','create server'],
+    'whoami': ['status','provision phone','pricing'],
+    'help': ['provision phone','create inbox','create server'],
+  };
 
   const commands = {
     'help': {
-      text: `Available commands:
-  provision phone  — Get a phone number
-  send sms         — Send a text message
-  create inbox     — Create email inbox
-  send email       — Send an email
-  create server    — Spin up a cloud server
-  register domain  — Register a domain
-  check domain     — Check domain availability
-  status           — View agent status
-  pricing          — Show pricing
-  clear            — Clear terminal`,
-      success: false
+      text: `<span style="color:var(--accent);font-weight:700">COMMANDS</span>
+  provision phone  ─── get a real phone number
+  send sms         ─── send a text message
+  dial call        ─── place a voice call
+  create inbox     ─── encrypted email inbox
+  send email       ─── send an email
+  create server    ─── spin up cloud compute
+  register domain  ─── register a domain
+  check domain     ─── check availability
+  status           ─── agent dashboard
+  pricing          ─── per-action costs
+  whoami           ─── agent identity
+  clear            ─── wipe terminal`
     },
     'provision phone': {
-      pay: true,
-      payAmount: '2.00',
-      payDesc: 'Phone number provisioning',
-      result: `{
-  "phone": "+14155551234",
-  "status": "active",
-  "capabilities": ["sms", "voice", "mms"],
-  "country": "US",
-  "region": "CA"
-}`,
-    },
+      pay:true, payAmount:'2.00', payDesc:'Phone provisioning',
+      result:`+1 (415) 555-1234
+  status: active
+  sms: ✓  voice: ✓  mms: ✓`},
     'send sms': {
-      pay: true,
-      payAmount: '0.02',
-      payDesc: 'Outbound SMS',
-      result: `{
-  "message_id": "msg_7x9k2m",
-  "to": "+1234567890",
-  "body": "Hello from AgentOS!",
-  "status": "delivered"
-}`,
-    },
+      pay:true, payAmount:'0.02', payDesc:'Outbound SMS',
+      result:`to: +1 (234) 567-890
+  body: "Hello from AgentOS!"
+  status: delivered`},
+    'dial call': {
+      pay:true, payAmount:'0.10', payDesc:'Outbound voice call',
+      result:`to: +1 (234) 567-890
+  status: ringing
+  tts: "Hello, this is agent-7k2."`},
     'create inbox': {
-      pay: true,
-      payAmount: '0.50',
-      payDesc: 'Email inbox creation',
-      result: `{
-  "inbox": "agent-7k2@agntos.dev",
-  "encrypted": true,
-  "created": "${new Date().toISOString()}"
-}`,
-    },
+      pay:true, payAmount:'0.50', payDesc:'E2E encrypted inbox',
+      result:`inbox: agent-7k2@agntos.dev
+  encrypted: true
+  status: ready`},
     'send email': {
-      pay: true,
-      payAmount: '0.01',
-      payDesc: 'Outbound email',
-      result: `{
-  "message_id": "em_3f8x1q",
-  "to": "hello@example.com",
-  "subject": "Hello from my agent",
-  "status": "sent"
-}`,
-    },
+      pay:true, payAmount:'0.01', payDesc:'Outbound email',
+      result:`to: hello@example.com
+  subject: "Hello from my agent"
+  status: sent`},
     'create server': {
-      pay: true,
-      payAmount: '5.00',
-      payDesc: 'Cloud server (cx23, 2 CPU / 4GB)',
-      result: `{
-  "server_id": "srv_28491",
-  "type": "cx23",
-  "ip": "89.167.36.207",
-  "cpu": 2, "ram": "4GB",
-  "status": "running",
-  "ssh": "root@89.167.36.207"
-}`,
-    },
+      pay:true, payAmount:'5.00', payDesc:'Cloud server (cx23)',
+      result:`type: cx23 — 2 vCPU, 4GB RAM
+  ip: 89.167.36.207
+  status: running
+  ssh: root@89.167.36.207`},
     'register domain': {
-      pay: true,
-      payAmount: '12.00',
-      payDesc: 'Domain registration (.dev, 1yr)',
-      result: `{
-  "domain": "myagent.dev",
-  "status": "registered",
-  "expires": "2027-02-22",
-  "nameservers": ["ns1.agntos.dev", "ns2.agntos.dev"]
-}`,
-    },
+      pay:true, payAmount:'12.00', payDesc:'Domain (.dev, 1yr)',
+      result:`domain: myagent.dev
+  status: registered
+  expires: 2027-02-22`},
     'check domain': {
-      result: `{
-  "domain": "myagent.dev",
-  "available": true,
-  "price": "12.00 USDC",
-  "tlds_checked": [".dev", ".com", ".ai"]
-}`,
-      success: true
-    },
+      result:`myagent.dev  — available — 12.00 USDC
+  myagent.com  — taken
+  myagent.ai   — available — 48.00 USDC`, success:true },
     'status': {
-      result: `{
-  "agent": "agent-7k2",
-  "wallet": "B1YE...X3",
-  "services": {
-    "phone": "+14155551234",
-    "email": "agent-7k2@agntos.dev",
-    "servers": 1,
-    "domains": 1
-  },
-  "balance": "47.50 USDC"
-}`,
-      success: true
-    },
+      result:`agent: agent-7k2
+  balance: 47.50 USDC
+  phone: +1 (415) 555-1234
+  email: agent-7k2@agntos.dev
+  servers: 1 running`, success:true },
+    'whoami': {
+      result:`agent: agent-7k2
+  wallet: B1YEbo...kqLXCwLs3Ez8oX3
+  auth: x402
+  chains: solana, base`, success:true },
     'pricing': {
-      text: `Per-action pricing (USDC):
-  Send SMS .............. $0.02
-  Send/read email ....... $0.01
-  Voice call ............ $0.10
-  TTS on call ........... $0.05
-  Provision phone ....... $2.00
-  Create inbox .......... $0.50
-  Register domain ....... from $12
-  Spin up server ........ from $5/mo
-  
-  Or: Full Stack Agent — $10 one-time`,
-      success: false
+      text: `<span style="color:var(--accent);font-weight:700">PRICING</span> <span style="color:var(--w40)">(USDC)</span>
+  Send SMS ·················· <span style="color:#e6edf3">$0.02</span>
+  Voice call ················ <span style="color:#e6edf3">$0.10</span>
+  Send email ················ <span style="color:#e6edf3">$0.01</span>
+  Provision phone ··········· <span style="color:#e6edf3">$2.00</span>
+  Create inbox ·············· <span style="color:#e6edf3">$0.50</span>
+  Spin up server ············ <span style="color:#e6edf3">from $5</span>
+  Register domain ··········· <span style="color:#e6edf3">from $12</span>
+
+  <span style="color:var(--accent)">━━ Full Stack Agent ━━ $10 one-time ━━</span>`
     },
   };
+
+  // === RENDER SUGGESTION CHIPS ===
+  function showChips(cmds) {
+    if (!suggestions) return;
+    suggestions.innerHTML = '';
+    const items = cmds || commandList.filter(c => c.popular).map(c => c.cmd);
+    items.forEach(cmdName => {
+      const info = commandList.find(c => c.cmd === cmdName);
+      const chip = document.createElement('span');
+      chip.className = 'term-chip' + (info && info.popular ? ' popular' : '');
+      chip.textContent = cmdName;
+      chip.addEventListener('click', () => {
+        if (busy) return;
+        userTookOver = true;
+        input.value = '';
+        ghost.textContent = '';
+        typeAndRun(cmdName);
+      });
+      suggestions.appendChild(chip);
+    });
+  }
+
+  // Show initial chips
+  function showInitialState() {
+    // Welcome message
+    addLine(`<span class="tw-dim">$</span> <span class="tw-accent">AgentOS v0.4.3</span> <span class="tw-dim">—</span> try a command below, or type one`, 'term-welcome');
+    showChips(commandList.filter(c=>c.popular).map(c=>c.cmd).concat(['pricing','status']));
+  }
+  showInitialState();
 
   function addLine(html, className) {
     const div = document.createElement('div');
@@ -862,113 +1080,237 @@ AgentOS
     history.appendChild(div);
   }
 
-  function processCommand(cmd) {
-    cmd = cmd.trim().toLowerCase();
-    addLine(`<span class="prompt-user">agent</span><span class="prompt-at">@</span><span class="prompt-path">agntos</span><span style="color:rgba(255,255,255,0.3);margin:0 4px">›</span> ${cmd}`, 't-cmd');
-
-    if (cmd === 'clear') {
-      history.innerHTML = '';
-      return;
-    }
-
-    const match = commands[cmd];
-    if (!match) {
-      addLine(`Command not found: ${cmd}. Type <span style="color:var(--accent)">help</span> for available commands.`, 't-out');
-      return;
-    }
-
-    if (match.pay) {
-      // Show 402 first
-      addLine(`<span class="t-status-pay">402 Payment Required</span>
-{ "amount": "${match.payAmount}", "token": "USDC", "network": "solana", "desc": "${match.payDesc}" }`, 't-out');
-      
-      // Then show payment + success after delay
-      setTimeout(() => {
-        addLine(`<span style="color:#6e7681">→ X-PAYMENT: 5Kd7...signed_tx</span>`, 't-cmd');
-        setTimeout(() => {
-          addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
-          scrollTerminal();
-        }, 300);
-      }, 800);
-    } else if (match.text) {
-      addLine(`<pre style="margin:0;white-space:pre-wrap;font:inherit">${match.text}</pre>`, 't-out' + (match.success ? ' success' : ''));
-    } else {
-      addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
-    }
-
-    scrollTerminal();
-  }
-
   function scrollTerminal() {
     const tb = document.getElementById('terminal');
     if (tb) tb.scrollTop = tb.scrollHeight;
   }
 
+  function bumpReqCount() {
+    reqCount++;
+    const el = document.getElementById('term-req-count');
+    if (el) el.textContent = reqCount + ' req';
+    addLogEntry();
+    bumpNetGraph();
+  }
+
+  // Type out a command then run it (for chips + demo)
+  let onCommandDone = null;
+  function typeAndRun(cmd, callback) {
+    if (busy) return;
+    busy = true;
+    onCommandDone = callback || null;
+    let ci = 0;
+    input.value = '';
+    const typeInterval = setInterval(() => {
+      input.value += cmd[ci++];
+      updateGhost();
+      if (ci >= cmd.length) {
+        clearInterval(typeInterval);
+        setTimeout(() => {
+          runCommand(cmd);
+          input.value = '';
+          ghost.textContent = '';
+        }, 300);
+      }
+    }, 40 + Math.random() * 30);
+  }
+
+  function runCommand(cmd) {
+    cmd = cmd.trim().toLowerCase();
+    if (cmd && (cmdHistory.length === 0 || cmdHistory[cmdHistory.length-1] !== cmd)) cmdHistory.push(cmd);
+    cmdHistoryIdx = cmdHistory.length;
+
+    addLine(`<span class="prompt-user">agent</span><span class="prompt-at">@</span><span class="prompt-path">agntos</span><span style="color:rgba(255,255,255,0.15);margin:0 4px">›</span> <span style="color:#e6edf3">${cmd}</span>`, 't-cmd');
+
+    // Safety: ensure busy always resets
+    setTimeout(() => { busy = false; }, 5000);
+
+    if (cmd === 'clear') { history.innerHTML = ''; showChips(); updateGutter(); busy = false; if (onCommandDone) { const cb = onCommandDone; onCommandDone = null; cb(); } return; }
+
+    const match = commands[cmd];
+    if (!match) {
+      addLine(`<span style="color:#f85149">err:</span> unknown — type <span style="color:var(--accent)">help</span> or click a command`, 't-out');
+      scrollTerminal(); updateGutter(); busy = false; if (onCommandDone) { const cb = onCommandDone; onCommandDone = null; cb(); } return;
+    }
+
+    if (match.pay) {
+      bumpReqCount();
+      suggestions.innerHTML = '';
+      addLine(`<span style="color:var(--w40)">402 — ${match.payAmount} USDC</span>`, 't-out');
+      scrollTerminal();
+
+      setTimeout(() => {
+        addLine(`<span style="color:var(--w40)">→ paid</span>`, 't-out');
+        bumpReqCount();
+        setTimeout(() => {
+          addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
+          scrollTerminal(); updateGutter();
+          const next = nextSuggestions[cmd];
+          if (next) showChips(next);
+          busy = false; if (onCommandDone) { const cb = onCommandDone; onCommandDone = null; cb(); }
+        }, 400);
+      }, 600);
+    } else if (match.text) {
+      addLine(`<pre style="margin:0;white-space:pre-wrap;font:inherit">${match.text}</pre>`, 't-out' + (match.success ? ' success' : ''));
+      const next = nextSuggestions[cmd];
+      if (next) showChips(next);
+      busy = false; if (onCommandDone) { const cb = onCommandDone; onCommandDone = null; cb(); }
+    } else {
+      bumpReqCount();
+      suggestions.innerHTML = '';
+      addLine(`<span class="t-status-ok">200 OK</span>\n${match.result}`, 't-out success');
+      scrollTerminal(); updateGutter();
+      const next = nextSuggestions[cmd];
+      if (next) showChips(next);
+      busy = false; if (onCommandDone) { const cb = onCommandDone; onCommandDone = null; cb(); }
+    }
+    scrollTerminal(); updateGutter();
+  }
+
+  // === GHOST AUTOCOMPLETE ===
+  function updateGhost() {
+    if (!ghost) return;
+    const val = input.value.toLowerCase();
+    if (!val) { ghost.textContent = ''; return; }
+    const match = allCmds.find(c => c.startsWith(val) && c !== val);
+    if (match) {
+      // Show the full match but make the typed part invisible
+      ghost.innerHTML = '<span style="visibility:hidden">' + val + '</span>' + match.slice(val.length) + ' <span style="color:rgba(255,255,255,0.06)">⇥</span>';
+    } else {
+      ghost.textContent = '';
+    }
+  }
+
+  input.addEventListener('input', updateGhost);
+
   input.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter' && input.value.trim()) {
-      processCommand(input.value);
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const val = input.value.toLowerCase();
+      const match = allCmds.find(c => c.startsWith(val) && c !== val);
+      if (match) { input.value = match; ghost.textContent = ''; }
+    }
+    if (e.key === 'Enter' && input.value.trim() && !busy) {
+      runCommand(input.value);
       input.value = '';
+      ghost.textContent = '';
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (cmdHistory.length && cmdHistoryIdx > 0) {
+        cmdHistoryIdx--;
+        input.value = cmdHistory[cmdHistoryIdx];
+        updateGhost();
+      }
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (cmdHistoryIdx < cmdHistory.length - 1) {
+        cmdHistoryIdx++;
+        input.value = cmdHistory[cmdHistoryIdx];
+      } else { cmdHistoryIdx = cmdHistory.length; input.value = ''; }
+      updateGhost();
     }
   });
 
-  // Update line numbers
+  // Gutter
   function updateGutter() {
     const gutter = document.getElementById('terminal-gutter');
     const lineCount = document.getElementById('term-line-count');
     if (!gutter) return;
     const lines = history.children.length + 1;
     let html = '';
-    for (let i = 1; i <= Math.max(lines, 12); i++) {
-      html += '<span>' + i + '</span>';
-    }
+    for (let i = 1; i <= Math.max(lines, 15); i++) html += '<span>' + i + '</span>';
     gutter.innerHTML = html;
     if (lineCount) lineCount.textContent = 'Ln ' + lines;
   }
-  
-  const origProcess = processCommand;
-  processCommand = function(cmd) {
-    origProcess(cmd);
-    setTimeout(updateGutter, 100);
-    setTimeout(updateGutter, 1200);
-  };
-
-  // Initial gutter
   setTimeout(updateGutter, 100);
 
-  // Auto-run demo sequence on load
-  const demo = ['provision phone'];
-  let di = 0;
-  function runDemo() {
-    if (di >= demo.length) return;
-    const cmd = demo[di++];
-    let ci = 0;
-    input.value = '';
-    const typeInterval = setInterval(() => {
-      input.value += cmd[ci++];
-      if (ci >= cmd.length) {
-        clearInterval(typeInterval);
-        setTimeout(() => {
-          processCommand(cmd);
-          input.value = '';
-        }, 400);
-      }
-    }, 50);
-  }
-  setTimeout(runDemo, 1500);
+  // === TABS ===
+  document.querySelectorAll('.terminal-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.terminal-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      tab.classList.add('active');
+      const target = tab.dataset.tab;
+      const content = document.querySelector(`.tab-content[data-tab="${target}"]`);
+      if (content) content.classList.add('active');
+      if (target === 'shell') setTimeout(() => input.focus(), 50);
+    });
+  });
 
-  // 3D tilt on mouse move
-  const termWin = document.getElementById('terminal-window');
-  if (termWin) {
-    termWin.addEventListener('mousemove', (e) => {
-      const rect = termWin.getBoundingClientRect();
-      const x = (e.clientX - rect.left) / rect.width - 0.5;
-      const y = (e.clientY - rect.top) / rect.height - 0.5;
-      termWin.style.transform = `rotateX(${-y * 4}deg) rotateY(${x * 4}deg)`;
-    });
-    termWin.addEventListener('mouseleave', () => {
-      termWin.style.transform = 'rotateX(2deg) rotateY(0deg)';
+  // === LOGS TAB ===
+  const logsBody = document.getElementById('logs-body');
+  const logMethods = ['GET','POST','POST','GET','POST','GET'];
+  const logPaths = ['/status','/phone/provision','/email/send','/compute/list','/phone/sms','/domains/check'];
+  const logStatuses = [{code:200,cls:'log-ok'},{code:200,cls:'log-ok'},{code:200,cls:'log-ok'},{code:402,cls:'log-err'},{code:200,cls:'log-ok'}];
+
+  function addLogEntry() {
+    if (!logsBody) return;
+    const t = new Date().toISOString().split('T')[1].split('.')[0];
+    const m = logMethods[Math.floor(Math.random()*logMethods.length)];
+    const p = logPaths[Math.floor(Math.random()*logPaths.length)];
+    const s = logStatuses[Math.floor(Math.random()*logStatuses.length)];
+    const ms = (Math.random()*200+40).toFixed(0);
+    const div = document.createElement('div');
+    div.className = 'log-line';
+    div.innerHTML = `<span class="log-time">${t}</span>  <span class="log-method">${m.padEnd(4)}</span> <span class="log-path">${p}</span>  <span class="${s.cls}">${s.code}</span>  <span style="color:var(--w40)">${ms}ms</span>`;
+    logsBody.appendChild(div);
+    if (logsBody.children.length > 50) logsBody.removeChild(logsBody.firstChild);
+    logsBody.scrollTop = logsBody.scrollHeight;
+  }
+  for (let i = 0; i < 8; i++) addLogEntry();
+  setInterval(() => { if (Math.random() > 0.5) addLogEntry(); }, 3000);
+
+  // === NETWORK TAB ===
+  const netGraph = document.getElementById('net-graph');
+  const netData = Array(30).fill(0).map(() => Math.random() * 60 + 5);
+  
+  function renderNetGraph() {
+    if (!netGraph) return;
+    netGraph.innerHTML = '';
+    netData.forEach(v => {
+      const bar = document.createElement('div');
+      bar.className = 'net-graph-bar';
+      bar.style.height = v + '%';
+      netGraph.appendChild(bar);
     });
   }
+  renderNetGraph();
+
+  function bumpNetGraph() {
+    netData.shift();
+    netData.push(Math.random() * 80 + 20);
+    renderNetGraph();
+    const rpm = document.getElementById('net-rpm');
+    const lat = document.getElementById('net-latency');
+    if (rpm) rpm.textContent = Math.floor(Math.random()*30+10);
+    if (lat) lat.innerHTML = '<span class="accent">' + (Math.random()*150+50).toFixed(0) + '</span>ms';
+  }
+  setInterval(bumpNetGraph, 2000);
+
+  // === MINI NET GRAPH ===
+  const termNet = document.getElementById('term-net');
+  const miniNetData = Array(12).fill(0).map(() => Math.random()*12+2);
+  function renderMiniNet() {
+    if (!termNet) return;
+    termNet.innerHTML = '';
+    miniNetData.forEach(h => {
+      const s = document.createElement('span');
+      s.style.height = h + 'px';
+      termNet.appendChild(s);
+    });
+  }
+  renderMiniNet();
+  setInterval(() => { miniNetData.shift(); miniNetData.push(Math.random()*14+2); renderMiniNet(); }, 1500);
+
+  let userTookOver = false;
+
+  // Click terminal to focus input
+  document.getElementById('terminal')?.addEventListener('click', (e) => {
+    if (e.target.closest('.term-chip')) return;
+    input.focus();
+  });
 })();
 
 // ===== INTERACTIVE STEPS =====
@@ -1093,6 +1435,84 @@ fetch('https://api.github.com/repos/0xArtex/AgentOS')
     if (y < window.innerHeight) hero.style.setProperty('--scroll', y * 0.3 + 'px');
   }, { passive: true });
 })();
+
+// ===== CREATE AGENT AUTO-DEMO =====
+(function(){
+  let caRan = false;
+  function runCreateAgent() {
+    if (caRan) return;
+    caRan = true;
+
+    const checks = [
+      { delay:400, id:0 },
+      { delay:900, id:1 },
+      { delay:1400, id:2 },
+      { delay:1900, id:3 },
+      { delay:2400, id:4 },
+      { delay:2900, id:5 },
+      { delay:3400, id:6 },
+    ];
+
+    checks.forEach(step => {
+      setTimeout(() => {
+        const item = document.getElementById('cac-' + step.id);
+        const icon = document.getElementById('cac-' + step.id + '-icon');
+        if (item) item.classList.add('done');
+        if (icon) icon.textContent = '✓';
+      }, step.delay);
+    });
+  }
+
+  const caSection = document.getElementById('create-agent-demo');
+  if (caSection) {
+    const obs = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) { runCreateAgent(); obs.disconnect(); }
+    }, { threshold: 0.3 });
+    obs.observe(caSection);
+  }
+})();
+
+// ===== PRICING CALCULATOR =====
+(function(){
+  const calcEl = document.getElementById('calc-items');
+  if (!calcEl) return;
+  function doCalc() {
+    let total = 0;
+    calcEl.querySelectorAll('input[type=checkbox]:checked').forEach(cb => {
+      total += parseFloat(cb.dataset.price || 0);
+    });
+    const el = document.getElementById('calc-total');
+    if (el) {
+      el.style.transition = 'transform .15s';
+      el.style.transform = 'scale(1.05)';
+      el.textContent = '$' + total.toFixed(2);
+      setTimeout(() => { el.style.transform = 'scale(1)'; }, 150);
+    }
+  }
+  calcEl.querySelectorAll('.calc-row').forEach(row => {
+    row.addEventListener('click', function(e) {
+      const cb = this.querySelector('input[type=checkbox]');
+      if (e.target !== cb) { cb.checked = !cb.checked; }
+      doCalc();
+    });
+  });
+})();
+
+// ===== LIVE COMMIT COUNT =====
+fetch('https://api.github.com/repos/0xArtex/AgentOS').then(r=>r.json()).then(d=>{
+  const el = document.querySelector('.stat-number');
+  // Find the "Git commits" stat and update
+  document.querySelectorAll('.stat-item').forEach(item => {
+    const label = item.querySelector('.stat-label');
+    const num = item.querySelector('.stat-number');
+    if (label && label.textContent.includes('commit') && num) {
+      // Fetch commit count from default branch
+      fetch('https://api.github.com/repos/0xArtex/AgentOS/commits?per_page=1')
+        .then(r => { const link = r.headers.get('Link'); if(link){const m=link.match(/page=(\d+)>; rel="last"/); if(m) num.textContent=m[1];} })
+        .catch(()=>{});
+    }
+  });
+}).catch(()=>{});
 
 // ===== FAQ =====
 function toggleFaq(el) {
