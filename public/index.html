@@ -395,8 +395,7 @@ nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2
 .stat-number[data-count]{transition:color .3s}
 
 /* ===== MARQUEE LOGOS ===== */
-@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-50%)}}
-.logos-track{display:flex;align-items:center;animation:marquee 20s linear infinite;width:max-content}
+.logos-track{display:flex;align-items:center;width:max-content}
 .logos-track:hover{animation-play-state:paused}
 .logos-set{display:inline-flex;align-items:center;gap:80px;padding-right:80px;flex-shrink:0}
 .logos-row{position:relative}
@@ -1505,6 +1504,22 @@ fetch('https://api.github.com/repos/0xArtex/AgentOS').then(r=>r.json()).then(d=>
 }).catch(()=>{});
 
 // ===== FAQ =====
+// ===== SEAMLESS MARQUEE =====
+(function(){
+  const track = document.querySelector('.logos-track');
+  const firstSet = track && track.querySelector('.logos-set');
+  if (!track || !firstSet) return;
+  function initMarquee() {
+    const w = firstSet.offsetWidth;
+    const style = document.createElement('style');
+    style.textContent = '@keyframes marquee{0%{transform:translateX(0)}100%{transform:translateX(-' + w + 'px)}}';
+    document.head.appendChild(style);
+    track.style.animation = 'marquee 25s linear infinite';
+  }
+  if (document.readyState === 'complete') initMarquee();
+  else window.addEventListener('load', initMarquee);
+})();
+
 function toggleFaq(el) {
   const item = el.parentElement;
   item.classList.toggle('open');
