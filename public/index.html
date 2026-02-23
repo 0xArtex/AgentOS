@@ -1507,21 +1507,29 @@ fetch('https://api.github.com/repos/0xArtex/AgentOS').then(r=>r.json()).then(d=>
 // ===== SEAMLESS MARQUEE =====
 (function(){
   const track = document.querySelector('.logos-track');
-  const sets = track ? track.querySelectorAll('.logos-set') : [];
-  if (!track || sets.length < 2) return;
+  const firstSet = track && track.querySelector('.logos-set');
+  if (!track || !firstSet) return;
+  // Remove the static duplicate
+  const staticDupe = track.querySelectorAll('.logos-set')[1];
+  if (staticDupe) staticDupe.remove();
   function initMarquee() {
-    // Ensure both sets have identical content width
-    const w = sets[0].getBoundingClientRect().width;
-    if (w < 100) { setTimeout(initMarquee, 200); return; } // images not loaded yet
+    const setW = firstSet.getBoundingClientRect().width;
+    if (setW < 100) { setTimeout(initMarquee, 200); return; }
+    // Clone enough sets to fill 2x viewport
+    const needed = Math.ceil((window.innerWidth * 2) / setW) + 1;
+    for (let i = 0; i < needed; i++) {
+      const clone = firstSet.cloneNode(true);
+      clone.setAttribute('aria-hidden', 'true');
+      track.appendChild(clone);
+    }
     const id = 'mq' + Date.now();
     const style = document.createElement('style');
-    style.textContent = '@keyframes ' + id + '{0%{transform:translate3d(0,0,0)}100%{transform:translate3d(-' + w + 'px,0,0)}}';
+    style.textContent = '@keyframes ' + id + '{0%{transform:translate3d(0,0,0)}100%{transform:translate3d(-' + setW + 'px,0,0)}}';
     document.head.appendChild(style);
     track.style.willChange = 'transform';
-    track.style.animation = id + ' ' + Math.max(15, w / 40) + 's linear infinite';
+    track.style.animation = id + ' 20s linear infinite';
   }
-  // Wait for all logo images to load
-  const imgs = track.querySelectorAll('img');
+  const imgs = firstSet.querySelectorAll('img');
   let loaded = 0;
   function check() { if (++loaded >= imgs.length) initMarquee(); }
   imgs.forEach(img => {
