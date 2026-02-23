@@ -1076,8 +1076,15 @@ AgentOS
   }
 
   function scrollTerminal() {
-    const tb = document.getElementById('terminal');
+    const tb = document.querySelector('.terminal-body');
     if (tb) tb.scrollTop = tb.scrollHeight;
+    const tw = document.querySelector('.terminal-window');
+    if (tw) {
+      const r = tw.getBoundingClientRect();
+      if (r.bottom > window.innerHeight || r.top < 0) {
+        tw.scrollIntoView({ behavior:'smooth', block:'center' });
+      }
+    }
   }
 
   function bumpReqCount() {
