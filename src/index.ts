@@ -50,6 +50,7 @@ import "./db"; // Initialize database
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
 import domainRoutes from "./routes/domains";
+import xAccountRoutes from "./routes/xaccounts";
 import computeRoutes from "./routes/compute";
 import apikeysRoutes from "./routes/apikeys";
 import demoRoutes from "./routes/demo";
@@ -156,6 +157,7 @@ app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // ── Routes ────────────────────────────────────────────────────
 app.use("/phone", phoneRoutes);
 app.use("/email", emailRoutes);
+app.use("/x", xAccountRoutes);
 app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
 app.use("/apikeys", apikeysRoutes);
