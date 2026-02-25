@@ -44,7 +44,7 @@ export const SKILL_CATEGORIES: SkillCategory[] = [
       s("agentwallet", "Agent Wallet", "Cross-chain crypto wallet with payment signing, policy controls, and transaction management"),
       s("solana-dev", "Solana Development", "Build on Solana: @solana/kit, Anchor, Pinocchio, program deployment"),
       s("solana-ecosystem", "Solana Ecosystem", "Jupiter, Raydium, Tensor, Helius, DeFi protocols, token launches on Solana"),
-      { slug: "helius-cli", name: "Helius CLI", description: "Pay 1 USDC, get Solana RPC keys instantly. DAS API, webhooks, transaction parsing. Fully automated.", source: "https://github.com/helius-labs/helius-cli", install: "npm install -g helius-cli" },
+      s("helius", "Helius", "Solana RPC, DAS API, webhooks, transaction parsing, NFT indexing. Uses helius-cli for auto-signup (1 USDC)."),
       s("token-research", "Token Research", "On-chain token analysis, price feeds, holder distribution, liquidity data"),
     ]
   },
