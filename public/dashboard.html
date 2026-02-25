@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentOS Dashboard</title>
+<link rel="icon" type="image/png" href="/favicon.png">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0b0f;--bg2:#111318;--bg3:#181b22;--border:rgba(255,255,255,0.06);--w10:rgba(255,255,255,0.1);--w20:rgba(255,255,255,0.2);--w40:rgba(255,255,255,0.4);--w60:rgba(255,255,255,0.6);--text:#e6edf3;--accent:#f54900;--green:#3fb950;--blue:#58a6ff}
+body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sans-serif;display:flex;height:100vh;overflow:hidden}
+
+/* Sidebar */
+.sidebar{width:200px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;flex-shrink:0}
+.sidebar-logo{padding:20px;display:flex;align-items:center;gap:10px;font-weight:700;font-size:15px;border-bottom:1px solid var(--border)}
+.sidebar-logo img{height:22px;filter:invert(1)}
+.sidebar-nav{flex:1;padding:12px 0}
+.sidebar-item{display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;color:var(--w40);cursor:pointer;transition:all .15s}
+.sidebar-item:hover{color:var(--text);background:rgba(255,255,255,0.03)}
+.sidebar-item.active{color:var(--text);background:rgba(255,255,255,0.05);border-right:2px solid var(--accent)}
+.sidebar-item .icon{width:18px;text-align:center;font-size:14px}
+.sidebar-bottom{padding:16px 20px;border-top:1px solid var(--border);font-size:11px;color:var(--w20)}
+
+/* Main */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+
+/* Top bar */
+.topbar{display:flex;align-items:center;height:52px;border-bottom:1px solid var(--border);flex-shrink:0}
+.agent-selector{display:flex;align-items:center;gap:8px;padding:0 20px;height:100%;border-right:1px solid var(--border);cursor:pointer;font-size:13px;font-weight:600;min-width:260px;position:relative}
+.agent-selector:hover{background:rgba(255,255,255,0.02)}
+.agent-selector .agent-id{color:var(--text)}
+.agent-selector .chevron{color:var(--w40);margin-left:auto;font-size:10px}
+.agent-selector .agent-status{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.new-agent-btn{display:flex;align-items:center;gap:6px;padding:0 24px;height:100%;background:var(--accent);color:white;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;margin-left:auto}
+.new-agent-btn:hover{background:#d94000}
+
+/* Agent dropdown */
+.agent-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--bg3);border:1px solid var(--border);z-index:100;display:none;max-height:300px;overflow-y:auto}
+.agent-dropdown.open{display:block}
+.agent-dropdown-item{display:flex;align-items:center;gap:10px;padding:10px 20px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border)}
+.agent-dropdown-item:hover{background:rgba(255,255,255,0.03)}
+.agent-dropdown-item .dd-status{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
+.agent-dropdown-item .dd-name{font-weight:600}
+.agent-dropdown-item .dd-wallet{font-size:10px;color:var(--w40)}
+
+/* Canvas area */
+.canvas-area{flex:1;position:relative;overflow:hidden;background:var(--bg)}
+
+/* Grid background */
+.canvas-area::before{content:'';position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,0.03) 1px,transparent 1px);background-size:24px 24px;pointer-events:none}
+
+/* Node graph */
+.agent-graph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
+
+/* Center agent node */
+.node-agent{width:80px;height:80px;border-radius:50%;border:2px solid var(--accent);display:flex;align-items:center;justify-content:center;font-size:28px;position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);background:var(--bg);z-index:10;cursor:pointer;transition:border-color .2s}
+.node-agent:hover{border-color:#ff6b2b;box-shadow:0 0 20px rgba(245,73,0,0.2)}
+.node-agent-label{position:absolute;top:50%;left:50%;transform:translate(-50%,48px);font-size:11px;font-weight:600;color:var(--text);white-space:nowrap;z-index:10}
+
+/* Service nodes */
+.node{position:absolute;border:1px solid var(--border);background:var(--bg2);padding:12px 16px;cursor:pointer;transition:all .2s;z-index:5;min-width:120px}
+.node:hover{border-color:var(--w20);background:var(--bg3)}
+.node .node-icon{font-size:16px;margin-bottom:4px}
+.node .node-title{font-size:12px;font-weight:600;margin-bottom:2px}
+.node .node-value{font-size:10px;color:var(--w40)}
+.node .node-status{display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--green);margin-right:4px}
+
+/* Skills node (special) */
+.node-skills{min-width:160px}
+.node-skills .skill-list{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.node-skills .skill-item{font-size:10px;color:var(--w40);padding:2px 0}
+.node-skills .skill-cat{font-size:10px;color:var(--accent);font-weight:600}
+
+/* Wallet sub-nodes */
+.node-wallet-sub{min-width:60px;text-align:center;padding:8px 12px}
+
+/* Connection lines (SVG) */
+.connections{position:absolute;inset:0;pointer-events:none;z-index:1}
+.connections line{stroke:rgba(255,255,255,0.08);stroke-width:1}
+.connections line.active{stroke:rgba(245,73,0,0.3);stroke-width:1.5}
+
+/* VPS bar at bottom */
+.vps-bar{position:absolute;bottom:40px;left:50%;transform:translateX(-50%);border:1px solid var(--border);background:var(--bg2);padding:14px 32px;display:flex;align-items:center;gap:20px;z-index:5;min-width:400px}
+.vps-bar .vps-icon{font-size:18px}
+.vps-bar .vps-title{font-size:13px;font-weight:600}
+.vps-bar .vps-specs{font-size:11px;color:var(--w40)}
+.vps-bar .vps-ip{font-size:11px;color:var(--blue);font-family:'JetBrains Mono',monospace}
+.vps-bar .vps-status{margin-left:auto;font-size:11px;color:var(--green)}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;display:none;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border);width:520px;max-height:80vh;overflow-y:auto;padding:32px}
+.modal h2{font-size:18px;font-weight:700;margin-bottom:4px}
+.modal .modal-sub{font-size:12px;color:var(--w40);margin-bottom:24px}
+.modal-field{margin-bottom:16px}
+.modal-field label{display:block;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--w40);margin-bottom:6px;font-weight:600}
+.modal-field input,.modal-field select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);padding:10px 12px;font-size:13px;font-family:inherit;outline:none}
+.modal-field input:focus,.modal-field select:focus{border-color:var(--accent)}
+.skill-picker{display:flex;flex-wrap:wrap;gap:6px}
+.skill-chip{padding:6px 12px;font-size:11px;border:1px solid var(--border);color:var(--w40);cursor:pointer;transition:all .15s;user-select:none}
+.skill-chip:hover{border-color:var(--w20);color:var(--text)}
+.skill-chip.selected{border-color:var(--accent);color:var(--accent);background:rgba(245,73,0,0.08)}
+.skill-chip.all{border-color:var(--green);color:var(--green)}
+.skill-chip.all.selected{background:rgba(63,185,80,0.08)}
+.modal-actions{display:flex;gap:12px;margin-top:24px}
+.modal-actions button{flex:1;padding:12px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;border:none}
+.btn-cancel{background:transparent;border:1px solid var(--border) !important;color:var(--text)}
+.btn-spawn{background:var(--accent);color:white}
+.btn-spawn:hover{background:#d94000}
+.modal-cost{text-align:center;font-size:24px;font-weight:700;color:var(--accent);margin:16px 0 8px}
+.modal-cost span{font-size:13px;font-weight:400;color:var(--w40)}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="sidebar-logo">
+    <img src="/assets/logo.png" alt="AO"> AgentOS
+  </div>
+  <div class="sidebar-nav">
+    <div class="sidebar-item active"><span class="icon">📊</span> Dashboard</div>
+    <div class="sidebar-item"><span class="icon">🧩</span> Skills</div>
+    <div class="sidebar-item"><span class="icon">📦</span> Inventory</div>
+    <div class="sidebar-item"><span class="icon">💰</span> Billing</div>
+    <div class="sidebar-item"><span class="icon">📡</span> API Logs</div>
+    <div class="sidebar-item"><span class="icon">⚙️</span> Settings</div>
+  </div>
+  <div class="sidebar-bottom">AgentOS v0.4.3</div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+  
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <div class="agent-selector" onclick="toggleDropdown()">
+      <span class="agent-status"></span>
+      <span class="agent-id">Agent ID: 500</span>
+      <span class="chevron">▼</span>
+      <!-- Dropdown -->
+      <div class="agent-dropdown" id="agent-dropdown">
+        <div class="agent-dropdown-item" onclick="selectAgent('500','trader-alpha')">
+          <span class="dd-status"></span>
+          <div><div class="dd-name">500 — trader-alpha</div><div class="dd-wallet">B1YE...8oX3</div></div>
+        </div>
+        <div class="agent-dropdown-item" onclick="selectAgent('501','social-bot')">
+          <span class="dd-status" style="background:var(--green)"></span>
+          <div><div class="dd-name">501 — social-bot</div><div class="dd-wallet">7xKp...3nQm</div></div>
+        </div>
+        <div class="agent-dropdown-item" onclick="selectAgent('502','dev-agent')">
+          <span class="dd-status" style="background:#d29922"></span>
+          <div><div class="dd-name">502 — dev-agent</div><div class="dd-wallet">4R67...usBr</div></div>
+        </div>
+      </div>
+    </div>
+    <button class="new-agent-btn" onclick="openModal()">+ New Agent</button>
+  </div>
+
+  <!-- CANVAS -->
+  <div class="canvas-area">
+    <div class="agent-graph" id="graph">
+      
+      <!-- SVG Connections -->
+      <svg class="connections" id="connections"></svg>
+
+      <!-- Center: Agent -->
+      <div class="node-agent" id="node-center">🤖</div>
+      <div class="node-agent-label">trader-alpha</div>
+
+      <!-- Phone -->
+      <div class="node" id="node-phone" style="top:15%;left:35%">
+        <div class="node-icon">📞</div>
+        <div class="node-title"><span class="node-status"></span>Phone</div>
+        <div class="node-value">+1 (415) 555-1234</div>
+        <div class="node-value">SMS · Voice · 180+ countries</div>
+      </div>
+
+      <!-- Email -->
+      <div class="node" id="node-email" style="top:15%;right:25%">
+        <div class="node-icon">✉️</div>
+        <div class="node-title"><span class="node-status"></span>Email</div>
+        <div class="node-value">trader-alpha@agntos.dev</div>
+        <div class="node-value">E2E encrypted</div>
+      </div>
+
+      <!-- Skills -->
+      <div class="node node-skills" id="node-skills" style="top:42%;left:12%">
+        <div class="node-icon">🧩</div>
+        <div class="node-title">Skills</div>
+        <div class="skill-list">
+          <div class="skill-cat">🪙 crypto</div>
+          <div class="skill-item">bankr · frames · helius</div>
+          <div class="skill-item">solana-dev · token-research</div>
+          <div class="skill-cat" style="margin-top:4px">🔍 research</div>
+          <div class="skill-item">web · cellcog · get-tldr</div>
+        </div>
+      </div>
+
+      <!-- X Account -->
+      <div class="node" id="node-x" style="top:38%;right:12%">
+        <div class="node-icon">✕</div>
+        <div class="node-title"><span class="node-status"></span>X Account</div>
+        <div class="node-value">@trader_alpha_ai</div>
+        <div class="node-value">Authenticated · Cookies active</div>
+      </div>
+
+      <!-- Domain -->
+      <div class="node" id="node-domain" style="bottom:22%;left:25%">
+        <div class="node-icon">🌐</div>
+        <div class="node-title"><span class="node-status"></span>Domain</div>
+        <div class="node-value">traderalpha.dev</div>
+        <div class="node-value">Cloudflare DNS</div>
+      </div>
+
+      <!-- Wallet -->
+      <div class="node" id="node-wallet" style="bottom:22%;right:20%">
+        <div class="node-icon">💰</div>
+        <div class="node-title"><span class="node-status"></span>Wallet</div>
+        <div class="node-value">47.50 USDC</div>
+        <div style="display:flex;gap:6px;margin-top:6px">
+          <div class="node-wallet-sub" style="border:1px solid var(--border);font-size:10px;padding:4px 8px">SOL</div>
+          <div class="node-wallet-sub" style="border:1px solid var(--border);font-size:10px;padding:4px 8px">Base</div>
+        </div>
+      </div>
+
+      <!-- VPS Bar -->
+      <div class="vps-bar" id="node-vps">
+        <div class="vps-icon">🖥️</div>
+        <div>
+          <div class="vps-title">VPS — cx23</div>
+          <div class="vps-specs">2 vCPU · 4GB RAM · Helsinki</div>
+        </div>
+        <div class="vps-ip">89.167.36.207</div>
+        <div class="vps-status"><span class="node-status"></span>running</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<!-- NEW AGENT MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2>Spawn New Agent</h2>
+    <div class="modal-sub">Configure your agent's identity, services, and skills</div>
+
+    <div class="modal-field">
+      <label>Agent Name</label>
+      <input type="text" placeholder="my-trading-agent" id="m-name">
+    </div>
+    <div class="modal-field">
+      <label>Domain</label>
+      <input type="text" placeholder="myagent.dev" id="m-domain">
+    </div>
+    <div class="modal-field">
+      <label>VPS Tier</label>
+      <select id="m-vps">
+        <option>cx23 — 2 vCPU, 4GB RAM ($5/mo)</option>
+        <option>cx33 — 4 vCPU, 8GB RAM ($10/mo)</option>
+        <option>cx43 — 8 vCPU, 16GB RAM ($20/mo)</option>
+        <option>cpx31 — 4 vCPU, 8GB RAM, AMD ($15/mo)</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Phone Country</label>
+      <select id="m-phone">
+        <option>US (+1)</option>
+        <option>UK (+44)</option>
+        <option>DE (+49)</option>
+        <option>AE (+971)</option>
+      </select>
+    </div>
+    <div class="modal-field">
+      <label>Skills</label>
+      <div class="skill-picker" id="skill-picker">
+        <div class="skill-chip" data-cat="crypto" onclick="toggleSkill(this)">🪙 Crypto</div>
+        <div class="skill-chip" data-cat="social" onclick="toggleSkill(this)">📢 Social</div>
+        <div class="skill-chip" data-cat="research" onclick="toggleSkill(this)">🔍 Research</div>
+        <div class="skill-chip" data-cat="coding" onclick="toggleSkill(this)">💻 Coding</div>
+        <div class="skill-chip" data-cat="devops" onclick="toggleSkill(this)">☁️ DevOps</div>
+        <div class="skill-chip" data-cat="browser" onclick="toggleSkill(this)">🌐 Browser</div>
+        <div class="skill-chip" data-cat="general" onclick="toggleSkill(this)">⚡ General</div>
+        <div class="skill-chip" data-cat="communication" onclick="toggleSkill(this)">💬 Comms</div>
+        <div class="skill-chip" data-cat="media" onclick="toggleSkill(this)">🎬 Media</div>
+        <div class="skill-chip" data-cat="data" onclick="toggleSkill(this)">📊 Data</div>
+        <div class="skill-chip" data-cat="security" onclick="toggleSkill(this)">🔒 Security</div>
+        <div class="skill-chip" data-cat="agent-infra" onclick="toggleSkill(this)">🤖 Agent</div>
+        <div class="skill-chip all" data-cat="all" onclick="toggleAll(this)">⭐ ALL</div>
+      </div>
+    </div>
+
+    <div class="modal-cost">$20 <span>/ one-time</span></div>
+    <div style="text-align:center;font-size:11px;color:var(--w40)">Includes: VPS + Phone + Email + X Account + Domain + Wallet + Skills</div>
+
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="closeModal()">Cancel</button>
+      <button class="btn-spawn" onclick="spawnAgent()">Spawn Agent ⚡</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Draw connection lines between center and nodes
+function drawLines() {
+  const svg = document.getElementById('connections');
+  const center = document.getElementById('node-center');
+  const nodes = ['node-phone','node-email','node-skills','node-x','node-domain','node-wallet','node-vps'];
+  
+  const cr = center.getBoundingClientRect();
+  const pr = svg.getBoundingClientRect();
+  const cx = cr.left + cr.width/2 - pr.left;
+  const cy = cr.top + cr.height/2 - pr.top;
+  
+  let html = '';
+  nodes.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const nx = r.left + r.width/2 - pr.left;
+    const ny = r.top + r.height/2 - pr.top;
+    html += `<line x1="${cx}" y1="${cy}" x2="${nx}" y2="${ny}"/>`;
+  });
+  svg.innerHTML = html;
+}
+
+window.addEventListener('load', drawLines);
+window.addEventListener('resize', drawLines);
+
+// Dropdown
+function toggleDropdown() {
+  document.getElementById('agent-dropdown').classList.toggle('open');
+}
+function selectAgent(id, name) {
+  document.querySelector('.agent-id').textContent = `Agent ID: ${id}`;
+  document.querySelector('.node-agent-label').textContent = name;
+  document.getElementById('agent-dropdown').classList.remove('open');
+}
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.agent-selector')) {
+    document.getElementById('agent-dropdown').classList.remove('open');
+  }
+});
+
+// Modal
+function openModal() { document.getElementById('modal').classList.add('open'); }
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+document.getElementById('modal').addEventListener('click', (e) => {
+  if (e.target === e.currentTarget) closeModal();
+});
+
+// Skill picker
+function toggleSkill(el) {
+  el.classList.toggle('selected');
+  // Deselect ALL if individual selected
+  document.querySelector('.skill-chip.all').classList.remove('selected');
+}
+function toggleAll(el) {
+  const isSelected = el.classList.toggle('selected');
+  document.querySelectorAll('.skill-chip:not(.all)').forEach(c => {
+    if (isSelected) c.classList.add('selected');
+    else c.classList.remove('selected');
+  });
+}
+
+function spawnAgent() {
+  const selected = [...document.querySelectorAll('.skill-chip.selected')].map(c => c.dataset.cat);
+  const name = document.getElementById('m-name').value || 'new-agent';
+  alert(`Spawning ${name} with skills: ${selected.join(', ')}`);
+  closeModal();
+}
+</script>
+</body>
+</html>

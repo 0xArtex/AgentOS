@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AgentOS Dashboard — Wireframe</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0b0f;color:#e6edf3;font-family:'Inter','SF Pro Display',-apple-system,sans-serif;padding:40px}
+h1{font-size:28px;font-weight:700;margin-bottom:8px}
+h2{font-size:18px;font-weight:600;margin-bottom:12px;color:#e6edf3}
+h3{font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:0.08em;color:rgba(255,255,255,0.4);margin-bottom:16px}
+p.sub{color:rgba(255,255,255,0.4);font-size:13px;margin-bottom:32px}
+.accent{color:#f54900}
+
+/* Layout */
+.page{max-width:1200px;margin:0 auto}
+.section{margin-bottom:48px}
+.label{font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:#f54900;font-weight:700;margin-bottom:6px}
+.wire-box{border:1px dashed rgba(255,255,255,0.15);padding:20px;position:relative}
+.wire-box .tag{position:absolute;top:-10px;left:12px;background:#0a0b0f;padding:0 8px;font-size:10px;text-transform:uppercase;letter-spacing:0.1em;color:rgba(255,255,255,0.3)}
+
+/* Top Nav */
+.nav{display:flex;align-items:center;justify-content:space-between;padding:16px 0;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:40px}
+.nav-left{display:flex;align-items:center;gap:12px}
+.nav-left img{height:24px;filter:invert(1)}
+.nav-left span{font-weight:700;font-size:16px}
+.nav-tabs{display:flex;gap:24px;font-size:13px;color:rgba(255,255,255,0.4)}
+.nav-tabs .active{color:#e6edf3;border-bottom:2px solid #f54900;padding-bottom:4px}
+.nav-right{display:flex;gap:12px;align-items:center}
+.btn{padding:8px 16px;font-size:12px;font-weight:600;border:none;cursor:pointer;font-family:inherit}
+.btn-primary{background:#f54900;color:white}
+.btn-ghost{background:transparent;border:1px solid rgba(255,255,255,0.15);color:#e6edf3}
+
+/* Stats Row */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:40px}
+.stat-card{border:1px solid rgba(255,255,255,0.06);padding:20px;background:rgba(255,255,255,0.02)}
+.stat-card .stat-value{font-size:32px;font-weight:700;color:#e6edf3}
+.stat-card .stat-label{font-size:12px;color:rgba(255,255,255,0.4);margin-top:4px}
+.stat-card .stat-change{font-size:11px;color:#3fb950;margin-top:2px}
+
+/* Agent List */
+.agent-list{border:1px solid rgba(255,255,255,0.06)}
+.agent-row{display:grid;grid-template-columns:40px 1.5fr 1fr 1fr 1fr 100px;align-items:center;padding:14px 20px;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px}
+.agent-row:hover{background:rgba(255,255,255,0.02)}
+.agent-row.header{color:rgba(255,255,255,0.3);font-size:11px;text-transform:uppercase;letter-spacing:0.05em;font-weight:600}
+.agent-avatar{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;font-size:12px}
+.agent-name{font-weight:600}
+.agent-name span{display:block;font-weight:400;font-size:11px;color:rgba(255,255,255,0.3)}
+.status-dot{width:6px;height:6px;border-radius:50%;display:inline-block;margin-right:6px}
+.status-dot.green{background:#3fb950}
+.status-dot.yellow{background:#d29922}
+.status-dot.red{background:#f85149}
+.skill-tags{display:flex;gap:4px;flex-wrap:wrap}
+.skill-tag{padding:2px 8px;font-size:10px;border:1px solid rgba(255,255,255,0.1);color:rgba(255,255,255,0.5)}
+
+/* Agent Detail Panel */
+.detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px}
+.detail-card{border:1px solid rgba(255,255,255,0.06);padding:20px;background:rgba(255,255,255,0.02)}
+.detail-card h2{font-size:15px;margin-bottom:16px;display:flex;align-items:center;gap:8px}
+.service-row{display:flex;align-items:center;justify-content:space-between;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:13px}
+.service-row:last-child{border-bottom:none}
+.service-row .svc-name{display:flex;align-items:center;gap:8px}
+.service-row .svc-icon{width:20px;height:20px;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;font-size:11px}
+.service-row .svc-status{font-size:11px;color:#3fb950}
+.service-row .svc-value{font-size:12px;color:rgba(255,255,255,0.5)}
+
+/* Skills Grid */
+.skills-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+.skill-card{border:1px solid rgba(255,255,255,0.06);padding:14px;background:rgba(255,255,255,0.02)}
+.skill-card .sk-name{font-size:13px;font-weight:600;margin-bottom:4px}
+.skill-card .sk-desc{font-size:11px;color:rgba(255,255,255,0.4);line-height:1.5}
+.skill-card .sk-link{font-size:10px;color:#f54900;margin-top:8px;display:block;text-decoration:none}
+.skill-cat-header{display:flex;align-items:center;gap:8px;margin-bottom:12px;margin-top:24px}
+.skill-cat-header .emoji{font-size:18px}
+.skill-cat-header .cat-name{font-size:15px;font-weight:600}
+.skill-cat-header .cat-count{font-size:11px;color:rgba(255,255,255,0.3);margin-left:auto}
+
+/* Spawn Timeline */
+.timeline{border-left:2px solid rgba(255,255,255,0.08);margin-left:12px;padding-left:24px}
+.timeline-item{position:relative;padding-bottom:20px}
+.timeline-item::before{content:'';position:absolute;left:-30px;top:4px;width:12px;height:12px;border-radius:50%;border:2px solid rgba(255,255,255,0.15);background:#0a0b0f}
+.timeline-item.done::before{border-color:#3fb950;background:#3fb950}
+.timeline-item.active::before{border-color:#f54900;background:#f54900;box-shadow:0 0 8px rgba(245,73,0,0.5)}
+.timeline-item .tl-title{font-size:13px;font-weight:600}
+.timeline-item .tl-desc{font-size:11px;color:rgba(255,255,255,0.4);margin-top:2px}
+.timeline-item .tl-time{font-size:10px;color:rgba(255,255,255,0.2);margin-top:2px}
+
+/* Section divider */
+.divider{border:none;border-top:1px solid rgba(255,255,255,0.06);margin:48px 0}
+.page-label{font-size:11px;text-transform:uppercase;letter-spacing:0.12em;color:rgba(255,255,255,0.2);text-align:center;margin-bottom:32px}
+</style>
+</head>
+<body>
+<div class="page">
+
+<!-- PAGE LABEL -->
+<div class="page-label">📐 WIREFRAME — AgentOS Dashboard Layout</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- PAGE 1: DASHBOARD OVERVIEW -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+<div class="label">Page 1</div>
+<h1>Dashboard Overview</h1>
+<p class="sub">Bird's-eye view of all agents, pool status, and activity</p>
+
+<!-- Nav -->
+<div class="nav">
+  <div class="nav-left">
+    <span>⚡ AgentOS</span>
+  </div>
+  <div class="nav-tabs">
+    <span class="active">Dashboard</span>
+    <span>Agents</span>
+    <span>Skills Catalog</span>
+    <span>X Accounts</span>
+    <span>Spawn</span>
+  </div>
+  <div class="nav-right">
+    <button class="btn btn-ghost">API Docs</button>
+    <button class="btn btn-primary">+ Spawn Agent</button>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-card">
+    <div class="stat-value">12</div>
+    <div class="stat-label">Active Agents</div>
+    <div class="stat-change">+3 this week</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">56</div>
+    <div class="stat-label">Skills Available</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">8</div>
+    <div class="stat-label">X Accounts Pool</div>
+    <div class="stat-change">5 available</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">$240</div>
+    <div class="stat-label">Revenue (30d)</div>
+    <div class="stat-change">+$80 vs last month</div>
+  </div>
+</div>
+
+<!-- Agent List -->
+<h3>Recent Agents</h3>
+<div class="agent-list">
+  <div class="agent-row header">
+    <div></div>
+    <div>Agent</div>
+    <div>Status</div>
+    <div>Services</div>
+    <div>Skills</div>
+    <div>Cost</div>
+  </div>
+  <div class="agent-row">
+    <div class="agent-avatar">🤖</div>
+    <div class="agent-name">trader-alpha<span>B1YE...8oX3</span></div>
+    <div><span class="status-dot green"></span>Running</div>
+    <div>VPS · Phone · X · Email</div>
+    <div class="skill-tags"><span class="skill-tag">crypto</span><span class="skill-tag">research</span></div>
+    <div>$20</div>
+  </div>
+  <div class="agent-row">
+    <div class="agent-avatar">🤖</div>
+    <div class="agent-name">social-bot-9<span>7xKp...3nQm</span></div>
+    <div><span class="status-dot green"></span>Running</div>
+    <div>VPS · X · Email</div>
+    <div class="skill-tags"><span class="skill-tag">social</span><span class="skill-tag">media</span></div>
+    <div>$20</div>
+  </div>
+  <div class="agent-row">
+    <div class="agent-avatar">🤖</div>
+    <div class="agent-name">dev-agent-3<span>4R67...usBr</span></div>
+    <div><span class="status-dot yellow"></span>Spawning...</div>
+    <div>VPS · Email</div>
+    <div class="skill-tags"><span class="skill-tag">coding</span><span class="skill-tag">devops</span></div>
+    <div>$20</div>
+  </div>
+</div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- PAGE 2: AGENT DETAIL -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+<div class="label">Page 2</div>
+<h1>Agent Detail — trader-alpha</h1>
+<p class="sub">Full view of a single agent: services, skills, activity, and config</p>
+
+<div class="detail-grid">
+
+  <!-- Services Panel -->
+  <div class="detail-card">
+    <h2>🔧 Services</h2>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">H</div> Private VPS</div>
+      <div class="svc-value">cx23 · 89.167.36.207</div>
+      <div class="svc-status">● running</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">✕</div> X Account</div>
+      <div class="svc-value">@trader_alpha_ai</div>
+      <div class="svc-status">● active</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">📞</div> Phone</div>
+      <div class="svc-value">+1 (415) 555-1234</div>
+      <div class="svc-status">● active</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">✉</div> Email</div>
+      <div class="svc-value">trader-alpha@agntos.dev</div>
+      <div class="svc-status">● active</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">🌐</div> Domain</div>
+      <div class="svc-value">traderalpha.dev</div>
+      <div class="svc-status">● configured</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">💰</div> Wallet</div>
+      <div class="svc-value">B1YE...8oX3 · 47.50 USDC</div>
+      <div class="svc-status">● funded</div>
+    </div>
+  </div>
+
+  <!-- Spawn Timeline -->
+  <div class="detail-card">
+    <h2>⏱ Spawn Timeline</h2>
+    <div class="timeline">
+      <div class="timeline-item done">
+        <div class="tl-title">Payment received</div>
+        <div class="tl-desc">20.00 USDC from B1YE...8oX3</div>
+        <div class="tl-time">0:00</div>
+      </div>
+      <div class="timeline-item done">
+        <div class="tl-title">VPS provisioned</div>
+        <div class="tl-desc">cx23 · Helsinki · 89.167.36.207</div>
+        <div class="tl-time">0:08</div>
+      </div>
+      <div class="timeline-item done">
+        <div class="tl-title">OpenClaw installed</div>
+        <div class="tl-desc">v2.4.1 + SSH keys configured</div>
+        <div class="tl-time">0:14</div>
+      </div>
+      <div class="timeline-item done">
+        <div class="tl-title">Services activated</div>
+        <div class="tl-desc">Phone + Email + X Account + Domain</div>
+        <div class="tl-time">0:19</div>
+      </div>
+      <div class="timeline-item done">
+        <div class="tl-title">Skills installed</div>
+        <div class="tl-desc">7 skills: bankr, frames, helius, solana-dev...</div>
+        <div class="tl-time">0:24</div>
+      </div>
+      <div class="timeline-item active">
+        <div class="tl-title">Agent online</div>
+        <div class="tl-desc">Responding to commands</div>
+        <div class="tl-time">0:28</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Installed Skills -->
+<div style="margin-top:24px">
+<h3>Installed Skills (crypto + research)</h3>
+<div class="skills-grid">
+  <div class="skill-card"><div class="sk-name">Bankr</div><div class="sk-desc">Trade tokens, launch tokens, DCA, limit orders across Base, Solana, ETH</div><a class="sk-link" href="#">clawhub.ai/bankr →</a></div>
+  <div class="skill-card"><div class="sk-name">Frames</div><div class="sk-desc">Pay-per-use agent tools: image gen, video, market data</div><a class="sk-link" href="#">frames.ag →</a></div>
+  <div class="skill-card"><div class="sk-name">Agent Wallet</div><div class="sk-desc">Cross-chain crypto wallet with payment signing</div><a class="sk-link" href="#">clawhub.ai/agentwallet →</a></div>
+  <div class="skill-card"><div class="sk-name">Solana Dev</div><div class="sk-desc">Build on Solana: @solana/kit, Anchor, Pinocchio</div><a class="sk-link" href="#">clawhub.ai/solana-dev →</a></div>
+  <div class="skill-card"><div class="sk-name">Helius</div><div class="sk-desc">Solana RPC, DAS API, webhooks, transaction parsing</div><a class="sk-link" href="#">clawhub.ai/helius →</a></div>
+  <div class="skill-card"><div class="sk-name">Deep Research</div><div class="sk-desc">#1 on DeepResearch Bench — multi-step research</div><a class="sk-link" href="#">clawhub.ai/cellcog →</a></div>
+  <div class="skill-card"><div class="sk-name">Web Browsing</div><div class="sk-desc">Search the web, fetch pages, extract content</div><a class="sk-link" href="#">clawhub.ai/web →</a></div>
+  <div class="skill-card"><div class="sk-name">Token Research</div><div class="sk-desc">On-chain token analysis, price feeds, holder data</div><a class="sk-link" href="#">clawhub.ai/token-research →</a></div>
+  <div class="skill-card"><div class="sk-name">TL;DR Summaries</div><div class="sk-desc">Summarize any URL, article, or document</div><a class="sk-link" href="#">clawhub.ai/get-tldr →</a></div>
+</div>
+</div>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- PAGE 3: SKILLS CATALOG -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+<div class="label">Page 3</div>
+<h1>Skills Catalog</h1>
+<p class="sub">Browse all 56 skills by category — click to view on ClawHub</p>
+
+<!-- Search bar -->
+<div style="margin-bottom:24px">
+<div class="wire-box" style="max-width:400px;padding:10px 16px;display:flex;align-items:center;gap:8px">
+  <span style="color:rgba(255,255,255,0.3)">🔍</span>
+  <span style="color:rgba(255,255,255,0.3);font-size:13px">Search skills...</span>
+</div>
+</div>
+
+<!-- Category: Crypto -->
+<div class="skill-cat-header">
+  <span class="emoji">🪙</span>
+  <span class="cat-name">Crypto & Web3</span>
+  <span class="cat-count">7 skills</span>
+</div>
+<div class="skills-grid">
+  <div class="skill-card"><div class="sk-name">Bankr</div><div class="sk-desc">Trade tokens, launch tokens, DCA, limit orders, portfolio tracking</div><a class="sk-link" href="#">bankr.bot →</a></div>
+  <div class="skill-card"><div class="sk-name">Frames</div><div class="sk-desc">Pay-per-use agent tools with crypto payments abstracted</div><a class="sk-link" href="#">frames.ag →</a></div>
+  <div class="skill-card"><div class="sk-name">Agent Wallet</div><div class="sk-desc">Cross-chain wallet with policy controls</div><a class="sk-link" href="#">clawhub.ai/agentwallet →</a></div>
+  <div class="skill-card"><div class="sk-name">Solana Dev</div><div class="sk-desc">Build programs, deploy contracts on Solana</div><a class="sk-link" href="#">clawhub.ai/solana-dev →</a></div>
+  <div class="skill-card"><div class="sk-name">Solana Ecosystem</div><div class="sk-desc">Jupiter, Raydium, Tensor, DeFi protocols</div><a class="sk-link" href="#">clawhub.ai/solana-ecosystem →</a></div>
+  <div class="skill-card"><div class="sk-name">Helius</div><div class="sk-desc">Solana RPC, DAS API, webhooks</div><a class="sk-link" href="#">clawhub.ai/helius →</a></div>
+  <div class="skill-card"><div class="sk-name">Token Research</div><div class="sk-desc">On-chain analytics, price feeds, holder data</div><a class="sk-link" href="#">clawhub.ai/token-research →</a></div>
+</div>
+
+<!-- Category: Social -->
+<div class="skill-cat-header">
+  <span class="emoji">📢</span>
+  <span class="cat-name">Social & Marketing</span>
+  <span class="cat-count">4 skills</span>
+</div>
+<div class="skills-grid">
+  <div class="skill-card"><div class="sk-name">X/Twitter API</div><div class="sk-desc">Search, post, manage threads and engagement</div><a class="sk-link" href="#">clawhub.ai/aisa-twitter-api →</a></div>
+  <div class="skill-card"><div class="sk-name">Social Presence</div><div class="sk-desc">Manage reputation and visibility across platforms</div><a class="sk-link" href="#">clawhub.ai/vibes →</a></div>
+  <div class="skill-card"><div class="sk-name">Video Messages</div><div class="sk-desc">AI avatar video messages for engagement</div><a class="sk-link" href="#">clawhub.ai/avatar-video-messages →</a></div>
+  <div class="skill-card"><div class="sk-name">Clawder Social</div><div class="sk-desc">Agent social network — discover and connect</div><a class="sk-link" href="#">clawhub.ai/clawder →</a></div>
+</div>
+
+<p style="color:rgba(255,255,255,0.2);font-size:12px;margin-top:24px;text-align:center">... + 10 more categories (research, coding, devops, browser, general, communication, media, data, security, agent-infra)</p>
+</div>
+
+<hr class="divider">
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- PAGE 4: SPAWN AGENT -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="section">
+<div class="label">Page 4</div>
+<h1>Spawn New Agent</h1>
+<p class="sub">Configure and launch a new agent — $20 flat fee</p>
+
+<div class="detail-grid">
+  <!-- Config Form -->
+  <div class="detail-card">
+    <h2>⚙️ Configuration</h2>
+    <div style="font-size:13px;display:flex;flex-direction:column;gap:16px">
+      <div>
+        <div style="color:rgba(255,255,255,0.4);font-size:11px;margin-bottom:4px">AGENT NAME</div>
+        <div class="wire-box" style="padding:8px 12px;border-style:solid;border-color:rgba(255,255,255,0.1)">my-trading-agent</div>
+      </div>
+      <div>
+        <div style="color:rgba(255,255,255,0.4);font-size:11px;margin-bottom:4px">DOMAIN</div>
+        <div class="wire-box" style="padding:8px 12px;border-style:solid;border-color:rgba(255,255,255,0.1)">myagent.dev</div>
+      </div>
+      <div>
+        <div style="color:rgba(255,255,255,0.4);font-size:11px;margin-bottom:4px">VPS TIER</div>
+        <div class="wire-box" style="padding:8px 12px;border-style:solid;border-color:rgba(255,255,255,0.1)">cx23 — 2 vCPU, 4GB RAM</div>
+      </div>
+      <div>
+        <div style="color:rgba(255,255,255,0.4);font-size:11px;margin-bottom:4px">PHONE COUNTRY</div>
+        <div class="wire-box" style="padding:8px 12px;border-style:solid;border-color:rgba(255,255,255,0.1)">US</div>
+      </div>
+      <div>
+        <div style="color:rgba(255,255,255,0.4);font-size:11px;margin-bottom:4px">SKILLS</div>
+        <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:4px">
+          <span class="skill-tag" style="border-color:#f54900;color:#f54900">🪙 crypto</span>
+          <span class="skill-tag" style="border-color:#f54900;color:#f54900">🔍 research</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">📢 social</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">💻 coding</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">☁️ devops</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">🌐 browser</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">⚡ general</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">💬 comms</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">🎬 media</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">📊 data</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">🔒 security</span>
+          <span class="skill-tag" style="border-color:rgba(255,255,255,0.15)">🤖 agent</span>
+          <span class="skill-tag" style="border-color:#3fb950;color:#3fb950">⭐ ALL</span>
+        </div>
+      </div>
+    </div>
+    <button class="btn btn-primary" style="margin-top:24px;width:100%;padding:12px;font-size:14px">Spawn Agent — $20 USDC</button>
+  </div>
+
+  <!-- Preview -->
+  <div class="detail-card">
+    <h2>👁 Preview</h2>
+    <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:16px">What this agent will get:</div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">H</div> VPS</div>
+      <div class="svc-value">cx23 · 2 vCPU · 4GB</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">🌐</div> Domain</div>
+      <div class="svc-value">myagent.dev</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">✕</div> X Account</div>
+      <div class="svc-value">Pre-authenticated</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">✉</div> Email</div>
+      <div class="svc-value">agent@agntos.dev</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">📞</div> Phone</div>
+      <div class="svc-value">US number</div>
+    </div>
+    <div class="service-row">
+      <div class="svc-name"><div class="svc-icon">💰</div> Wallet</div>
+      <div class="svc-value">Solana + Base</div>
+    </div>
+    <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(255,255,255,0.06)">
+      <div style="font-size:12px;color:rgba(255,255,255,0.4);margin-bottom:8px">SKILLS (12 from crypto + research)</div>
+      <div style="display:flex;flex-wrap:wrap;gap:4px">
+        <span class="skill-tag">bankr</span>
+        <span class="skill-tag">frames</span>
+        <span class="skill-tag">agentwallet</span>
+        <span class="skill-tag">solana-dev</span>
+        <span class="skill-tag">solana-ecosystem</span>
+        <span class="skill-tag">helius</span>
+        <span class="skill-tag">token-research</span>
+        <span class="skill-tag">web</span>
+        <span class="skill-tag">cellcog</span>
+        <span class="skill-tag">get-tldr</span>
+        <span class="skill-tag">openinsider</span>
+        <span class="skill-tag">deepwiki</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+</div>
+</body>
+</html>
