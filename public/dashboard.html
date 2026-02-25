@@ -3,162 +3,164 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentOS Dashboard</title>
+<title>AgentOS — Command Center</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#0a0b0f;--bg2:rgba(17,19,24,0.85);--bg3:rgba(24,27,34,0.9);--border:rgba(255,255,255,0.06);--w10:rgba(255,255,255,0.1);--w20:rgba(255,255,255,0.2);--w40:rgba(255,255,255,0.4);--w60:rgba(255,255,255,0.6);--text:#e6edf3;--accent:#f54900;--green:#3fb950;--r:12px}
+:root{--bg:#08090d;--bg2:rgba(14,15,20,0.92);--bg3:rgba(20,22,28,0.95);--glass:rgba(255,255,255,0.025);--border:rgba(255,255,255,0.06);--w10:rgba(255,255,255,0.1);--w20:rgba(255,255,255,0.2);--w30:rgba(255,255,255,0.3);--w40:rgba(255,255,255,0.4);--w60:rgba(255,255,255,0.6);--text:#e6edf3;--accent:#f54900;--green:#3fb950;--red:#f85149;--r:10px}
 body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
-::-webkit-scrollbar{width:4px}
+body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:0.015;background:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
+::selection{background:rgba(245,73,0,0.3)}
+::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--w10);border-radius:2px}
+::-webkit-scrollbar-thumb{background:var(--w10);border-radius:3px}
 
-/* TOP BAR */
-.topbar{display:flex;align-items:center;height:52px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--bg2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);padding:0 16px;gap:0}
+/* ─── TOP BAR ─── */
+.topbar{display:flex;align-items:center;height:48px;border-bottom:1px dashed var(--border);flex-shrink:0;padding:0 16px;gap:0;position:relative;z-index:50}
+.topbar-brand{display:flex;align-items:center;gap:8px;padding-right:20px;border-right:1px dashed var(--border);margin-right:4px;height:100%}
+.topbar-brand img{height:18px;filter:invert(1);opacity:0.9}
+.topbar-brand span{font-weight:700;font-size:13px;letter-spacing:-0.02em}
 .topbar-tabs{display:flex;align-items:center;height:100%;gap:0}
-.topbar-tab{display:flex;align-items:center;gap:7px;padding:0 18px;height:100%;font-size:13px;color:var(--w40);cursor:pointer;border-bottom:2px solid transparent;transition:color .2s,border-color .2s;white-space:nowrap;user-select:none}
-.topbar-tab:hover{color:var(--text)}
-.topbar-tab.active{color:var(--text);border-bottom-color:var(--accent)}
-.topbar-tab svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s}
-.topbar-tab:hover svg{transform:rotate(-8deg)}
-.topbar-right{margin-left:auto;display:flex;align-items:center;gap:12px}
-.agent-selector{display:flex;align-items:center;gap:8px;padding:6px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;position:relative;transition:background .2s}
-.agent-selector:hover{background:rgba(255,255,255,0.05)}
-.agent-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0}
-.agent-chevron{color:var(--w40);font-size:9px;margin-left:4px;transition:transform .2s}
+.topbar-tab{display:flex;align-items:center;gap:6px;padding:0 14px;height:100%;font-size:12px;color:var(--w30);cursor:pointer;border-bottom:1.5px solid transparent;transition:color .2s;font-weight:500;letter-spacing:0.01em;text-transform:uppercase;font-family:'JetBrains Mono',monospace}
+.topbar-tab:hover{color:var(--w60)}
+.topbar-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.topbar-tab svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;opacity:0.7}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
+.agent-selector{display:flex;align-items:center;gap:8px;padding:5px 12px;border:1px dashed var(--border);cursor:pointer;font-size:11px;font-weight:600;position:relative;transition:border-color .2s;font-family:'JetBrains Mono',monospace;border-radius:4px}
+.agent-selector:hover{border-color:var(--w20)}
+.agent-dot{width:6px;height:6px;border-radius:50%;background:var(--green);flex-shrink:0}
+.agent-chevron{color:var(--w30);font-size:8px;margin-left:6px;transition:transform .2s}
 .agent-selector:hover .agent-chevron{transform:rotate(180deg)}
-.agent-dropdown{position:absolute;top:calc(100% + 6px);left:0;right:0;min-width:240px;background:var(--bg3);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:var(--r);z-index:200;display:none;overflow:hidden}
+.agent-dropdown{position:absolute;top:calc(100% + 4px);left:0;right:0;min-width:200px;background:var(--bg3);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:var(--r);z-index:200;display:none;overflow:hidden}
 .agent-dropdown.open{display:block}
-.agent-dd-item{display:flex;align-items:center;gap:8px;padding:10px 14px;font-size:13px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s}
+.agent-dd-item{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:11px;cursor:pointer;border-bottom:1px solid var(--border);transition:background .15s;font-family:'JetBrains Mono',monospace}
 .agent-dd-item:last-child{border-bottom:none}
-.agent-dd-item:hover{background:rgba(255,255,255,0.04)}
-.agent-dd-item .dd-dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
-.new-agent-btn{display:flex;align-items:center;gap:7px;padding:7px 18px;background:var(--accent);color:white;font-size:13px;font-weight:600;cursor:pointer;border:none;font-family:inherit;border-radius:8px;transition:background .2s;white-space:nowrap}
-.new-agent-btn:hover{background:#ff5a14}
-.new-agent-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2}
+.agent-dd-item:hover{background:var(--glass)}
+.agent-dd-item .dd-dot{width:5px;height:5px;border-radius:50%;background:var(--green)}
+.new-agent-btn{display:flex;align-items:center;gap:6px;padding:6px 14px;background:transparent;border:1px solid var(--accent);color:var(--accent);font-size:11px;font-weight:600;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .2s;border-radius:4px}
+.new-agent-btn:hover{background:var(--accent);color:white}
+.new-agent-btn svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2.5}
 
-/* MAIN LAYOUT */
+/* ─── MAIN LAYOUT ─── */
 .main-area{display:flex;flex:1;overflow:hidden}
 
-/* LEFT PANEL */
-.left-panel{width:280px;flex-shrink:0;border-right:1px solid var(--border);background:var(--bg2);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);overflow-y:auto;display:flex;flex-direction:column}
-.panel-section{padding:20px}
-.panel-title{font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--w40);margin-bottom:14px;font-weight:600}
-.stat-card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:var(--r);margin-bottom:8px;transition:border-color .2s}
+/* ─── LEFT PANEL ─── */
+.left-panel{width:260px;flex-shrink:0;border-right:1px dashed var(--border);overflow-y:auto;display:flex;flex-direction:column;background:var(--bg)}
+.panel-section{padding:16px}
+.panel-title{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--w30);margin-bottom:12px;font-weight:600;font-family:'JetBrains Mono',monospace}
+.stat-card{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);margin-bottom:6px;transition:border-color .2s;border-radius:6px;background:var(--glass)}
 .stat-card:hover{border-color:var(--w20)}
-.stat-card svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;color:var(--w40);flex-shrink:0}
+.stat-card svg{width:15px;height:15px;stroke:var(--w30);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
 .stat-info{display:flex;flex-direction:column}
-.stat-val{font-size:18px;font-weight:700}
-.stat-label{font-size:11px;color:var(--w40)}
+.stat-val{font-size:16px;font-weight:700;font-family:'JetBrains Mono',monospace}
+.stat-label{font-size:10px;color:var(--w30)}
+.stat-val.orange{color:var(--accent)}
+.stat-val.green{color:var(--green)}
 
 /* Skills panel */
-.skills-search{display:flex;align-items:center;gap:8px;padding:8px 12px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;margin-bottom:14px}
-.skills-search svg{width:14px;height:14px;stroke:var(--w40);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
-.skills-search input{background:none;border:none;outline:none;color:var(--text);font-size:13px;font-family:inherit;width:100%}
+.skills-search{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px dashed var(--border);margin-bottom:12px;border-radius:4px}
+.skills-search svg{width:12px;height:12px;stroke:var(--w30);fill:none;stroke-width:2;flex-shrink:0}
+.skills-search input{background:none;border:none;outline:none;color:var(--text);font-size:11px;font-family:'JetBrains Mono',monospace;width:100%}
 .skills-search input::placeholder{color:var(--w20)}
-.skill-group{margin-bottom:16px}
-.skill-group-title{font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px}
-.skill-item{display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:12px;color:var(--w60);border-radius:6px;cursor:pointer;transition:background .15s,color .15s}
-.skill-item:hover{background:rgba(255,255,255,0.04);color:var(--text)}
-.skill-item svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;flex-shrink:0}
-.skill-dot{width:5px;height:5px;border-radius:50%;background:var(--green);flex-shrink:0}
-.placeholder-content{padding:20px;color:var(--w20);font-size:13px}
+.skill-group{margin-bottom:14px}
+.skill-group-title{font-size:9px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;font-family:'JetBrains Mono',monospace}
+.skill-item{display:flex;align-items:center;gap:6px;padding:5px 8px;font-size:11px;color:var(--w40);border-radius:4px;cursor:pointer;transition:all .15s;font-family:'JetBrains Mono',monospace}
+.skill-item:hover{background:var(--glass);color:var(--text)}
+.skill-dot{width:4px;height:4px;border-radius:50%;background:var(--green);flex-shrink:0}
+.activity-item{display:flex;align-items:baseline;gap:6px;padding:4px 0;font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.7}
+.activity-item::before{content:'›';color:var(--accent);font-weight:700}
+.activity-item span{color:var(--w60)}
 
-/* CANVAS */
-.canvas-wrap{flex:1;overflow:hidden;position:relative;cursor:grab;background:var(--bg)}
+/* ─── CANVAS ─── */
+.canvas-wrap{flex:1;overflow:hidden;position:relative;cursor:crosshair}
 .canvas-wrap:active{cursor:grabbing}
-.canvas-bg{position:absolute;inset:0;background-image:radial-gradient(circle,rgba(255,255,255,0.04) 1px,transparent 1px);background-size:30px 30px}
+.canvas-bg{position:absolute;inset:0;background-image:
+  linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+  linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+background-size:40px 40px}
 .canvas-transform{position:absolute;inset:0;transform-origin:0 0}
 .canvas-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.canvas-svg path{stroke-dasharray:6 4;opacity:0.4}
 
-/* NODES */
-.node{position:absolute;display:flex;align-items:center;gap:8px;padding:10px 16px;background:var(--bg2);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:var(--r);cursor:grab;transition:border-color .2s,color .2s;white-space:nowrap;user-select:none}
-.node:active,.agent-node:active,.vps-node:active{cursor:grabbing}
-.node:hover{border-color:var(--w20)}
-.node svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s;flex-shrink:0}
-.node:hover svg{transform:rotate(-8deg)}
-.node-label{font-size:12px;font-weight:500}
-.node-sub{font-size:10px;color:var(--w40)}
+/* Zoom indicator */
+.zoom-indicator{position:absolute;bottom:12px;right:12px;font-size:10px;color:var(--w20);font-family:'JetBrains Mono',monospace;z-index:10}
 
-.agent-node{position:absolute;width:80px;height:80px;border-radius:50%;border:2px solid var(--accent);background:var(--bg2);backdrop-filter:blur(20px);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:border-color .2s}
-.agent-node:hover{border-color:#ff5a14}
-.agent-node span{pointer-events:none}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
-.agent-node{animation:pulse 3s ease-in-out infinite}
+/* ─── NODES ─── */
+.node{position:absolute;display:flex;align-items:center;gap:10px;padding:10px 16px;background:var(--bg2);backdrop-filter:blur(30px);border:1px solid var(--border);border-radius:var(--r);cursor:grab;transition:border-color .25s;white-space:nowrap;user-select:none}
+.node:active{cursor:grabbing}
+.node:hover{border-color:var(--accent)}
+.node svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0;color:var(--w40);transition:color .2s}
+.node:hover svg{color:var(--accent)}
+.node-label{font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace}
+.node-sub{font-size:9px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-top:1px}
 
-.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:20px;font-size:9px;color:var(--w60);margin-top:4px;margin-right:4px}
+/* Agent center */
+.agent-node{position:absolute;width:72px;height:72px;border-radius:50%;border:1.5px dashed var(--accent);background:var(--bg);display:flex;align-items:center;justify-content:center;cursor:grab;transition:border-color .2s;z-index:5}
+.agent-node:active{cursor:grabbing}
+.agent-node:hover{border-color:#ff6b2b}
+.agent-node-inner{font-size:11px;font-weight:800;color:var(--accent);font-family:'JetBrains Mono',monospace;letter-spacing:0.05em;pointer-events:none}
+.agent-node-label{position:absolute;top:100%;left:50%;transform:translateX(-50%);margin-top:6px;font-size:9px;color:var(--w30);white-space:nowrap;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;text-transform:uppercase;pointer-events:none}
 
-/* VPS bottom bar */
-.vps-node{position:absolute;display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--bg2);backdrop-filter:blur(20px);border:1px solid var(--border);border-radius:var(--r);cursor:pointer;transition:border-color .2s;white-space:nowrap}
-.vps-node:hover{border-color:var(--w20)}
-.vps-node svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;transition:transform .2s}
-.vps-node:hover svg{transform:rotate(-8deg)}
+.chip{display:inline-flex;align-items:center;gap:3px;padding:2px 7px;border:1px solid var(--border);border-radius:3px;font-size:8px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-top:3px;margin-right:3px}
+.chip.sol{border-color:rgba(153,69,255,0.3);color:rgba(153,69,255,0.7)}
+.chip.base{border-color:rgba(0,82,255,0.3);color:rgba(0,82,255,0.7)}
 
-/* MODAL */
-.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);backdrop-filter:blur(8px);z-index:500;display:none;align-items:center;justify-content:center}
+/* VPS */
+.vps-node{position:absolute;display:flex;align-items:center;gap:10px;padding:10px 20px;background:var(--bg2);backdrop-filter:blur(30px);border:1px solid var(--border);border-radius:var(--r);cursor:grab;transition:border-color .25s;white-space:nowrap}
+.vps-node:active{cursor:grabbing}
+.vps-node:hover{border-color:var(--accent)}
+.vps-node svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;color:var(--w40);transition:color .2s}
+.vps-node:hover svg{color:var(--accent)}
+
+/* Status dot */
+.s-dot{width:5px;height:5px;border-radius:50%;background:var(--green);display:inline-block;margin-right:4px}
+
+/* ─── MODAL ─── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);backdrop-filter:blur(12px);z-index:500;display:none;align-items:center;justify-content:center}
 .modal-overlay.open{display:flex}
-.modal{background:var(--bg3);backdrop-filter:blur(40px);-webkit-backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:16px;padding:28px;min-width:400px;max-width:520px;max-height:80vh;overflow-y:auto;position:relative}
-.modal-close{position:absolute;top:16px;right:16px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--w40);border-radius:6px;transition:background .15s,color .15s}
-.modal-close:hover{background:rgba(255,255,255,0.05);color:var(--text)}
-.modal-close svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
-.modal-title{font-size:16px;font-weight:700;margin-bottom:4px;display:flex;align-items:center;gap:10px}
-.modal-title svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
-.modal-subtitle{font-size:12px;color:var(--w40);margin-bottom:20px}
-.modal-row{display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px}
+.modal{background:var(--bg3);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:14px;padding:24px;min-width:380px;max-width:480px;max-height:80vh;overflow-y:auto;position:relative}
+.modal-close{position:absolute;top:14px;right:14px;width:24px;height:24px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--w30);border-radius:4px;transition:color .15s}
+.modal-close:hover{color:var(--text)}
+.modal-close svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
+.modal-title{font-size:14px;font-weight:700;margin-bottom:3px;display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace}
+.modal-title svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;color:var(--accent)}
+.modal-subtitle{font-size:10px;color:var(--w30);margin-bottom:16px;font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:0.5px}
+.modal-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed var(--border);font-size:12px;font-family:'JetBrains Mono',monospace}
 .modal-row:last-child{border-bottom:none}
-.modal-row-label{color:var(--w40)}
-.modal-row-val{font-weight:500}
-.modal-row-val.green{color:var(--green)}
-.modal-row-val.accent{color:var(--accent)}
-.modal-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:500}
-.badge-green{background:rgba(63,185,80,0.1);color:var(--green)}
-.badge-orange{background:rgba(245,73,0,0.1);color:var(--accent)}
+.modal-row-label{color:var(--w30)}
+.modal-row-val{font-weight:500;text-align:right;max-width:200px;word-break:break-all}
+.modal-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600}
+.badge-green{background:rgba(63,185,80,0.1);color:var(--green);border:1px solid rgba(63,185,80,0.15)}
+.badge-orange{background:rgba(245,73,0,0.1);color:var(--accent);border:1px solid rgba(245,73,0,0.15)}
 
-/* NEW AGENT MODAL */
-.na-field{margin-bottom:16px}
-.na-label{font-size:12px;color:var(--w40);margin-bottom:6px;display:block}
-.na-input,.na-select{width:100%;padding:10px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:inherit;outline:none;transition:border-color .2s}
-.na-input:focus,.na-select:focus{border-color:var(--accent)}
+/* New Agent */
+.na-field{margin-bottom:14px}
+.na-label{font-size:9px;color:var(--w30);margin-bottom:5px;display:block;text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace;font-weight:600}
+.na-input,.na-select{width:100%;padding:8px 12px;background:var(--glass);border:1px dashed var(--border);color:var(--text);font-size:12px;font-family:'JetBrains Mono',monospace;outline:none;border-radius:4px;transition:border-color .2s}
+.na-input:focus,.na-select:focus{border-color:var(--accent);border-style:solid}
 .na-select{appearance:none;cursor:pointer}
 .na-chips{display:flex;flex-wrap:wrap;gap:6px}
-.na-chip{padding:6px 14px;border-radius:20px;border:1px solid var(--border);background:rgba(255,255,255,0.02);font-size:12px;color:var(--w60);cursor:pointer;transition:all .15s;user-select:none}
-.na-chip:hover,.na-chip.selected{border-color:var(--accent);color:var(--accent);background:rgba(245,73,0,0.08)}
-.na-price{text-align:center;padding:16px 0;font-size:22px;font-weight:700;color:var(--text)}
-.na-price span{font-size:12px;color:var(--w40);font-weight:400}
-.spawn-btn{width:100%;padding:12px;background:var(--accent);color:white;font-size:14px;font-weight:600;border:none;border-radius:8px;cursor:pointer;font-family:inherit;transition:background .2s}
-.spawn-btn:hover{background:#ff5a14}
+.na-chip{padding:5px 12px;border-radius:3px;border:1px dashed var(--border);font-size:10px;color:var(--w40);cursor:pointer;transition:all .15s;user-select:none;font-family:'JetBrains Mono',monospace}
+.na-chip:hover{border-color:var(--w20);color:var(--text)}
+.na-chip.selected{border-color:var(--accent);border-style:solid;color:var(--accent);background:rgba(245,73,0,0.05)}
+.na-price{text-align:center;padding:14px 0;font-size:20px;font-weight:800;color:var(--accent);font-family:'JetBrains Mono',monospace}
+.na-price span{font-size:11px;color:var(--w30);font-weight:400}
+.spawn-btn{width:100%;padding:10px;background:transparent;border:1px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;border-radius:4px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .2s;text-transform:uppercase;letter-spacing:1px}
+.spawn-btn:hover{background:var(--accent);color:white}
 </style>
 </head>
 <body>
 
 <!-- TOP BAR -->
 <div class="topbar">
+  <div class="topbar-brand"><img src="/assets/logo.png" alt="AO"><span>AGENT<span style="color:var(--accent)">OS</span></span></div>
   <div class="topbar-tabs" id="topTabs">
-    <div class="topbar-tab active" data-tab="dashboard">
-      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-      Dashboard
-    </div>
-    <div class="topbar-tab" data-tab="skills">
-      <svg viewBox="0 0 24 24"><path d="M13.5 2H6a2 2 0 00-2 2v5.5a2 2 0 002 2h2.5V14a2 2 0 002 2H16a2 2 0 002-2V8.5a2 2 0 00-2-2h-2.5V4a2 2 0 00-2-2z"/></svg>
-      Skills
-    </div>
-    <div class="topbar-tab" data-tab="inventory">
-      <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
-      Inventory
-    </div>
-    <div class="topbar-tab" data-tab="billing">
-      <svg viewBox="0 0 24 24"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
-      Billing
-    </div>
-    <div class="topbar-tab" data-tab="logs">
-      <svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
-      API Logs
-    </div>
-    <div class="topbar-tab" data-tab="settings">
-      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.32 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-      Settings
-    </div>
+    <div class="topbar-tab active" data-tab="dashboard"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>DASH</div>
+    <div class="topbar-tab" data-tab="skills"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>SKILLS</div>
+    <div class="topbar-tab" data-tab="inventory"><svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>INV</div>
+    <div class="topbar-tab" data-tab="logs"><svg viewBox="0 0 24 24"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>LOGS</div>
+    <div class="topbar-tab" data-tab="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82 1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>CFG</div>
   </div>
   <div class="topbar-right">
     <div class="agent-selector" id="agentSelector">
@@ -166,110 +168,46 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;displ
       <span id="agentName">zolty-main</span>
       <span class="agent-chevron">&#9660;</span>
       <div class="agent-dropdown" id="agentDropdown">
-        <div class="agent-dd-item" data-agent="zolty-main"><span class="dd-dot"></span> zolty-main</div>
-        <div class="agent-dd-item" data-agent="zolty-dev"><span class="dd-dot" style="background:var(--accent)"></span> zolty-dev</div>
-        <div class="agent-dd-item" data-agent="sales-bot"><span class="dd-dot" style="background:var(--w20)"></span> sales-bot</div>
+        <div class="agent-dd-item" data-agent="zolty-main"><span class="dd-dot" style="background:var(--green)"></span>zolty-main</div>
+        <div class="agent-dd-item" data-agent="trader-alpha"><span class="dd-dot" style="background:var(--green)"></span>trader-alpha</div>
+        <div class="agent-dd-item" data-agent="dev-agent"><span class="dd-dot" style="background:var(--w20)"></span>dev-agent</div>
       </div>
     </div>
-    <button class="new-agent-btn" id="newAgentBtn">
-      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-      New Agent
-    </button>
+    <button class="new-agent-btn" id="newAgentBtn"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>NEW AGENT</button>
   </div>
 </div>
 
 <div class="main-area">
   <!-- LEFT PANEL -->
   <div class="left-panel" id="leftPanel">
-    <!-- Dashboard panel (default) -->
     <div class="panel-content" data-panel="dashboard">
       <div class="panel-section">
-        <div class="panel-title">Overview</div>
-        <div class="stat-card">
-          <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/></svg>
-          <div class="stat-info"><span class="stat-val">3</span><span class="stat-label">Total Agents</span></div>
-        </div>
-        <div class="stat-card">
-          <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
-          <div class="stat-info"><span class="stat-val">$1,240</span><span class="stat-label">Revenue (30d)</span></div>
-        </div>
-        <div class="stat-card">
-          <svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg>
-          <div class="stat-info"><span class="stat-val">5</span><span class="stat-label">X Accounts Pool</span></div>
-        </div>
-        <div class="stat-card">
-          <svg viewBox="0 0 24 24"><path d="M13.5 2H6a2 2 0 00-2 2v5.5a2 2 0 002 2h2.5V14a2 2 0 002 2H16a2 2 0 002-2V8.5a2 2 0 00-2-2h-2.5V4a2 2 0 00-2-2z"/></svg>
-          <div class="stat-info"><span class="stat-val">24</span><span class="stat-label">Skills Installed</span></div>
-        </div>
+        <div class="panel-title">// STATUS</div>
+        <div class="stat-card"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M6.34 6.34L3.51 3.51"/></svg><div class="stat-info"><span class="stat-val green">3</span><span class="stat-label">agents online</span></div></div>
+        <div class="stat-card"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg><div class="stat-info"><span class="stat-val orange">$1,240</span><span class="stat-label">revenue 30d</span></div></div>
+        <div class="stat-card"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><div class="stat-info"><span class="stat-val">56</span><span class="stat-label">skills catalog</span></div></div>
+        <div class="stat-card"><svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg><div class="stat-info"><span class="stat-val">5</span><span class="stat-label">x accounts pool</span></div></div>
       </div>
-      <div class="panel-section">
-        <div class="panel-title">Recent Activity</div>
-        <div style="font-size:12px;color:var(--w40);line-height:1.8">
-          <div>Agent deployed <span style="color:var(--green)">zolty-main</span></div>
-          <div>Skill added: <span style="color:var(--w60)">solana-dev</span></div>
-          <div>X account linked: <span style="color:var(--w60)">@zoltyagent</span></div>
-          <div>VPS provisioned <span style="color:var(--green)">4 vCPU</span></div>
-          <div>Domain verified: <span style="color:var(--w60)">zolty.ai</span></div>
-        </div>
+      <div class="panel-section" style="border-top:1px dashed var(--border)">
+        <div class="panel-title">// ACTIVITY</div>
+        <div class="activity-item">agent deployed <span>zolty-main</span></div>
+        <div class="activity-item">skill installed <span>bankr</span></div>
+        <div class="activity-item">x account linked <span>@zoltyagent</span></div>
+        <div class="activity-item">vps provisioned <span>cx23</span></div>
+        <div class="activity-item">domain verified <span>agntos.dev</span></div>
+        <div class="activity-item">phone activated <span>+1 (470) 533-0963</span></div>
       </div>
     </div>
-
-    <!-- Skills panel -->
     <div class="panel-content" data-panel="skills" style="display:none">
       <div class="panel-section">
-        <div class="panel-title">Skills Catalog</div>
-        <div class="skills-search">
-          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-          <input type="text" placeholder="Search skills..." id="skillSearch">
-        </div>
-        <div id="skillsList">
-          <div class="skill-group">
-            <div class="skill-group-title">Blockchain</div>
-            <div class="skill-item"><span class="skill-dot"></span> solana-dev</div>
-            <div class="skill-item"><span class="skill-dot"></span> solana-ecosystem</div>
-            <div class="skill-item"><span class="skill-dot"></span> solana-agents</div>
-            <div class="skill-item"><span class="skill-dot"></span> agentwallet</div>
-            <div class="skill-item"><span class="skill-dot"></span> x402</div>
-            <div class="skill-item"><span class="skill-dot"></span> helius</div>
-          </div>
-          <div class="skill-group">
-            <div class="skill-group-title">Media</div>
-            <div class="skill-item"><span class="skill-dot"></span> fal-assets</div>
-            <div class="skill-item"><span class="skill-dot"></span> generate-images</div>
-            <div class="skill-item"><span class="skill-dot"></span> generate-video</div>
-            <div class="skill-item"><span class="skill-dot"></span> video-frames</div>
-          </div>
-          <div class="skill-group">
-            <div class="skill-group-title">Platform</div>
-            <div class="skill-item"><span class="skill-dot"></span> discord</div>
-            <div class="skill-item"><span class="skill-dot"></span> github</div>
-            <div class="skill-item"><span class="skill-dot"></span> web</div>
-          </div>
-          <div class="skill-group">
-            <div class="skill-group-title">System</div>
-            <div class="skill-item"><span class="skill-dot"></span> healthcheck</div>
-            <div class="skill-item"><span class="skill-dot"></span> tmux</div>
-            <div class="skill-item"><span class="skill-dot"></span> weather</div>
-            <div class="skill-item"><span class="skill-dot"></span> skill-creator</div>
-            <div class="skill-item"><span class="skill-dot"></span> learn</div>
-          </div>
-        </div>
+        <div class="panel-title">// SKILLS CATALOG</div>
+        <div class="skills-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg><input type="text" placeholder="search..." id="skillSearch"></div>
+        <div id="skillsList"></div>
       </div>
     </div>
-
-    <!-- Placeholder panels -->
-    <div class="panel-content" data-panel="inventory" style="display:none">
-      <div class="panel-section"><div class="panel-title">Inventory</div><div class="placeholder-content">Domains, phone numbers, and VPS instances managed across all agents.</div></div>
-    </div>
-    <div class="panel-content" data-panel="billing" style="display:none">
-      <div class="panel-section"><div class="panel-title">Billing</div><div class="placeholder-content">Usage, invoices, and payment methods.</div></div>
-    </div>
-    <div class="panel-content" data-panel="logs" style="display:none">
-      <div class="panel-section"><div class="panel-title">API Logs</div><div class="placeholder-content">Request logs, error traces, and rate limits.</div></div>
-    </div>
-    <div class="panel-content" data-panel="settings" style="display:none">
-      <div class="panel-section"><div class="panel-title">Settings</div><div class="placeholder-content">Account settings, API keys, and team management.</div></div>
-    </div>
+    <div class="panel-content" data-panel="inventory" style="display:none"><div class="panel-section"><div class="panel-title">// INVENTORY</div><div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.8">3 VPS instances<br>2 phone numbers<br>3 email inboxes<br>2 domains<br>5 X accounts (pool)</div></div></div>
+    <div class="panel-content" data-panel="logs" style="display:none"><div class="panel-section"><div class="panel-title">// API LOGS</div><div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.8">POST /agents/create <span style="color:var(--green)">200</span> 142ms<br>GET /skills/all <span style="color:var(--green)">200</span> 12ms<br>POST /x/accounts <span style="color:var(--green)">200</span> 89ms<br>POST /phone/provision <span style="color:var(--accent)">402</span> 3ms<br>POST /compute/servers <span style="color:var(--green)">200</span> 2.1s</div></div></div>
+    <div class="panel-content" data-panel="settings" style="display:none"><div class="panel-section"><div class="panel-title">// SETTINGS</div><div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.8">API endpoint: agntos.dev<br>Auth: x402 + Bearer<br>Treasury: B1YE...8oX3<br>Chains: Solana, Base<br>Version: 0.4.3</div></div></div>
   </div>
 
   <!-- CANVAS -->
@@ -277,55 +215,23 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;displ
     <div class="canvas-bg" id="canvasBg"></div>
     <div class="canvas-transform" id="canvasTransform">
       <svg class="canvas-svg" id="canvasSvg"></svg>
-
-      <!-- AGENT NODE (center) -->
-      <div class="agent-node" id="nodeAgent" style="left:560px;top:340px">
-        <span style="font-size:13px;font-weight:700;color:var(--accent);letter-spacing:0.02em">AO</span>
+      <div class="agent-node" id="nodeAgent" style="left:560px;top:310px">
+        <span class="agent-node-inner">AO</span>
+        <span class="agent-node-label">zolty-main</span>
       </div>
-
-      <!-- SERVICE NODES -->
-      <div class="node" id="nodePhone" data-modal="phone" style="left:340px;top:200px">
-        <svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>
-        <div><div class="node-label">Phone</div><div class="node-sub">+1 (555) 0142</div></div>
-      </div>
-
-      <div class="node" id="nodeEmail" data-modal="email" style="left:340px;top:460px">
-        <svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-        <div><div class="node-label">Email</div><div class="node-sub">agent@zolty.ai</div></div>
-      </div>
-
-      <div class="node" id="nodeSkills" data-modal="skills" style="left:760px;top:200px">
-        <svg viewBox="0 0 24 24"><path d="M13.5 2H6a2 2 0 00-2 2v5.5a2 2 0 002 2h2.5V14a2 2 0 002 2H16a2 2 0 002-2V8.5a2 2 0 00-2-2h-2.5V4a2 2 0 00-2-2z"/></svg>
-        <div><div class="node-label">Skills</div><div class="node-sub">24 installed</div></div>
-      </div>
-
-      <div class="node" id="nodeX" data-modal="xaccount" style="left:760px;top:460px">
-        <svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg>
-        <div><div class="node-label">X Account</div><div class="node-sub">@zoltyagent</div></div>
-      </div>
-
-      <div class="node" id="nodeDomain" data-modal="domain" style="left:380px;top:330px">
-        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>
-        <div><div class="node-label">Domain</div><div class="node-sub">zolty.ai</div></div>
-      </div>
-
-      <div class="node" id="nodeWallet" data-modal="wallet" style="left:720px;top:330px">
-        <svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg>
-        <div>
-          <div class="node-label">Wallet</div>
-          <div><span class="chip">SOL</span><span class="chip">Base</span></div>
-        </div>
-      </div>
-
-      <div class="vps-node" id="nodeVps" data-modal="vps" style="left:480px;top:520px">
-        <svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-        <div><div class="node-label">VPS</div><div class="node-sub">4 vCPU / 8GB / Frankfurt</div></div>
-      </div>
+      <div class="node" id="nodePhone" data-modal="phone" style="left:340px;top:180px"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg><div><div class="node-label"><span class="s-dot"></span>Phone</div><div class="node-sub">+1 (470) 533-0963</div></div></div>
+      <div class="node" id="nodeEmail" data-modal="email" style="left:340px;top:430px"><svg viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg><div><div class="node-label"><span class="s-dot"></span>Email</div><div class="node-sub">zolty@agntos.dev</div></div></div>
+      <div class="node" id="nodeSkills" data-modal="skills" style="left:760px;top:180px"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><div><div class="node-label">Skills</div><div class="node-sub">12 categories · 56 total</div></div></div>
+      <div class="node" id="nodeX" data-modal="xaccount" style="left:760px;top:430px"><svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg><div><div class="node-label"><span class="s-dot"></span>X Account</div><div class="node-sub">@zoltyagent</div></div></div>
+      <div class="node" id="nodeDomain" data-modal="domain" style="left:370px;top:305px"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg><div><div class="node-label"><span class="s-dot"></span>Domain</div><div class="node-sub">agntos.dev</div></div></div>
+      <div class="node" id="nodeWallet" data-modal="wallet" style="left:730px;top:305px"><svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg><div><div class="node-label">Wallet</div><div><span class="chip sol">SOL</span><span class="chip base">BASE</span></div></div></div>
+      <div class="vps-node" id="nodeVps" data-modal="vps" style="left:460px;top:500px"><svg viewBox="0 0 24 24"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg><div><div class="node-label"><span class="s-dot"></span>VPS · cx23</div><div class="node-sub">2 vCPU · 4GB · Helsinki · 77.42.89.233</div></div></div>
     </div>
+    <div class="zoom-indicator" id="zoomInd">100%</div>
   </div>
 </div>
 
-<!-- MODAL OVERLAY -->
+<!-- MODAL -->
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal" id="modalContent">
     <div class="modal-close" id="modalClose"><svg viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
@@ -334,229 +240,104 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;displ
 </div>
 
 <script>
-// --- SVG line helpers ---
-const connections = [
-  ['nodeAgent','nodePhone'],['nodeAgent','nodeEmail'],['nodeAgent','nodeSkills'],
-  ['nodeAgent','nodeX'],['nodeAgent','nodeDomain'],['nodeAgent','nodeWallet'],['nodeAgent','nodeVps']
-];
-
-function getCenter(el){
-  const r=el.style;
-  const l=parseFloat(r.left),t=parseFloat(r.top);
-  return{x:l+el.offsetWidth/2,y:t+el.offsetHeight/2};
-}
-
+// ─── DRAW LINES ───
+const conns=[['nodeAgent','nodePhone'],['nodeAgent','nodeEmail'],['nodeAgent','nodeSkills'],['nodeAgent','nodeX'],['nodeAgent','nodeDomain'],['nodeAgent','nodeWallet'],['nodeAgent','nodeVps']];
+function gc(el){return{x:parseFloat(el.style.left)+el.offsetWidth/2,y:parseFloat(el.style.top)+el.offsetHeight/2}}
 function drawLines(){
-  const svg=document.getElementById('canvasSvg');
-  svg.innerHTML='';
-  connections.forEach(([a,b])=>{
-    const p1=getCenter(document.getElementById(a));
-    const p2=getCenter(document.getElementById(b));
-    const mx=(p1.x+p2.x)/2, my=(p1.y+p2.y)/2;
-    const dx=Math.abs(p2.x-p1.x)*0.3, dy=Math.abs(p2.y-p1.y)*0.3;
-    const c1x=p1.x+(p2.x>p1.x?dx:-dx), c1y=p1.y;
-    const c2x=p2.x-(p2.x>p1.x?dx:-dx), c2y=p2.y;
-    const path=document.createElementNS('http://www.w3.org/2000/svg','path');
-    path.setAttribute('d',`M${p1.x},${p1.y} C${c1x},${c1y} ${c2x},${c2y} ${p2.x},${p2.y}`);
-    path.setAttribute('fill','none');
-    path.setAttribute('stroke','rgba(255,255,255,0.06)');
-    path.setAttribute('stroke-width','1.5');
-    svg.appendChild(path);
+  const svg=document.getElementById('canvasSvg');svg.innerHTML='';
+  conns.forEach(([a,b])=>{
+    const p1=gc(document.getElementById(a)),p2=gc(document.getElementById(b));
+    const dx=p2.x-p1.x,dy=p2.y-p1.y;
+    const cx1=p1.x+dx*0.4,cy1=p1.y,cx2=p2.x-dx*0.4,cy2=p2.y;
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('d',`M${p1.x},${p1.y} C${cx1},${cy1} ${cx2},${cy2} ${p2.x},${p2.y}`);
+    p.setAttribute('fill','none');p.setAttribute('stroke','rgba(245,73,0,0.12)');p.setAttribute('stroke-width','1');
+    p.setAttribute('stroke-dasharray','4 3');
+    svg.appendChild(p);
   });
 }
 drawLines();
 
-// --- PAN & ZOOM ---
-const wrap=document.getElementById('canvasWrap');
-const transform=document.getElementById('canvasTransform');
-const bg=document.getElementById('canvasBg');
+// ─── PAN & ZOOM ───
+const wrap=document.getElementById('canvasWrap'),transform=document.getElementById('canvasTransform'),bg=document.getElementById('canvasBg');
 let tx=0,ty=0,scale=1,dragging=false,sx=0,sy=0,stx=0,sty=0;
-
-// Node dragging
 let dragNode=null,dnsx=0,dnsy=0,dnox=0,dnoy=0,nodeMoved=false;
-function initNodeDrag(e,node){
-  dragNode=node;nodeMoved=false;
-  dnsx=e.clientX;dnsy=e.clientY;
-  dnox=parseInt(node.style.left)||0;dnoy=parseInt(node.style.top)||0;
-  e.stopPropagation();
-}
+
 document.querySelectorAll('.node,.agent-node,.vps-node').forEach(n=>{
-  n.addEventListener('mousedown',e=>initNodeDrag(e,n));
+  n.addEventListener('mousedown',e=>{dragNode=n;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;dnox=parseFloat(n.style.left)||0;dnoy=parseFloat(n.style.top)||0;e.stopPropagation();});
 });
 window.addEventListener('mousemove',e=>{
-  if(dragNode){
-    const dx=(e.clientX-dnsx)/scale, dy=(e.clientY-dnsy)/scale;
-    if(Math.abs(dx)>3||Math.abs(dy)>3) nodeMoved=true;
-    dragNode.style.left=(dnox+dx)+'px';
-    dragNode.style.top=(dnoy+dy)+'px';
-    drawLines();
-    return;
-  }
+  if(dragNode){const dx=(e.clientX-dnsx)/scale,dy=(e.clientY-dnsy)/scale;if(Math.abs(dx)>3||Math.abs(dy)>3)nodeMoved=true;dragNode.style.left=(dnox+dx)+'px';dragNode.style.top=(dnoy+dy)+'px';drawLines();return;}
+  if(!dragging)return;tx=stx+(e.clientX-sx);ty=sty+(e.clientY-sy);applyTransform();
 });
-window.addEventListener('mouseup',()=>{
-  if(dragNode&&!nodeMoved){/* click handled by node click handler */}
-  dragNode=null;
-});
+window.addEventListener('mouseup',()=>{dragNode=null;dragging=false;});
+wrap.addEventListener('mousedown',e=>{if(e.target.closest('.node,.agent-node,.vps-node'))return;dragging=true;sx=e.clientX;sy=e.clientY;stx=tx;sty=ty;});
+wrap.addEventListener('wheel',e=>{e.preventDefault();const r=wrap.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top,d=e.deltaY>0?0.92:1.08,ns=Math.min(3,Math.max(0.3,scale*d));tx=mx-(mx-tx)*(ns/scale);ty=my-(my-ty)*(ns/scale);scale=ns;applyTransform();document.getElementById('zoomInd').textContent=Math.round(scale*100)+'%';},{passive:false});
+function applyTransform(){transform.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;bg.style.backgroundPosition=`${tx}px ${ty}px`;bg.style.backgroundSize=`${40*scale}px ${40*scale}px`;}
 
-wrap.addEventListener('mousedown',e=>{
-  if(e.target.closest('.node,.agent-node,.vps-node'))return;
-  dragging=true;sx=e.clientX;sy=e.clientY;stx=tx;sty=ty;
-});
-window.addEventListener('mousemove',e=>{
-  if(dragNode) return; // node drag handled above
-  if(!dragging)return;
-  tx=stx+(e.clientX-sx);ty=sty+(e.clientY-sy);
-  applyTransform();
-});
-window.addEventListener('mouseup',()=>{dragging=false});
-wrap.addEventListener('wheel',e=>{
-  e.preventDefault();
-  const rect=wrap.getBoundingClientRect();
-  const mx=e.clientX-rect.left, my=e.clientY-rect.top;
-  const d=e.deltaY>0?0.9:1.1;
-  const ns=Math.min(3,Math.max(0.3,scale*d));
-  tx=mx-(mx-tx)*(ns/scale);ty=my-(my-ty)*(ns/scale);
-  scale=ns;applyTransform();
-},{passive:false});
+// ─── TABS ───
+document.getElementById('topTabs').addEventListener('click',e=>{const t=e.target.closest('.topbar-tab');if(!t)return;document.querySelectorAll('.topbar-tab').forEach(x=>x.classList.remove('active'));t.classList.add('active');document.querySelectorAll('.panel-content').forEach(p=>p.style.display='none');const p=document.querySelector(`.panel-content[data-panel="${t.dataset.tab}"]`);if(p)p.style.display='block';});
 
-function applyTransform(){
-  transform.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;
-  bg.style.backgroundPosition=`${tx}px ${ty}px`;
-  bg.style.backgroundSize=`${30*scale}px ${30*scale}px`;
-}
+// ─── AGENT SELECTOR ───
+const agSel=document.getElementById('agentSelector'),agDd=document.getElementById('agentDropdown');
+agSel.addEventListener('click',e=>{if(!e.target.closest('.agent-dropdown'))agDd.classList.toggle('open');});
+agDd.addEventListener('click',e=>{const i=e.target.closest('.agent-dd-item');if(i){document.getElementById('agentName').textContent=i.dataset.agent;agDd.classList.remove('open');}});
+document.addEventListener('click',e=>{if(!agSel.contains(e.target))agDd.classList.remove('open');});
 
-// --- TABS ---
-document.getElementById('topTabs').addEventListener('click',e=>{
-  const tab=e.target.closest('.topbar-tab');
-  if(!tab)return;
-  document.querySelectorAll('.topbar-tab').forEach(t=>t.classList.remove('active'));
-  tab.classList.add('active');
-  const id=tab.dataset.tab;
-  document.querySelectorAll('.panel-content').forEach(p=>p.style.display='none');
-  const panel=document.querySelector(`.panel-content[data-panel="${id}"]`);
-  if(panel)panel.style.display='block';
-});
-
-// --- AGENT SELECTOR ---
-const agSel=document.getElementById('agentSelector');
-const agDd=document.getElementById('agentDropdown');
-agSel.addEventListener('click',e=>{
-  if(e.target.closest('.agent-dropdown'))return;
-  agDd.classList.toggle('open');
-});
-agDd.addEventListener('click',e=>{
-  const item=e.target.closest('.agent-dd-item');
-  if(!item)return;
-  document.getElementById('agentName').textContent=item.dataset.agent;
-  agDd.classList.remove('open');
-});
-document.addEventListener('click',e=>{if(!agSel.contains(e.target))agDd.classList.remove('open')});
-
-// --- SKILLS SEARCH ---
-document.getElementById('skillSearch').addEventListener('input',e=>{
-  const q=e.target.value.toLowerCase();
-  document.querySelectorAll('.skill-item').forEach(item=>{
-    item.style.display=item.textContent.toLowerCase().includes(q)?'':'none';
+// ─── LOAD SKILLS ───
+fetch('/skills/all').then(r=>r.json()).then(d=>{
+  const el=document.getElementById('skillsList');let h='';
+  d.categories.forEach(c=>{
+    h+=`<div class="skill-group"><div class="skill-group-title">${c.name}</div>`;
+    c.skills.forEach(s=>{h+=`<div class="skill-item"><span class="skill-dot"></span>${s.slug}</div>`;});
+    h+='</div>';
   });
-  document.querySelectorAll('.skill-group').forEach(g=>{
-    const visible=g.querySelectorAll('.skill-item[style=""],.skill-item:not([style])');
-    g.style.display=visible.length?'':'none';
-  });
-});
+  el.innerHTML=h;
+}).catch(()=>{});
 
-// --- NODE CLICK MODALS ---
-const modalData={
-  phone:{
-    icon:'<svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>',
-    title:'Phone',sub:'Voice & SMS service',
-    rows:[['Number','+1 (555) 0142'],['SMS','<span class="modal-badge badge-green">Active</span>'],['Voice','<span class="modal-badge badge-green">Active</span>'],['Provider','Twilio'],['Region','US East']]
-  },
-  email:{
-    icon:'<svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>',
-    title:'Email',sub:'Inbox & outbound',
-    rows:[['Address','agent@zolty.ai'],['Encryption','<span class="modal-badge badge-green">TLS</span>'],['DKIM','<span class="modal-badge badge-green">Verified</span>'],['Provider','Resend'],['Inbox','12 unread']]
-  },
-  skills:{
-    icon:'<svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><path d="M13.5 2H6a2 2 0 00-2 2v5.5a2 2 0 002 2h2.5V14a2 2 0 002 2H16a2 2 0 002-2V8.5a2 2 0 00-2-2h-2.5V4a2 2 0 00-2-2z"/></svg>',
-    title:'Skills',sub:'Installed capabilities',
-    rows:[['Blockchain','solana-dev, solana-ecosystem, agentwallet, x402, helius'],['Media','fal-assets, generate-images, generate-video'],['Platform','discord, github, web'],['System','healthcheck, tmux, weather, skill-creator, learn'],['Total','<span style="color:var(--accent);font-weight:700">24 skills</span>']]
-  },
-  xaccount:{
-    icon:'<svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg>',
-    title:'X Account',sub:'Social presence',
-    rows:[['Username','@zoltyagent'],['Auth','<span class="modal-badge badge-green">Connected</span>'],['Followers','1,247'],['Posts (30d)','84'],['Engagement','3.2%']]
-  },
-  domain:{
-    icon:'<svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/></svg>',
-    title:'Domain',sub:'DNS & routing',
-    rows:[['Domain','zolty.ai'],['DNS','<span class="modal-badge badge-green">Cloudflare</span>'],['SSL','<span class="modal-badge badge-green">Active</span>'],['Registrar','Namecheap'],['Expires','2027-03-15']]
-  },
-  wallet:{
-    icon:'<svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg>',
-    title:'Wallet',sub:'Multi-chain balances',
-    rows:[['SOL Balance','12.45 SOL'],['SOL Address','7xKX...m3Fp'],['Base Balance','0.82 ETH'],['Base Address','0x4f2...8a1c'],['Total USD','<span style="color:var(--green);font-weight:700">$4,120</span>']]
-  },
-  vps:{
-    icon:'<svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"/><rect x="2" y="14" width="20" height="8" rx="2" ry="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>',
-    title:'VPS',sub:'Compute instance',
-    rows:[['Specs','4 vCPU / 8GB RAM / 80GB SSD'],['IP','77.42.89.233'],['Region','Frankfurt, DE'],['Status','<span class="modal-badge badge-green">Running</span>'],['Uptime','14d 7h 23m'],['OS','Ubuntu 22.04']]
-  }
+// ─── SKILL SEARCH ───
+document.getElementById('skillSearch').addEventListener('input',e=>{const q=e.target.value.toLowerCase();document.querySelectorAll('.skill-item').forEach(i=>{i.style.display=i.textContent.toLowerCase().includes(q)?'':'none';});document.querySelectorAll('.skill-group').forEach(g=>{g.style.display=[...g.querySelectorAll('.skill-item')].some(i=>i.style.display!=='none')?'':'none';});});
+
+// ─── NODE MODALS ───
+const MD={
+  phone:{title:'PHONE',sub:'voice & sms',rows:[['Number','+1 (470) 533-0963'],['SMS','<span class="modal-badge badge-green">active</span>'],['Voice','<span class="modal-badge badge-green">active</span>'],['Provider','Telnyx'],['Coverage','180+ countries']]},
+  email:{title:'EMAIL',sub:'e2e encrypted inbox',rows:[['Address','zolty@agntos.dev'],['Encryption','<span class="modal-badge badge-green">E2E</span>'],['Storage','on-chain keys'],['Provider','Cloudflare Worker'],['Status','<span class="modal-badge badge-green">active</span>']]},
+  skills:{title:'SKILLS',sub:'installed capabilities',rows:[['Crypto','bankr · frames · helius · solana-dev · solana-ecosystem · token-research · agentwallet'],['Research','web · cellcog · get-tldr · deepwiki · openinsider'],['Social','aisa-twitter-api · vibes · clawder'],['Coding','coding-agent · cc-godmode · docker-sandbox · debug-pro'],['General','cognitive-memory · pndr · evolver · quest-tracker'],['Total','<span style="color:var(--accent);font-weight:700">56 available</span>']]},
+  xaccount:{title:'X ACCOUNT',sub:'social presence',rows:[['Username','@zoltyagent'],['Auth','<span class="modal-badge badge-green">cookies active</span>'],['Session','Chrome CDP on port 9222'],['Tweet method','Input.insertText via CDP'],['Status','<span class="modal-badge badge-green">authenticated</span>']]},
+  domain:{title:'DOMAIN',sub:'dns & routing',rows:[['Domain','agntos.dev'],['DNS','<span class="modal-badge badge-green">Cloudflare</span>'],['SSL','<span class="modal-badge badge-green">Flexible</span>'],['Registrar','Namecheap'],['A Record','77.42.89.233']]},
+  wallet:{title:'WALLET',sub:'multi-chain treasury',rows:[['SOL Address','B1YE...8oX3'],['SOL Balance','pending'],['EVM Address','0x7fA8...ab2'],['EVM Balance','pending'],['Chains','<span class="chip sol">SOL</span> <span class="chip base">BASE</span>']]},
+  vps:{title:'VPS',sub:'compute instance',rows:[['Tier','cx23'],['Specs','2 vCPU · 4GB RAM · 40GB SSD'],['IP','77.42.89.233'],['Location','Helsinki (hel1)'],['Provider','Hetzner Cloud'],['Status','<span class="modal-badge badge-green">running</span>']]}
 };
-
 document.getElementById('canvasTransform').addEventListener('click',e=>{
-  if(nodeMoved)return;
-  const node=e.target.closest('[data-modal]');
-  if(!node)return;
-  const key=node.dataset.modal;
-  const d=modalData[key];
-  if(!d)return;
-  let html=`<div class="modal-title">${d.icon} ${d.title}</div><div class="modal-subtitle">${d.sub}</div>`;
-  d.rows.forEach(([l,v])=>{html+=`<div class="modal-row"><span class="modal-row-label">${l}</span><span class="modal-row-val">${v}</span></div>`});
-  document.getElementById('modalBody').innerHTML=html;
-  document.getElementById('modalOverlay').classList.add('open');
+  if(nodeMoved)return;const n=e.target.closest('[data-modal]');if(!n)return;
+  const d=MD[n.dataset.modal];if(!d)return;
+  let h=`<div class="modal-title">${d.title}</div><div class="modal-subtitle">${d.sub}</div>`;
+  d.rows.forEach(([l,v])=>{h+=`<div class="modal-row"><span class="modal-row-label">${l}</span><span class="modal-row-val">${v}</span></div>`;});
+  document.getElementById('modalBody').innerHTML=h;document.getElementById('modalOverlay').classList.add('open');
 });
-
-// Close modal
 document.getElementById('modalClose').addEventListener('click',()=>document.getElementById('modalOverlay').classList.remove('open'));
-document.getElementById('modalOverlay').addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.classList.remove('open')});
-document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('modalOverlay').classList.remove('open')});
+document.getElementById('modalOverlay').addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.classList.remove('open');});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.getElementById('modalOverlay').classList.remove('open');});
 
-// --- NEW AGENT MODAL ---
+// ─── NEW AGENT ───
 document.getElementById('newAgentBtn').addEventListener('click',()=>{
-  const cats=['Blockchain','Media','Platform','System','Commerce','Analytics'];
-  let chips=`<div class="na-chip selected" data-cat="all">ALL</div>`;
-  cats.forEach(c=>{chips+=`<div class="na-chip" data-cat="${c}">${c}</div>`});
+  const cats=['crypto','social','research','coding','devops','browser','general','comms','media','data','security','agent-infra'];
+  let ch=cats.map(c=>`<div class="na-chip" data-c="${c}">${c}</div>`).join('')+`<div class="na-chip selected" data-c="all" style="border-color:var(--green);color:var(--green)">ALL</div>`;
   document.getElementById('modalBody').innerHTML=`
-    <div class="modal-title"><svg viewBox="0 0 24 24" style="width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg> New Agent</div>
-    <div class="modal-subtitle">Configure and spawn a new agent</div>
-    <div class="na-field"><label class="na-label">Agent Name</label><input class="na-input" placeholder="my-agent"></div>
-    <div class="na-field"><label class="na-label">Domain</label><input class="na-input" placeholder="agent.example.com"></div>
-    <div class="na-field"><label class="na-label">VPS Tier</label><select class="na-select"><option>2 vCPU / 4GB - $10/mo</option><option selected>4 vCPU / 8GB - $20/mo</option><option>8 vCPU / 16GB - $40/mo</option></select></div>
-    <div class="na-field"><label class="na-label">Phone Country</label><select class="na-select"><option>United States (+1)</option><option>United Kingdom (+44)</option><option>Germany (+49)</option><option>UAE (+971)</option></select></div>
-    <div class="na-field"><label class="na-label">Skill Categories</label><div class="na-chips" id="naChips">${chips}</div></div>
+    <div class="modal-title">NEW AGENT</div><div class="modal-subtitle">configure & spawn</div>
+    <div class="na-field"><label class="na-label">name</label><input class="na-input" placeholder="my-agent"></div>
+    <div class="na-field"><label class="na-label">domain</label><input class="na-input" placeholder="myagent.dev"></div>
+    <div class="na-field"><label class="na-label">vps</label><select class="na-select"><option>cx23 — 2 vCPU, 4GB</option><option>cx33 — 4 vCPU, 8GB</option><option>cx43 — 8 vCPU, 16GB</option></select></div>
+    <div class="na-field"><label class="na-label">phone</label><select class="na-select"><option>US (+1)</option><option>UK (+44)</option><option>DE (+49)</option><option>AE (+971)</option></select></div>
+    <div class="na-field"><label class="na-label">skills</label><div class="na-chips" id="naChips">${ch}</div></div>
     <div class="na-price">$20 <span>/ one-time</span></div>
-    <button class="spawn-btn">Spawn Agent</button>
-  `;
+    <button class="spawn-btn">SPAWN AGENT</button>`;
   document.getElementById('modalOverlay').classList.add('open');
-  // chip toggle
-  document.getElementById('naChips').addEventListener('click',e=>{
-    const chip=e.target.closest('.na-chip');
-    if(!chip)return;
-    if(chip.dataset.cat==='all'){
-      document.querySelectorAll('.na-chip').forEach(c=>c.classList.toggle('selected',c.dataset.cat==='all'));
-    }else{
-      document.querySelector('.na-chip[data-cat="all"]').classList.remove('selected');
-      chip.classList.toggle('selected');
-    }
-  });
+  document.getElementById('naChips').addEventListener('click',e=>{const c=e.target.closest('.na-chip');if(!c)return;if(c.dataset.c==='all'){document.querySelectorAll('.na-chip').forEach(x=>{x.classList.remove('selected');x.style.borderColor='';x.style.color='';});c.classList.add('selected');c.style.borderColor='var(--green)';c.style.color='var(--green)';}else{document.querySelector('.na-chip[data-c="all"]').classList.remove('selected');document.querySelector('.na-chip[data-c="all"]').style.borderColor='';document.querySelector('.na-chip[data-c="all"]').style.color='';c.classList.toggle('selected');}});
 });
 
-// Center canvas on load
-setTimeout(()=>{
-  const rect=wrap.getBoundingClientRect();
-  tx=rect.width/2-600;ty=rect.height/2-340;
-  applyTransform();
-},50);
+// Center canvas
+setTimeout(()=>{const r=wrap.getBoundingClientRect();tx=r.width/2-600;ty=r.height/2-330;applyTransform();},50);
 </script>
 </body>
 </html>
