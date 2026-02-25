@@ -244,6 +244,19 @@ export function resolveSkills(requested: string[]): Skill[] {
   for (const req of requested) {
     const r = req.toLowerCase().trim();
 
+    // "all" = every skill in every category
+    if (r === "all") {
+      for (const c of SKILL_CATEGORIES) {
+        for (const skill of c.skills) {
+          if (!seen.has(skill.slug)) {
+            seen.add(skill.slug);
+            skills.push(skill);
+          }
+        }
+      }
+      continue;
+    }
+
     // Check if it's a category ID
     const cat = SKILL_CATEGORIES.find(c => c.id === r || c.name.toLowerCase().includes(r));
     if (cat) {
