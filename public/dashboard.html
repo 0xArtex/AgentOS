@@ -206,26 +206,24 @@ background-size:40px 40px}
 .na-price span{font-size:11px;color:var(--w30);font-weight:400}
 .spawn-btn{width:100%;padding:10px;background:transparent;border:1px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;border-radius:4px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .2s;text-transform:uppercase;letter-spacing:1px}
 .spawn-btn:hover{background:var(--accent);color:white}
-/* Add Service FAB */
-.add-service-fab{position:absolute;bottom:24px;right:24px;z-index:50;width:44px;height:44px;border-radius:50%;background:var(--bg2);backdrop-filter:blur(30px);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .25s;color:var(--w40)}
-.add-service-fab:hover{border-color:var(--accent);color:var(--accent);transform:rotate(90deg)}
-.add-service-fab svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round}
-/* Service Picker */
-.svc-picker{position:absolute;bottom:78px;right:24px;z-index:55;background:var(--bg3);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:var(--r);padding:12px;width:260px;display:none;animation:fadeSlideUp .2s ease}
-.svc-picker.open{display:block}
-.svc-picker-title{font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace;font-weight:600;margin-bottom:10px}
-.svc-picker-item{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;transition:all .15s;border:1px solid transparent;margin-bottom:2px}
-.svc-picker-item:hover{background:var(--glass);border-color:var(--border)}
-.svc-picker-item.disabled{opacity:0.3;pointer-events:none}
-.svc-picker-icon{width:28px;height:28px;border-radius:6px;background:var(--glass);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.svc-picker-icon svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;color:var(--w60)}
-.svc-picker-icon img{width:16px;height:16px}
-.svc-picker-info{flex:1;min-width:0}
-.svc-picker-name{font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace}
-.svc-picker-desc{font-size:9px;color:var(--w30);font-family:'JetBrains Mono',monospace}
-.svc-picker-price{font-size:10px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace;flex-shrink:0}
+/* Floating Dock */
+.svc-dock{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);z-index:50;display:flex;align-items:center;gap:0;background:rgba(18,20,26,0.92);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:28px;padding:6px;box-shadow:0 8px 32px rgba(0,0,0,0.4)}
+.svc-dock-add{width:42px;height:42px;border-radius:50%;background:white;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .25s;flex-shrink:0;margin-right:4px}
+.svc-dock-add:hover{background:var(--accent);transform:scale(1.08)}
+.svc-dock-add svg{width:20px;height:20px;stroke:#08090d;fill:none;stroke-width:2.5;stroke-linecap:round}
+.svc-dock-add:hover svg{stroke:white}
+.svc-dock-sep{width:1px;height:28px;background:var(--border);margin:0 6px;flex-shrink:0}
+.svc-dock-items{display:flex;align-items:center;gap:2px}
+.svc-dock-item{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:all .2s;color:var(--w40);position:relative}
+.svc-dock-item:hover{background:var(--glass);color:var(--text)}
+.svc-dock-item svg{width:18px;height:18px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.svc-dock-item img{width:18px;height:18px;opacity:0.5;transition:opacity .2s}
+.svc-dock-item:hover img{opacity:0.9}
+.svc-dock-item .dock-tip{position:absolute;bottom:calc(100% + 8px);left:50%;transform:translateX(-50%);padding:4px 10px;background:var(--bg3);backdrop-filter:blur(30px);border:1px solid var(--border);border-radius:6px;font-size:10px;font-family:'JetBrains Mono',monospace;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .15s;color:var(--text)}
+.svc-dock-item .dock-tip .dock-price{color:var(--accent);margin-left:6px;font-weight:700}
+.svc-dock-item:hover .dock-tip{opacity:1}
 .svc-provision-modal .provision-status{text-align:center;padding:20px 0}
-.svc-provision-modal .provision-spinner{width:32px;height:32px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;margin:0 auto 12px}
+.provision-spinner{width:32px;height:32px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .6s linear infinite;margin:0 auto 12px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fadeSlideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 </style>
@@ -322,42 +320,19 @@ background-size:40px 40px}
       <div class="vps-node" id="nodeVps" data-modal="vps" style="left:460px;top:500px"><img src="/assets/logos/hetzner-icon.svg" style="width:20px;height:20px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>VPS · cx23</div><div class="node-sub">2 vCPU · 4GB · Helsinki · 77.42.89.233</div></div></div>
     </div>
     <div class="zoom-indicator" id="zoomInd">100%</div>
-    <!-- Add Service FAB -->
-    <div class="add-service-fab" id="addServiceFab" title="Add Service">
-      <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-    </div>
-    <!-- Service Picker Dropdown -->
-    <div class="svc-picker" id="svcPicker">
-      <div class="svc-picker-title">Add Service</div>
-      <div class="svc-picker-item" data-svc="phone">
-        <div class="svc-picker-icon"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg></div>
-        <div class="svc-picker-info"><div class="svc-picker-name">Phone</div><div class="svc-picker-desc">US number + SMS + voice calling</div></div>
-        <div class="svc-picker-price">$2/mo</div>
+    <!-- Service Dock -->
+    <div class="svc-dock" id="svcDock">
+      <div class="svc-dock-add" id="addServiceBtn" title="Add Service">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
       </div>
-      <div class="svc-picker-item" data-svc="email">
-        <div class="svc-picker-icon"><img src="/assets/logos/gmail.svg"></div>
-        <div class="svc-picker-info"><div class="svc-picker-name">Email</div><div class="svc-picker-desc">E2E encrypted inbox @agntos.dev</div></div>
-        <div class="svc-picker-price">$1/mo</div>
-      </div>
-      <div class="svc-picker-item" data-svc="domain">
-        <div class="svc-picker-icon"><img src="/assets/logos/cloudflare-icon.svg"></div>
-        <div class="svc-picker-info"><div class="svc-picker-name">Domain</div><div class="svc-picker-desc">Register + DNS + SSL via Cloudflare</div></div>
-        <div class="svc-picker-price">$10/yr</div>
-      </div>
-      <div class="svc-picker-item" data-svc="vps">
-        <div class="svc-picker-icon"><img src="/assets/logos/hetzner-icon.svg"></div>
-        <div class="svc-picker-info"><div class="svc-picker-name">VPS</div><div class="svc-picker-desc">Dedicated cloud server via Hetzner</div></div>
-        <div class="svc-picker-price">from $5</div>
-      </div>
-      <div class="svc-picker-item" data-svc="xaccount">
-        <div class="svc-picker-icon"><svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg></div>
-        <div class="svc-picker-info"><div class="svc-picker-name">X Account</div><div class="svc-picker-desc">Ready-to-use X/Twitter account</div></div>
-        <div class="svc-picker-price">$5</div>
-      </div>
-      <div class="svc-picker-item" data-svc="wallet">
-        <div class="svc-picker-icon"><svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg></div>
-        <div class="svc-picker-info"><div class="svc-picker-name">Wallet</div><div class="svc-picker-desc">Solana + Base wallet via AgentWallet</div></div>
-        <div class="svc-picker-price">Free</div>
+      <div class="svc-dock-sep"></div>
+      <div class="svc-dock-items">
+        <div class="svc-dock-item" data-svc="phone"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg><span class="dock-tip">Phone<span class="dock-price">$2/mo</span></span></div>
+        <div class="svc-dock-item" data-svc="email"><img src="/assets/logos/gmail.svg"><span class="dock-tip">Email<span class="dock-price">$1/mo</span></span></div>
+        <div class="svc-dock-item" data-svc="domain"><img src="/assets/logos/cloudflare-icon.svg"><span class="dock-tip">Domain<span class="dock-price">$10/yr</span></span></div>
+        <div class="svc-dock-item" data-svc="vps"><img src="/assets/logos/hetzner-icon.svg"><span class="dock-tip">VPS<span class="dock-price">from $5</span></span></div>
+        <div class="svc-dock-item" data-svc="xaccount"><svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg><span class="dock-tip">X Account<span class="dock-price">$5</span></span></div>
+        <div class="svc-dock-item" data-svc="wallet"><svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg><span class="dock-tip">Wallet<span class="dock-price">Free</span></span></div>
       </div>
     </div>
   </div>
@@ -577,14 +552,19 @@ document.getElementById('newAgentBtn').addEventListener('click',()=>{
 // Center canvas
 setTimeout(()=>autoFit(false),100);
 
-// ─── ADD SERVICE ───
+// ─── ADD SERVICE (DOCK) ───
 (function(){
-  const fab=document.getElementById('addServiceFab');
-  const picker=document.getElementById('svcPicker');
+  const dock=document.getElementById('svcDock');
   const agentNode=document.getElementById('nodeAgent');
 
-  fab.addEventListener('click',e=>{e.stopPropagation();picker.classList.toggle('open');});
-  document.addEventListener('click',e=>{if(!fab.contains(e.target)&&!picker.contains(e.target))picker.classList.remove('open');});
+  // "+" button scrolls to dock or could open a full picker modal in the future
+  document.getElementById('addServiceBtn').addEventListener('click',()=>{
+    // flash the dock items
+    dock.querySelectorAll('.svc-dock-item').forEach((el,i)=>{
+      el.style.transition='none';el.style.transform='scale(1.15)';
+      setTimeout(()=>{el.style.transition='all .2s';el.style.transform='';},150);
+    });
+  });
 
   // Service definitions: icon HTML, node class, default sub text
   const SVC_DEFS={
@@ -647,14 +627,12 @@ setTimeout(()=>autoFit(false),100);
   // Track dynamically added nodes & connections
   let addedCount=0;
 
-  picker.addEventListener('click',async e=>{
-    const item=e.target.closest('.svc-picker-item');
+  dock.addEventListener('click',async e=>{
+    const item=e.target.closest('.svc-dock-item');
     if(!item)return;
     const svcType=item.dataset.svc;
     const def=SVC_DEFS[svcType];
     if(!def)return;
-
-    picker.classList.remove('open');
 
     // Show provisioning modal
     document.getElementById('modalBody').innerHTML=`
