@@ -401,6 +401,120 @@ background-size:40px 40px}
 </div>
 
 <script>
+// ─── UNDO / REDO SYSTEM ───
+const _history=[];
+let _histIdx=-1;
+const _HIST_MAX=80;
+
+function captureState(){
+  const nodes=[];
+  document.querySelectorAll('#canvasTransform > .node, #canvasTransform > .agent-node, #canvasTransform > .vps-node, #canvasTransform > .x-profile-node').forEach(n=>{
+    nodes.push({id:n.id,cls:n.className.replace(/\s*(selected|multi-selected)\s*/g,' ').trim(),left:n.style.left,top:n.style.top,html:n.innerHTML,modal:n.dataset.modal||''});
+  });
+  return{nodes,conns:conns.map(c=>[...c])};
+}
+
+function pushState(){
+  const s=captureState();
+  // Trim future states if we're not at the end
+  if(_histIdx<_history.length-1)_history.splice(_histIdx+1);
+  _history.push(s);
+  if(_history.length>_HIST_MAX)_history.shift();
+  _histIdx=_history.length-1;
+}
+
+function restoreState(state){
+  const ct=document.getElementById('canvasTransform');
+  const existingIds=new Set();
+  // Build map of current nodes
+  const curNodes=new Map();
+  ct.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(n=>curNodes.set(n.id,n));
+
+  // Restore nodes
+  state.nodes.forEach(s=>{
+    existingIds.add(s.id);
+    let el=curNodes.get(s.id);
+    if(!el){
+      // Recreate node
+      el=document.createElement('div');
+      el.id=s.id;
+      ct.appendChild(el);
+    }
+    el.className=s.cls;
+    el.style.left=s.left;el.style.top=s.top;
+    el.innerHTML=s.html;
+    if(s.modal)el.dataset.modal=s.modal; else delete el.dataset.modal;
+    // Update bodies map
+    bodies.set(el,{x:parseFloat(s.left)||0,y:parseFloat(s.top)||0});
+    // Re-attach drag handler if not already
+    if(!el._dragBound){
+      el._dragBound=true;
+      el.addEventListener('mousedown',e=>{
+        if(e.target.closest('.conn-handle'))return;
+        dragNode=el;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;
+        const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}
+        mdStartPos.clear();
+        if(typeof multiSelected!=='undefined'&&multiSelected.has(el)&&multiSelected.size>1){
+          multiSelected.forEach(mn=>{const mb=bodies.get(mn);if(mb)mdStartPos.set(mn,{x:mb.x,y:mb.y});});
+        }
+        e.stopPropagation();
+      });
+    }
+    // Re-attach connection handles
+    if(!el._handles&&window._addConnHandle)window._addConnHandle(el);
+  });
+
+  // Remove nodes that aren't in the state
+  curNodes.forEach((el,id)=>{
+    if(!existingIds.has(id)){
+      bodies.delete(el);
+      el.remove();
+    }
+  });
+
+  // Restore connections
+  conns.length=0;
+  state.conns.forEach(c=>conns.push([...c]));
+
+  // Rebuild SVG line elements
+  const svg=document.getElementById('canvasSvg');
+  _lineEls.forEach(p=>p.remove());
+  _hitEls.forEach(p=>p.remove());
+  _lineEls.length=0;
+  _hitEls.length=0;
+  conns.forEach(()=>addLinePair());
+  // Call the original drawLines (avoid infinite recursion from wrapped version)
+  if(window._drawLinesOrig)window._drawLinesOrig(); else drawLines();
+  if(window.redrawSgLines)window.redrawSgLines();
+
+  // Clear selection
+  if(typeof selectedNode!=='undefined'&&selectedNode){selectedNode.classList.remove('selected');selectedNode=null;}
+  if(typeof multiSelected!=='undefined')multiSelected.forEach(n=>n.classList.remove('multi-selected'));
+  if(typeof multiSelected!=='undefined')multiSelected.clear();
+  if(typeof deselectLine==='function')deselectLine();
+}
+
+function undo(){
+  if(_histIdx<=0)return;
+  _histIdx--;
+  restoreState(_history[_histIdx]);
+}
+
+function redo(){
+  if(_histIdx>=_history.length-1)return;
+  _histIdx++;
+  restoreState(_history[_histIdx]);
+}
+
+// Keyboard shortcut
+document.addEventListener('keydown',e=>{
+  if(e.target.matches('input,textarea,select'))return;
+  const mod=e.metaKey||e.ctrlKey;
+  if(mod&&e.key==='z'&&!e.shiftKey){e.preventDefault();undo();}
+  if(mod&&e.key==='z'&&e.shiftKey){e.preventDefault();redo();}
+  if(mod&&e.key==='y'){e.preventDefault();redo();}
+});
+
 // ─── DRAW LINES ───
 const conns=[['nodeAgent','nodePhone'],['nodeAgent','nodeEmail'],['nodeAgent','nodeSkills'],['nodeAgent','nodeX'],['nodeAgent','nodeDomain'],['nodeAgent','nodeWallet'],['nodeAgent','nodeVps']];
 function edgePoint(el,targetEl){
@@ -626,6 +740,7 @@ window.addEventListener('mouseup',e=>{
       if(selectedNode){selectedNode.classList.remove('selected');selectedNode=null;}
     }
   }
+  if(dragNode&&nodeMoved)setTimeout(pushState,0);
   dragNode=null;dragging=false;
 });
 
@@ -755,7 +870,7 @@ ctxMenu.addEventListener('click',e=>{
     for(let i=conns.length-1;i>=0;i--){
       if(conns[i][0]===nid||conns[i][1]===nid)removeConnection(i);
     }
-    drawLines();
+    drawLines();pushState();
   }
   else if(action==='delete'){deleteNode(ctxTarget);}
 });
@@ -787,7 +902,7 @@ document.addEventListener('keydown',e=>{
       e.preventDefault();
       removeConnection(selectedLineIdx);
       selectedLineIdx=-1;
-      drawLines();
+      drawLines();pushState();
       return;
     }
     // Delete multi-selected nodes
@@ -948,6 +1063,7 @@ document.addEventListener('keydown',e=>{
         conns.push([a,b]);
         addLinePair();
         drawLines();
+        pushState();
       }
 
       wireFrom=null;
@@ -1040,6 +1156,7 @@ function duplicateNode(srcNode){
 
   drawLines();
   selectNode(el);
+  pushState();
 
   // Click to configure
   el.addEventListener('click',e=>{
@@ -1127,7 +1244,7 @@ function showConfigModal(el,svcType,nodeId){
       if(connIdx>=0&&_lineEls[connIdx]){
         _lineEls[connIdx].removeAttribute('stroke-dasharray');
       }
-      drawLines();
+      drawLines();pushState();
       document.getElementById('modalOverlay').classList.remove('open');
     }catch(err){
       document.getElementById('modalBody').innerHTML=`
@@ -1156,7 +1273,7 @@ function removeNodeFromCanvas(node){
 
 function deleteNode(node,silent){
   if(!node||node.id==='nodeAgent')return;
-  if(silent){removeNodeFromCanvas(node);return;}
+  if(silent){removeNodeFromCanvas(node);pushState();return;}
   // Determine service type from node id or data
   const nodeId=node.id;
   const label=node.querySelector('.node-label')?.textContent?.trim()||'';
@@ -1210,6 +1327,7 @@ function deleteNode(node,silent){
 
       removeNodeFromCanvas(node);
       if(window.redrawSgLines)window.redrawSgLines();
+      pushState();
       document.getElementById('modalOverlay').classList.remove('open');
     }catch(err){
       document.getElementById('modalBody').innerHTML=`
@@ -1239,7 +1357,7 @@ document.getElementById('newAgentBtn').addEventListener('click',()=>{
 });
 
 // Center canvas
-setTimeout(()=>autoFit(false),100);
+setTimeout(()=>{autoFit(false);pushState();},100);
 
 // ─── ADD SERVICE (DOCK) ───
 (function(){
@@ -1377,6 +1495,7 @@ setTimeout(()=>autoFit(false),100);
       // Redraw
       drawLines();
       setTimeout(()=>autoFit(true),200);
+      pushState();
 
     }catch(err){
       // Show error in modal
