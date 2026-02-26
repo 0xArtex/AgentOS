@@ -1545,6 +1545,15 @@ document.getElementById('nodeX').addEventListener('click',e=>{
 
   function makeSgDraggable(el){
     el.addEventListener('mousedown',e=>{
+      // If multi-selected, hand off to main drag system
+      if(multiSelected.has(el)&&multiSelected.size>1){
+        dragNode=el;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;
+        dnox=parseFloat(el.style.left)||0;dnoy=parseFloat(el.style.top)||0;
+        mdStartPos.clear();
+        multiSelected.forEach(mn=>{const mb=bodies.get(mn);const px=mb?mb.x:(parseFloat(mn.style.left)||0);const py=mb?mb.y:(parseFloat(mn.style.top)||0);mdStartPos.set(mn,{x:px,y:py});});
+        e.stopPropagation();
+        return;
+      }
       sgDragEl=el;sgMoved=false;sgDsx=e.clientX;sgDsy=e.clientY;
       sgDox=parseFloat(el.style.left)||0;sgDoy=parseFloat(el.style.top)||0;
       e.stopPropagation();
