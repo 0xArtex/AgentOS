@@ -683,7 +683,7 @@ let spaceHeld=false;
 document.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.matches('input,textarea,select')){spaceHeld=true;wrap.style.cursor='grab';}});
 document.addEventListener('keyup',e=>{if(e.code==='Space'){spaceHeld=false;wrap.style.cursor='crosshair';}});
 
-function clearMultiSelect(){multiSelected.forEach(n=>n.classList.remove('multi-selected'));multiSelected.clear();}
+function clearMultiSelect(){multiSelected.forEach(n=>n.classList.remove('multi-selected'));multiSelected.clear();_lineEls.forEach(l=>{if(l)l.classList.remove('line-selected');});}
 
 window.addEventListener('mousemove',e=>{
   // Node drag (single or multi)
@@ -717,10 +717,19 @@ window.addEventListener('mousemove',e=>{
     if(Math.abs(e.clientX-mqsx)>4||Math.abs(e.clientY-mqsy)>4)marqueeEl.classList.add('active');
     // Highlight nodes inside marquee
     clearMultiSelect();
+    const selIds=new Set();
     document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(n=>{
       const r=n.getBoundingClientRect();
       if(r.left<x2&&r.right>x1&&r.top<y2&&r.bottom>y1){
-        n.classList.add('multi-selected');multiSelected.add(n);
+        n.classList.add('multi-selected');multiSelected.add(n);selIds.add(n.id);
+      }
+    });
+    // Highlight lines where both endpoints are selected
+    conns.forEach(([a,b],i)=>{
+      if(selIds.has(a)&&selIds.has(b)){
+        if(_lineEls[i])_lineEls[i].classList.add('line-selected');
+      } else {
+        if(_lineEls[i])_lineEls[i].classList.remove('line-selected');
       }
     });
     return;
