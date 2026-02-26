@@ -91,21 +91,19 @@ background-size:40px 40px}
 .canvas-svg .sg-path{stroke-width:1;pointer-events:none}
 .canvas-svg .drag-wire{stroke:rgba(255,255,255,0.3);stroke-width:1;stroke-dasharray:6 4;fill:none;pointer-events:none}
 /* Connection handles */
-/* Connection handles — 4 per node, positioned at edges */
-.conn-handle{position:absolute;width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);display:none;align-items:center;justify-content:center;cursor:crosshair;z-index:20;transition:all .2s}
-.conn-handle[data-edge="top"]{top:-5px;left:50%;transform:translateX(-50%)}
-.conn-handle[data-edge="right"]{right:-5px;top:50%;transform:translateY(-50%)}
-.conn-handle[data-edge="bottom"]{bottom:-5px;left:50%;transform:translateX(-50%)}
-.conn-handle[data-edge="left"]{left:-5px;top:50%;transform:translateY(-50%)}
-.conn-handle:hover{background:rgba(255,255,255,0.12);border-color:rgba(255,255,255,0.25);width:12px;height:12px}
-.conn-handle[data-edge="top"]:hover{top:-6px}
-.conn-handle[data-edge="right"]:hover{right:-6px}
-.conn-handle[data-edge="bottom"]:hover{bottom:-6px}
-.conn-handle[data-edge="left"]:hover{left:-6px}
+/* Connection handles — 4 per node, "+" circles at edges like flora.ai */
+.conn-handle{position:absolute;width:20px;height:20px;border-radius:50%;background:rgba(30,32,38,0.95);border:1px solid rgba(255,255,255,0.1);display:none;align-items:center;justify-content:center;cursor:crosshair;z-index:20;transition:all .15s;opacity:0}
+.conn-handle svg{width:10px;height:10px;stroke:rgba(255,255,255,0.35);fill:none;stroke-width:2;stroke-linecap:round;transition:stroke .15s}
+.conn-handle[data-edge="top"]{top:-10px;left:50%;transform:translateX(-50%)}
+.conn-handle[data-edge="right"]{right:-10px;top:50%;transform:translateY(-50%)}
+.conn-handle[data-edge="bottom"]{bottom:-10px;left:50%;transform:translateX(-50%)}
+.conn-handle[data-edge="left"]{left:-10px;top:50%;transform:translateY(-50%)}
+.conn-handle:hover{background:rgba(40,42,50,1);border-color:rgba(255,255,255,0.2)}
+.conn-handle:hover svg{stroke:rgba(255,255,255,0.7)}
 .conn-handle.occupied{display:none !important}
-/* Show handles on hover or selection */
+/* Show handles on hover or selection — fade in */
 .node:hover .conn-handle,.vps-node:hover .conn-handle,.x-profile-node:hover .conn-handle,.agent-node:hover .conn-handle,
-.node.selected .conn-handle,.vps-node.selected .conn-handle,.x-profile-node.selected .conn-handle,.agent-node.selected .conn-handle{display:flex}
+.node.selected .conn-handle,.vps-node.selected .conn-handle,.x-profile-node.selected .conn-handle,.agent-node.selected .conn-handle{display:flex;opacity:1}
 .conn-target{border-color:rgba(255,255,255,0.25) !important;border-style:dashed !important}
 /* Marquee selection */
 .marquee{position:fixed;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.03);pointer-events:none;z-index:100;display:none}
@@ -843,6 +841,7 @@ document.addEventListener('keydown',e=>{
       const h=document.createElement('div');
       h.className='conn-handle';
       h.dataset.edge=edge;
+      h.innerHTML='<svg viewBox="0 0 24 24"><line x1="12" y1="7" x2="12" y2="17"/><line x1="7" y1="12" x2="17" y2="12"/></svg>';
       node.appendChild(h);
       node._handles[edge]=h;
       h.addEventListener('mousedown',e=>{
