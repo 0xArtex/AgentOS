@@ -525,23 +525,21 @@ function edgePoint(el,targetEl){
   const tw=targetEl.offsetWidth,th=targetEl.offsetHeight;
   const tcx=tl+tw/2,tcy=tt+th/2;
   const dx=tcx-cx,dy=tcy-cy;
-  // For circle nodes (agent), use center
-  if(el.classList.contains('agent-node')||targetEl.classList.contains('agent-node')){
-    if(el.classList.contains('agent-node')){
-      const r=w/2,angle=Math.atan2(dy,dx);
-      return{x:cx+Math.cos(angle)*r,y:cy+Math.sin(angle)*r};
-    }
+  // For circle nodes (agent), use radius + small offset to reach handle
+  if(el.classList.contains('agent-node')){
+    const r=w/2,angle=Math.atan2(dy,dx);
+    return{x:cx+Math.cos(angle)*r,y:cy+Math.sin(angle)*r,edge:angle>-0.785&&angle<0.785?'right':angle>=0.785&&angle<2.356?'bottom':angle<-0.785&&angle>-2.356?'top':'left'};
   }
-  // Pick edge: prefer left/right, use top if target is mostly above/below
+  // Determine exit edge
+  let edge,px,py;
   if(Math.abs(dx)>=Math.abs(dy)*0.4){
-    // horizontal dominant — use left or right edge
-    if(dx>0) return{x:l+w,y:cy}; // right edge
-    else return{x:l,y:cy}; // left edge
+    if(dx>0){edge='right';px=l+w;py=cy;}
+    else{edge='left';px=l;py=cy;}
   } else {
-    // vertical dominant — use top or bottom edge
-    if(dy>0) return{x:cx,y:t+h}; // bottom
-    else return{x:cx,y:t}; // top
+    if(dy>0){edge='bottom';px=cx;py=t+h;}
+    else{edge='top';px=cx;py=t;}
   }
+  return{x:px,y:py,edge};
 }
 // Persistent line elements: each conn gets a hit-area path + visible path
 const _lineEls=[];   // visible paths
@@ -588,14 +586,25 @@ function removeConnection(idx){
   else if(selectedLineIdx>idx)selectedLineIdx--;
 }
 
+// Control point offset based on edge direction
+function cpOffset(edge,dist){
+  if(edge==='right')return{dx:dist,dy:0};
+  if(edge==='left')return{dx:-dist,dy:0};
+  if(edge==='bottom')return{dx:0,dy:dist};
+  if(edge==='top')return{dx:0,dy:-dist};
+  return{dx:dist,dy:0};
+}
+
 function drawLines(){
   conns.forEach(([a,b],i)=>{
     const ea=document.getElementById(a),eb=document.getElementById(b);
     if(!ea||!eb){if(_lineEls[i])_lineEls[i].setAttribute('d','');if(_hitEls[i])_hitEls[i].setAttribute('d','');return;}
     const p1=edgePoint(ea,eb),p2=edgePoint(eb,ea);
-    const dx=p2.x-p1.x,dy=p2.y-p1.y;
-    const cx1=p1.x+dx*0.4,cy1=p1.y,cx2=p2.x-dx*0.4,cy2=p2.y;
-    const d=`M${p1.x},${p1.y} C${cx1},${cy1} ${cx2},${cy2} ${p2.x},${p2.y}`;
+    // Distance-adaptive control point length
+    const dist=Math.sqrt((p2.x-p1.x)**2+(p2.y-p1.y)**2);
+    const cpLen=Math.min(dist*0.4,80);
+    const c1=cpOffset(p1.edge,cpLen),c2=cpOffset(p2.edge,cpLen);
+    const d=`M${p1.x},${p1.y} C${p1.x+c1.dx},${p1.y+c1.dy} ${p2.x+c2.dx},${p2.y+c2.dy} ${p2.x},${p2.y}`;
     _lineEls[i].setAttribute('d',d);
     _hitEls[i].setAttribute('d',d);
   });
@@ -1041,11 +1050,33 @@ document.addEventListener('keydown',e=>{
       const rect=ct.getBoundingClientRect();
       const mx=(ev.clientX-rect.left-tx)/scale;
       const my=(ev.clientY-rect.top-ty)/scale;
+      // Use a dummy target element at mouse position to get proper edge point
       const sl=parseFloat(srcNode.style.left)||0,st2=parseFloat(srcNode.style.top)||0;
       const sw=srcNode.offsetWidth,sh=srcNode.offsetHeight;
-      const sx=sl+sw/2,sy=st2+sh/2;
-      const dx2=mx-sx,dy2=my-sy;
-      const d=`M${sx},${sy} C${sx+dx2*0.4},${sy} ${mx-dx2*0.4},${my} ${mx},${my}`;
+      const scx=sl+sw/2,scy=st2+sh/2;
+      const ddx=mx-scx,ddy=my-scy;
+      // Determine source exit edge
+      let edge;
+      if(Math.abs(ddx)>=Math.abs(ddy)*0.4){edge=ddx>0?'right':'left';}
+      else{edge=ddy>0?'bottom':'top';}
+      // Source point at edge
+      let sx,sy;
+      if(srcNode.classList.contains('agent-node')){
+        const r=sw/2,angle=Math.atan2(ddy,ddx);
+        sx=scx+Math.cos(angle)*r;sy=scy+Math.sin(angle)*r;
+      } else {
+        if(edge==='right'){sx=sl+sw;sy=scy;}
+        else if(edge==='left'){sx=sl;sy=scy;}
+        else if(edge==='bottom'){sx=scx;sy=st2+sh;}
+        else{sx=scx;sy=st2;}
+      }
+      const dist=Math.sqrt((mx-sx)**2+(my-sy)**2);
+      const cpLen=Math.min(dist*0.4,80);
+      const c1=cpOffset(edge,cpLen);
+      // Mouse end: control point comes from opposite direction
+      const mEdge=edge==='right'?'left':edge==='left'?'right':edge==='bottom'?'top':'bottom';
+      const c2=cpOffset(mEdge,cpLen);
+      const d=`M${sx},${sy} C${sx+c1.dx},${sy+c1.dy} ${mx+c2.dx},${my+c2.dy} ${mx},${my}`;
       wirePath.setAttribute('d',d);
     };
     const onUp=ev=>{
@@ -1638,9 +1669,11 @@ document.getElementById('nodeX').addEventListener('click',e=>{
     svgEl.querySelectorAll('.sg-path').forEach(p=>p.remove());
     sgLines.forEach(({from,to})=>{
       const p1=edgePoint(from,to),p2=edgePoint(to,from);
-      const dx=p2.x-p1.x,dy=p2.y-p1.y;
+      const dist=Math.sqrt((p2.x-p1.x)**2+(p2.y-p1.y)**2);
+      const cpLen=Math.min(dist*0.4,60);
+      const c1=cpOffset(p1.edge,cpLen),c2=cpOffset(p2.edge,cpLen);
       const p=document.createElementNS('http://www.w3.org/2000/svg','path');
-      p.setAttribute('d',`M${p1.x},${p1.y} C${p1.x+dx*0.4},${p1.y} ${p2.x-dx*0.4},${p2.y} ${p2.x},${p2.y}`);
+      p.setAttribute('d',`M${p1.x},${p1.y} C${p1.x+c1.dx},${p1.y+c1.dy} ${p2.x+c2.dx},${p2.y+c2.dy} ${p2.x},${p2.y}`);
       p.setAttribute('fill','none');
       p.setAttribute('stroke','rgba(255,255,255,0.06)');
       p.setAttribute('stroke-width','1');
