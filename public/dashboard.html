@@ -91,10 +91,20 @@ background-size:40px 40px}
 .canvas-svg .sg-path{stroke-width:1;pointer-events:none}
 .canvas-svg .drag-wire{stroke:rgba(255,255,255,0.3);stroke-width:1;stroke-dasharray:6 4;fill:none;pointer-events:none}
 /* Connection handles */
-.conn-handle{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--bg);border:1.5px solid rgba(255,255,255,0.15);display:none;align-items:center;justify-content:center;cursor:crosshair;z-index:20;transition:border-color .15s,transform .15s;transform:translate(-50%,-50%)}
-.conn-handle:hover{border-color:rgba(255,255,255,0.4);transform:translate(-50%,-50%) scale(1.2)}
-.conn-handle::after{content:'';width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,0.5);opacity:0;transition:opacity .15s}
-.conn-handle:hover::after{opacity:1}
+/* Connection handles — 4 per node, positioned at edges */
+.conn-handle{position:absolute;width:10px;height:10px;border-radius:50%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.06);display:none;align-items:center;justify-content:center;cursor:crosshair;z-index:20;transition:all .2s}
+.conn-handle[data-edge="top"]{top:-5px;left:50%;transform:translateX(-50%)}
+.conn-handle[data-edge="right"]{right:-5px;top:50%;transform:translateY(-50%)}
+.conn-handle[data-edge="bottom"]{bottom:-5px;left:50%;transform:translateX(-50%)}
+.conn-handle[data-edge="left"]{left:-5px;top:50%;transform:translateY(-50%)}
+.conn-handle:hover{background:rgba(255,255,255,0.12);border-color:rgba(255,255,255,0.25);width:12px;height:12px}
+.conn-handle[data-edge="top"]:hover{top:-6px}
+.conn-handle[data-edge="right"]:hover{right:-6px}
+.conn-handle[data-edge="bottom"]:hover{bottom:-6px}
+.conn-handle[data-edge="left"]:hover{left:-6px}
+.conn-handle.occupied{display:none !important}
+/* Show handles on hover or selection */
+.node:hover .conn-handle,.vps-node:hover .conn-handle,.x-profile-node:hover .conn-handle,.agent-node:hover .conn-handle,
 .node.selected .conn-handle,.vps-node.selected .conn-handle,.x-profile-node.selected .conn-handle,.agent-node.selected .conn-handle{display:flex}
 .conn-target{border-color:rgba(255,255,255,0.25) !important;border-style:dashed !important}
 /* Marquee selection */
@@ -825,19 +835,60 @@ document.addEventListener('keydown',e=>{
     return conns.some(([x,y])=>(x===a&&y===b)||(x===b&&y===a));
   }
 
-  // Append a handle to each connectable node
+  // Append 4 handles (top/right/bottom/left) to each connectable node
+  const EDGES=['top','right','bottom','left'];
   function addHandle(node){
-    const h=document.createElement('div');
-    h.className='conn-handle';
-    node.appendChild(h);
-    node._connHandle=h;
-    // Position handle at right edge by default
-    h.style.right='-8px';h.style.top='50%';h.style.left='auto';
-    h.addEventListener('mousedown',e=>{
-      e.stopPropagation();e.preventDefault();
-      startWire(node,e);
+    node._handles={};
+    EDGES.forEach(edge=>{
+      const h=document.createElement('div');
+      h.className='conn-handle';
+      h.dataset.edge=edge;
+      node.appendChild(h);
+      node._handles[edge]=h;
+      h.addEventListener('mousedown',e=>{
+        e.stopPropagation();e.preventDefault();
+        startWire(node,e);
+      });
     });
   }
+
+  // Mark handles as occupied where lines connect
+  function updateHandleOccupancy(){
+    // For each node, figure out which edges have connections
+    document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(node=>{
+      if(!node._handles)return;
+      EDGES.forEach(e=>node._handles[e]?.classList.remove('occupied'));
+      // Find connected nodes and determine which edge the line exits from
+      conns.forEach(([a,b])=>{
+        const ea=document.getElementById(a),eb=document.getElementById(b);
+        if(!ea||!eb)return;
+        if(ea!==node&&eb!==node)return;
+        const other=ea===node?eb:ea;
+        const edge=getExitEdge(node,other);
+        if(edge&&node._handles[edge])node._handles[edge].classList.add('occupied');
+      });
+    });
+  }
+
+  function getExitEdge(fromEl,toEl){
+    const fl=parseFloat(fromEl.style.left)||0,ft=parseFloat(fromEl.style.top)||0;
+    const fw=fromEl.offsetWidth,fh=fromEl.offsetHeight;
+    const fcx=fl+fw/2,fcy=ft+fh/2;
+    const tl=parseFloat(toEl.style.left)||0,tt=parseFloat(toEl.style.top)||0;
+    const tw=toEl.offsetWidth,th=toEl.offsetHeight;
+    const tcx=tl+tw/2,tcy=tt+th/2;
+    const dx=tcx-fcx,dy=tcy-fcy;
+    if(Math.abs(dx)>=Math.abs(dy)*0.4){
+      return dx>0?'right':'left';
+    } else {
+      return dy>0?'bottom':'top';
+    }
+  }
+
+  // Patch drawLines to also update occupancy
+  const _origDrawLines=drawLines;
+  window._drawLinesOrig=_origDrawLines;
+  drawLines=function(){_origDrawLines();updateHandleOccupancy();};
 
   // Add handles to all existing nodes
   document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(addHandle);
