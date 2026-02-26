@@ -1759,44 +1759,35 @@ document.getElementById('nodeX').addEventListener('click',e=>{
 
 
 
-  // ─── TOOLTIP HOVER SYSTEM ───
+  // ─── TOOLTIP CLICK SYSTEM ───
   const ttEl=document.getElementById('sgTooltip');
   let ttTarget=null;
 
-  document.addEventListener('mouseover',e=>{
+  document.addEventListener('click',e=>{
     const node=e.target.closest('.sg-node,.sg-skill');
-    if(!node||!node._ttHtml)return;
-    if(ttTarget===node)return;
+    if(!node||!node._ttHtml){
+      // Click elsewhere — dismiss
+      if(ttTarget){ttEl.classList.remove('show');ttTarget=null;}
+      return;
+    }
+    if(sgMoved)return; // was a drag, not a click
+    if(ttTarget===node){
+      // Toggle off
+      ttEl.classList.remove('show');ttTarget=null;return;
+    }
     ttTarget=node;
     ttEl.innerHTML=node._ttHtml;
     ttEl.classList.add('show');
-    positionTooltip(e);
-  });
-
-  document.addEventListener('mousemove',e=>{
-    if(ttTarget)positionTooltip(e);
-  });
-
-  document.addEventListener('mouseout',e=>{
-    const node=e.target.closest('.sg-node,.sg-skill');
-    if(node===ttTarget){
-      ttEl.classList.remove('show');
-      ttTarget=null;
-    }
-  });
-
-  function positionTooltip(e){
-    const tw=220,th=ttEl.offsetHeight||80;
-    const vw=window.innerWidth,vh=window.innerHeight;
-    let x=e.clientX+14,y=e.clientY-th/2;
-    // Flip left if overflowing right
-    if(x+tw>vw-10)x=e.clientX-tw-14;
-    // Clamp vertical
+    // Position near the node
+    const r=node.getBoundingClientRect();
+    const tw=220,vw=window.innerWidth,vh=window.innerHeight;
+    let x=r.right+10,y=r.top;
+    if(x+tw>vw-10)x=r.left-tw-10;
     if(y<10)y=10;
+    const th=ttEl.offsetHeight||80;
     if(y+th>vh-10)y=vh-th-10;
-    ttEl.style.left=x+'px';
-    ttEl.style.top=y+'px';
-  }
+    ttEl.style.left=x+'px';ttEl.style.top=y+'px';
+  });
 })();
 </script>
 </body>
