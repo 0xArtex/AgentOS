@@ -482,6 +482,7 @@ function restoreState(state){
   _hitEls.forEach(p=>p.remove());
   _lineEls.length=0;
   _hitEls.length=0;
+  _connEdges.length=0;
   conns.forEach(()=>addLinePair());
   // Call the original drawLines (avoid infinite recursion from wrapped version)
   if(window._drawLinesOrig)window._drawLinesOrig(); else drawLines();
@@ -578,6 +579,7 @@ function deselectLine(){
 
 function removeConnection(idx){
   conns.splice(idx,1);
+  _connEdges.splice(idx,1);
   const vis=_lineEls.splice(idx,1)[0];
   const hit=_hitEls.splice(idx,1)[0];
   if(vis)vis.remove();
@@ -595,15 +597,47 @@ function cpOffset(edge,dist){
   return{dx:dist,dy:0};
 }
 
+// Locked edges per connection: [{edgeA, edgeB}]
+const _connEdges=[];
+
+// Calculate and lock edges for a connection
+function lockEdges(i){
+  const [a,b]=conns[i];
+  const ea=document.getElementById(a),eb=document.getElementById(b);
+  if(!ea||!eb){_connEdges[i]={edgeA:'right',edgeB:'left'};return;}
+  const p1=edgePoint(ea,eb),p2=edgePoint(eb,ea);
+  _connEdges[i]={edgeA:p1.edge,edgeB:p2.edge};
+}
+
+// Get point on a specific edge of a node
+function edgePointFixed(el,edge){
+  const l=parseFloat(el.style.left)||0,t=parseFloat(el.style.top)||0;
+  const w=el.offsetWidth,h=el.offsetHeight;
+  const cx=l+w/2,cy=t+h/2;
+  if(el.classList.contains('agent-node')){
+    const r=w/2;
+    const angles={right:0,bottom:Math.PI/2,left:Math.PI,top:-Math.PI/2};
+    const angle=angles[edge]||0;
+    return{x:cx+Math.cos(angle)*r,y:cy+Math.sin(angle)*r};
+  }
+  if(edge==='right')return{x:l+w,y:cy};
+  if(edge==='left')return{x:l,y:cy};
+  if(edge==='bottom')return{x:cx,y:t+h};
+  if(edge==='top')return{x:cx,y:t};
+  return{x:l+w,y:cy};
+}
+
 function drawLines(){
   conns.forEach(([a,b],i)=>{
     const ea=document.getElementById(a),eb=document.getElementById(b);
     if(!ea||!eb){if(_lineEls[i])_lineEls[i].setAttribute('d','');if(_hitEls[i])_hitEls[i].setAttribute('d','');return;}
-    const p1=edgePoint(ea,eb),p2=edgePoint(eb,ea);
-    // Distance-adaptive control point length
+    // Lock edges on first draw
+    if(!_connEdges[i])lockEdges(i);
+    const {edgeA,edgeB}=_connEdges[i];
+    const p1=edgePointFixed(ea,edgeA),p2=edgePointFixed(eb,edgeB);
     const dist=Math.sqrt((p2.x-p1.x)**2+(p2.y-p1.y)**2);
     const cpLen=Math.min(dist*0.4,80);
-    const c1=cpOffset(p1.edge,cpLen),c2=cpOffset(p2.edge,cpLen);
+    const c1=cpOffset(edgeA,cpLen),c2=cpOffset(edgeB,cpLen);
     const d=`M${p1.x},${p1.y} C${p1.x+c1.dx},${p1.y+c1.dy} ${p2.x+c2.dx},${p2.y+c2.dy} ${p2.x},${p2.y}`;
     _lineEls[i].setAttribute('d',d);
     _hitEls[i].setAttribute('d',d);
@@ -988,35 +1022,17 @@ document.addEventListener('keydown',e=>{
 
   // Mark handles as occupied where lines connect
   function updateHandleOccupancy(){
-    // For each node, figure out which edges have connections
+    // Use locked edges from _connEdges
     document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(node=>{
       if(!node._handles)return;
       EDGES.forEach(e=>node._handles[e]?.classList.remove('occupied'));
-      // Find connected nodes and determine which edge the line exits from
-      conns.forEach(([a,b])=>{
-        const ea=document.getElementById(a),eb=document.getElementById(b);
-        if(!ea||!eb)return;
-        if(ea!==node&&eb!==node)return;
-        const other=ea===node?eb:ea;
-        const edge=getExitEdge(node,other);
-        if(edge&&node._handles[edge])node._handles[edge].classList.add('occupied');
-      });
     });
-  }
-
-  function getExitEdge(fromEl,toEl){
-    const fl=parseFloat(fromEl.style.left)||0,ft=parseFloat(fromEl.style.top)||0;
-    const fw=fromEl.offsetWidth,fh=fromEl.offsetHeight;
-    const fcx=fl+fw/2,fcy=ft+fh/2;
-    const tl=parseFloat(toEl.style.left)||0,tt=parseFloat(toEl.style.top)||0;
-    const tw=toEl.offsetWidth,th=toEl.offsetHeight;
-    const tcx=tl+tw/2,tcy=tt+th/2;
-    const dx=tcx-fcx,dy=tcy-fcy;
-    if(Math.abs(dx)>=Math.abs(dy)*0.4){
-      return dx>0?'right':'left';
-    } else {
-      return dy>0?'bottom':'top';
-    }
+    conns.forEach(([a,b],i)=>{
+      const edges=_connEdges[i];if(!edges)return;
+      const ea=document.getElementById(a),eb=document.getElementById(b);
+      if(ea&&ea._handles&&ea._handles[edges.edgeA])ea._handles[edges.edgeA].classList.add('occupied');
+      if(eb&&eb._handles&&eb._handles[edges.edgeB])eb._handles[edges.edgeB].classList.add('occupied');
+    });
   }
 
   // Patch drawLines to also update occupancy
