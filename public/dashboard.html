@@ -374,102 +374,11 @@ const wrap=document.getElementById('canvasWrap'),transform=document.getElementBy
 let tx=0,ty=0,scale=1,dragging=false,sx=0,sy=0,stx=0,sty=0;
 let dragNode=null,dnsx=0,dnsy=0,dnox=0,dnoy=0,nodeMoved=false;
 
-// ─── PHYSICS ENGINE ───
-const PHY={
-  spring:0.004,     // spring stiffness for connections
-  damping:0.82,     // velocity damping per frame
-  repulsion:1200,   // repulsion strength between nodes
-  minDist:130,      // min distance for repulsion
-  throwDecay:0.92,  // momentum decay after release
-  maxVel:18,        // max velocity cap
-};
-const bodies=new Map(); // el → {x,y,vx,vy,pinned,restX,restY,w,h}
-const springs=[]; // {a:el, b:el, restLen}
-
-function initBody(el){
-  const x=parseFloat(el.style.left)||0, y=parseFloat(el.style.top)||0;
-  bodies.set(el,{x,y,vx:0,vy:0,pinned:false,restX:x,restY:y,w:el.offsetWidth||80,h:el.offsetHeight||32});
-}
-
-// Init all main nodes
-const allMainNodes=document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node');
-allMainNodes.forEach(n=>initBody(n));
-
-// Create springs from connections
-conns.forEach(([a,b])=>{
-  const ea=document.getElementById(a),eb=document.getElementById(b);
-  const ba=bodies.get(ea),bb=bodies.get(eb);
-  if(ba&&bb){
-    const dx=bb.x-ba.x,dy=bb.y-ba.y;
-    springs.push({a:ea,b:eb,restLen:Math.sqrt(dx*dx+dy*dy)});
-  }
+// ─── NODE POSITIONS (no physics — drag only) ───
+const bodies=new Map(); // el → {x,y} for position tracking
+document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(el=>{
+  bodies.set(el,{x:parseFloat(el.style.left)||0,y:parseFloat(el.style.top)||0});
 });
-
-let lastMx=0,lastMy=0,throwVx=0,throwVy=0;
-let physicsActive=true;
-
-function physicsTick(){
-  if(!physicsActive)return;
-  const arr=[...bodies.entries()];
-  // Apply spring forces on connections
-  springs.forEach(s=>{
-    const ba=bodies.get(s.a),bb=bodies.get(s.b);
-    if(!ba||!bb)return;
-    const dx=bb.x-ba.x,dy=bb.y-ba.y;
-    const dist=Math.sqrt(dx*dx+dy*dy)||1;
-    const force=(dist-s.restLen)*PHY.spring;
-    const fx=force*dx/dist,fy=force*dy/dist;
-    if(!ba.pinned){ba.vx+=fx;ba.vy+=fy;}
-    if(!bb.pinned){bb.vx-=fx;bb.vy-=fy;}
-  });
-  // Apply sg springs
-  if(window._sgSprings){
-    window._sgSprings.forEach(s=>{
-      const ba=bodies.get(s.a),bb=bodies.get(s.b);
-      if(!ba||!bb)return;
-      const dx=bb.x-ba.x,dy=bb.y-ba.y;
-      const dist=Math.sqrt(dx*dx+dy*dy)||1;
-      const force=(dist-s.restLen)*PHY.spring*1.5;
-      const fx=force*dx/dist,fy=force*dy/dist;
-      if(!ba.pinned){ba.vx+=fx;ba.vy+=fy;}
-      if(!bb.pinned){bb.vx-=fx;bb.vy-=fy;}
-    });
-  }
-  // Node repulsion
-  for(let i=0;i<arr.length;i++){
-    for(let j=i+1;j<arr.length;j++){
-      const [,ba]=arr[i],[,bb]=arr[j];
-      const dx=bb.x-ba.x,dy=bb.y-ba.y;
-      const dist=Math.sqrt(dx*dx+dy*dy)||1;
-      if(dist<PHY.minDist){
-        const force=PHY.repulsion/(dist*dist);
-        const fx=force*dx/dist,fy=force*dy/dist;
-        if(!ba.pinned){ba.vx-=fx;ba.vy-=fy;}
-        if(!bb.pinned){bb.vx+=fx;bb.vy+=fy;}
-      }
-    }
-  }
-  // Integrate
-  let moving=false;
-  arr.forEach(([el,b])=>{
-    if(b.pinned)return;
-    b.vx=Math.max(-PHY.maxVel,Math.min(PHY.maxVel,b.vx*PHY.damping));
-    b.vy=Math.max(-PHY.maxVel,Math.min(PHY.maxVel,b.vy*PHY.damping));
-    if(Math.abs(b.vx)>0.05||Math.abs(b.vy)>0.05){
-      b.x+=b.vx;b.y+=b.vy;
-      el.style.left=b.x+'px';el.style.top=b.y+'px';
-      moving=true;
-    } else {b.vx=0;b.vy=0;}
-  });
-  if(moving){
-    drawLines();
-    if(window.redrawSgLines)window.redrawSgLines();
-  }
-}
-
-// Physics loop
-function physicsLoop(){physicsTick();requestAnimationFrame(physicsLoop);}
-requestAnimationFrame(physicsLoop);
 
 // ─── AUTO-FIT: smooth zoom/pan to show all nodes ───
 function autoFit(animate){
@@ -511,13 +420,12 @@ function autoFit(animate){
 }
 window.autoFit=autoFit;
 
-// ─── DRAG WITH PHYSICS ───
+// ─── DRAG NODES ───
 document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(n=>{
   n.addEventListener('mousedown',e=>{
     dragNode=n;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;
     const b=bodies.get(n);
-    if(b){b.pinned=true;b.vx=0;b.vy=0;dnox=b.x;dnoy=b.y;}
-    lastMx=e.clientX;lastMy=e.clientY;throwVx=0;throwVy=0;
+    if(b){dnox=b.x;dnoy=b.y;}
     e.stopPropagation();
   });
 });
@@ -530,9 +438,6 @@ window.addEventListener('mousemove',e=>{
     const b=bodies.get(dragNode);
     if(b){b.x=nx;b.y=ny;}
     dragNode.style.left=nx+'px';dragNode.style.top=ny+'px';
-    // Track throw velocity
-    throwVx=(e.clientX-lastMx)/scale;throwVy=(e.clientY-lastMy)/scale;
-    lastMx=e.clientX;lastMy=e.clientY;
     drawLines();
     if(window.redrawSgLines)window.redrawSgLines();
     return;
@@ -541,15 +446,6 @@ window.addEventListener('mousemove',e=>{
 });
 
 window.addEventListener('mouseup',()=>{
-  if(dragNode){
-    const b=bodies.get(dragNode);
-    if(b){
-      b.pinned=false;
-      // Apply throw momentum (clamped)
-      b.vx=Math.max(-PHY.maxVel,Math.min(PHY.maxVel,throwVx*0.5));
-      b.vy=Math.max(-PHY.maxVel,Math.min(PHY.maxVel,throwVy*0.5));
-    }
-  }
   dragNode=null;dragging=false;
 });
 
@@ -774,10 +670,6 @@ document.getElementById('nodeX').addEventListener('click',e=>{
 
       sgLines.push({from:skillsNode,to:el});
       makeSgDraggable(el);
-      // Register as pinned physics body for repulsion
-      initBody(el);
-      const cb=bodies.get(el);if(cb)cb.pinned=true;
-
       el.classList.add('visible');
 
       el.addEventListener('dblclick',e=>{e.stopPropagation();expandSkills(i);});
@@ -833,9 +725,7 @@ document.getElementById('nodeX').addEventListener('click',e=>{
       newEls.push(sObj);
       sgLines.push({from:catInfo.el,to:el});
       makeSgDraggable(el);
-      // Register as pinned physics body for repulsion
-      initBody(el);
-      const skBody=bodies.get(el);if(skBody)skBody.pinned=true;
+
 
       el.addEventListener('click',ev=>{if(!sgMoved)window.open('https://clawhub.com/skills/'+encodeURIComponent(slug),'_blank');});
       el.classList.add('visible');
