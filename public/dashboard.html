@@ -1047,7 +1047,7 @@ document.addEventListener('keydown',e=>{
     });
 
     const onMove=ev=>{
-      const rect=ct.getBoundingClientRect();
+      const rect=wrap.getBoundingClientRect();
       const mx=(ev.clientX-rect.left-tx)/scale;
       const my=(ev.clientY-rect.top-ty)/scale;
       // Use a dummy target element at mouse position to get proper edge point
