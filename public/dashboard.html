@@ -97,6 +97,11 @@ background-size:40px 40px}
 .conn-handle:hover::after{opacity:1}
 .node.selected .conn-handle,.vps-node.selected .conn-handle,.x-profile-node.selected .conn-handle,.agent-node.selected .conn-handle{display:flex}
 .conn-target{border-color:var(--accent) !important;border-style:dashed !important}
+/* Marquee selection */
+.marquee{position:fixed;border:1px solid var(--accent);background:rgba(245,73,0,0.06);pointer-events:none;z-index:100;display:none}
+.marquee.active{display:block}
+/* Multi-selected nodes */
+.node.multi-selected,.vps-node.multi-selected,.x-profile-node.multi-selected,.agent-node.multi-selected{border-color:var(--accent) !important;box-shadow:0 0 0 1px rgba(245,73,0,0.3)}
 
 /* Zoom indicator */
 .zoom-indicator{position:absolute;bottom:12px;right:12px;font-size:10px;color:var(--w20);font-family:'JetBrains Mono',monospace;z-index:10}
@@ -376,6 +381,8 @@ background-size:40px 40px}
   </div>
 </div>
 
+<!-- Marquee Selection -->
+<div class="marquee" id="marquee"></div>
 <!-- Context Menu -->
 <div class="ctx-menu" id="ctxMenu">
   <div class="ctx-menu-item" data-action="info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Details</div>
@@ -529,33 +536,106 @@ window.autoFit=autoFit;
 // ─── DRAG NODES ───
 document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(n=>{
   n.addEventListener('mousedown',e=>{
+    if(e.target.closest('.conn-handle'))return;
     dragNode=n;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;
     const b=bodies.get(n);
     if(b){dnox=b.x;dnoy=b.y;}
+    // Record start positions for multi-drag
+    mdStartPos.clear();
+    if(multiSelected.has(n)&&multiSelected.size>1){
+      multiSelected.forEach(mn=>{
+        const mb=bodies.get(mn);
+        if(mb)mdStartPos.set(mn,{x:mb.x,y:mb.y});
+      });
+    }
     e.stopPropagation();
   });
 });
 
+// ─── MARQUEE SELECTION STATE ───
+const marqueeEl=document.getElementById('marquee');
+let marqueeActive=false,mqsx=0,mqsy=0;
+let multiSelected=new Set();
+let multiDrag=false,mdsx=0,mdsy=0,mdStartPos=new Map();
+let spaceHeld=false;
+document.addEventListener('keydown',e=>{if(e.code==='Space'&&!e.target.matches('input,textarea,select')){spaceHeld=true;wrap.style.cursor='grab';}});
+document.addEventListener('keyup',e=>{if(e.code==='Space'){spaceHeld=false;wrap.style.cursor='crosshair';}});
+
+function clearMultiSelect(){multiSelected.forEach(n=>n.classList.remove('multi-selected'));multiSelected.clear();}
+
 window.addEventListener('mousemove',e=>{
+  // Node drag (single or multi)
   if(dragNode){
     const dx=(e.clientX-dnsx)/scale,dy=(e.clientY-dnsy)/scale;
     if(Math.abs(dx)>3||Math.abs(dy)>3)nodeMoved=true;
-    const nx=dnox+dx,ny=dnoy+dy;
-    const b=bodies.get(dragNode);
-    if(b){b.x=nx;b.y=ny;}
-    dragNode.style.left=nx+'px';dragNode.style.top=ny+'px';
+    // If dragging a multi-selected node, move all
+    if(multiSelected.has(dragNode)&&multiSelected.size>1){
+      multiSelected.forEach(n=>{
+        const sp=mdStartPos.get(n);if(!sp)return;
+        const nx=sp.x+dx,ny=sp.y+dy;
+        const b=bodies.get(n);if(b){b.x=nx;b.y=ny;}
+        n.style.left=nx+'px';n.style.top=ny+'px';
+      });
+    } else {
+      const nx=dnox+dx,ny=dnoy+dy;
+      const b=bodies.get(dragNode);
+      if(b){b.x=nx;b.y=ny;}
+      dragNode.style.left=nx+'px';dragNode.style.top=ny+'px';
+    }
     drawLines();
     if(window.redrawSgLines)window.redrawSgLines();
     return;
   }
+  // Marquee
+  if(marqueeActive){
+    const x1=Math.min(mqsx,e.clientX),y1=Math.min(mqsy,e.clientY);
+    const x2=Math.max(mqsx,e.clientX),y2=Math.max(mqsy,e.clientY);
+    marqueeEl.style.left=x1+'px';marqueeEl.style.top=y1+'px';
+    marqueeEl.style.width=(x2-x1)+'px';marqueeEl.style.height=(y2-y1)+'px';
+    if(Math.abs(e.clientX-mqsx)>4||Math.abs(e.clientY-mqsy)>4)marqueeEl.classList.add('active');
+    // Highlight nodes inside marquee
+    clearMultiSelect();
+    document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(n=>{
+      const r=n.getBoundingClientRect();
+      if(r.left<x2&&r.right>x1&&r.top<y2&&r.bottom>y1){
+        n.classList.add('multi-selected');multiSelected.add(n);
+      }
+    });
+    return;
+  }
+  // Pan
   if(!dragging)return;tx=stx+(e.clientX-sx);ty=sty+(e.clientY-sy);applyTransform();
 });
 
-window.addEventListener('mouseup',()=>{
+window.addEventListener('mouseup',e=>{
+  // End marquee
+  if(marqueeActive){
+    marqueeActive=false;
+    marqueeEl.classList.remove('active');
+    // If we selected nodes, keep them highlighted
+    if(multiSelected.size>0){
+      // Also set selectedNode to null since we have multi
+      if(selectedNode){selectedNode.classList.remove('selected');selectedNode=null;}
+    }
+  }
   dragNode=null;dragging=false;
 });
 
-wrap.addEventListener('mousedown',e=>{if(e.target.closest('.node,.agent-node,.vps-node,.x-profile-node,.sg-node,.sg-skill'))return;dragging=true;sx=e.clientX;sy=e.clientY;stx=tx;sty=ty;});
+wrap.addEventListener('mousedown',e=>{
+  if(e.target.closest('.node,.agent-node,.vps-node,.x-profile-node,.sg-node,.sg-skill,.conn-handle'))return;
+  // Space+drag or middle-button = pan
+  if(spaceHeld||e.button===1){
+    dragging=true;sx=e.clientX;sy=e.clientY;stx=tx;sty=ty;
+    return;
+  }
+  // Left click on empty = start marquee
+  if(e.button===0){
+    marqueeActive=true;mqsx=e.clientX;mqsy=e.clientY;
+    marqueeEl.style.left=mqsx+'px';marqueeEl.style.top=mqsy+'px';
+    marqueeEl.style.width='0';marqueeEl.style.height='0';
+    if(!e.shiftKey)clearMultiSelect();
+  }
+});
 wrap.addEventListener('wheel',e=>{e.preventDefault();const r=wrap.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top,d=e.deltaY>0?0.92:1.08,ns=Math.min(3,Math.max(0.3,scale*d));tx=mx-(mx-tx)*(ns/scale);ty=my-(my-ty)*(ns/scale);scale=ns;applyTransform();document.getElementById('zoomInd').textContent=Math.round(scale*100)+'%';},{passive:false});
 function applyTransform(){transform.style.transform=`translate(${tx}px,${ty}px) scale(${scale})`;bg.style.backgroundPosition=`${tx}px ${ty}px`;bg.style.backgroundSize=`${40*scale}px ${40*scale}px`;}
 
@@ -690,7 +770,7 @@ document.addEventListener('keydown',e=>{
   }
 });
 
-// Delete key handler — works for both nodes and lines
+// Delete key handler — works for nodes, multi-selected nodes, and lines
 document.addEventListener('keydown',e=>{
   if(e.key==='Delete'||e.key==='Backspace'){
     if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
@@ -702,7 +782,15 @@ document.addEventListener('keydown',e=>{
       drawLines();
       return;
     }
-    // Delete selected node
+    // Delete multi-selected nodes
+    if(multiSelected.size>0){
+      e.preventDefault();
+      const toDelete=[...multiSelected].filter(n=>n.id!=='nodeAgent');
+      toDelete.forEach(n=>deleteNode(n,true)); // silent=true, skip confirm
+      clearMultiSelect();
+      return;
+    }
+    // Delete single selected node
     if(!selectedNode||selectedNode.id==='nodeAgent')return;
     e.preventDefault();
     deleteNode(selectedNode);
@@ -886,8 +974,11 @@ function duplicateNode(srcNode){
   bodies.set(el,{x:nx,y:ny});
   if(window._addConnHandle)window._addConnHandle(el);
   el.addEventListener('mousedown',e=>{
+    if(e.target.closest('.conn-handle'))return;
     dragNode=el;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;
     const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}
+    mdStartPos.clear();
+    if(multiSelected.has(el)&&multiSelected.size>1){multiSelected.forEach(mn=>{const mb=bodies.get(mn);if(mb)mdStartPos.set(mn,{x:mb.x,y:mb.y});});}
     e.stopPropagation();
   });
 
@@ -998,8 +1089,24 @@ function showConfigModal(el,svcType,nodeId){
   };
 }
 
-function deleteNode(node){
+function removeNodeFromCanvas(node){
+  const nodeId=node.id;
+  // Remove connection lines
+  const ci=[];
+  conns.forEach(([a,b],i)=>{if(a===nodeId||b===nodeId)ci.push(i);});
+  for(let i=ci.length-1;i>=0;i--)removeConnection(ci[i]);
+  bodies.delete(node);
+  multiSelected.delete(node);
+  node.style.transition='opacity .2s,transform .2s';
+  node.style.opacity='0';node.style.transform='scale(0.8)';
+  setTimeout(()=>node.remove(),200);
+  if(selectedNode===node)selectedNode=null;
+  drawLines();
+}
+
+function deleteNode(node,silent){
   if(!node||node.id==='nodeAgent')return;
+  if(silent){removeNodeFromCanvas(node);return;}
   // Determine service type from node id or data
   const nodeId=node.id;
   const label=node.querySelector('.node-label')?.textContent?.trim()||'';
@@ -1051,31 +1158,8 @@ function deleteNode(node){
         }catch(e){/* best effort — still remove from UI */}
       }
 
-      // Remove from canvas
-      // 1. Remove connection lines
-      const connIdx=[];
-      conns.forEach(([a,b],i)=>{if(a===nodeId||b===nodeId)connIdx.push(i);});
-      // Remove in reverse to keep indices valid
-      for(let i=connIdx.length-1;i>=0;i--){
-        removeConnection(connIdx[i]);
-      }
-
-      // 2. Remove node from bodies map
-      bodies.delete(node);
-
-      // 3. Animate out and remove
-      node.style.transition='opacity .25s,transform .25s';
-      node.style.opacity='0';
-      node.style.transform='scale(0.8)';
-      setTimeout(()=>node.remove(),250);
-
-      // 4. Clear selection
-      if(selectedNode===node)selectedNode=null;
-
-      // 5. Redraw lines
-      drawLines();
+      removeNodeFromCanvas(node);
       if(window.redrawSgLines)window.redrawSgLines();
-
       document.getElementById('modalOverlay').classList.remove('open');
     }catch(err){
       document.getElementById('modalBody').innerHTML=`
@@ -1228,9 +1312,11 @@ setTimeout(()=>autoFit(false),100);
       bodies.set(el,{x:nx,y:ny});
       if(window._addConnHandle)window._addConnHandle(el);
       el.addEventListener('mousedown',e=>{
+        if(e.target.closest('.conn-handle'))return;
         dragNode=el;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;
-        const b=bodies.get(el);
-        if(b){dnox=b.x;dnoy=b.y;}
+        const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}
+        mdStartPos.clear();
+        if(multiSelected.has(el)&&multiSelected.size>1){multiSelected.forEach(mn=>{const mb=bodies.get(mn);if(mb)mdStartPos.set(mn,{x:mb.x,y:mb.y});});}
         e.stopPropagation();
       });
 
