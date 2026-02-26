@@ -84,24 +84,24 @@ background-size:40px 40px}
 .canvas-svg path{opacity:1}
 .canvas-svg .conn-line{stroke:rgba(255,255,255,0.06);stroke-width:1;pointer-events:none}
 .canvas-svg .conn-hit{stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer;fill:none}
-.canvas-svg .conn-hit:hover+.conn-line{stroke:var(--w20)}
-.canvas-svg .conn-line.line-selected{stroke:var(--accent);stroke-width:1.5}
+.canvas-svg .conn-hit:hover+.conn-line{stroke:rgba(255,255,255,0.15)}
+.canvas-svg .conn-line.line-selected{stroke:rgba(255,255,255,0.35);stroke-width:1.5}
 .canvas-svg.initial .conn-line{stroke-dasharray:200;animation:lineDraw .8s ease-out forwards}
 .canvas-svg .conn-line-bg{display:none}
 .canvas-svg .sg-path{stroke-width:1;pointer-events:none}
-.canvas-svg .drag-wire{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:6 4;fill:none;pointer-events:none}
+.canvas-svg .drag-wire{stroke:rgba(255,255,255,0.3);stroke-width:1;stroke-dasharray:6 4;fill:none;pointer-events:none}
 /* Connection handles */
-.conn-handle{position:absolute;width:16px;height:16px;border-radius:50%;background:var(--bg2);border:1.5px solid var(--border);display:none;align-items:center;justify-content:center;cursor:crosshair;z-index:20;transition:border-color .15s,transform .15s;transform:translate(-50%,-50%)}
-.conn-handle:hover{border-color:var(--accent);transform:translate(-50%,-50%) scale(1.25)}
-.conn-handle::after{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:0;transition:opacity .15s}
+.conn-handle{position:absolute;width:14px;height:14px;border-radius:50%;background:var(--bg);border:1.5px solid rgba(255,255,255,0.15);display:none;align-items:center;justify-content:center;cursor:crosshair;z-index:20;transition:border-color .15s,transform .15s;transform:translate(-50%,-50%)}
+.conn-handle:hover{border-color:rgba(255,255,255,0.4);transform:translate(-50%,-50%) scale(1.2)}
+.conn-handle::after{content:'';width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,0.5);opacity:0;transition:opacity .15s}
 .conn-handle:hover::after{opacity:1}
 .node.selected .conn-handle,.vps-node.selected .conn-handle,.x-profile-node.selected .conn-handle,.agent-node.selected .conn-handle{display:flex}
-.conn-target{border-color:var(--accent) !important;border-style:dashed !important}
+.conn-target{border-color:rgba(255,255,255,0.25) !important;border-style:dashed !important}
 /* Marquee selection */
-.marquee{position:fixed;border:1px solid var(--accent);background:rgba(245,73,0,0.06);pointer-events:none;z-index:100;display:none}
+.marquee{position:fixed;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.03);pointer-events:none;z-index:100;display:none}
 .marquee.active{display:block}
 /* Multi-selected nodes */
-.node.multi-selected,.vps-node.multi-selected,.x-profile-node.multi-selected,.agent-node.multi-selected{border-color:var(--accent) !important;box-shadow:0 0 0 1px rgba(245,73,0,0.3)}
+.node.multi-selected,.vps-node.multi-selected,.x-profile-node.multi-selected,.agent-node.multi-selected{border-color:rgba(255,255,255,0.15) !important}
 
 /* Zoom indicator */
 .zoom-indicator{position:absolute;bottom:12px;right:12px;font-size:10px;color:var(--w20);font-family:'JetBrains Mono',monospace;z-index:10}
@@ -243,8 +243,8 @@ background-size:40px 40px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fadeSlideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 /* Node selection */
-.node.selected,.vps-node.selected,.x-profile-node.selected{border-color:var(--accent) !important;box-shadow:0 0 0 1px var(--accent)}
-.agent-node.selected .agent-node-inner{box-shadow:0 0 0 2px var(--accent)}
+.node.selected,.vps-node.selected,.x-profile-node.selected{border-color:rgba(255,255,255,0.2) !important}
+.agent-node.selected .agent-node-inner{box-shadow:0 0 0 1.5px rgba(255,255,255,0.2)}
 /* Context menu */
 .ctx-menu{position:fixed;z-index:600;background:var(--bg3);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:8px;padding:4px;min-width:160px;display:none;animation:fadeSlideUp .12s ease}
 .ctx-menu.open{display:block}
@@ -257,7 +257,7 @@ background-size:40px 40px}
 /* Unconfigured node */
 .node.unconfigured,.vps-node.unconfigured,.x-profile-node.unconfigured{border-style:dashed;opacity:0.7}
 .node.unconfigured .s-dot,.vps-node.unconfigured .s-dot{background:var(--w20)}
-.node.unconfigured .node-sub,.vps-node.unconfigured .node-sub{color:var(--accent);font-style:italic}
+.node.unconfigured .node-sub,.vps-node.unconfigured .node-sub{color:var(--w30);font-style:italic}
 </style>
 </head>
 <body>
