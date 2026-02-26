@@ -80,7 +80,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;o
   linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
 background-size:40px 40px}
 .canvas-transform{position:absolute;inset:0;transform-origin:0 0}
-.canvas-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.canvas-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
 .canvas-svg path{opacity:1}
 .canvas-svg .conn-line{stroke:rgba(255,255,255,0.06);stroke-width:1}
 .canvas-svg.initial .conn-line{stroke-dasharray:200;animation:lineDraw .8s ease-out forwards}
@@ -343,21 +343,26 @@ function edgePoint(el,targetEl){
     else return{x:cx,y:t}; // top
   }
 }
-function drawLines(){
+// Pre-create persistent line elements
+const _lineEls=[];
+(function initLines(){
   const svg=document.getElementById('canvasSvg');
-  svg.querySelectorAll(':not(.sg-path)').forEach(el=>el.remove());
-  conns.forEach(([a,b])=>{
+  conns.forEach(()=>{
+    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+    p.setAttribute('fill','none');p.classList.add('conn-line');p.setAttribute('stroke-linecap','round');
+    svg.appendChild(p);
+    _lineEls.push(p);
+  });
+})();
+function drawLines(){
+  conns.forEach(([a,b],i)=>{
     const ea=document.getElementById(a),eb=document.getElementById(b);
+    if(!ea||!eb)return;
     const p1=edgePoint(ea,eb),p2=edgePoint(eb,ea);
     const dx=p2.x-p1.x,dy=p2.y-p1.y;
     const cx1=p1.x+dx*0.4,cy1=p1.y,cx2=p2.x-dx*0.4,cy2=p2.y;
     const d=`M${p1.x},${p1.y} C${cx1},${cy1} ${cx2},${cy2} ${p2.x},${p2.y}`;
-    const bg=document.createElementNS('http://www.w3.org/2000/svg','path');
-    bg.setAttribute('d',d);bg.setAttribute('fill','none');bg.classList.add('conn-line-bg');
-    svg.insertBefore(bg,svg.firstChild);
-    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
-    p.setAttribute('d',d);p.setAttribute('fill','none');p.classList.add('conn-line');p.setAttribute('stroke-linecap','round');
-    svg.appendChild(p);
+    _lineEls[i].setAttribute('d',d);
   });
 }
 document.getElementById('canvasSvg').classList.add('initial');
