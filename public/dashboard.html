@@ -238,6 +238,10 @@ background-size:40px 40px}
 .ctx-menu-item.danger:hover{background:rgba(248,81,73,0.1);color:var(--red)}
 .ctx-menu-item svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .ctx-menu-sep{height:1px;background:var(--border);margin:3px 8px}
+/* Unconfigured node */
+.node.unconfigured,.vps-node.unconfigured,.x-profile-node.unconfigured{border-style:dashed;opacity:0.7}
+.node.unconfigured .s-dot,.vps-node.unconfigured .s-dot{background:var(--w20)}
+.node.unconfigured .node-sub,.vps-node.unconfigured .node-sub{color:var(--accent);font-style:italic}
 </style>
 </head>
 <body>
@@ -364,6 +368,7 @@ background-size:40px 40px}
 <!-- Context Menu -->
 <div class="ctx-menu" id="ctxMenu">
   <div class="ctx-menu-item" data-action="info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Details</div>
+  <div class="ctx-menu-item" data-action="duplicate"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Duplicate</div>
   <div class="ctx-menu-sep"></div>
   <div class="ctx-menu-item danger" data-action="delete"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>Delete Service</div>
 </div>
@@ -608,7 +613,26 @@ ctxMenu.addEventListener('click',e=>{
       }
     }
   }
+  else if(action==='duplicate'){duplicateNode(ctxTarget);}
   else if(action==='delete'){deleteNode(ctxTarget);}
+});
+
+// Clipboard: Ctrl+C / Cmd+C to copy, Ctrl+V / Cmd+V to paste
+let clipboardNode=null;
+document.addEventListener('keydown',e=>{
+  if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
+  const mod=e.metaKey||e.ctrlKey;
+  if(mod&&e.key==='c'&&selectedNode&&selectedNode.id!=='nodeAgent'){
+    e.preventDefault();
+    clipboardNode=selectedNode;
+    // Visual feedback — brief flash
+    selectedNode.style.transition='opacity .1s';selectedNode.style.opacity='0.5';
+    setTimeout(()=>{if(selectedNode)selectedNode.style.opacity='';},200);
+  }
+  if(mod&&e.key==='v'&&clipboardNode){
+    e.preventDefault();
+    duplicateNode(clipboardNode);
+  }
 });
 
 // Delete key handler
@@ -623,6 +647,181 @@ document.addEventListener('keydown',e=>{
     deleteNode(selectedNode);
   }
 });
+
+// ─── NODE DUPLICATION ───
+let _dupCount=0;
+// Map node IDs / types to their service type + unconfigured sub text
+const SVC_META={
+  phone:{label:'Phone',icon:'<svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg>',unconfigured:'click to configure number',cls:'node'},
+  email:{label:'Email',icon:'<img src="/assets/logos/gmail.svg" style="width:20px;height:20px;flex-shrink:0">',unconfigured:'click to set address',cls:'node'},
+  domain:{label:'Domain',icon:'<img src="/assets/logos/cloudflare-icon.svg" style="width:20px;height:20px;flex-shrink:0">',unconfigured:'click to choose domain',cls:'node'},
+  vps:{label:'VPS',icon:'<img src="/assets/logos/hetzner-icon.svg" style="width:20px;height:20px;flex-shrink:0">',unconfigured:'click to select tier',cls:'vps-node'},
+  xaccount:{label:'X Account',icon:'<svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg>',unconfigured:'click to assign account',cls:'node'},
+  wallet:{label:'Wallet',icon:'<svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg>',unconfigured:'click to connect wallet',cls:'node'},
+  skills:{label:'Skills',icon:'<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',unconfigured:'click to select skills',cls:'node'}
+};
+
+function getSvcType(node){
+  const id=node.id;
+  if(id.startsWith('nodeDyn_'))return id.split('_')[1];
+  if(id==='nodePhone')return 'phone';
+  if(id==='nodeEmail')return 'email';
+  if(id==='nodeDomain')return 'domain';
+  if(id==='nodeVps')return 'vps';
+  if(id==='nodeX')return 'xaccount';
+  if(id==='nodeWallet')return 'wallet';
+  if(id==='nodeSkills')return 'skills';
+  // Try label text
+  const lbl=(node.querySelector('.node-label')?.textContent||'').trim().toLowerCase();
+  if(lbl.includes('phone'))return 'phone';
+  if(lbl.includes('email'))return 'email';
+  if(lbl.includes('domain'))return 'domain';
+  if(lbl.includes('vps'))return 'vps';
+  if(lbl.includes('x acc'))return 'xaccount';
+  if(lbl.includes('wallet'))return 'wallet';
+  if(lbl.includes('skill'))return 'skills';
+  return null;
+}
+
+function duplicateNode(srcNode){
+  if(!srcNode||srcNode.id==='nodeAgent')return;
+  const svcType=getSvcType(srcNode);
+  const meta=svcType&&SVC_META[svcType];
+  if(!meta)return;
+
+  // Position: offset from source
+  const srcX=parseFloat(srcNode.style.left)||0;
+  const srcY=parseFloat(srcNode.style.top)||0;
+  const nx=srcX+30+Math.random()*20;
+  const ny=srcY+40+Math.random()*20;
+
+  const el=document.createElement('div');
+  const nodeId='nodeDup_'+svcType+'_'+(++_dupCount);
+  el.id=nodeId;
+  el.className=meta.cls+' unconfigured';
+  el.style.cssText=`left:${nx}px;top:${ny}px;animation:nodeIn .3s ease both`;
+  el.innerHTML=`${meta.icon}<div><div class="node-label"><span class="s-dot"></span>${meta.label}</div><div class="node-sub">${meta.unconfigured}</div></div>`;
+
+  document.getElementById('canvasTransform').appendChild(el);
+
+  // Register for dragging
+  bodies.set(el,{x:nx,y:ny});
+  el.addEventListener('mousedown',e=>{
+    dragNode=el;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;
+    const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}
+    e.stopPropagation();
+  });
+
+  // Connect to agent
+  conns.push(['nodeAgent',nodeId]);
+  const svg=document.getElementById('canvasSvg');
+  const p=document.createElementNS('http://www.w3.org/2000/svg','path');
+  p.setAttribute('fill','none');p.classList.add('conn-line');p.setAttribute('stroke-linecap','round');
+  // Dashed line for unconfigured
+  p.setAttribute('stroke-dasharray','4 4');
+  svg.appendChild(p);
+  _lineEls.push(p);
+
+  drawLines();
+  selectNode(el);
+
+  // Click to configure
+  el.addEventListener('click',e=>{
+    if(nodeMoved)return;
+    if(!el.classList.contains('unconfigured'))return;
+    showConfigModal(el,svcType,nodeId);
+  });
+}
+
+function showConfigModal(el,svcType,nodeId){
+  const meta=SVC_META[svcType];
+  if(!meta)return;
+  let body='';
+  if(svcType==='phone'){
+    body=`<div class="na-field"><label class="na-label">country</label><select class="na-select" id="cfgVal"><option value="US">US (+1)</option><option value="GB">UK (+44)</option><option value="DE">DE (+49)</option><option value="AE">AE (+971)</option></select></div>`;
+  } else if(svcType==='email'){
+    body=`<div class="na-field"><label class="na-label">local part</label><input class="na-input" id="cfgVal" placeholder="myagent"></div><div style="font-size:10px;color:var(--w30);margin-top:-8px;margin-bottom:12px">@agntos.dev</div>`;
+  } else if(svcType==='domain'){
+    body=`<div class="na-field"><label class="na-label">domain</label><input class="na-input" id="cfgVal" placeholder="myagent.dev"></div>`;
+  } else if(svcType==='vps'){
+    body=`<div class="na-field"><label class="na-label">tier</label><select class="na-select" id="cfgVal"><option value="cx23">cx23 — 2 vCPU, 4GB — $5/mo</option><option value="cx33">cx33 — 4 vCPU, 8GB — $10/mo</option><option value="cx43">cx43 — 8 vCPU, 16GB — $20/mo</option></select></div>`;
+  } else if(svcType==='xaccount'){
+    body=`<div style="font-size:12px;color:var(--w40);padding:8px 0;font-family:'JetBrains Mono',monospace">An X account will be assigned from the pool.</div>`;
+  } else if(svcType==='wallet'){
+    body=`<div style="font-size:12px;color:var(--w40);padding:8px 0;font-family:'JetBrains Mono',monospace">A new Solana + Base wallet will be generated.</div>`;
+  } else if(svcType==='skills'){
+    body=`<div style="font-size:12px;color:var(--w40);padding:8px 0;font-family:'JetBrains Mono',monospace">Skills will be selected after provisioning.</div>`;
+  }
+
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">Configure ${meta.label}</div>
+    <div class="modal-subtitle">set up new ${meta.label.toLowerCase()} service</div>
+    ${body}
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="spawn-btn" style="border-color:var(--border);color:var(--w40);flex:1" id="cfgCancel">CANCEL</button>
+      <button class="spawn-btn" style="flex:1" id="cfgProvision">PROVISION</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('open');
+
+  document.getElementById('cfgCancel').onclick=()=>document.getElementById('modalOverlay').classList.remove('open');
+  document.getElementById('cfgProvision').onclick=async()=>{
+    const valEl=document.getElementById('cfgVal');
+    const val=valEl?valEl.value:'';
+
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title">Provisioning ${meta.label}</div>
+      <div class="modal-subtitle">setting up service</div>
+      <div class="provision-status"><div class="provision-spinner"></div>
+      <div style="font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace">Provisioning...</div></div>`;
+
+    try{
+      let sub='Configured';
+      if(svcType==='phone'){
+        const r=await fetch('/phone/provision',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({country:val||'US'})});
+        if(!r.ok)throw new Error((await r.json()).error||'Failed');
+        const d=await r.json();sub=d.phoneNumber||d.phone_number||'Provisioned';
+      } else if(svcType==='email'){
+        if(!val)throw new Error('Enter a local part');
+        const r=await fetch('/email/inbox',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({localPart:val,owner:'dashboard'})});
+        if(!r.ok)throw new Error((await r.json()).error||'Failed');
+        sub=val+'@agntos.dev';
+      } else if(svcType==='domain'){
+        if(!val)throw new Error('Enter a domain');
+        const r=await fetch('/domains/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({domain:val})});
+        if(!r.ok)throw new Error((await r.json()).error||'Failed');
+        sub=val;
+      } else if(svcType==='vps'){
+        const r=await fetch('/compute/servers',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'agent-'+Date.now(),type:val||'cx23',image:'ubuntu-24.04'})});
+        if(!r.ok)throw new Error((await r.json()).error||'Failed');
+        const d=await r.json();sub=d.server?.ipv4||d.ipv4||val;
+      } else if(svcType==='xaccount'){
+        const r=await fetch('/x/accounts/purchase',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({})});
+        if(!r.ok)throw new Error((await r.json()).error||'No accounts available');
+        const d=await r.json();sub='@'+(d.handle||d.username||'account');
+      } else if(svcType==='wallet'){
+        sub='SOL + BASE';
+      }
+
+      // Update node: remove unconfigured state
+      el.classList.remove('unconfigured');
+      el.querySelector('.node-sub').textContent=sub;
+      el.querySelector('.s-dot')?.classList.add('active');
+      // Make connection line solid
+      const connIdx=conns.findIndex(([a,b])=>b===nodeId);
+      if(connIdx>=0&&_lineEls[connIdx]){
+        _lineEls[connIdx].removeAttribute('stroke-dasharray');
+      }
+      drawLines();
+      document.getElementById('modalOverlay').classList.remove('open');
+    }catch(err){
+      document.getElementById('modalBody').innerHTML=`
+        <div class="modal-title" style="color:var(--red)">Failed</div>
+        <div class="modal-subtitle">${meta.label} provisioning error</div>
+        <div style="padding:16px 0;font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace;text-align:center">${err.message}</div>
+        <button class="spawn-btn" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>`;
+    }
+  };
+}
 
 function deleteNode(node){
   if(!node||node.id==='nodeAgent')return;
