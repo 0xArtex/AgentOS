@@ -109,7 +109,7 @@ background-size:40px 40px}
 .marquee{position:fixed;border:1px solid rgba(255,255,255,0.2);background:rgba(255,255,255,0.03);pointer-events:none;z-index:100;display:none}
 .marquee.active{display:block}
 /* Multi-selected nodes */
-.node.multi-selected,.vps-node.multi-selected,.x-profile-node.multi-selected,.agent-node.multi-selected,.sg-node.multi-selected,.sg-skill.multi-selected{border-color:rgba(255,255,255,0.15) !important}
+.node.multi-selected,.vps-node.multi-selected,.x-profile-node.multi-selected,.agent-node.multi-selected,.sg-node.multi-selected,.sg-skill.multi-selected{border-color:rgba(255,255,255,0.5) !important}
 
 /* Zoom indicator */
 .zoom-indicator{position:absolute;bottom:12px;right:12px;font-size:10px;color:var(--w20);font-family:'JetBrains Mono',monospace;z-index:10}
@@ -251,8 +251,8 @@ background-size:40px 40px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fadeSlideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 /* Node selection */
-.node.selected,.vps-node.selected,.x-profile-node.selected{border-color:rgba(255,255,255,0.2) !important}
-.agent-node.selected .agent-node-inner{box-shadow:0 0 0 1.5px rgba(255,255,255,0.2)}
+.node.selected,.vps-node.selected,.x-profile-node.selected{border-color:rgba(255,255,255,0.5) !important}
+.agent-node.selected .agent-node-inner{box-shadow:0 0 0 1.5px rgba(255,255,255,0.5)}
 /* Context menu */
 .ctx-menu{position:fixed;z-index:600;background:var(--bg3);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:8px;padding:4px;min-width:160px;display:none;animation:fadeSlideUp .12s ease}
 .ctx-menu.open{display:block}
