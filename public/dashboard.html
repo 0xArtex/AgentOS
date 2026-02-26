@@ -80,12 +80,23 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;o
   linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
 background-size:40px 40px}
 .canvas-transform{position:absolute;inset:0;transform-origin:0 0}
-.canvas-svg{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.canvas-svg{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
 .canvas-svg path{opacity:1}
-.canvas-svg .conn-line{stroke:rgba(255,255,255,0.06);stroke-width:1}
+.canvas-svg .conn-line{stroke:rgba(255,255,255,0.06);stroke-width:1;pointer-events:none}
+.canvas-svg .conn-hit{stroke:transparent;stroke-width:14;pointer-events:stroke;cursor:pointer;fill:none}
+.canvas-svg .conn-hit:hover+.conn-line{stroke:var(--w20)}
+.canvas-svg .conn-line.line-selected{stroke:var(--accent);stroke-width:1.5}
 .canvas-svg.initial .conn-line{stroke-dasharray:200;animation:lineDraw .8s ease-out forwards}
 .canvas-svg .conn-line-bg{display:none}
-.canvas-svg .sg-path{stroke-width:1}
+.canvas-svg .sg-path{stroke-width:1;pointer-events:none}
+.canvas-svg .drag-wire{stroke:var(--accent);stroke-width:1.5;stroke-dasharray:6 4;fill:none;pointer-events:none}
+/* Connection handles */
+.conn-handle{position:absolute;width:16px;height:16px;border-radius:50%;background:var(--bg2);border:1.5px solid var(--border);display:none;align-items:center;justify-content:center;cursor:crosshair;z-index:20;transition:border-color .15s,transform .15s;transform:translate(-50%,-50%)}
+.conn-handle:hover{border-color:var(--accent);transform:translate(-50%,-50%) scale(1.25)}
+.conn-handle::after{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);opacity:0;transition:opacity .15s}
+.conn-handle:hover::after{opacity:1}
+.node.selected .conn-handle,.vps-node.selected .conn-handle,.x-profile-node.selected .conn-handle,.agent-node.selected .conn-handle{display:flex}
+.conn-target{border-color:var(--accent) !important;border-style:dashed !important}
 
 /* Zoom indicator */
 .zoom-indicator{position:absolute;bottom:12px;right:12px;font-size:10px;color:var(--w20);font-family:'JetBrains Mono',monospace;z-index:10}
@@ -369,6 +380,7 @@ background-size:40px 40px}
 <div class="ctx-menu" id="ctxMenu">
   <div class="ctx-menu-item" data-action="info"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>Details</div>
   <div class="ctx-menu-item" data-action="duplicate"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>Duplicate</div>
+  <div class="ctx-menu-item" data-action="disconnect"><svg viewBox="0 0 24 24"><path d="M18 6L6 18"/><path d="M6 6l12 12"/></svg>Disconnect</div>
   <div class="ctx-menu-sep"></div>
   <div class="ctx-menu-item danger" data-action="delete"><svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>Delete Service</div>
 </div>
@@ -402,26 +414,61 @@ function edgePoint(el,targetEl){
     else return{x:cx,y:t}; // top
   }
 }
-// Pre-create persistent line elements
-const _lineEls=[];
-(function initLines(){
+// Persistent line elements: each conn gets a hit-area path + visible path
+const _lineEls=[];   // visible paths
+const _hitEls=[];    // invisible fat hit-area paths
+let selectedLineIdx=-1;
+
+function addLinePair(){
   const svg=document.getElementById('canvasSvg');
-  conns.forEach(()=>{
-    const p=document.createElementNS('http://www.w3.org/2000/svg','path');
-    p.setAttribute('fill','none');p.classList.add('conn-line');p.setAttribute('stroke-linecap','round');
-    svg.appendChild(p);
-    _lineEls.push(p);
-  });
-})();
+  const hit=document.createElementNS('http://www.w3.org/2000/svg','path');
+  hit.classList.add('conn-hit');
+  const vis=document.createElementNS('http://www.w3.org/2000/svg','path');
+  vis.setAttribute('fill','none');vis.classList.add('conn-line');vis.setAttribute('stroke-linecap','round');
+  svg.appendChild(hit);svg.appendChild(vis);
+  const idx=_lineEls.length;
+  hit.addEventListener('click',e=>{e.stopPropagation();selectLine(idx);});
+  _hitEls.push(hit);_lineEls.push(vis);
+  return idx;
+}
+
+(function initLines(){conns.forEach(()=>addLinePair());})();
+
+function selectLine(idx){
+  // Deselect previous
+  if(selectedLineIdx>=0&&_lineEls[selectedLineIdx])_lineEls[selectedLineIdx].classList.remove('line-selected');
+  if(selectedLineIdx===idx){selectedLineIdx=-1;return;}
+  selectedLineIdx=idx;
+  if(_lineEls[idx])_lineEls[idx].classList.add('line-selected');
+  // Deselect any selected node
+  if(selectedNode){selectedNode.classList.remove('selected');selectedNode=null;}
+}
+
+function deselectLine(){
+  if(selectedLineIdx>=0&&_lineEls[selectedLineIdx])_lineEls[selectedLineIdx].classList.remove('line-selected');
+  selectedLineIdx=-1;
+}
+
+function removeConnection(idx){
+  conns.splice(idx,1);
+  const vis=_lineEls.splice(idx,1)[0];
+  const hit=_hitEls.splice(idx,1)[0];
+  if(vis)vis.remove();
+  if(hit)hit.remove();
+  if(selectedLineIdx===idx)selectedLineIdx=-1;
+  else if(selectedLineIdx>idx)selectedLineIdx--;
+}
+
 function drawLines(){
   conns.forEach(([a,b],i)=>{
     const ea=document.getElementById(a),eb=document.getElementById(b);
-    if(!ea||!eb)return;
+    if(!ea||!eb){if(_lineEls[i])_lineEls[i].setAttribute('d','');if(_hitEls[i])_hitEls[i].setAttribute('d','');return;}
     const p1=edgePoint(ea,eb),p2=edgePoint(eb,ea);
     const dx=p2.x-p1.x,dy=p2.y-p1.y;
     const cx1=p1.x+dx*0.4,cy1=p1.y,cx2=p2.x-dx*0.4,cy2=p2.y;
     const d=`M${p1.x},${p1.y} C${cx1},${cy1} ${cx2},${cy2} ${p2.x},${p2.y}`;
     _lineEls[i].setAttribute('d',d);
+    _hitEls[i].setAttribute('d',d);
   });
 }
 document.getElementById('canvasSvg').classList.add('initial');
@@ -564,7 +611,7 @@ let ctxTarget=null;
 function selectNode(el){
   if(selectedNode)selectedNode.classList.remove('selected');
   selectedNode=el;
-  if(el)el.classList.add('selected');
+  if(el){el.classList.add('selected');deselectLine();}
 }
 
 // Click to select (runs after drag check)
@@ -572,7 +619,7 @@ document.getElementById('canvasTransform').addEventListener('mouseup',e=>{
   if(nodeMoved)return;
   const n=e.target.closest('.node,.vps-node,.x-profile-node');
   if(n){selectNode(n);}
-  else if(!e.target.closest('.agent-node,.sg-node,.sg-skill')){selectNode(null);}
+  else if(!e.target.closest('.agent-node,.sg-node,.sg-skill')){selectNode(null);deselectLine();}
 });
 
 // Right-click context menu on nodes
@@ -614,6 +661,14 @@ ctxMenu.addEventListener('click',e=>{
     }
   }
   else if(action==='duplicate'){duplicateNode(ctxTarget);}
+  else if(action==='disconnect'){
+    // Remove all connections to/from this node
+    const nid=ctxTarget.id;
+    for(let i=conns.length-1;i>=0;i--){
+      if(conns[i][0]===nid||conns[i][1]===nid)removeConnection(i);
+    }
+    drawLines();
+  }
   else if(action==='delete'){deleteNode(ctxTarget);}
 });
 
@@ -635,17 +690,140 @@ document.addEventListener('keydown',e=>{
   }
 });
 
-// Delete key handler
+// Delete key handler — works for both nodes and lines
 document.addEventListener('keydown',e=>{
   if(e.key==='Delete'||e.key==='Backspace'){
-    // Don't trigger if typing in an input
     if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
-    if(!selectedNode)return;
-    // Don't delete agent node
-    if(selectedNode.id==='nodeAgent')return;
+    // Delete selected line
+    if(selectedLineIdx>=0){
+      e.preventDefault();
+      removeConnection(selectedLineIdx);
+      selectedLineIdx=-1;
+      drawLines();
+      return;
+    }
+    // Delete selected node
+    if(!selectedNode||selectedNode.id==='nodeAgent')return;
     e.preventDefault();
     deleteNode(selectedNode);
   }
+});
+
+// ─── CONNECTION HANDLES (drag to connect) ───
+(function(){
+  const ct=document.getElementById('canvasTransform');
+  const svg=document.getElementById('canvasSvg');
+
+  // Valid connection rules: what can connect to what
+  // agent can connect to any service; services can connect to agent only
+  const AGENT_TYPES=new Set(['nodeAgent']);
+  function getNodeType(el){
+    if(el.classList.contains('agent-node'))return 'agent';
+    if(el.id==='nodeSkills'||getSvcType(el)==='skills')return 'skills';
+    return 'service';
+  }
+  function canConnect(srcEl,tgtEl){
+    if(srcEl===tgtEl)return false;
+    const st=getNodeType(srcEl),tt=getNodeType(tgtEl);
+    // Agent ↔ service
+    if(st==='agent'&&tt==='service')return true;
+    if(st==='service'&&tt==='agent')return true;
+    // Agent ↔ skills
+    if(st==='agent'&&tt==='skills')return true;
+    if(st==='skills'&&tt==='agent')return true;
+    return false;
+  }
+  function alreadyConnected(a,b){
+    return conns.some(([x,y])=>(x===a&&y===b)||(x===b&&y===a));
+  }
+
+  // Append a handle to each connectable node
+  function addHandle(node){
+    const h=document.createElement('div');
+    h.className='conn-handle';
+    node.appendChild(h);
+    node._connHandle=h;
+    // Position handle at right edge by default
+    h.style.right='-8px';h.style.top='50%';h.style.left='auto';
+    h.addEventListener('mousedown',e=>{
+      e.stopPropagation();e.preventDefault();
+      startWire(node,e);
+    });
+  }
+
+  // Add handles to all existing nodes
+  document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(addHandle);
+  // Expose for dynamically created nodes
+  window._addConnHandle=addHandle;
+
+  // Drag wire state
+  let wireFrom=null;
+  let wirePath=null;
+
+  function startWire(srcNode,e){
+    wireFrom=srcNode;
+    wirePath=document.createElementNS('http://www.w3.org/2000/svg','path');
+    wirePath.classList.add('drag-wire');
+    svg.appendChild(wirePath);
+
+    // Highlight valid targets
+    document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(n=>{
+      if(canConnect(srcNode,n)&&!alreadyConnected(srcNode.id,n.id)){
+        n.classList.add('conn-target');
+      }
+    });
+
+    const onMove=ev=>{
+      const rect=ct.getBoundingClientRect();
+      const mx=(ev.clientX-rect.left-tx)/scale;
+      const my=(ev.clientY-rect.top-ty)/scale;
+      const sl=parseFloat(srcNode.style.left)||0,st2=parseFloat(srcNode.style.top)||0;
+      const sw=srcNode.offsetWidth,sh=srcNode.offsetHeight;
+      const sx=sl+sw/2,sy=st2+sh/2;
+      const dx2=mx-sx,dy2=my-sy;
+      const d=`M${sx},${sy} C${sx+dx2*0.4},${sy} ${mx-dx2*0.4},${my} ${mx},${my}`;
+      wirePath.setAttribute('d',d);
+    };
+    const onUp=ev=>{
+      window.removeEventListener('mousemove',onMove);
+      window.removeEventListener('mouseup',onUp);
+      if(wirePath)wirePath.remove();
+      wirePath=null;
+
+      // Clean target highlights
+      document.querySelectorAll('.conn-target').forEach(n=>n.classList.remove('conn-target'));
+
+      // Find drop target
+      const rect=ct.getBoundingClientRect();
+      const mx=ev.clientX,my=ev.clientY;
+      let target=null;
+      document.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(n=>{
+        if(n===srcNode)return;
+        const nr=n.getBoundingClientRect();
+        if(mx>=nr.left&&mx<=nr.right&&my>=nr.top&&my<=nr.bottom)target=n;
+      });
+
+      if(target&&canConnect(srcNode,target)&&!alreadyConnected(srcNode.id,target.id)){
+        // Create connection — always store as [agent, service]
+        const a=getNodeType(srcNode)==='agent'?srcNode.id:target.id;
+        const b=getNodeType(srcNode)==='agent'?target.id:srcNode.id;
+        conns.push([a,b]);
+        addLinePair();
+        drawLines();
+      }
+
+      wireFrom=null;
+    };
+    window.addEventListener('mousemove',onMove);
+    window.addEventListener('mouseup',onUp);
+  }
+})();
+
+// Also add "Delete" option in context menu for lines (right-click on canvas svg area)
+document.getElementById('canvasSvg').addEventListener('contextmenu',e=>{
+  // This is handled by the hit paths — but we need a line-specific context menu
+  // For now, the click-to-select + Delete key flow handles it
+  // We'll upgrade this later if needed
 });
 
 // ─── NODE DUPLICATION ───
@@ -704,8 +882,9 @@ function duplicateNode(srcNode){
 
   document.getElementById('canvasTransform').appendChild(el);
 
-  // Register for dragging
+  // Register for dragging + connection handle
   bodies.set(el,{x:nx,y:ny});
+  if(window._addConnHandle)window._addConnHandle(el);
   el.addEventListener('mousedown',e=>{
     dragNode=el;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;
     const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}
@@ -714,13 +893,9 @@ function duplicateNode(srcNode){
 
   // Connect to agent
   conns.push(['nodeAgent',nodeId]);
-  const svg=document.getElementById('canvasSvg');
-  const p=document.createElementNS('http://www.w3.org/2000/svg','path');
-  p.setAttribute('fill','none');p.classList.add('conn-line');p.setAttribute('stroke-linecap','round');
+  const lineIdx=addLinePair();
   // Dashed line for unconfigured
-  p.setAttribute('stroke-dasharray','4 4');
-  svg.appendChild(p);
-  _lineEls.push(p);
+  _lineEls[lineIdx].setAttribute('stroke-dasharray','4 4');
 
   drawLines();
   selectNode(el);
@@ -882,9 +1057,7 @@ function deleteNode(node){
       conns.forEach(([a,b],i)=>{if(a===nodeId||b===nodeId)connIdx.push(i);});
       // Remove in reverse to keep indices valid
       for(let i=connIdx.length-1;i>=0;i--){
-        conns.splice(connIdx[i],1);
-        const pathEl=_lineEls.splice(connIdx[i],1)[0];
-        if(pathEl)pathEl.remove();
+        removeConnection(connIdx[i]);
       }
 
       // 2. Remove node from bodies map
@@ -1051,8 +1224,9 @@ setTimeout(()=>autoFit(false),100);
       // Add to canvas
       document.getElementById('canvasTransform').appendChild(el);
 
-      // Register for dragging
+      // Register for dragging + connection handle
       bodies.set(el,{x:nx,y:ny});
+      if(window._addConnHandle)window._addConnHandle(el);
       el.addEventListener('mousedown',e=>{
         dragNode=el;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;
         const b=bodies.get(el);
@@ -1062,12 +1236,7 @@ setTimeout(()=>autoFit(false),100);
 
       // Add connection line
       conns.push(['nodeAgent',nodeId]);
-      // Create persistent SVG path for the new connection
-      const svg=document.getElementById('canvasSvg');
-      const p=document.createElementNS('http://www.w3.org/2000/svg','path');
-      p.setAttribute('fill','none');p.classList.add('conn-line');p.setAttribute('stroke-linecap','round');
-      svg.appendChild(p);
-      _lineEls.push(p);
+      addLinePair();
 
       // Redraw
       drawLines();
