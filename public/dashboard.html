@@ -73,7 +73,7 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;o
 .activity-item span{color:var(--w60)}
 
 /* ─── CANVAS ─── */
-.canvas-wrap{flex:1;overflow:hidden;position:relative;cursor:crosshair}
+.canvas-wrap{flex:1;overflow:hidden;position:relative;cursor:crosshair;user-select:none;-webkit-user-select:none}
 .canvas-wrap:active{cursor:grabbing}
 .canvas-bg{position:absolute;inset:0;background-image:
   linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
@@ -763,6 +763,7 @@ wrap.addEventListener('mousedown',e=>{
   }
   // Left click on empty = start marquee
   if(e.button===0){
+    e.preventDefault();
     marqueeActive=true;mqsx=e.clientX;mqsy=e.clientY;
     marqueeEl.style.left=mqsx+'px';marqueeEl.style.top=mqsy+'px';
     marqueeEl.style.width='0';marqueeEl.style.height='0';
