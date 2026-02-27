@@ -1748,6 +1748,10 @@ function showConfigModal(el,svcType,nodeId){
 
 function removeNodeFromCanvas(node){
   const nodeId=node.id;
+  // If removing Skills node, clean up skill graph sub-elements
+  if(nodeId==='nodeSkills'&&typeof window._cleanupSkillGraph==='function'){
+    window._cleanupSkillGraph();
+  }
   // Remove connection lines
   const ci=[];
   conns.forEach(([a,b],i)=>{if(a===nodeId||b===nodeId)ci.push(i);});
@@ -2203,6 +2207,7 @@ const _nodeX=document.getElementById('nodeX');if(_nodeX) _nodeX.addEventListener
     saveState();
   }
 
+  window._cleanupSkillGraph=cleanup;
   window.redrawSgLines=redrawSgLines;
   function redrawSgLines(){
     svgEl.querySelectorAll('.sg-path').forEach(p=>p.remove());
