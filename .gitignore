@@ -4,3 +4,4 @@ dist/
 *.js.map
 data/
 data/deposit-master.json
+data/wallet-master.json

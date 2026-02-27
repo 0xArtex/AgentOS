@@ -1725,7 +1725,12 @@ function showConfigModal(el,svcType,nodeId){
         if(!r.ok)throw new Error((await r.json()).error||(await r.json()).message||'No accounts available');
         const d=await r.json();sub='@'+(d.handle||d.username||'account');
       } else if(svcType==='wallet'){
-        sub='SOL + BASE';
+        const r=await fetch('/wallet',{method:'POST',headers:authHeaders(),body:JSON.stringify({})});
+        if(!r.ok)throw new Error((await r.json()).error||'Failed to create wallet');
+        const d=await r.json();const w=d.wallet;
+        const solShort=w.solana.address.slice(0,4)+'..'+w.solana.address.slice(-4);
+        const baseShort=w.base.address.slice(0,6)+'..'+w.base.address.slice(-4);
+        sub=solShort+' · '+baseShort;
       }
 
       // Update node: remove unconfigured state
@@ -2032,7 +2037,15 @@ setTimeout(()=>{autoFit(false);},100);
     wallet:{
       icon:'<svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg>',
       label:'Wallet',nodeClass:'node',
-      provision:async()=>({sub:'SOL + BASE'})
+      provision:async()=>{
+        const r=await fetch('/wallet',{method:'POST',headers:authHeaders(),body:JSON.stringify({})});
+        if(!r.ok){const e=await r.json();throw new Error(e.error||e.message||'Failed to create wallet');}
+        const d=await r.json();
+        const w=d.wallet;
+        const solShort=w.solana.address.slice(0,4)+'..'+w.solana.address.slice(-4);
+        const baseShort=w.base.address.slice(0,6)+'..'+w.base.address.slice(-4);
+        return{sub:solShort+' · '+baseShort,walletData:w};
+      }
     }
   };
 

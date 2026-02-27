@@ -168,6 +168,8 @@ app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
 import provisionRoutes from "./routes/provision";
 app.use("/provision", provisionRoutes);
+import walletRoutes from "./routes/wallet";
+app.use("/wallet", walletRoutes);
 import dashboardAuthRoutes from "./routes/dashboard-auth";
 app.use("/auth", dashboardAuthRoutes);
 import balanceRoutes from "./routes/balance";
