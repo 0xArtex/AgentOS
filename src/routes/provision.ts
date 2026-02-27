@@ -1,6 +1,10 @@
 import { Router, Request, Response } from "express";
+import { requireDashboardAuth, DashboardRequest } from "../middleware/dashboard-session";
 
 const router = Router();
+
+// All provision routes require dashboard authentication
+router.use(requireDashboardAuth as any);
 
 // DELETE /provision/:service — deprovision a service for an agent
 router.delete("/:service", async (req: Request, res: Response) => {

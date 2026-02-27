@@ -155,6 +155,10 @@ app.get("/version", (_req, res) => {
 // ── API Documentation ─────────────────────────────────────────
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
+// ── Dashboard session resolution (global) ────────────────────
+import { resolveDashboardSession } from "./middleware/dashboard-session";
+app.use(resolveDashboardSession as any);
+
 // ── Routes ────────────────────────────────────────────────────
 app.use("/phone", phoneRoutes);
 app.use("/email", emailRoutes);
@@ -166,11 +170,8 @@ import provisionRoutes from "./routes/provision";
 app.use("/provision", provisionRoutes);
 import dashboardAuthRoutes from "./routes/dashboard-auth";
 app.use("/auth", dashboardAuthRoutes);
-import { resolveDashboardSession } from "./middleware/dashboard-session";
-app.use("/balance", resolveDashboardSession as any);
 import balanceRoutes from "./routes/balance";
 app.use("/balance", balanceRoutes);
-app.use("/projects", resolveDashboardSession as any);
 import projectRoutes from "./routes/projects";
 app.use("/projects", projectRoutes);
 app.use("/apikeys", apikeysRoutes);

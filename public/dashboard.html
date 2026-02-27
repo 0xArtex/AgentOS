@@ -217,6 +217,16 @@ background-size:40px 40px}
 .topbar-logout{color:var(--w20);cursor:pointer;font-size:9px;transition:color .15s}
 .topbar-logout:hover{color:var(--accent)}
 /* Wire drop menu */
+/* Add menu (plus button) */
+.add-menu{position:fixed;z-index:200;background:rgba(22,24,30,0.95);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:12px;padding:6px;min-width:200px;display:none;box-shadow:0 12px 48px rgba(0,0,0,0.5);font-family:'JetBrains Mono',monospace;transform:translateX(-50%)}
+.add-menu.open{display:block;animation:wmIn .15s ease}
+.add-menu-section{font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--w20);padding:8px 10px 4px;font-weight:600}
+.add-menu-item{display:flex;align-items:center;gap:10px;padding:7px 10px;border-radius:8px;cursor:pointer;transition:background .12s;color:var(--text);font-size:12px}
+.add-menu-item:hover{background:rgba(255,255,255,0.06)}
+.add-menu-item svg,.add-menu-item img{width:15px;height:15px;stroke:var(--w40);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.add-menu-item img{stroke:none}
+.add-price{margin-left:auto;font-size:9px;color:var(--w20)}
+.add-menu-sep{height:1px;background:var(--border);margin:4px 6px}
 .wire-menu{position:fixed;z-index:200;background:rgba(22,24,30,0.95);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:12px;padding:6px;min-width:200px;display:none;box-shadow:0 12px 48px rgba(0,0,0,0.5);font-family:'JetBrains Mono',monospace}
 .wire-menu.open{display:block;animation:wmIn .15s ease}
 @keyframes wmIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
@@ -1845,12 +1855,94 @@ setTimeout(()=>{autoFit(false);pushState();},100);
   const agentNode=document.getElementById('nodeAgent');
 
   // "+" button scrolls to dock or could open a full picker modal in the future
-  document.getElementById('addServiceBtn').addEventListener('click',()=>{
-    // flash the dock items
-    dock.querySelectorAll('.svc-dock-item').forEach((el,i)=>{
-      el.style.transition='none';el.style.transform='scale(1.15)';
-      setTimeout(()=>{el.style.transition='all .2s';el.style.transform='';},150);
-    });
+  // ─── ADD MENU (plus button dropdown) ───
+  const addMenu=document.createElement('div');
+  addMenu.className='add-menu';
+  addMenu.innerHTML=`
+    <div class="add-menu-section">SERVICES</div>
+    <div class="add-menu-item" data-add="phone"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg><span>Phone</span><span class="add-price">$2/mo</span></div>
+    <div class="add-menu-item" data-add="email"><img src="/assets/logos/gmail.svg"><span>Email</span><span class="add-price">$1/mo</span></div>
+    <div class="add-menu-item" data-add="domain"><img src="/assets/logos/cloudflare-icon.svg"><span>Domain</span><span class="add-price">$10/yr</span></div>
+    <div class="add-menu-item" data-add="vps"><img src="/assets/logos/hetzner-icon.svg"><span>VPS</span><span class="add-price">from $5</span></div>
+    <div class="add-menu-item" data-add="xaccount"><svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg><span>X Account</span><span class="add-price">$5</span></div>
+    <div class="add-menu-item" data-add="wallet"><svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg><span>Wallet</span><span class="add-price">Free</span></div>
+    <div class="add-menu-sep"></div>
+    <div class="add-menu-section">NODES</div>
+    <div class="add-menu-item" data-add="agent"><svg viewBox="0 0 24 24"><circle cx="12" cy="7" r="4"/><path d="M5.5 21a6.5 6.5 0 0113 0"/></svg><span>Agent</span><span class="add-price"></span></div>
+    <div class="add-menu-item" data-add="skills"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><span>Skills</span><span class="add-price"></span></div>
+  `;
+  document.body.appendChild(addMenu);
+
+  document.getElementById('addServiceBtn').addEventListener('click',e=>{
+    e.stopPropagation();
+    if(addMenu.classList.contains('open')){addMenu.classList.remove('open');return;}
+    // Position above the plus button
+    const btn=document.getElementById('addServiceBtn');
+    const r=btn.getBoundingClientRect();
+    addMenu.style.left=(r.left+r.width/2)+'px';
+    addMenu.style.bottom=(window.innerHeight-r.top+8)+'px';
+    addMenu.classList.add('open');
+  });
+
+  addMenu.addEventListener('click',e=>{
+    const item=e.target.closest('.add-menu-item');
+    if(!item)return;
+    addMenu.classList.remove('open');
+    const type=item.dataset.add;
+
+    if(type==='agent'){
+      // Spawn agent node at center of viewport
+      const ct=document.getElementById('canvasTransform');
+      const cx=(wrap.clientWidth/2-tx)/scale, cy=(wrap.clientHeight/2-ty)/scale;
+      const el=document.createElement('div');
+      const id='nodeAgent_'+(Date.now());
+      el.id=id;el.className='agent-node';
+      el.style.cssText=`left:${cx}px;top:${cy}px`;
+      el.innerHTML='<span class="agent-node-inner">AO</span><span class="agent-node-label">new-agent</span>';
+      ct.appendChild(el);
+      bodies.set(el,{x:cx,y:cy});
+      el.addEventListener('mousedown',ev=>{
+        if(ev.target.closest('.conn-handle'))return;
+        dragNode=el;nodeMoved=false;dnsx=ev.clientX;dnsy=ev.clientY;
+        const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}
+        ev.stopPropagation();
+      });
+      if(window._addConnHandle)window._addConnHandle(el);
+      drawLines();pushState();
+      return;
+    }
+
+    if(type==='skills'){
+      const ct=document.getElementById('canvasTransform');
+      const cx=(wrap.clientWidth/2-tx)/scale+100, cy=(wrap.clientHeight/2-ty)/scale;
+      const el=document.createElement('div');
+      el.id='nodeSkills';el.className='node';
+      el.style.cssText=`left:${cx}px;top:${cy}px`;
+      el.innerHTML='<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><div><div class="node-label">Skills</div><div class="node-sub">12 categories · 56 total</div></div>';
+      ct.appendChild(el);
+      bodies.set(el,{x:cx,y:cy});
+      el.addEventListener('mousedown',ev=>{
+        if(ev.target.closest('.conn-handle'))return;
+        dragNode=el;nodeMoved=false;dnsx=ev.clientX;dnsy=ev.clientY;
+        const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}
+        ev.stopPropagation();
+      });
+      if(window._addConnHandle)window._addConnHandle(el);
+      if(window._bindSkillsNode)window._bindSkillsNode(el);
+      drawLines();pushState();
+      return;
+    }
+
+    // Service — trigger dock item click
+    const dockItem=dock.querySelector(`.svc-dock-item[data-svc="${type}"]`);
+    if(dockItem)dockItem.click();
+  });
+
+  // Close on click outside
+  document.addEventListener('mousedown',e=>{
+    if(addMenu.classList.contains('open')&&!addMenu.contains(e.target)&&!e.target.closest('#addServiceBtn')){
+      addMenu.classList.remove('open');
+    }
   });
 
   // Service definitions: icon HTML, node class, default sub text
