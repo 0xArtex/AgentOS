@@ -1202,22 +1202,25 @@ document.getElementById('canvasTransform').addEventListener('mouseup',e=>{
 });
 
 // Right-click context menu on nodes
-document.getElementById('canvasTransform').addEventListener('contextmenu',e=>{
-  const n=e.target.closest('.node,.vps-node,.x-profile-node');
-  if(!n)return;
+document.getElementById('canvasWrap').addEventListener('contextmenu',e=>{
   e.preventDefault();
   if(!_authToken){requireAuth();return;}
-  ctxTarget=n;
-  selectNode(n);
-  ctxMenu.style.left=e.clientX+'px';
-  ctxMenu.style.top=e.clientY+'px';
-  ctxMenu.classList.add('open');
-  // Clamp to viewport
-  requestAnimationFrame(()=>{
-    const r=ctxMenu.getBoundingClientRect();
-    if(r.right>window.innerWidth)ctxMenu.style.left=(window.innerWidth-r.width-8)+'px';
-    if(r.bottom>window.innerHeight)ctxMenu.style.top=(window.innerHeight-r.height-8)+'px';
-  });
+  const n=e.target.closest('.node,.vps-node,.x-profile-node');
+  if(n){
+    ctxTarget=n;
+    selectNode(n);
+    ctxMenu.style.left=e.clientX+'px';
+    ctxMenu.style.top=e.clientY+'px';
+    ctxMenu.classList.add('open');
+    requestAnimationFrame(()=>{
+      const r=ctxMenu.getBoundingClientRect();
+      if(r.right>window.innerWidth)ctxMenu.style.left=(window.innerWidth-r.width-8)+'px';
+      if(r.bottom>window.innerHeight)ctxMenu.style.top=(window.innerHeight-r.height-8)+'px';
+    });
+    return;
+  }
+  // Empty canvas right-click — show add menu at cursor
+  if(window._showAddMenuAt)window._showAddMenuAt(e.clientX,e.clientY);
 });
 
 // Close context menu on click elsewhere
@@ -1885,14 +1888,29 @@ setTimeout(()=>{autoFit(false);},100);
   `;
   document.body.appendChild(addMenu);
 
+  window._showAddMenuAt=function(cx,cy){
+    addMenu.style.transform='none';
+    addMenu.style.left=cx+'px';
+    addMenu.style.top=cy+'px';
+    addMenu.style.bottom='auto';
+    addMenu.classList.add('open');
+    requestAnimationFrame(()=>{
+      const r=addMenu.getBoundingClientRect();
+      if(r.right>window.innerWidth)addMenu.style.left=(window.innerWidth-r.width-8)+'px';
+      if(r.bottom>window.innerHeight)addMenu.style.top=(window.innerHeight-r.height-8)+'px';
+    });
+  };
+
   document.getElementById('addServiceBtn').addEventListener('click',e=>{
     e.stopPropagation();
     if(addMenu.classList.contains('open')){addMenu.classList.remove('open');return;}
     // Position above the plus button
     const btn=document.getElementById('addServiceBtn');
     const r=btn.getBoundingClientRect();
+    addMenu.style.transform='translateX(-50%)';
     addMenu.style.left=(r.left+r.width/2)+'px';
     addMenu.style.bottom=(window.innerHeight-r.top+8)+'px';
+    addMenu.style.top='auto';
     addMenu.classList.add('open');
   });
 
