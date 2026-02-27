@@ -317,6 +317,73 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_webhook_log_event ON webhook_log(event);
   `);
 
+  // Balances
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS balances (
+      id TEXT PRIMARY KEY,
+      user_id TEXT UNIQUE NOT NULL,
+      balance_usdc REAL NOT NULL DEFAULT 0,
+      total_deposited REAL NOT NULL DEFAULT 0,
+      total_spent REAL NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_balances_user ON balances(user_id);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS balance_transactions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      type TEXT NOT NULL CHECK(type IN ('deposit', 'debit', 'refund')),
+      amount_usdc REAL NOT NULL,
+      description TEXT,
+      service_type TEXT,
+      reference_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_balance_tx_user ON balance_transactions(user_id);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS deposit_wallets (
+      id TEXT PRIMARY KEY,
+      user_id TEXT UNIQUE NOT NULL,
+      derivation_index INTEGER UNIQUE NOT NULL,
+      solana_address TEXT NOT NULL,
+      evm_address TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_deposit_wallets_user ON deposit_wallets(user_id);
+    CREATE INDEX IF NOT EXISTS idx_deposit_wallets_sol ON deposit_wallets(solana_address);
+    CREATE INDEX IF NOT EXISTS idx_deposit_wallets_evm ON deposit_wallets(evm_address);
+  `);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS deposit_sweeps (
+      id TEXT PRIMARY KEY,
+      wallet_id TEXT NOT NULL,
+      chain TEXT NOT NULL CHECK(chain IN ('solana', 'base')),
+      amount_usdc REAL NOT NULL,
+      tx_hash TEXT,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'completed', 'failed')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+  `);
+
+  // Projects (each project = a canvas with its own nodes/connections)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      canvas_state TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
+  `);
+
   console.log('✅ Database initialized with all tables');
 }
 

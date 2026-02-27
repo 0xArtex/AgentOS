@@ -2,6 +2,8 @@ import { Response, NextFunction } from "express";
 import { requireX402Payment, send402Response } from "./x402";
 import { db } from "../db";
 import { AuthenticatedRequest } from "../types";
+import * as balanceService from "../services/balance";
+import { getOrCreateWallet } from "../services/deposit-wallets";
 
 /**
  * Authentication middleware for AgentOS
@@ -87,6 +89,34 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
     if (hasPayment) {
       const paymentAuth = requireX402Payment(minUsdc);
       return paymentAuth(req, res, next);
+    }
+
+    // Method 4: Dashboard balance-based auth
+    const dashboardUser = req.headers["x-dashboard-user"] as string;
+    if (dashboardUser) {
+      const balance = balanceService.getBalance(dashboardUser);
+      if (balance.balance_usdc >= minUsdc) {
+        try {
+          balanceService.debit(dashboardUser, minUsdc, serviceType, `${serviceType} provision via dashboard`);
+          req.agentId = `dashboard:${dashboardUser}`;
+          next();
+          return;
+        } catch (e: any) {
+          // Debit failed (race condition) — fall through to insufficient balance
+        }
+      }
+      const wallet = getOrCreateWallet(dashboardUser);
+      res.status(402).json({
+        error: "Insufficient Balance",
+        balance: balance.balance_usdc,
+        required: minUsdc,
+        deposit_addresses: {
+          solana: wallet.solanaAddress,
+          evm: wallet.evmAddress,
+        },
+        top_up: "Send USDC to your deposit address, or use POST /balance/deposit/test for testing",
+      });
+      return;
     }
 
     // No auth at all

@@ -3,3 +3,4 @@ dist/
 .env
 *.js.map
 data/
+data/deposit-master.json

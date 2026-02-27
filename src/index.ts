@@ -162,6 +162,12 @@ app.use("/x", xAccountRoutes);
 app.use("/skills", skillsRoutes);
 app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
+import provisionRoutes from "./routes/provision";
+app.use("/provision", provisionRoutes);
+import balanceRoutes from "./routes/balance";
+app.use("/balance", balanceRoutes);
+import projectRoutes from "./routes/projects";
+app.use("/projects", projectRoutes);
 app.use("/apikeys", apikeysRoutes);
 
 // ── Agent Management (free) ──────────────────────────────────
@@ -638,7 +644,9 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 
 // ── Start ─────────────────────────────────────────────────────
+import { startDepositMonitor } from "./services/deposit-monitor";
 app.listen(config.port, () => {
+  startDepositMonitor();
   console.log(`⚡ AgentOS running on port ${config.port}`);
   console.log(`   Treasury: ${config.treasuryWallet}`);
   console.log(`   Network:  Solana (${config.solanaRpcUrl})`);
