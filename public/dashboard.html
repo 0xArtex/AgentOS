@@ -1128,9 +1128,11 @@ function applyTransform(){transform.style.transform=`translate(${tx}px,${ty}px) 
 // ─── TABS ───
 document.getElementById('topTabs').addEventListener('click',e=>{
   const t=e.target.closest('.topbar-tab');if(!t)return;
+  const tab=t.dataset.tab;
+  // Settings requires auth; skills is free discovery
+  if(tab==='settings'&&!_authToken){requireAuth(()=>t.click());return;}
   document.querySelectorAll('.topbar-tab').forEach(x=>x.classList.remove('active'));
   t.classList.add('active');
-  const tab=t.dataset.tab;
   const canvas=document.getElementById('canvasWrap');
   const dock=document.getElementById('svcDock');
   const pages={skills:document.getElementById('pageSkills'),settings:document.getElementById('pageSettings')};
@@ -1146,7 +1148,7 @@ document.getElementById('topTabs').addEventListener('click',e=>{
 
 // ─── AGENT SELECTOR ───
 const agSel=document.getElementById('agentSelector'),agDd=document.getElementById('agentDropdown');
-agSel.addEventListener('click',e=>{if(!e.target.closest('.agent-dropdown'))agDd.classList.toggle('open');});
+agSel.addEventListener('click',e=>{if(!e.target.closest('.agent-dropdown')){if(!_authToken){requireAuth();return;}agDd.classList.toggle('open');}});
 agDd.addEventListener('click',e=>{const i=e.target.closest('.agent-dd-item');if(!i)return;if(i.id==='newProjectBtn'){agDd.classList.remove('open');createNewProject();return;}if(i.dataset.projectId&&i.dataset.projectId!==_currentProjectId){agDd.classList.remove('open');switchProject(i.dataset.projectId,i.textContent.trim());}else{agDd.classList.remove('open');}});
 document.addEventListener('click',e=>{if(!agSel.contains(e.target))agDd.classList.remove('open');});
 
@@ -1204,6 +1206,7 @@ document.getElementById('canvasTransform').addEventListener('contextmenu',e=>{
   const n=e.target.closest('.node,.vps-node,.x-profile-node');
   if(!n)return;
   e.preventDefault();
+  if(!_authToken){requireAuth();return;}
   ctxTarget=n;
   selectNode(n);
   ctxMenu.style.left=e.clientX+'px';
@@ -1494,6 +1497,7 @@ document.addEventListener('keydown',e=>{
   let _wireMenuPos=null; // canvas coords where wire was dropped
 
   function showWireMenu(srcNode,cx,cy){
+    if(!_authToken){requireAuth();return;}
     _wireMenuSrc=srcNode;
     // Store canvas position for node placement
     const rect=wrap.getBoundingClientRect();
@@ -1838,6 +1842,7 @@ function deleteNode(node,silent){
 
 // ─── NEW AGENT ───
 document.getElementById('newAgentBtn').addEventListener('click',()=>{
+  if(!_authToken){requireAuth();return;}
   const cats=['crypto','social','research','coding','devops','browser','general','comms','media','data','security','agent-infra'];
   let ch=cats.map(c=>`<div class="na-chip" data-c="${c}">${c}</div>`).join('')+`<div class="na-chip selected" data-c="all" style="border-color:var(--green);color:var(--green)">ALL</div>`;
   document.getElementById('modalBody').innerHTML=`
