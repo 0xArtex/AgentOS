@@ -1897,6 +1897,9 @@ setTimeout(()=>{autoFit(false);},100);
     addMenu.classList.remove('open');
     const type=item.dataset.add;
 
+    // Require auth for any action
+    if(!_authToken){requireAuth(()=>{});return;}
+
     if(type==='agent'){
       // Spawn agent node at center of viewport
       const ct=document.getElementById('canvasTransform');
