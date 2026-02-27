@@ -184,6 +184,32 @@ background-size:40px 40px}
 .settings-row:last-child{border-bottom:none}
 .settings-label{font-size:11px;color:var(--w40)}
 .settings-value{font-size:11px;color:var(--text);font-weight:500}
+/* Auth screen */
+.auth-screen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center}
+.auth-screen.hidden{display:none}
+.auth-card{width:380px;padding:40px 36px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(40px)}
+.auth-logo{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:6px}
+.auth-logo img{width:28px;height:28px}
+.auth-logo span{font-size:16px;font-weight:700;letter-spacing:-0.02em}
+.auth-subtitle{text-align:center;font-size:11px;color:var(--w30);margin-bottom:28px;font-family:'JetBrains Mono',monospace}
+.auth-tabs{display:flex;gap:0;margin-bottom:20px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.auth-tab{flex:1;padding:8px;text-align:center;font-size:11px;font-weight:600;color:var(--w30);cursor:pointer;transition:all .15s;font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:0.5px}
+.auth-tab.active{background:rgba(255,255,255,0.05);color:var(--text)}
+.auth-tab:hover{color:var(--w60)}
+.auth-form{display:flex;flex-direction:column;gap:10px}
+.auth-input{padding:10px 14px;background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:'JetBrains Mono',monospace;outline:none;transition:border-color .2s}
+.auth-input:focus{border-color:var(--w30)}
+.auth-input::placeholder{color:var(--w20)}
+.auth-btn{padding:10px;background:var(--accent);border:none;border-radius:8px;color:white;font-size:11px;font-weight:700;cursor:pointer;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;transition:opacity .2s;margin-top:4px}
+.auth-btn:hover{opacity:0.85}
+.auth-divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--w20);font-size:10px;font-family:'JetBrains Mono',monospace}
+.auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+.auth-wallet-btn{width:100%;padding:10px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:11px;font-weight:600;cursor:pointer;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s}
+.auth-wallet-btn:hover{border-color:var(--w30);background:rgba(255,255,255,0.03)}
+.auth-wallet-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.auth-error{margin-top:12px;font-size:10px;color:#ff4444;text-align:center;font-family:'JetBrains Mono',monospace;min-height:14px}
+.dashboard-wrap{display:none}
+.dashboard-wrap.visible{display:flex;flex-direction:column;height:100vh}
 /* Wire drop menu */
 .wire-menu{position:fixed;z-index:200;background:rgba(22,24,30,0.95);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:12px;padding:6px;min-width:200px;display:none;box-shadow:0 12px 48px rgba(0,0,0,0.5);font-family:'JetBrains Mono',monospace}
 .wire-menu.open{display:block;animation:wmIn .15s ease}
@@ -327,6 +353,44 @@ background-size:40px 40px}
 </style>
 </head>
 <body>
+
+<!-- AUTH SCREEN -->
+<div class="auth-screen" id="authScreen">
+  <div class="auth-card">
+    <div class="auth-logo"><img src="/assets/logo.png" alt="AO"><span>AGENT<span style="color:var(--accent)">OS</span></span></div>
+    <div class="auth-subtitle">Autonomous infrastructure for AI agents</div>
+
+    <div class="auth-tabs">
+      <div class="auth-tab active" data-tab="login">Sign In</div>
+      <div class="auth-tab" data-tab="register">Sign Up</div>
+    </div>
+
+    <form class="auth-form" id="authFormLogin" autocomplete="on">
+      <input type="email" class="auth-input" id="loginEmail" placeholder="Email" autocomplete="email" required>
+      <input type="password" class="auth-input" id="loginPassword" placeholder="Password" autocomplete="current-password" required>
+      <button type="submit" class="auth-btn">SIGN IN</button>
+    </form>
+
+    <form class="auth-form" id="authFormRegister" style="display:none" autocomplete="on">
+      <input type="text" class="auth-input" id="regName" placeholder="Name (optional)" autocomplete="name">
+      <input type="email" class="auth-input" id="regEmail" placeholder="Email" autocomplete="email" required>
+      <input type="password" class="auth-input" id="regPassword" placeholder="Password (min 6 chars)" autocomplete="new-password" required>
+      <button type="submit" class="auth-btn">CREATE ACCOUNT</button>
+    </form>
+
+    <div class="auth-divider"><span>or</span></div>
+
+    <button class="auth-wallet-btn" id="authWalletBtn">
+      <svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg>
+      Connect Wallet
+    </button>
+
+    <div class="auth-error" id="authError"></div>
+  </div>
+</div>
+
+<!-- DASHBOARD (hidden until auth) -->
+<div class="dashboard-wrap" id="dashboardWrap">
 
 <!-- TOP BAR -->
 <div class="topbar">
@@ -483,6 +547,8 @@ background-size:40px 40px}
   <div class="wire-menu-footer"><span class="wire-menu-hint">click</span> Select <span style="margin-left:8px" class="wire-menu-hint">esc</span> Close</div>
 </div>
 
+</div><!-- /dashboard-wrap -->
+
 <!-- TOOLTIP -->
 <div class="sg-tooltip" id="sgTooltip"></div>
 
@@ -506,6 +572,118 @@ background-size:40px 40px}
 </div>
 
 <script>
+// ─── AUTH SYSTEM ───
+let _authToken=localStorage.getItem('aos_token');
+let _authUser=null;
+
+async function checkAuth(){
+  if(!_authToken){showAuth();return false;}
+  try{
+    const r=await fetch('/auth/me',{headers:{Authorization:'Bearer '+_authToken}});
+    if(!r.ok){localStorage.removeItem('aos_token');_authToken=null;showAuth();return false;}
+    _authUser=await r.json();
+    showDashboard();
+    return true;
+  }catch(e){showAuth();return false;}
+}
+
+function showAuth(){
+  document.getElementById('authScreen').classList.remove('hidden');
+  document.getElementById('dashboardWrap').classList.remove('visible');
+}
+
+function showDashboard(){
+  document.getElementById('authScreen').classList.add('hidden');
+  document.getElementById('dashboardWrap').classList.add('visible');
+}
+
+function authHeaders(){
+  const h={'Content-Type':'application/json'};
+  if(_authToken)h['Authorization']='Bearer '+_authToken;
+  return h;
+}
+
+function showAuthError(msg){document.getElementById('authError').textContent=msg;}
+
+// Tab switching
+document.querySelectorAll('.auth-tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    document.getElementById('authFormLogin').style.display=tab.dataset.tab==='login'?'flex':'none';
+    document.getElementById('authFormRegister').style.display=tab.dataset.tab==='register'?'flex':'none';
+    showAuthError('');
+  });
+});
+
+// Email/password login
+document.getElementById('authFormLogin').addEventListener('submit',async e=>{
+  e.preventDefault();showAuthError('');
+  const email=document.getElementById('loginEmail').value;
+  const password=document.getElementById('loginPassword').value;
+  try{
+    const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email,password})});
+    const d=await r.json();
+    if(!r.ok){showAuthError(d.error||'Login failed');return;}
+    _authToken=d.token;_authUser=d.user;
+    localStorage.setItem('aos_token',d.token);
+    showDashboard();
+  }catch(e){showAuthError('Network error');}
+});
+
+// Email/password register
+document.getElementById('authFormRegister').addEventListener('submit',async e=>{
+  e.preventDefault();showAuthError('');
+  const name=document.getElementById('regName').value;
+  const email=document.getElementById('regEmail').value;
+  const password=document.getElementById('regPassword').value;
+  try{
+    const r=await fetch('/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,email,password})});
+    const d=await r.json();
+    if(!r.ok){showAuthError(d.error||'Registration failed');return;}
+    _authToken=d.token;_authUser=d.user;
+    localStorage.setItem('aos_token',d.token);
+    showDashboard();
+  }catch(e){showAuthError('Network error');}
+});
+
+// Wallet connect (Phantom/Solana)
+document.getElementById('authWalletBtn').addEventListener('click',async()=>{
+  showAuthError('');
+  if(!window.solana||!window.solana.isPhantom){
+    showAuthError('Phantom wallet not found. Install it at phantom.app');
+    return;
+  }
+  try{
+    await window.solana.connect();
+    const pubkey=window.solana.publicKey.toString();
+    // Get nonce
+    const nonceRes=await fetch('/auth/wallet/nonce',{method:'POST',headers:{'Content-Type':'application/json'}});
+    const{message}=await nonceRes.json();
+    // Sign
+    const encoded=new TextEncoder().encode(message);
+    const{signature}=await window.solana.signMessage(encoded,'utf8');
+    // Base58 encode signature
+    const sigStr=btoa(String.fromCharCode(...signature)).replace(/\+/g,'-').replace(/\//g,'_');
+    // Send to backend — we need bs58, use a simple encoder
+    const bs58chars='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+    function bs58encode(bytes){let x=BigInt('0x'+Array.from(bytes).map(b=>b.toString(16).padStart(2,'0')).join(''));let r='';while(x>0n){r=bs58chars[Number(x%58n)]+r;x=x/58n;}for(let i=0;i<bytes.length&&bytes[i]===0;i++)r=bs58chars[0]+r;return r;}
+    const sigBs58=bs58encode(signature);
+    const r=await fetch('/auth/wallet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({walletAddress:pubkey,signature:sigBs58,message,chain:'solana'})});
+    const d=await r.json();
+    if(!r.ok){showAuthError(d.error||'Wallet auth failed');return;}
+    _authToken=d.token;_authUser=d.user;
+    localStorage.setItem('aos_token',d.token);
+    showDashboard();
+  }catch(e){
+    if(e.message?.includes('User rejected'))showAuthError('Wallet connection cancelled');
+    else showAuthError(e.message||'Wallet connection failed');
+  }
+});
+
+// Check auth on load
+checkAuth();
+
 // ─── UNDO / REDO SYSTEM ───
 const _history=[];
 let _histIdx=-1;
@@ -2082,7 +2260,7 @@ document.getElementById('nodeX').addEventListener('click',e=>{
 })();
 
 // ─── PROJECT SYSTEM ───
-const DASH_USER='dashboard-default'; // TODO: replace with real auth
+// Auth headers helper — uses session token from login
 let _currentProjectId=null;
 let _projects=[];
 let _saveTimer=null;
@@ -2095,7 +2273,7 @@ function saveProjectState(){
     const state=captureState();
     fetch('/projects/'+_currentProjectId,{
       method:'PUT',
-      headers:{'Content-Type':'application/json','X-Dashboard-User':DASH_USER},
+      headers:authHeaders(),
       body:JSON.stringify({canvas_state:state})
     }).catch(()=>{});
   },1000);
@@ -2165,14 +2343,14 @@ async function switchProject(projectId,projectName){
     const state=captureState();
     await fetch('/projects/'+_currentProjectId,{
       method:'PUT',
-      headers:{'Content-Type':'application/json','X-Dashboard-User':DASH_USER},
+      headers:authHeaders(),
       body:JSON.stringify({canvas_state:state})
     }).catch(()=>{});
   }
 
   // Load new project
   try{
-    const res=await fetch('/projects/'+projectId,{headers:{'X-Dashboard-User':DASH_USER}});
+    const res=await fetch('/projects/'+projectId,{headers:authHeaders()});
     const data=await res.json();
     _currentProjectId=projectId;
     document.getElementById('agentName').textContent=projectName||data.name;
@@ -2188,7 +2366,7 @@ async function createNewProject(){
   try{
     const res=await fetch('/projects',{
       method:'POST',
-      headers:{'Content-Type':'application/json','X-Dashboard-User':DASH_USER},
+      headers:authHeaders(),
       body:JSON.stringify({name})
     });
     const data=await res.json();
@@ -2219,7 +2397,7 @@ function renderProjectDropdown(){
 // Init: load projects from API
 async function initProjects(){
   try{
-    const res=await fetch('/projects',{headers:{'X-Dashboard-User':DASH_USER}});
+    const res=await fetch('/projects',{headers:authHeaders()});
     const data=await res.json();
     _projects=data.projects||[];
     if(_projects.length>0){
@@ -2227,7 +2405,7 @@ async function initProjects(){
       document.getElementById('agentName').textContent=_projects[0].name;
       renderProjectDropdown();
       // Load first project's canvas
-      const pRes=await fetch('/projects/'+_currentProjectId,{headers:{'X-Dashboard-User':DASH_USER}});
+      const pRes=await fetch('/projects/'+_currentProjectId,{headers:authHeaders()});
       const pData=await pRes.json();
       if(pData.canvas_state){
         // Has saved state — load it (but delay so initial DOM is ready)

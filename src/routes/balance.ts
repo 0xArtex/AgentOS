@@ -1,11 +1,12 @@
 import { Router, Request, Response } from "express";
 import * as balanceService from "../services/balance";
 import { getOrCreateWallet } from "../services/deposit-wallets";
+import { requireDashboardAuth, DashboardRequest } from "../middleware/dashboard-session";
 
 const router = Router();
 
-function getUserId(req: Request): string | null {
-  return (req.headers["x-dashboard-user"] as string) || null;
+function getUserId(req: DashboardRequest): string | null {
+  return req.dashUserId || (req.headers["x-dashboard-user"] as string) || null;
 }
 
 // GET / — balance + deposit addresses

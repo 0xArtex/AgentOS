@@ -371,6 +371,34 @@ export function initDatabase(): void {
     );
   `);
 
+  // Dashboard users
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dashboard_users (
+      id TEXT PRIMARY KEY,
+      email TEXT UNIQUE,
+      password_hash TEXT,
+      wallet_address TEXT UNIQUE,
+      wallet_chain TEXT,
+      display_name TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_dash_users_email ON dashboard_users(email);
+    CREATE INDEX IF NOT EXISTS idx_dash_users_wallet ON dashboard_users(wallet_address);
+  `);
+
+  // Dashboard sessions
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dashboard_sessions (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      FOREIGN KEY (user_id) REFERENCES dashboard_users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_dash_sessions_token ON dashboard_sessions(token);
+  `);
+
   // Projects (each project = a canvas with its own nodes/connections)
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
