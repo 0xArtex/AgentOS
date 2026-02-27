@@ -185,8 +185,8 @@ background-size:40px 40px}
 .settings-label{font-size:11px;color:var(--w40)}
 .settings-value{font-size:11px;color:var(--text);font-weight:500}
 /* Auth screen */
-.auth-screen{position:fixed;inset:0;z-index:9999;background:var(--bg);display:flex;align-items:center;justify-content:center}
-.auth-screen.hidden{display:none}
+.auth-screen{position:fixed;inset:0;z-index:9999;background:rgba(8,9,13,0.85);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center}
+.auth-screen.open{display:flex}
 .auth-card{width:380px;padding:40px 36px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(40px)}
 .auth-logo{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:6px}
 .auth-logo img{width:28px;height:28px}
@@ -208,8 +208,14 @@ background-size:40px 40px}
 .auth-wallet-btn:hover{border-color:var(--w30);background:rgba(255,255,255,0.03)}
 .auth-wallet-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
 .auth-error{margin-top:12px;font-size:10px;color:#ff4444;text-align:center;font-family:'JetBrains Mono',monospace;min-height:14px}
-.dashboard-wrap{display:none}
-.dashboard-wrap.visible{display:flex;flex-direction:column;height:100vh}
+.dashboard-wrap{display:flex;flex-direction:column;height:100vh}
+/* Login button in topbar */
+.topbar-login{padding:5px 14px;border:1px solid var(--border);border-radius:6px;background:none;color:var(--text);font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s;letter-spacing:0.5px;text-transform:uppercase}
+.topbar-login:hover{border-color:var(--w30);background:rgba(255,255,255,0.03)}
+.topbar-user{display:flex;align-items:center;gap:6px;font-size:10px;color:var(--w40);font-family:'JetBrains Mono',monospace;cursor:default}
+.topbar-user .user-dot{width:6px;height:6px;border-radius:50%;background:var(--green)}
+.topbar-logout{color:var(--w20);cursor:pointer;font-size:9px;transition:color .15s}
+.topbar-logout:hover{color:var(--accent)}
 /* Wire drop menu */
 .wire-menu{position:fixed;z-index:200;background:rgba(22,24,30,0.95);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:12px;padding:6px;min-width:200px;display:none;box-shadow:0 12px 48px rgba(0,0,0,0.5);font-family:'JetBrains Mono',monospace}
 .wire-menu.open{display:block;animation:wmIn .15s ease}
@@ -356,7 +362,8 @@ background-size:40px 40px}
 
 <!-- AUTH SCREEN -->
 <div class="auth-screen" id="authScreen">
-  <div class="auth-card">
+  <div class="auth-card" style="position:relative">
+    <div class="modal-close" onclick="document.getElementById('authScreen').classList.remove('open')" style="position:absolute;top:12px;right:12px;cursor:pointer"><svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--w30);fill:none;stroke-width:2;stroke-linecap:round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
     <div class="auth-logo"><img src="/assets/logo.png" alt="AO"><span>AGENT<span style="color:var(--accent)">OS</span></span></div>
     <div class="auth-subtitle">Autonomous infrastructure for AI agents</div>
 
@@ -410,6 +417,9 @@ background-size:40px 40px}
       </div>
     </div>
     <button class="new-agent-btn" id="newAgentBtn"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>NEW AGENT</button>
+    <div id="authArea">
+      <button class="topbar-login" id="loginBtn" onclick="requireAuth()">LOG IN</button>
+    </div>
   </div>
 </div>
 
@@ -451,31 +461,7 @@ background-size:40px 40px}
     <div class="canvas-bg" id="canvasBg"></div>
     <div class="canvas-transform" id="canvasTransform">
       <svg class="canvas-svg" id="canvasSvg"></svg>
-      <div class="agent-node" id="nodeAgent" style="left:560px;top:310px">
-        <span class="agent-node-inner">AO</span>
-        <span class="agent-node-label">zolty-main</span>
-      </div>
-      <div class="node" id="nodePhone" data-modal="phone" style="left:340px;top:180px"><svg viewBox="0 0 24 24"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 16.92z"/></svg><div><div class="node-label"><span class="s-dot"></span>Phone</div><div class="node-sub">+1 (470) 533-0963</div></div></div>
-      <div class="node" id="nodeEmail" data-modal="email" style="left:340px;top:430px"><img src="/assets/logos/gmail.svg" style="width:20px;height:20px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>Email</div><div class="node-sub">zolty@agntos.dev</div></div></div>
-      <div class="node" id="nodeSkills" data-modal="skills" style="left:760px;top:180px"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><div><div class="node-label">Skills</div><div class="node-sub">12 categories · 56 total</div></div></div>
-      <div class="x-profile-node" id="nodeX" style="left:760px;top:410px">
-        <div class="x-profile-header">
-          <img class="x-profile-avatar" src="/assets/logos/zolty-pfp.jpg" alt="">
-          <div class="x-profile-names">
-            <span class="x-profile-display">Zolty</span>
-            <span class="x-profile-handle">@zoltyagent</span>
-          </div>
-        </div>
-        <div class="x-profile-bio">autonomous AI agent. building AgentOS — infra for agents that actually do things.</div>
-        <div class="x-profile-indicators">
-          <span class="x-ind ok" title="Status: Active"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg></span>
-          <span class="x-ind ok" title="Auth: Cookies valid"><svg viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg></span>
-          <span class="x-ind ok" title="Session: CDP connected"><svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg></span>
-        </div>
-      </div>
-      <div class="node" id="nodeDomain" data-modal="domain" style="left:370px;top:305px"><img src="/assets/logos/cloudflare-icon.svg" style="width:20px;height:20px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>Domain</div><div class="node-sub">agntos.dev</div></div></div>
-      <div class="node" id="nodeWallet" data-modal="wallet" style="left:730px;top:305px"><svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg><div><div class="node-label">Wallet</div><div class="wallet-addrs"><div class="wallet-addr" data-addr="B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3"><img src="/assets/logos/solana-icon.svg" class="chain-icon"><span class="addr-text">...8oX3</span><svg class="copy-icon" viewBox="0 0 24 24" onclick="event.stopPropagation();navigator.clipboard.writeText(this.parentNode.dataset.addr);this.classList.add('copied');var t=this.parentNode.querySelector('.copy-toast');t.classList.add('show');setTimeout(()=>{this.classList.remove('copied');t.classList.remove('show')},1200)"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span class="copy-toast">copied</span></div><div class="wallet-addr" data-addr="0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2"><img src="/assets/logos/base-icon.svg" class="chain-icon"><span class="addr-text">...6ab2</span><svg class="copy-icon" viewBox="0 0 24 24" onclick="event.stopPropagation();navigator.clipboard.writeText(this.parentNode.dataset.addr);this.classList.add('copied');var t=this.parentNode.querySelector('.copy-toast');t.classList.add('show');setTimeout(()=>{this.classList.remove('copied');t.classList.remove('show')},1200)"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg><span class="copy-toast">copied</span></div></div></div></div>
-      <div class="vps-node" id="nodeVps" data-modal="vps" style="left:460px;top:500px"><img src="/assets/logos/hetzner-icon.svg" style="width:20px;height:20px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>VPS · cx23</div><div class="node-sub">2 vCPU · 4GB · Helsinki · 77.42.89.233</div></div></div>
+      <!-- Canvas starts empty — nodes loaded from user's project data after auth -->
     </div>
     <div class="zoom-indicator" id="zoomInd">100%</div>
     <!-- Service Dock -->
@@ -575,26 +561,48 @@ background-size:40px 40px}
 // ─── AUTH SYSTEM ───
 let _authToken=localStorage.getItem('aos_token');
 let _authUser=null;
+let _authCallback=null; // called after successful login
 
 async function checkAuth(){
-  if(!_authToken){showAuth();return false;}
+  if(!_authToken)return false;
   try{
     const r=await fetch('/auth/me',{headers:{Authorization:'Bearer '+_authToken}});
-    if(!r.ok){localStorage.removeItem('aos_token');_authToken=null;showAuth();return false;}
+    if(!r.ok){localStorage.removeItem('aos_token');_authToken=null;return false;}
     _authUser=await r.json();
-    showDashboard();
+    updateAuthUI();
     return true;
-  }catch(e){showAuth();return false;}
+  }catch(e){return false;}
 }
 
-function showAuth(){
-  document.getElementById('authScreen').classList.remove('hidden');
-  document.getElementById('dashboardWrap').classList.remove('visible');
+// Show auth modal — optionally with a callback after login
+function requireAuth(callback){
+  if(_authToken&&_authUser){if(typeof callback==='function')callback();return;}
+  _authCallback=typeof callback==='function'?callback:null;
+  document.getElementById('authScreen').classList.add('open');
 }
 
-function showDashboard(){
-  document.getElementById('authScreen').classList.add('hidden');
-  document.getElementById('dashboardWrap').classList.add('visible');
+function onAuthSuccess(){
+  document.getElementById('authScreen').classList.remove('open');
+  updateAuthUI();
+  initProjects();
+  if(_authCallback){_authCallback();_authCallback=null;}
+}
+
+function updateAuthUI(){
+  const area=document.getElementById('authArea');
+  if(_authUser){
+    const name=_authUser.display_name||_authUser.email||'User';
+    area.innerHTML=`<div class="topbar-user"><span class="user-dot"></span><span>${name}</span><span class="topbar-logout" onclick="doLogout()">logout</span></div>`;
+  } else {
+    area.innerHTML='<button class="topbar-login" onclick="requireAuth()">LOG IN</button>';
+  }
+}
+
+async function doLogout(){
+  await fetch('/auth/logout',{method:'POST',headers:{Authorization:'Bearer '+_authToken}}).catch(()=>{});
+  _authToken=null;_authUser=null;
+  localStorage.removeItem('aos_token');
+  updateAuthUI();
 }
 
 function authHeaders(){
@@ -627,7 +635,7 @@ document.getElementById('authFormLogin').addEventListener('submit',async e=>{
     if(!r.ok){showAuthError(d.error||'Login failed');return;}
     _authToken=d.token;_authUser=d.user;
     localStorage.setItem('aos_token',d.token);
-    showDashboard();
+    onAuthSuccess();
   }catch(e){showAuthError('Network error');}
 });
 
@@ -643,7 +651,7 @@ document.getElementById('authFormRegister').addEventListener('submit',async e=>{
     if(!r.ok){showAuthError(d.error||'Registration failed');return;}
     _authToken=d.token;_authUser=d.user;
     localStorage.setItem('aos_token',d.token);
-    showDashboard();
+    onAuthSuccess();
   }catch(e){showAuthError('Network error');}
 });
 
@@ -674,7 +682,7 @@ document.getElementById('authWalletBtn').addEventListener('click',async()=>{
     if(!r.ok){showAuthError(d.error||'Wallet auth failed');return;}
     _authToken=d.token;_authUser=d.user;
     localStorage.setItem('aos_token',d.token);
-    showDashboard();
+    onAuthSuccess();
   }catch(e){
     if(e.message?.includes('User rejected'))showAuthError('Wallet connection cancelled');
     else showAuthError(e.message||'Wallet connection failed');
@@ -682,7 +690,14 @@ document.getElementById('authWalletBtn').addEventListener('click',async()=>{
 });
 
 // Check auth on load
-checkAuth();
+checkAuth().then(authed=>{
+  if(!authed)setTimeout(()=>requireAuth(),1500); // Show login modal after 1.5s on first visit
+});
+
+// Close auth modal on backdrop click
+document.getElementById('authScreen').addEventListener('click',e=>{
+  if(e.target===e.currentTarget)e.currentTarget.classList.remove('open');
+});
 
 // ─── UNDO / REDO SYSTEM ───
 const _history=[];
@@ -800,7 +815,7 @@ document.addEventListener('keydown',e=>{
 });
 
 // ─── DRAW LINES ───
-const conns=[['nodeAgent','nodePhone'],['nodeAgent','nodeEmail'],['nodeAgent','nodeSkills'],['nodeAgent','nodeX'],['nodeAgent','nodeDomain'],['nodeAgent','nodeWallet'],['nodeAgent','nodeVps']];
+const conns=[];
 function edgePoint(el,targetEl){
   const l=parseFloat(el.style.left)||0,t=parseFloat(el.style.top)||0;
   const w=el.offsetWidth,h=el.offsetHeight;
@@ -1140,15 +1155,8 @@ fetch('/skills/all').then(r=>r.json()).then(d=>{
 document.getElementById('skillSearch').addEventListener('input',e=>{const q=e.target.value.toLowerCase();document.querySelectorAll('.skill-item').forEach(i=>{i.style.display=i.textContent.toLowerCase().includes(q)?'':'none';});document.querySelectorAll('.skill-group').forEach(g=>{g.style.display=[...g.querySelectorAll('.skill-item')].some(i=>i.style.display!=='none')?'':'none';});});
 
 // ─── NODE MODALS ───
-const MD={
-  phone:{title:'PHONE',sub:'voice & sms',rows:[['Number','+1 (470) 533-0963'],['SMS','<span class="modal-badge badge-green">active</span>'],['Voice','<span class="modal-badge badge-green">active</span>'],['Provider','Telnyx'],['Coverage','180+ countries']]},
-  email:{title:'EMAIL',sub:'e2e encrypted inbox',rows:[['Address','zolty@agntos.dev'],['Encryption','<span class="modal-badge badge-green">E2E</span>'],['Storage','on-chain keys'],['Provider','Cloudflare Worker'],['Status','<span class="modal-badge badge-green">active</span>']]},
-
-
-  domain:{title:'DOMAIN',sub:'dns & routing',rows:[['Domain','agntos.dev'],['DNS','<span class="modal-badge badge-green">Cloudflare</span>'],['SSL','<span class="modal-badge badge-green">Flexible</span>'],['Registrar','Namecheap'],['A Record','77.42.89.233']]},
-  wallet:{title:'WALLET',sub:'multi-chain treasury',rows:[['SOL Address','B1YE...8oX3'],['SOL Balance','pending'],['EVM Address','0x7fA8...ab2'],['EVM Balance','pending'],['Chains','<span class="chip sol">SOL</span> <span class="chip base">BASE</span>']]},
-  vps:{title:'VPS',sub:'compute instance',rows:[['Tier','cx23'],['Specs','2 vCPU · 4GB RAM · 40GB SSD'],['IP','77.42.89.233'],['Location','Helsinki (hel1)'],['Provider','Hetzner Cloud'],['Status','<span class="modal-badge badge-green">running</span>']]}
-};
+// Modal data is generated from node content — no hardcoded private data
+const MD={};
 document.getElementById('canvasTransform').addEventListener('click',e=>{
   if(nodeMoved)return;const n=e.target.closest('[data-modal]');if(!n)return;
   const d=MD[n.dataset.modal];if(!d)return;
@@ -1909,6 +1917,7 @@ setTimeout(()=>{autoFit(false);pushState();},100);
   dock.addEventListener('click',async e=>{
     const item=e.target.closest('.svc-dock-item');
     if(!item)return;
+    if(!_authToken){requireAuth(()=>item.click());return;}
     const svcType=item.dataset.svc;
     const def=SVC_DEFS[svcType];
     if(!def)return;
@@ -1994,7 +2003,7 @@ setTimeout(()=>{autoFit(false);pushState();},100);
 })();
 
 // ─── X PROFILE CLICK → open X page ───
-document.getElementById('nodeX').addEventListener('click',e=>{
+const _nodeX=document.getElementById('nodeX');if(_nodeX) _nodeX.addEventListener('click',e=>{
   if(nodeMoved)return;
   if(e.target.closest('.x-ind'))return; // don't trigger on indicator hover
   window.open('https://x.com/zoltyagent','_blank');
@@ -2002,7 +2011,7 @@ document.getElementById('nodeX').addEventListener('click',e=>{
 
 // ─── SKILLS GRAPH (double-click expand) ───
 (function(){
-  const skillsNode=document.getElementById('nodeSkills');
+  let skillsNode=document.getElementById('nodeSkills');
   const ct=document.getElementById('canvasTransform');
   const svgEl=document.getElementById('canvasSvg');
   let sgContainer=null,sgOpen=false;
@@ -2123,7 +2132,7 @@ document.getElementById('nodeX').addEventListener('click',e=>{
 
 
   function showCategories(){
-    if(!skillsData||!skillsData.length)return;
+    if(!skillsNode||!skillsData||!skillsData.length)return;
     cleanup();
     sgOpen=true;
     saveState();
@@ -2219,11 +2228,13 @@ document.getElementById('nodeX').addEventListener('click',e=>{
     redrawSgLines();
   }
 
-  skillsNode.addEventListener('dblclick',e=>{
+  if(skillsNode) skillsNode.addEventListener('dblclick',e=>{
     e.stopPropagation();
     if(sgOpen){cleanup();return;}
     showCategories();
   });
+  // Re-bind when skills node is dynamically created
+  window._bindSkillsNode=function(el){skillsNode=el;el.addEventListener('dblclick',e=>{e.stopPropagation();if(sgOpen){cleanup();return;}showCategories();});};
 
 
 
@@ -2267,7 +2278,7 @@ let _saveTimer=null;
 
 // Save current canvas state to backend (debounced)
 function saveProjectState(){
-  if(!_currentProjectId)return;
+  if(!_currentProjectId||!_authToken)return;
   clearTimeout(_saveTimer);
   _saveTimer=setTimeout(()=>{
     const state=captureState();
@@ -2286,13 +2297,15 @@ pushState=function(){_origPushState();saveProjectState();};
 // Clear the entire canvas
 function clearCanvas(){
   const ct=document.getElementById('canvasTransform');
-  ct.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node').forEach(n=>{
+  ct.querySelectorAll('.node,.agent-node,.vps-node,.x-profile-node,.sg-node,.sg-skill,.sg-container').forEach(n=>{
     bodies.delete(n);n.remove();
   });
-  // Clear skills graph
-  if(typeof sgOpen!=='undefined'&&sgOpen){
-    ct.querySelectorAll('.sg-node,.sg-skill,.sg-container').forEach(n=>n.remove());
-  }
+  // Reset skills graph state
+  if(typeof sgOpen!=='undefined'){sgOpen=false;}
+  if(typeof expandedCats!=='undefined'){expandedCats.clear();}
+  if(typeof catSkillEls!=='undefined'){catSkillEls.clear();}
+  if(typeof catEls!=='undefined'){catEls.length=0;}
+  if(typeof sgLines!=='undefined'){sgLines.length=0;}
   conns.length=0;
   _lineEls.forEach(p=>p.remove());_lineEls.length=0;
   _hitEls.forEach(p=>p.remove());_hitEls.length=0;
@@ -2330,37 +2343,45 @@ function buildDefaultCanvas(){
 
 // Load canvas from state object
 function loadCanvasState(state){
-  if(!state||!state.nodes){buildDefaultCanvas();return;}
   clearCanvas();
-  restoreState(state);
-  setTimeout(()=>{drawLines();autoFit(false);},50);
+  if(state&&state.nodes&&state.nodes.length>0){
+    restoreState(state);
+    drawLines();
+  }
+  // No autoFit — keep default view position for empty canvases
 }
 
 // Switch to a project
 async function switchProject(projectId,projectName){
-  // Save current project first
-  if(_currentProjectId){
-    const state=captureState();
-    await fetch('/projects/'+_currentProjectId,{
-      method:'PUT',
-      headers:authHeaders(),
-      body:JSON.stringify({canvas_state:state})
-    }).catch(()=>{});
+  if(!_authToken){requireAuth(()=>switchProject(projectId,projectName));return;}
+  // Save current project first (non-blocking)
+  if(_currentProjectId&&_currentProjectId!==projectId){
+    const oldState=captureState();
+    const oldId=_currentProjectId;
+    fetch('/projects/'+oldId,{method:'PUT',headers:authHeaders(),body:JSON.stringify({canvas_state:oldState})}).catch(()=>{});
   }
+
+  // Immediately clear + update UI
+  clearCanvas();
+  _currentProjectId=projectId;
+  document.getElementById('agentName').textContent=projectName||'Loading...';
+  renderProjectDropdown();
 
   // Load new project
   try{
     const res=await fetch('/projects/'+projectId,{headers:authHeaders()});
     const data=await res.json();
-    _currentProjectId=projectId;
-    document.getElementById('agentName').textContent=projectName||data.name;
-    loadCanvasState(data.canvas_state);
-    renderProjectDropdown();
+    document.getElementById('agentName').textContent=data.name;
+    if(data.canvas_state&&data.canvas_state.nodes&&data.canvas_state.nodes.length>0){
+      restoreState(data.canvas_state);
+      drawLines();
+    }
   }catch(e){console.error('Failed to load project:',e);}
 }
 
 // Create new project
 async function createNewProject(){
+  if(!_authToken){requireAuth(()=>createNewProject());return;}
   const name=prompt('Project name:');
   if(!name)return;
   try{
@@ -2396,6 +2417,7 @@ function renderProjectDropdown(){
 
 // Init: load projects from API
 async function initProjects(){
+  if(!_authToken)return;
   try{
     const res=await fetch('/projects',{headers:authHeaders()});
     const data=await res.json();
