@@ -2518,18 +2518,39 @@ async function switchProject(projectId,projectName){
 // Create new project
 async function createNewProject(){
   if(!_authToken){requireAuth(()=>createNewProject());return;}
-  const name=prompt('Project name:');
-  if(!name)return;
-  try{
-    const res=await fetch('/projects',{
-      method:'POST',
-      headers:authHeaders(),
-      body:JSON.stringify({name})
-    });
-    const data=await res.json();
-    _projects.push({id:data.id,name:data.name});
-    await switchProject(data.id,data.name);
-  }catch(e){console.error('Failed to create project:',e);}
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">NEW PROJECT</div>
+    <div class="modal-subtitle">create a new agent workspace</div>
+    <div style="padding:16px 0 8px">
+      <label style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--w30);font-family:'JetBrains Mono',monospace;display:block;margin-bottom:8px">Project Name</label>
+      <input id="newProjName" type="text" placeholder="my-agent" style="width:100%;box-sizing:border-box;padding:10px 14px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace;outline:none;transition:border-color .2s" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'">
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="spawn-btn" style="border-color:var(--border);color:var(--w40);flex:1" id="npCancel">CANCEL</button>
+      <button class="spawn-btn" style="border-color:var(--accent);color:var(--accent);flex:1" id="npCreate">CREATE</button>
+    </div>`;
+  document.getElementById('modalOverlay').classList.add('open');
+  const inp=document.getElementById('newProjName');
+  setTimeout(()=>inp.focus(),100);
+  inp.addEventListener('keydown',e=>{if(e.key==='Enter')document.getElementById('npCreate').click();});
+  document.getElementById('npCancel').onclick=()=>document.getElementById('modalOverlay').classList.remove('open');
+  document.getElementById('npCreate').onclick=async()=>{
+    const name=inp.value.trim();
+    if(!name){inp.style.borderColor='var(--red)';return;}
+    document.getElementById('npCreate').textContent='CREATING...';
+    document.getElementById('npCreate').style.pointerEvents='none';
+    try{
+      const res=await fetch('/projects',{method:'POST',headers:authHeaders(),body:JSON.stringify({name})});
+      const data=await res.json();
+      _projects.push({id:data.id,name:data.name});
+      document.getElementById('modalOverlay').classList.remove('open');
+      await switchProject(data.id,data.name);
+    }catch(e){
+      console.error('Failed to create project:',e);
+      document.getElementById('npCreate').textContent='CREATE';
+      document.getElementById('npCreate').style.pointerEvents='';
+    }
+  };
 }
 
 // Render project list in dropdown
