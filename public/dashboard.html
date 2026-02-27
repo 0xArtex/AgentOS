@@ -1196,7 +1196,7 @@ document.getElementById('canvasTransform').addEventListener('mouseup',e=>{
   if(nodeMoved)return;
   const sg=e.target.closest('.sg-node,.sg-skill');
   if(sg&&!window.sgMoved){selectNode(sg);return;}
-  const n=e.target.closest('.node,.vps-node,.x-profile-node');
+  const n=e.target.closest('.node,.vps-node,.x-profile-node,.agent-node');
   if(n){selectNode(n);}
   else if(!sg){selectNode(null);deselectLine();}
 });
@@ -1205,7 +1205,7 @@ document.getElementById('canvasTransform').addEventListener('mouseup',e=>{
 document.getElementById('canvasWrap').addEventListener('contextmenu',e=>{
   e.preventDefault();
   if(!_authToken){requireAuth();return;}
-  const n=e.target.closest('.node,.vps-node,.x-profile-node');
+  const n=e.target.closest('.node,.vps-node,.x-profile-node,.agent-node');
   if(n){
     ctxTarget=n;
     selectNode(n);
@@ -1260,7 +1260,7 @@ let clipboardNode=null;
 document.addEventListener('keydown',e=>{
   if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA'||e.target.tagName==='SELECT')return;
   const mod=e.metaKey||e.ctrlKey;
-  if(mod&&e.key==='c'&&selectedNode&&selectedNode.id!=='nodeAgent'){
+  if(mod&&e.key==='c'&&selectedNode&&selectedNode){
     e.preventDefault();
     clipboardNode=selectedNode;
     // Visual feedback — brief flash
@@ -1288,13 +1288,13 @@ document.addEventListener('keydown',e=>{
     // Delete multi-selected nodes
     if(multiSelected.size>0){
       e.preventDefault();
-      const toDelete=[...multiSelected].filter(n=>n.id!=='nodeAgent');
+      const toDelete=[...multiSelected];
       toDelete.forEach(n=>deleteNode(n,true)); // silent=true, skip confirm
       clearMultiSelect();
       return;
     }
     // Delete single selected node
-    if(!selectedNode||selectedNode.id==='nodeAgent')return;
+    if(!selectedNode)return;
     e.preventDefault();
     deleteNode(selectedNode);
   }
@@ -1614,7 +1614,23 @@ function getSvcType(node){
 }
 
 function duplicateNode(srcNode){
-  if(!srcNode||srcNode.id==='nodeAgent')return;
+  if(!srcNode)return;
+  // Agent node duplication
+  if(srcNode.classList.contains('agent-node')){
+    const ct=document.getElementById('canvasTransform');
+    const b=bodies.get(srcNode);
+    const nx=(b?b.x:400)+40,ny=(b?b.y:300)+40;
+    const el=document.createElement('div');
+    const id='nodeAgent_'+(Date.now());
+    el.id=id;el.className='agent-node';
+    el.style.cssText=`left:${nx}px;top:${ny}px`;
+    const lbl=srcNode.querySelector('.agent-node-label')?.textContent||'new-agent';
+    el.innerHTML=`<span class="agent-node-inner">AO</span><span class="agent-node-label">${lbl}</span>`;
+    ct.appendChild(el);bodies.set(el,{x:nx,y:ny});
+    el.addEventListener('mousedown',ev=>{if(ev.target.closest('.conn-handle'))return;dragNode=el;nodeMoved=false;dnsx=ev.clientX;dnsy=ev.clientY;const bb=bodies.get(el);if(bb){dnox=bb.x;dnoy=bb.y;}ev.stopPropagation();});
+    if(window._addConnHandle)window._addConnHandle(el);
+    drawLines();pushState();return;
+  }
   const svcType=getSvcType(srcNode);
   const meta=svcType&&SVC_META[svcType];
   if(!meta)return;
@@ -1774,7 +1790,7 @@ function removeNodeFromCanvas(node){
 }
 
 function deleteNode(node,silent){
-  if(!node||node.id==='nodeAgent')return;
+  if(!node)return;
   // Handle sg-node/sg-skill individually
   if(node.classList.contains('sg-node')||node.classList.contains('sg-skill')){
     if(typeof window._removeSgNode==='function')window._removeSgNode(node);
