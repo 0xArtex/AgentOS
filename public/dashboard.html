@@ -94,6 +94,8 @@ background-size:40px 40px}
 .canvas-svg .conn-line-bg{display:none}
 .canvas-svg .sg-path{stroke-width:1;pointer-events:none}
 .canvas-svg .drag-wire{stroke:rgba(255,255,255,0.3);stroke-width:1;stroke-dasharray:6 4;fill:none;pointer-events:none}
+.flow-dot{pointer-events:none}
+@keyframes flowFade{0%{opacity:0}10%{opacity:1}90%{opacity:1}100%{opacity:0}}
 /* Connection handles */
 /* Connection handles — 4 per node, "+" circles at edges like flora.ai */
 .conn-handle{position:absolute;width:14px;height:14px;border-radius:50%;background:rgba(30,32,38,0.95);border:1px solid rgba(255,255,255,0.08);display:none;align-items:center;justify-content:center;cursor:crosshair;z-index:20;transition:all .15s;opacity:0}
@@ -955,6 +957,95 @@ document.getElementById('canvasSvg').classList.add('initial');
 drawLines();
 setTimeout(()=>{document.getElementById('canvasSvg').classList.remove('initial');},1200);
 
+/**
+ * Animate flow dots along a connection line.
+ * connIdx = index in conns[] array, or pass nodeA+nodeB ids.
+ * duration = total ms to run the animation.
+ * reverse = flow direction (false: A→B, true: B→A).
+ * Returns a stop() function.
+ */
+function startLineFlow(connIdx,durationMs,reverse){
+  durationMs=durationMs||4000;
+  const svg=document.getElementById('canvasSvg');
+  const line=_lineEls[connIdx];
+  if(!line)return ()=>{};
+  const dots=[];
+  let stopped=false;
+  const DOT_COUNT=3;
+  const DOT_INTERVAL=320; // ms between dots
+  const DOT_SPEED=1400; // ms per dot travel
+
+  function spawnDot(){
+    if(stopped)return;
+    const g=document.createElementNS('http://www.w3.org/2000/svg','g');
+    // Glow circle + core circle
+    const glow=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    glow.setAttribute('r','4');glow.setAttribute('fill','rgba(245,73,0,0.15)');
+    const core=document.createElementNS('http://www.w3.org/2000/svg','circle');
+    core.setAttribute('r','1.5');core.setAttribute('fill','rgba(245,73,0,0.9)');
+    g.appendChild(glow);g.appendChild(core);
+    g.classList.add('flow-dot');
+    g.style.animation=`flowFade ${DOT_SPEED}ms ease-in-out forwards`;
+
+    const anim=document.createElementNS('http://www.w3.org/2000/svg','animateMotion');
+    anim.setAttribute('dur',DOT_SPEED+'ms');
+    anim.setAttribute('fill','freeze');
+    anim.setAttribute('repeatCount','1');
+    // Get the current path d
+    const pathD=line.getAttribute('d');
+    const mpath=document.createElementNS('http://www.w3.org/2000/svg','mpath');
+    // Create a hidden path for motion
+    const refPath=document.createElementNS('http://www.w3.org/2000/svg','path');
+    refPath.setAttribute('d',pathD);refPath.id='_flowRef'+Date.now()+'_'+Math.random().toString(36).slice(2);
+    refPath.style.display='none';
+    svg.appendChild(refPath);
+    mpath.setAttributeNS('http://www.w3.org/1999/xlink','href','#'+refPath.id);
+    if(reverse)anim.setAttribute('keyPoints','1;0');
+    else anim.setAttribute('keyPoints','0;1');
+    anim.setAttribute('keyTimes','0;1');
+    anim.setAttribute('calcMode','linear');
+    anim.appendChild(mpath);
+    g.appendChild(anim);
+    svg.appendChild(g);
+    dots.push({g,refPath});
+    // Cleanup after animation
+    setTimeout(()=>{g.remove();refPath.remove();},DOT_SPEED+100);
+  }
+
+  // Spawn waves of dots
+  let interval;
+  let elapsed=0;
+  function wave(){
+    if(stopped||elapsed>durationMs)return;
+    for(let i=0;i<DOT_COUNT;i++) setTimeout(()=>spawnDot(),i*DOT_INTERVAL);
+    elapsed+=DOT_COUNT*DOT_INTERVAL+400;
+    interval=setTimeout(wave,DOT_COUNT*DOT_INTERVAL+400);
+  }
+  wave();
+
+  // Also brighten the line
+  line.style.transition='stroke .3s';
+  line.style.stroke='rgba(245,73,0,0.25)';
+
+  return function stop(){
+    stopped=true;
+    clearTimeout(interval);
+    line.style.stroke='';
+    setTimeout(()=>{line.style.transition='';},400);
+    dots.forEach(({g,refPath})=>{g.remove();refPath.remove();});
+    dots.length=0;
+  };
+}
+window.startLineFlow=startLineFlow;
+
+/**
+ * Find connection index between two node IDs.
+ */
+function findConnIdx(nodeA,nodeB){
+  return conns.findIndex(([a,b])=>(a===nodeA&&b===nodeB)||(a===nodeB&&b===nodeA));
+}
+window.findConnIdx=findConnIdx;
+
 // ─── PAN & ZOOM ───
 const wrap=document.getElementById('canvasWrap'),transform=document.getElementById('canvasTransform'),bg=document.getElementById('canvasBg');
 let tx=0,ty=0,scale=1,dragging=false,sx=0,sy=0,stx=0,sty=0;
@@ -1463,9 +1554,12 @@ document.addEventListener('keydown',e=>{
         const a=getNodeType(srcNode)==='agent'?srcNode.id:target.id;
         const b=getNodeType(srcNode)==='agent'?target.id:srcNode.id;
         conns.push([a,b]);
-        addLinePair();
+        const _ci=addLinePair();
         drawLines();
         pushState();
+        // Flow animation on new connection
+        const _stopFlow=startLineFlow(_ci,2500,false);
+        setTimeout(_stopFlow,2500);
       } else if(!target){
         // Dropped on empty space — show wire drop menu
         showWireMenu(srcNode,ev.clientX,ev.clientY);
@@ -1548,7 +1642,8 @@ document.addEventListener('keydown',e=>{
       const agentNode=document.getElementById('nodeAgent');
       if(agentNode&&!alreadyConnected(agentNode.id,srcNode.id)){
         conns.push([agentNode.id,srcNode.id]);
-        addLinePair();drawLines();pushState();
+        const _wci=addLinePair();drawLines();pushState();
+        const _wsf=startLineFlow(_wci,2500,false);setTimeout(_wsf,2500);
       }
       return;
     }
@@ -1753,10 +1848,11 @@ function showConfigModal(el,svcType,nodeId){
       el.classList.remove('unconfigured');
       el.querySelector('.node-sub').textContent=sub;
       el.querySelector('.s-dot')?.classList.add('active');
-      // Make connection line solid
-      const connIdx=conns.findIndex(([a,b])=>b===nodeId);
+      // Make connection line solid + flow animation
+      const connIdx=conns.findIndex(([a,b])=>b===nodeId||a===nodeId);
       if(connIdx>=0&&_lineEls[connIdx]){
         _lineEls[connIdx].removeAttribute('stroke-dasharray');
+        const _csf=startLineFlow(connIdx,3000,true);setTimeout(_csf,3000);
       }
       drawLines();pushState();
       document.getElementById('modalOverlay').classList.remove('open');
@@ -2132,8 +2228,11 @@ setTimeout(()=>{autoFit(false);},100);
       // If spawned from wire menu, connect to source; otherwise spawn disconnected
       if(window._wireConnectSrc){
         conns.push([window._wireConnectSrc,nodeId]);
-        addLinePair();
+        const _dci=addLinePair();
         window._wireConnectSrc=null;
+        // Flow animation — service connecting to agent
+        drawLines();
+        const _dsf=startLineFlow(_dci,2500,true);setTimeout(_dsf,2500);
       }
 
       // Redraw
