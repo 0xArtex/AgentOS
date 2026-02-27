@@ -1639,12 +1639,6 @@ function duplicateNode(srcNode){
     e.stopPropagation();
   });
 
-  // Connect to agent
-  conns.push(['nodeAgent',nodeId]);
-  const lineIdx=addLinePair();
-  // Dashed line for unconfigured
-  _lineEls[lineIdx].setAttribute('stroke-dasharray','4 4');
-
   drawLines();
   selectNode(el);
   pushState();
@@ -1859,8 +1853,8 @@ document.getElementById('newAgentBtn').addEventListener('click',()=>{
   document.getElementById('naChips').addEventListener('click',e=>{const c=e.target.closest('.na-chip');if(!c)return;if(c.dataset.c==='all'){document.querySelectorAll('.na-chip').forEach(x=>{x.classList.remove('selected');x.style.borderColor='';x.style.color='';});c.classList.add('selected');c.style.borderColor='var(--green)';c.style.color='var(--green)';}else{document.querySelector('.na-chip[data-c="all"]').classList.remove('selected');document.querySelector('.na-chip[data-c="all"]').style.borderColor='';document.querySelector('.na-chip[data-c="all"]').style.color='';c.classList.toggle('selected');}});
 });
 
-// Center canvas
-setTimeout(()=>{autoFit(false);pushState();},100);
+// Center canvas (don't pushState here — initProjects will load saved state)
+setTimeout(()=>{autoFit(false);},100);
 
 // ─── ADD SERVICE (DOCK) ───
 (function(){
@@ -2477,7 +2471,9 @@ function loadCanvasState(state){
     restoreState(state);
     drawLines();
   }
-  // No autoFit — keep default view position for empty canvases
+  // Seed undo history with loaded state (use _origPushState to avoid re-saving to backend)
+  _history.length=0;_histIdx=-1;
+  _history.push(captureState());_histIdx=0;
 }
 
 // Switch to a project
@@ -2505,6 +2501,9 @@ async function switchProject(projectId,projectName){
       restoreState(data.canvas_state);
       drawLines();
     }
+    // Seed undo history fresh for this project
+    _history.length=0;_histIdx=-1;
+    _history.push(captureState());_histIdx=0;
   }catch(e){console.error('Failed to load project:',e);}
 }
 
