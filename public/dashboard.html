@@ -351,7 +351,7 @@ background-size:40px 40px}
 @keyframes spin{to{transform:rotate(360deg)}}
 @keyframes fadeSlideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
 /* Node selection */
-.node.selected,.vps-node.selected,.x-profile-node.selected{border-color:rgba(255,255,255,0.5) !important}
+.node.selected,.vps-node.selected,.x-profile-node.selected,.sg-node.selected,.sg-skill.selected{border-color:rgba(255,255,255,0.5) !important}
 .agent-node.selected .agent-node-inner{box-shadow:0 0 0 1.5px rgba(255,255,255,0.5)}
 /* Context menu */
 .ctx-menu{position:fixed;z-index:600;background:var(--bg3);backdrop-filter:blur(40px);border:1px solid var(--border);border-radius:8px;padding:4px;min-width:160px;display:none;animation:fadeSlideUp .12s ease}
@@ -1192,9 +1192,11 @@ function selectNode(el){
 // Click to select (runs after drag check)
 document.getElementById('canvasTransform').addEventListener('mouseup',e=>{
   if(nodeMoved)return;
+  const sg=e.target.closest('.sg-node,.sg-skill');
+  if(sg&&!window.sgMoved){selectNode(sg);return;}
   const n=e.target.closest('.node,.vps-node,.x-profile-node');
   if(n){selectNode(n);}
-  else if(!e.target.closest('.agent-node,.sg-node,.sg-skill')){selectNode(null);deselectLine();}
+  else if(!sg){selectNode(null);deselectLine();}
 });
 
 // Right-click context menu on nodes
@@ -1767,6 +1769,13 @@ function removeNodeFromCanvas(node){
 
 function deleteNode(node,silent){
   if(!node||node.id==='nodeAgent')return;
+  // Handle sg-node/sg-skill individually
+  if(node.classList.contains('sg-node')||node.classList.contains('sg-skill')){
+    if(typeof window._removeSgNode==='function')window._removeSgNode(node);
+    if(selectedNode===node)selectedNode=null;
+    multiSelected.delete(node);
+    return;
+  }
   if(silent){removeNodeFromCanvas(node);pushState();return;}
   // Determine service type from node id or data
   const nodeId=node.id;
@@ -2116,7 +2125,7 @@ const _nodeX=document.getElementById('nodeX');if(_nodeX) _nodeX.addEventListener
   const catSkillEls=new Map(); // catIdx → [{el}]
   let sgLines=[]; // {from,to} refs for redrawing
   let skillsData=null;
-  let sgMoved=false;
+  window.sgMoved=false;
   let sgDragEl=null,sgDsx=0,sgDsy=0,sgDox=0,sgDoy=0;
 
   function makeSgDraggable(el){
@@ -2130,7 +2139,7 @@ const _nodeX=document.getElementById('nodeX');if(_nodeX) _nodeX.addEventListener
         e.stopPropagation();
         return;
       }
-      sgDragEl=el;sgMoved=false;sgDsx=e.clientX;sgDsy=e.clientY;
+      sgDragEl=el;window.sgMoved=false;sgDsx=e.clientX;sgDsy=e.clientY;
       sgDox=parseFloat(el.style.left)||0;sgDoy=parseFloat(el.style.top)||0;
       e.stopPropagation();
     });
@@ -2138,7 +2147,7 @@ const _nodeX=document.getElementById('nodeX');if(_nodeX) _nodeX.addEventListener
   window.addEventListener('mousemove',e=>{
     if(!sgDragEl)return;
     const dx=(e.clientX-sgDsx)/scale,dy=(e.clientY-sgDsy)/scale;
-    if(Math.abs(dx)>3||Math.abs(dy)>3)sgMoved=true;
+    if(Math.abs(dx)>3||Math.abs(dy)>3)window.sgMoved=true;
     const nx=sgDox+dx,ny=sgDoy+dy;
     sgDragEl.style.left=nx+'px';sgDragEl.style.top=ny+'px';
     const b=bodies.get(sgDragEl);if(b){b.x=nx;b.y=ny;}
@@ -2208,6 +2217,29 @@ const _nodeX=document.getElementById('nodeX');if(_nodeX) _nodeX.addEventListener
   }
 
   window._cleanupSkillGraph=cleanup;
+  window._removeSgNode=function(el){
+    // If it's a category, also remove its expanded skills
+    const catIdx=catEls.indexOf(el);
+    if(catIdx!==-1){
+      // Remove child skills first
+      const children=catSkillEls.get(catIdx)||[];
+      children.forEach(s=>{
+        sgLines=sgLines.filter(l=>l.from!==s&&l.to!==s);
+        bodies.delete(s);
+        s.remove();
+      });
+      catSkillEls.delete(catIdx);
+      expandedCats.delete(catIdx);
+      catEls[catIdx]=null;
+    }
+    // Remove sgLines referencing this element
+    sgLines=sgLines.filter(l=>l.from!==el&&l.to!==el);
+    bodies.delete(el);
+    el.style.transition='opacity .2s';el.style.opacity='0';
+    setTimeout(()=>el.remove(),200);
+    redrawSgLines();
+    saveState();
+  };
   window.redrawSgLines=redrawSgLines;
   function redrawSgLines(){
     svgEl.querySelectorAll('.sg-path').forEach(p=>p.remove());
@@ -2347,7 +2379,7 @@ const _nodeX=document.getElementById('nodeX');if(_nodeX) _nodeX.addEventListener
       if(ttTarget){ttEl.classList.remove('show');ttTarget=null;}
       return;
     }
-    if(sgMoved)return; // was a drag, not a click
+    if(window.sgMoved)return; // was a drag, not a click
     if(ttTarget===node){
       // Toggle off
       ttEl.classList.remove('show');ttTarget=null;return;
