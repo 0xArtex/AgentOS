@@ -11,10 +11,10 @@ router.use(requireDashboardAuth as any);
  * POST /wallet — Create a new wallet (Solana + Base pair)
  * Free — no charge
  */
-router.post("/", (req: DashboardRequest, res: Response) => {
+router.post("/", async (req: DashboardRequest, res: Response) => {
   try {
     const { label } = req.body || {};
-    const wallet = walletService.createWallet(req.dashUserId!, label);
+    const wallet = await walletService.createWallet(req.dashUserId!, label);
     res.json({
       success: true,
       wallet,
@@ -51,6 +51,23 @@ router.get("/:id/config", (req: DashboardRequest, res: Response) => {
   const config = walletService.getAgentConfig(req.dashUserId!, String(req.params.id));
   if (!config) return res.status(404).json({ error: "Wallet not found" });
   res.json({ config });
+});
+
+/**
+ * POST /wallet/:id/policy — Update spending limits
+ */
+router.post("/:id/policy", (req: DashboardRequest, res: Response) => {
+  const { dailyLimit, perTxLimit, approvalThreshold } = req.body || {};
+  const updated = walletService.updatePolicy(
+    req.dashUserId!,
+    String(req.params.id),
+    dailyLimit,
+    perTxLimit,
+    approvalThreshold,
+  );
+  if (!updated) return res.status(404).json({ error: "Wallet not found" });
+  const wallet = walletService.getWallet(req.dashUserId!, String(req.params.id));
+  res.json({ success: true, wallet });
 });
 
 /**

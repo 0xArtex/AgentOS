@@ -1784,7 +1784,15 @@ function showConfigModal(el,svcType,nodeId){
   } else if(svcType==='xaccount'){
     body=`<div style="font-size:12px;color:var(--w40);padding:8px 0;font-family:'JetBrains Mono',monospace">An X account will be assigned from the pool.</div>`;
   } else if(svcType==='wallet'){
-    body=`<div style="font-size:12px;color:var(--w40);padding:8px 0;font-family:'JetBrains Mono',monospace">A new Solana + Base wallet will be generated.</div>`;
+    body=`<div style="font-size:12px;color:var(--w40);padding:8px 0;font-family:'JetBrains Mono',monospace">
+      Non-custodial wallet on Solana + Base.<br>On-chain policy enforcement. Gas sponsored.
+    </div>
+    <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+      <div class="na-field"><label class="na-label">daily limit (USDC)</label><input class="na-input" id="cfgDaily" value="50" type="number" min="1"></div>
+      <div class="na-field"><label class="na-label">per-tx limit (USDC)</label><input class="na-input" id="cfgPerTx" value="25" type="number" min="1"></div>
+      <div class="na-field"><label class="na-label">approval threshold (USDC)</label><input class="na-input" id="cfgThreshold" value="25" type="number" min="1"></div>
+    </div>
+    <div style="font-size:10px;color:var(--w20);margin-top:6px;font-family:'JetBrains Mono',monospace">Above threshold → queued for your approval</div>`;
   } else if(svcType==='skills'){
     body=`<div style="font-size:12px;color:var(--w40);padding:8px 0;font-family:'JetBrains Mono',monospace">Skills will be selected after provisioning.</div>`;
   }
