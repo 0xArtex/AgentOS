@@ -38,6 +38,7 @@
     "express-validator": "^7.3.1",
     "helmet": "^8.1.0",
     "hpp": "^0.2.3",
+    "http-proxy-middleware": "^3.0.5",
     "swagger-ui-express": "^5.0.1",
     "telnyx": "^5.25.0",
     "tweetnacl": "^1.0.3",

@@ -122,6 +122,21 @@ app.use(cors);
 app.use(sanitizeInputs);
 app.use(sqlInjectionGuard);
 app.use(bruteForceProtection);
+
+// Wallet proxy BEFORE timeout (on-chain txs can take 60s+)
+app.use("/wallet", async (req: any, res: any) => {
+  try {
+    const url = `http://localhost:3002${req.url === "/" ? "" : req.url}`;
+    const opts: any = { method: req.method, headers: { "content-type": "application/json" } };
+    if (req.method !== "GET" && req.method !== "HEAD") opts.body = JSON.stringify(req.body);
+    const resp = await fetch(url, opts);
+    const data = await resp.text();
+    res.status(resp.status).set("content-type", "application/json").send(data);
+  } catch (e: any) {
+    res.status(502).json({ error: "Wallet service unavailable", message: e.message });
+  }
+});
+
 app.use(requestTimeout(30_000));
 app.use(rateLimit(60, 60_000));
 app.use(requestLogger);
@@ -168,8 +183,7 @@ app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
 import provisionRoutes from "./routes/provision";
 app.use("/provision", provisionRoutes);
-import walletRoutes from "./routes/wallet";
-app.use("/wallet", walletRoutes);
+// wallet routes proxied to port 3002 (see above, before timeout middleware)
 import dashboardAuthRoutes from "./routes/dashboard-auth";
 app.use("/auth", dashboardAuthRoutes);
 import balanceRoutes from "./routes/balance";
@@ -424,8 +438,19 @@ app.use("/api/agent-workflows", agentWorkflowsRoutes);
 
 app.use("/api/health-summary", healthSummaryRoutes);
 app.use("/api/agent-score", agentScoreRoutes);
-import walletRouter from "./routes/wallet";
-app.use("/api/wallet", walletRouter);
+// /api/wallet also proxied to AgentWallet service
+app.use("/api/wallet", async (req: any, res: any) => {
+  try {
+    const url = `http://localhost:3002${req.url === "/" ? "" : req.url}`;
+    const opts: any = { method: req.method, headers: { "content-type": "application/json" } };
+    if (req.method !== "GET" && req.method !== "HEAD") opts.body = JSON.stringify(req.body);
+    const resp = await fetch(url, opts);
+    const data = await resp.text();
+    res.status(resp.status).set("content-type", "application/json").send(data);
+  } catch (e: any) {
+    res.status(502).json({ error: "Wallet service unavailable", message: e.message });
+  }
+});
 import agentProfileRouter from "./routes/agent-profile";
 import judgeReadyRouter from "./routes/judge-ready";
 import judgeSummaryRouter from "./routes/judge-summary";
