@@ -126,12 +126,15 @@ app.use(bruteForceProtection);
 // Wallet proxy BEFORE timeout (on-chain txs can take 60s+)
 app.use("/wallet", async (req: any, res: any) => {
   try {
-    const url = `http://localhost:3002${req.url === "/" ? "" : req.url}`;
+    // app.use strips /wallet prefix; req.url = remaining path
+    // Map: /wallet → /wallet, /wallet/keygen → /keygen, /wallet/setup → /setup
+    const path = req.url === "/" ? "/wallet" : req.url;
+    const url = `http://localhost:3002${path}`;
     const opts: any = { method: req.method, headers: { "content-type": "application/json" } };
     if (req.method !== "GET" && req.method !== "HEAD") opts.body = JSON.stringify(req.body);
     const resp = await fetch(url, opts);
     const data = await resp.text();
-    res.status(resp.status).set("content-type", "application/json").send(data);
+    res.status(resp.status).set("content-type", resp.headers.get("content-type") || "application/json").send(data);
   } catch (e: any) {
     res.status(502).json({ error: "Wallet service unavailable", message: e.message });
   }
@@ -441,12 +444,13 @@ app.use("/api/agent-score", agentScoreRoutes);
 // /api/wallet also proxied to AgentWallet service
 app.use("/api/wallet", async (req: any, res: any) => {
   try {
-    const url = `http://localhost:3002${req.url === "/" ? "" : req.url}`;
+    const path = req.url === "/" ? "/wallet" : req.url;
+    const url = `http://localhost:3002${path}`;
     const opts: any = { method: req.method, headers: { "content-type": "application/json" } };
     if (req.method !== "GET" && req.method !== "HEAD") opts.body = JSON.stringify(req.body);
     const resp = await fetch(url, opts);
     const data = await resp.text();
-    res.status(resp.status).set("content-type", "application/json").send(data);
+    res.status(resp.status).set("content-type", resp.headers.get("content-type") || "application/json").send(data);
   } catch (e: any) {
     res.status(502).json({ error: "Wallet service unavailable", message: e.message });
   }

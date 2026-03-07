@@ -48,6 +48,11 @@ export function sqlInjectionGuard(req: Request, res: Response, next: NextFunctio
     return false;
   };
 
+  // Skip SQL check for canvas state saves (contains HTML/SVG that triggers false positives)
+  if (req.method === "PUT" && (req.path.startsWith("/projects/") || req.originalUrl.startsWith("/projects/"))) {
+    next();
+    return;
+  }
   if (checkValue(req.body) || checkValue(req.query) || checkValue(req.params)) {
     res.status(400).json({ error: "Malicious Input Detected", message: "Request blocked by security filter" });
     return;
