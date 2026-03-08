@@ -790,7 +790,10 @@ function restoreState(state){
         if(b)subHtml+='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+b.address.slice(0,6)+'..'+b.address.slice(-4);
         if(b&&sol)subHtml+=' <span style="color:var(--w20);margin:0 2px">/</span> ';
         if(sol)subHtml+='<img src="/assets/logos/solana-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+sol.address.slice(0,4)+'..'+sol.address.slice(-4);
+        if(!w.setupDone)subHtml+=' <span style="color:#f0a030;font-size:8px">setup required</span>';
         sub.innerHTML=subHtml;
+        const dot=el.querySelector('.s-dot');
+        if(dot)dot.className='s-dot '+(w.setupDone?'active':'needs-setup');
       }
     }
   });
@@ -1899,11 +1902,40 @@ function showWalletModal(nodeId){
   if(w.keySaved)step=2;
   if(w.setupDone)step=3;
 
+  // Verify passkeys on-chain when opening modal (catches stale localStorage)
+  if(step===3){
+    (async()=>{
+      let needsSetup=false;
+      if(b?.address&&b.address.startsWith('0x')){
+        try{const r=await fetch('/wallet/'+b.address);if(r.ok){const d=await r.json();const owner=d.wallet?.owner||'';if(owner!=='0x0000000000000000000000000000000000000000')needsSetup=true;}}catch(e){}
+      }
+      if(sol?.address){
+        try{const r=await fetch('/wallet/'+sol.address);if(r.ok){const d=await r.json();if(!d.wallet?.passkeyRegistered||d.wallet?.owner!=='11111111111111111111111111111112')needsSetup=true;}}catch(e){}
+      }
+      if(needsSetup){
+        w.setupDone=false;
+        localStorage.setItem('aw_'+nodeId,JSON.stringify(w));
+        const nel=document.getElementById(nodeId);
+        if(nel){const dot=nel.querySelector('.s-dot');if(dot)dot.className='s-dot needs-setup';const nsub=nel.querySelector('.node-sub');if(nsub&&!nsub.innerHTML.includes('setup required'))nsub.innerHTML+=' <span style="color:#f0a030;font-size:8px">setup required</span>';pushState();}
+        renderStep(2);
+      }
+    })();
+  }
+
+  const copySvgSm='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+  const checkSvgSm='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';
+
   function keyBlock(chain,icon,pk,id){
     return `<div style="margin-bottom:10px">
       <div style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:4px"><img src="/assets/logos/${icon}" style="width:10px;height:10px">${chain}</div>
       <div style="position:relative"><div style="font-size:9px;color:var(--text);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;background:rgba(0,0,0,0.4);padding:8px 36px 8px 8px;border-radius:6px;border:1px solid var(--border);user-select:all;cursor:text">${pk}</div>
-      <div style="position:absolute;right:6px;top:50%;transform:translateY(-50%)" id="${id}" onclick="navigator.clipboard.writeText('${pk}');this.innerHTML='<svg width=\\'12\\' height=\\'12\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%233fb950\\' stroke-width=\\'2.5\\'><polyline points=\\'20 6 9 17 4 12\\'/></svg>';setTimeout(()=>{this.innerHTML='<svg width=\\'12\\' height=\\'12\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'white\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><rect x=\\'9\\' y=\\'9\\' width=\\'13\\' height=\\'13\\' rx=\\'2\\'/><path d=\\'M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1\\'/></svg>';},1500)" style="cursor:pointer;padding:4px;border-radius:4px;opacity:0.5;transition:opacity .2s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></div></div></div>`;
+      <div id="${id}" style="position:absolute;right:6px;top:50%;transform:translateY(-50%);cursor:pointer;padding:4px;border-radius:4px;opacity:0.5;transition:opacity .2s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'">${copySvgSm}</div></div></div>`;
+  }
+
+  function bindCopyBtn(id,pk){
+    const el=document.getElementById(id);
+    if(!el)return;
+    el.onclick=()=>{navigator.clipboard.writeText(pk);el.innerHTML=checkSvgSm;el.style.opacity='1';setTimeout(()=>{el.innerHTML=copySvgSm;el.style.opacity='0.5';},1500);};
   }
 
   function walletRow(label,val){
@@ -1927,29 +1959,91 @@ function showWalletModal(nodeId){
           <div id="wDownloadKeys" style="display:flex;align-items:center;justify-content:center;width:40px;border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .2s;flex-shrink:0" onmouseover="this.style.borderColor='var(--w30)'" onmouseout="this.style.borderColor='var(--border)'" title="Download keys"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
           <button class="spawn-btn" style="flex:1;padding:10px;border:1px solid var(--accent);color:var(--accent);background:transparent;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;border-radius:4px;transition:all .2s;letter-spacing:0.5px" onmouseover="this.style.background='var(--accent)';this.style.color='white'" onmouseout="this.style.background='transparent';this.style.color='var(--accent)'" id="wNextBtn">I'VE SAVED MY KEYS</button>
         </div>`;
+      if(b?.privateKey)bindCopyBtn('wCopyBase',b.privateKey);
+      if(sol?.privateKey)bindCopyBtn('wCopySol',sol.privateKey);
       document.getElementById('wDownloadKeys').onclick=()=>{const obj={};if(b)obj.base={address:b.address,agentAddress:b.agentAddress,privateKey:b.privateKey};if(sol)obj.solana={address:sol.address,agentAddress:sol.agentAddress,privateKey:sol.privateKey};const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agent-wallet-keys.json';a.click();};
       document.getElementById('wNextBtn').onclick=()=>{w.keySaved=true;if(w.base)delete w.base.privateKey;if(w.solana)delete w.solana.privateKey;localStorage.setItem('aw_'+nodeId,JSON.stringify(w));renderStep(2);};
     } else if(s<=2&&b?.setupUrl&&!w.setupDone){
       const daily=(parseInt(b.policy?.dailyLimit||'50000000')/1e6).toFixed(0);
       const perTx=(parseInt(b.policy?.perTxLimit||'25000000')/1e6).toFixed(0);
+      const solDaily=sol?(parseInt(sol.policy?.dailyLimit||'1000000')/1e6).toFixed(0):'';
+      const solPerTx=sol?(parseInt(sol.policy?.perTxLimit||'500000')/1e6).toFixed(0):'';
       modal.innerHTML=`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <div style="width:22px;height:22px;border-radius:50%;background:var(--accent);color:white;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace">2</div>
-          <div class="modal-title" style="margin:0">Set up passkey</div>
+          <div class="modal-title" style="margin:0">Secure your wallets</div>
         </div>
-        <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-bottom:12px;padding-left:30px">Step 2 of 3 · Base wallet</div>
-        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-bottom:16px">Register your passkey (FaceID, fingerprint, or hardware key) to secure the Base wallet. Solana wallet uses the agent key directly.</div>
-        <div style="padding:12px;border:1px dashed var(--border);border-radius:8px;margin-bottom:16px">
-          <div style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-family:'JetBrains Mono',monospace">Base Wallet Defaults</div>
-          <div style="font-size:12px;color:var(--text);font-family:'JetBrains Mono',monospace">Daily: $${daily} · Per-tx: $${perTx}</div>
+        <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-bottom:16px;padding-left:30px">Step 2 of 3</div>
+
+        <div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:10px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+            <img src="/assets/logos/base-icon.svg" style="width:14px;height:14px">
+            <span style="font-size:11px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">Base</span>
+            <span style="font-size:9px;color:#f0a030;margin-left:auto;font-family:'JetBrains Mono',monospace">SETUP REQUIRED</span>
+          </div>
+          <div style="font-size:10px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-bottom:10px">Register a passkey (FaceID / fingerprint / hardware key) to control limits and withdrawals.</div>
+          <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-bottom:10px">Daily: $${daily} · Per-tx: $${perTx}</div>
+          <div style="display:flex;gap:8px">
+            <a href="${b.setupUrl}" target="_blank" style="flex:1;display:block;text-align:center;padding:8px;text-decoration:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;transition:all .2s" onmouseover="this.style.background='var(--accent)';this.style.color='white'" onmouseout="this.style.background='transparent';this.style.color='var(--accent)'">OPEN SETUP PAGE</a>
+            <div id="wCopySetup" style="display:flex;align-items:center;justify-content:center;width:36px;border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .2s;flex-shrink:0" onmouseover="this.style.borderColor='var(--w30)'" onmouseout="this.style.borderColor='var(--border)'" title="Copy link"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></div>
+          </div>
         </div>
-        <div style="display:flex;gap:8px;margin-bottom:8px">
-          <a href="${b.setupUrl}" target="_blank" style="flex:1;display:block;text-align:center;padding:10px;text-decoration:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;transition:all .2s" onmouseover="this.style.background='var(--accent)';this.style.color='white'" onmouseout="this.style.background='transparent';this.style.color='var(--accent)'">OPEN SETUP PAGE</a>
-          <div id="wCopySetup" style="display:flex;align-items:center;justify-content:center;width:40px;border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .2s;flex-shrink:0" onmouseover="this.style.borderColor='var(--w30)'" onmouseout="this.style.borderColor='var(--border)'" title="Copy link"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></div>
-        </div>
+
+        ${sol&&sol.setupUrl?`<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:10px">
+            <img src="/assets/logos/solana-icon.svg" style="width:14px;height:14px">
+            <span style="font-size:11px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">Solana</span>
+            <span style="font-size:9px;color:#f0a030;margin-left:auto;font-family:'JetBrains Mono',monospace">SETUP REQUIRED</span>
+          </div>
+          <div style="font-size:10px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-bottom:10px">Set spending limits and register a passkey for your Solana wallet.</div>
+          <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-bottom:10px">Daily: $${solDaily} · Per-tx: $${solPerTx}</div>
+          <div style="display:flex;gap:8px">
+            <a href="${sol.setupUrl}" target="_blank" style="flex:1;display:block;text-align:center;padding:8px;text-decoration:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;transition:all .2s" onmouseover="this.style.background='var(--accent)';this.style.color='white'" onmouseout="this.style.background='transparent';this.style.color='var(--accent)'">OPEN SETUP PAGE</a>
+            <div id="wCopySetupSol" style="display:flex;align-items:center;justify-content:center;width:36px;border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .2s;flex-shrink:0" onmouseover="this.style.borderColor='var(--w30)'" onmouseout="this.style.borderColor='var(--border)'" title="Copy link"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></div>
+          </div>
+        </div>`:sol?`<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:16px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+            <img src="/assets/logos/solana-icon.svg" style="width:14px;height:14px">
+            <span style="font-size:11px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">Solana</span>
+            <span style="font-size:9px;color:#f0a030;margin-left:auto;font-family:'JetBrains Mono',monospace">SETUP REQUIRED</span>
+          </div>
+          <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">Daily: $${solDaily} · Per-tx: $${solPerTx}</div>
+          <div style="font-size:10px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-top:4px">Setup link expired. Create a new wallet to configure.</div>
+        </div>`:''}
+
         <button style="width:100%;padding:10px;border:1px solid var(--border);color:var(--w40);background:transparent;border-radius:4px;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;cursor:pointer;transition:all .2s" onmouseover="this.style.borderColor='var(--w30)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--w40)'" id="wSetupDone">I'VE COMPLETED SETUP</button>`;
-      document.getElementById('wCopySetup').onclick=()=>{navigator.clipboard.writeText(b.setupUrl);const el=document.getElementById('wCopySetup');el.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';setTimeout(()=>{el.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';},1500);};
-      document.getElementById('wSetupDone').onclick=()=>{w.setupDone=true;localStorage.setItem('aw_'+nodeId,JSON.stringify(w));const el=document.getElementById(nodeId);if(el){el.querySelector('.s-dot').className='s-dot active';let sub='';if(b)sub+='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+b.address.slice(0,6)+'..'+b.address.slice(-4);if(b&&sol)sub+=' <span style="color:var(--w20);margin:0 2px">/</span> ';if(sol)sub+='<img src="/assets/logos/solana-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+sol.address.slice(0,4)+'..'+sol.address.slice(-4);el.querySelector('.node-sub').innerHTML=sub;pushState();}renderStep(3);};
+      document.getElementById('wCopySetup').onclick=()=>{navigator.clipboard.writeText(b.setupUrl);const cpel=document.getElementById('wCopySetup');cpel.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';setTimeout(()=>{cpel.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';},1500);};
+      const solCopyEl=document.getElementById('wCopySetupSol');
+      if(solCopyEl&&sol?.setupUrl){solCopyEl.onclick=()=>{navigator.clipboard.writeText(sol.setupUrl);solCopyEl.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';setTimeout(()=>{solCopyEl.innerHTML='<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';},1500);};}
+      document.getElementById('wSetupDone').onclick=async()=>{
+        const btn=document.getElementById('wSetupDone');
+        btn.textContent='VERIFYING...';btn.disabled=true;btn.style.opacity='0.5';
+        try{
+          const issues=[];
+          // Check Base passkey
+          if(b?.address){
+            const r=await fetch('/wallet/'+b.address);
+            if(r.ok){const d=await r.json();const owner=d.wallet?.owner||'';if(owner!=='0x0000000000000000000000000000000000000000')issues.push('Base passkey');if(d.wallet?.policy)b.policy=d.wallet.policy;}
+          }
+          // Check Solana passkey
+          if(sol?.address){
+            const r=await fetch('/wallet/'+sol.address);
+            if(r.ok){const d=await r.json();if(!d.wallet?.passkeyRegistered||d.wallet?.owner!=='11111111111111111111111111111112')issues.push('Solana passkey');if(d.wallet?.policy)sol.policy=d.wallet.policy;}
+          }
+          if(issues.length>0){
+            btn.textContent=issues.join(' + ')+' not detected';btn.style.borderColor='var(--red)';btn.style.color='var(--red)';
+            setTimeout(()=>{btn.textContent="I'VE COMPLETED SETUP";btn.style.borderColor='var(--border)';btn.style.color='var(--w40)';btn.disabled=false;btn.style.opacity='1';},3000);
+            return;
+          }
+          w.setupDone=true;
+          localStorage.setItem('aw_'+nodeId,JSON.stringify(w));
+          const el=document.getElementById(nodeId);if(el){el.querySelector('.s-dot').className='s-dot active';let sub='';if(b)sub+='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+b.address.slice(0,6)+'..'+b.address.slice(-4);if(b&&sol)sub+=' <span style="color:var(--w20);margin:0 2px">/</span> ';if(sol)sub+='<img src="/assets/logos/solana-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+sol.address.slice(0,4)+'..'+sol.address.slice(-4);el.querySelector('.node-sub').innerHTML=sub;pushState();}
+          renderStep(3);
+        }catch(e){
+          btn.textContent='VERIFICATION FAILED';btn.style.borderColor='var(--red)';btn.style.color='var(--red)';
+          setTimeout(()=>{btn.textContent="I'VE COMPLETED SETUP";btn.style.borderColor='var(--border)';btn.style.color='var(--w40)';btn.disabled=false;btn.style.opacity='1';},2500);
+        }
+      };
     } else {
       // Step 3: Done / overview
       let walletsHtml='';

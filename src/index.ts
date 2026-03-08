@@ -128,7 +128,13 @@ app.use("/wallet", async (req: any, res: any) => {
   try {
     // app.use strips /wallet prefix; req.url = remaining path
     // Map: /wallet → /wallet, /wallet/keygen → /keygen, /wallet/setup → /setup
-    const path = req.url === "/" ? "/wallet" : req.url;
+    // /wallet/0xABC... → /wallet/0xABC... (address lookup)
+    // /wallet/<base58> → /wallet/<base58> (solana address lookup)
+    let path = req.url === "/" ? "/wallet" : req.url;
+    // If path looks like an address (starts with /0x or a base58 pubkey), prefix with /wallet
+    if (/^\/0x[0-9a-fA-F]{40}/.test(path) || /^\/[1-9A-HJ-NP-Za-km-z]{32,44}([/?]|$)/.test(path)) {
+      path = "/wallet" + path;
+    }
     const url = `http://localhost:3002${path}`;
     const opts: any = { method: req.method, headers: { "content-type": "application/json" } };
     if (req.method !== "GET" && req.method !== "HEAD") opts.body = JSON.stringify(req.body);
