@@ -780,18 +780,17 @@ function restoreState(state){
     if(s.id.startsWith('nodeDyn_wallet_')&&!el._walletBound){
       el._walletBound=true;
       el.addEventListener('click',()=>{if(typeof nodeMoved!=='undefined'&&nodeMoved)return;showWalletModal(s.id);});
-      // Ensure Base logo + copy icon in subtitle
+      // Restore chain logos in subtitle from localStorage
       const sub=el.querySelector('.node-sub');
-      if(sub&&!sub.innerHTML.includes('base-icon')){
-        const addr=sub.textContent.trim();
-        const copySvg='<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
-        const checkSvg='<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
-        sub.innerHTML='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:3px">'+addr+'<span class="node-copy-addr" style="display:inline-block;margin-left:4px;cursor:pointer;opacity:0.3;vertical-align:-1px;transition:opacity .2s" title="Copy address">'+copySvg+'</span>';
-        const copyEl=sub.querySelector('.node-copy-addr');
-        copyEl.onmouseover=function(){this.style.opacity='1';};
-        copyEl.onmouseout=function(){this.style.opacity='0.3';};
-        const raw=localStorage.getItem('aw_'+s.id);
-        if(raw){const w=JSON.parse(raw);copyEl.onclick=function(e){e.stopPropagation();navigator.clipboard.writeText(w.address);this.innerHTML=checkSvg;this.style.opacity='1';const self=this;setTimeout(function(){self.innerHTML=copySvg;self.style.opacity='0.3';},1500);};}
+      const raw=localStorage.getItem('aw_'+s.id);
+      if(sub&&raw){
+        const w=JSON.parse(raw);
+        const b=w.base,sol=w.solana;
+        let subHtml='';
+        if(b)subHtml+='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+b.address.slice(0,6)+'..'+b.address.slice(-4);
+        if(b&&sol)subHtml+=' <span style="color:var(--w20);margin:0 2px">/</span> ';
+        if(sol)subHtml+='<img src="/assets/logos/solana-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+sol.address.slice(0,4)+'..'+sol.address.slice(-4);
+        sub.innerHTML=subHtml;
       }
     }
   });
@@ -1893,86 +1892,103 @@ function showWalletModal(nodeId){
   const w=JSON.parse(raw);
   const modal=document.getElementById('modalBody');
   const overlay=document.getElementById('modalOverlay');
+  const b=w.base,sol=w.solana;
+  const hasKeys=(b?.privateKey||sol?.privateKey);
 
-  // Determine which step to show
   let step=1;
   if(w.keySaved)step=2;
   if(w.setupDone)step=3;
 
+  function keyBlock(chain,icon,pk,id){
+    return `<div style="margin-bottom:10px">
+      <div style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:4px"><img src="/assets/logos/${icon}" style="width:10px;height:10px">${chain}</div>
+      <div style="position:relative"><div style="font-size:9px;color:var(--text);font-family:'JetBrains Mono',monospace;white-space:nowrap;overflow:hidden;background:rgba(0,0,0,0.4);padding:8px 36px 8px 8px;border-radius:6px;border:1px solid var(--border);user-select:all;cursor:text">${pk}</div>
+      <div style="position:absolute;right:6px;top:50%;transform:translateY(-50%)" id="${id}" onclick="navigator.clipboard.writeText('${pk}');this.innerHTML='<svg width=\\'12\\' height=\\'12\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'%233fb950\\' stroke-width=\\'2.5\\'><polyline points=\\'20 6 9 17 4 12\\'/></svg>';setTimeout(()=>{this.innerHTML='<svg width=\\'12\\' height=\\'12\\' viewBox=\\'0 0 24 24\\' fill=\\'none\\' stroke=\\'white\\' stroke-width=\\'2\\' stroke-linecap=\\'round\\' stroke-linejoin=\\'round\\'><rect x=\\'9\\' y=\\'9\\' width=\\'13\\' height=\\'13\\' rx=\\'2\\'/><path d=\\'M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1\\'/></svg>';},1500)" style="cursor:pointer;padding:4px;border-radius:4px;opacity:0.5;transition:opacity .2s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></div></div></div>`;
+  }
+
+  function walletRow(label,val){
+    return `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px"><span style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace">${label}</span><span style="font-size:10px;color:var(--text);font-family:'JetBrains Mono',monospace">${val}</span></div>`;
+  }
+
   function renderStep(s){
-    if(s===1&&w.privateKey&&!w.keySaved){
-      // Step 1: Save private key
+    if(s===1&&hasKeys&&!w.keySaved){
+      let keysHtml='';
+      if(b?.privateKey)keysHtml+=keyBlock('Base (EVM)','base-icon.svg',b.privateKey,'wCopyBase');
+      if(sol?.privateKey)keysHtml+=keyBlock('Solana','solana-icon.svg',sol.privateKey,'wCopySol');
       modal.innerHTML=`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <div style="width:22px;height:22px;border-radius:50%;background:var(--accent);color:white;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace">1</div>
-          <div class="modal-title" style="margin:0">Save your private key</div>
+          <div class="modal-title" style="margin:0">Save your private keys</div>
         </div>
-        <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-bottom:16px;padding-left:30px">Step 1 of 3</div>
-        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-bottom:12px">This is your agent's private key. It controls the wallet. Save it somewhere safe — you won't see it again.</div>
-        <div style="position:relative;margin-bottom:16px">
-          <div style="font-size:9px;color:var(--text);font-family:'JetBrains Mono',monospace;white-space:nowrap;background:rgba(0,0,0,0.4);padding:10px 56px 10px 10px;border-radius:6px;border:1px solid var(--border);user-select:all;cursor:text">${w.privateKey}</div>
-          <div style="position:absolute;right:6px;top:50%;transform:translateY(-50%);display:flex;gap:4px">
-            <div id="wCopyKey" style="cursor:pointer;padding:4px;border-radius:4px;opacity:0.4;transition:opacity .2s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.4'" title="Copy"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></div>
-            <div id="wDownloadKey" style="cursor:pointer;padding:4px;border-radius:4px;opacity:0.4;transition:opacity .2s" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.4'" title="Download .json"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
-          </div>
-        </div>
-        <button class="spawn-btn" style="width:100%;padding:10px;border:1px solid var(--accent);color:var(--accent);background:transparent;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;border-radius:4px;transition:all .2s;letter-spacing:0.5px" onmouseover="this.style.background='var(--accent)';this.style.color='white'" onmouseout="this.style.background='transparent';this.style.color='var(--accent)'" id="wNextBtn">I'VE SAVED MY KEY</button>`;
-      document.getElementById('wCopyKey').onclick=()=>{navigator.clipboard.writeText(w.privateKey);const el=document.getElementById('wCopyKey');el.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';el.style.opacity='1';setTimeout(()=>{el.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';el.style.opacity='0.4';},1500);};
-      document.getElementById('wDownloadKey').onclick=()=>{const b=new Blob([JSON.stringify({address:w.address,agentAddress:w.agentAddress,privateKey:w.privateKey},null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='agent-wallet-'+w.address.slice(0,8)+'.json';a.click();};
-      document.getElementById('wNextBtn').onclick=()=>{w.keySaved=true;delete w.privateKey;localStorage.setItem('aw_'+nodeId,JSON.stringify(w));renderStep(2);};
-    } else if(s<=2&&w.setupUrl&&!w.setupDone){
-      // Step 2: Set limits + register passkey (setup page)
-      const daily=(parseInt(w.policy?.dailyLimit||'50000000')/1e6).toFixed(0);
-      const perTx=(parseInt(w.policy?.perTxLimit||'25000000')/1e6).toFixed(0);
+        <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-bottom:12px;padding-left:30px">Step 1 of 3</div>
+        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-bottom:12px">These are your agent's private keys. Save them securely — you won't see them again.</div>
+        ${keysHtml}
+        <div style="display:flex;gap:8px;margin-top:12px">
+          <div id="wDownloadKeys" style="display:flex;align-items:center;justify-content:center;width:40px;border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .2s;flex-shrink:0" onmouseover="this.style.borderColor='var(--w30)'" onmouseout="this.style.borderColor='var(--border)'" title="Download keys"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></div>
+          <button class="spawn-btn" style="flex:1;padding:10px;border:1px solid var(--accent);color:var(--accent);background:transparent;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;border-radius:4px;transition:all .2s;letter-spacing:0.5px" onmouseover="this.style.background='var(--accent)';this.style.color='white'" onmouseout="this.style.background='transparent';this.style.color='var(--accent)'" id="wNextBtn">I'VE SAVED MY KEYS</button>
+        </div>`;
+      document.getElementById('wDownloadKeys').onclick=()=>{const obj={};if(b)obj.base={address:b.address,agentAddress:b.agentAddress,privateKey:b.privateKey};if(sol)obj.solana={address:sol.address,agentAddress:sol.agentAddress,privateKey:sol.privateKey};const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agent-wallet-keys.json';a.click();};
+      document.getElementById('wNextBtn').onclick=()=>{w.keySaved=true;if(w.base)delete w.base.privateKey;if(w.solana)delete w.solana.privateKey;localStorage.setItem('aw_'+nodeId,JSON.stringify(w));renderStep(2);};
+    } else if(s<=2&&b?.setupUrl&&!w.setupDone){
+      const daily=(parseInt(b.policy?.dailyLimit||'50000000')/1e6).toFixed(0);
+      const perTx=(parseInt(b.policy?.perTxLimit||'25000000')/1e6).toFixed(0);
       modal.innerHTML=`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <div style="width:22px;height:22px;border-radius:50%;background:var(--accent);color:white;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace">2</div>
-          <div class="modal-title" style="margin:0">Set up your wallet</div>
+          <div class="modal-title" style="margin:0">Set up passkey</div>
         </div>
-        <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-bottom:16px;padding-left:30px">Step 2 of 3</div>
-        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-bottom:16px">Set spending limits and register your passkey (FaceID, fingerprint, or hardware key). This secures your wallet.</div>
+        <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-bottom:12px;padding-left:30px">Step 2 of 3 · Base wallet</div>
+        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-bottom:16px">Register your passkey (FaceID, fingerprint, or hardware key) to secure the Base wallet. Solana wallet uses the agent key directly.</div>
         <div style="padding:12px;border:1px dashed var(--border);border-radius:8px;margin-bottom:16px">
-          <div style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-family:'JetBrains Mono',monospace">Current Defaults</div>
+          <div style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-family:'JetBrains Mono',monospace">Base Wallet Defaults</div>
           <div style="font-size:12px;color:var(--text);font-family:'JetBrains Mono',monospace">Daily: $${daily} · Per-tx: $${perTx}</div>
-          <div style="font-size:9px;color:var(--w20);margin-top:4px;font-family:'JetBrains Mono',monospace">You can change these on the setup page</div>
         </div>
         <div style="display:flex;gap:8px;margin-bottom:8px">
-          <a href="${w.setupUrl}" target="_blank" style="flex:1;display:block;text-align:center;padding:10px;text-decoration:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;transition:all .2s" onmouseover="this.style.background='var(--accent)';this.style.color='white'" onmouseout="this.style.background='transparent';this.style.color='var(--accent)'" id="wSetupLink">OPEN SETUP PAGE</a>
-          <div id="wCopySetup" style="display:flex;align-items:center;justify-content:center;width:40px;border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .2s;flex-shrink:0" onmouseover="this.style.borderColor='var(--w30)'" onmouseout="this.style.borderColor='var(--border)'" title="Copy link for phone"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></div>
+          <a href="${b.setupUrl}" target="_blank" style="flex:1;display:block;text-align:center;padding:10px;text-decoration:none;border:1px solid var(--accent);color:var(--accent);border-radius:4px;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;transition:all .2s" onmouseover="this.style.background='var(--accent)';this.style.color='white'" onmouseout="this.style.background='transparent';this.style.color='var(--accent)'">OPEN SETUP PAGE</a>
+          <div id="wCopySetup" style="display:flex;align-items:center;justify-content:center;width:40px;border:1px solid var(--border);border-radius:4px;cursor:pointer;transition:all .2s;flex-shrink:0" onmouseover="this.style.borderColor='var(--w30)'" onmouseout="this.style.borderColor='var(--border)'" title="Copy link"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></div>
         </div>
         <button style="width:100%;padding:10px;border:1px solid var(--border);color:var(--w40);background:transparent;border-radius:4px;font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;letter-spacing:0.5px;cursor:pointer;transition:all .2s" onmouseover="this.style.borderColor='var(--w30)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--w40)'" id="wSetupDone">I'VE COMPLETED SETUP</button>`;
-      document.getElementById('wCopySetup').onclick=()=>{navigator.clipboard.writeText('${w.setupUrl}');const el=document.getElementById('wCopySetup');el.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';setTimeout(()=>{el.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';},1500);};
-      document.getElementById('wSetupDone').onclick=()=>{w.setupDone=true;localStorage.setItem('aw_'+nodeId,JSON.stringify(w));const el=document.getElementById(nodeId);if(el){el.querySelector('.s-dot').className='s-dot active';el.querySelector('.node-sub').innerHTML='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:3px">'+w.address.slice(0,6)+'..'+w.address.slice(-4);pushState();}renderStep(3);};
+      document.getElementById('wCopySetup').onclick=()=>{navigator.clipboard.writeText(b.setupUrl);const el=document.getElementById('wCopySetup');el.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#3fb950" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';setTimeout(()=>{el.innerHTML='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.4)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';},1500);};
+      document.getElementById('wSetupDone').onclick=()=>{w.setupDone=true;localStorage.setItem('aw_'+nodeId,JSON.stringify(w));const el=document.getElementById(nodeId);if(el){el.querySelector('.s-dot').className='s-dot active';let sub='';if(b)sub+='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+b.address.slice(0,6)+'..'+b.address.slice(-4);if(b&&sol)sub+=' <span style="color:var(--w20);margin:0 2px">/</span> ';if(sol)sub+='<img src="/assets/logos/solana-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+sol.address.slice(0,4)+'..'+sol.address.slice(-4);el.querySelector('.node-sub').innerHTML=sub;pushState();}renderStep(3);};
     } else {
       // Step 3: Done / overview
+      let walletsHtml='';
+      if(b){
+        const daily=(parseInt(b.policy?.dailyLimit||'50000000')/1e6).toFixed(0);
+        const perTx=(parseInt(b.policy?.perTxLimit||'25000000')/1e6).toFixed(0);
+        walletsHtml+=`<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+          <div style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:4px"><img src="/assets/logos/base-icon.svg" style="width:10px;height:10px">Base</div>
+          ${walletRow('Wallet',b.address.slice(0,6)+'...'+b.address.slice(-4))}
+          ${walletRow('Agent',b.agentAddress.slice(0,6)+'...'+b.agentAddress.slice(-4))}
+          ${walletRow('Limits','$'+daily+'/day · $'+perTx+'/tx')}
+        </div>`;
+      }
+      if(sol){
+        const daily=(parseInt(sol.policy?.dailyLimit||'1000000')/1e6).toFixed(0);
+        const perTx=(parseInt(sol.policy?.perTxLimit||'500000')/1e6).toFixed(0);
+        walletsHtml+=`<div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+          <div style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:4px"><img src="/assets/logos/solana-icon.svg" style="width:10px;height:10px">Solana</div>
+          ${walletRow('Wallet',sol.address.slice(0,4)+'...'+sol.address.slice(-4))}
+          ${walletRow('Agent',sol.agentAddress.slice(0,4)+'...'+sol.agentAddress.slice(-4))}
+          ${walletRow('Limits','$'+daily+'/day · $'+perTx+'/tx')}
+        </div>`;
+      }
+      let linksHtml='';
+      if(b){
+        if(b.setupUrl)linksHtml+=`<a href="${b.setupUrl}" target="_blank" style="display:block;font-size:10px;color:var(--w30);font-family:JetBrains Mono,monospace;text-align:center;margin-bottom:4px;text-decoration:none">Manage Base limits &rarr;</a>`;
+        linksHtml+=`<a href="https://basescan.org/address/${b.address}" target="_blank" style="display:block;font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;text-align:center;margin-bottom:4px;text-decoration:none">View on Basescan &rarr;</a>`;
+      }
+      if(sol)linksHtml+=`<a href="https://explorer.solana.com/address/${sol.address}?cluster=devnet" target="_blank" style="display:block;font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;text-align:center;margin-bottom:4px;text-decoration:none">View on Solana Explorer &rarr;</a>`;
       modal.innerHTML=`
         <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">
           <div style="width:22px;height:22px;border-radius:50%;background:var(--green);color:white;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center">
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>
           </div>
-          <div class="modal-title" style="margin:0">Wallet Ready</div>
+          <div class="modal-title" style="margin:0">Wallets Ready</div>
         </div>
-        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin:12px 0 16px;padding-left:30px">Your smart wallet is deployed and secured.</div>
-        <div style="padding:12px;border:1px solid var(--border);border-radius:8px;margin-bottom:12px">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace">Wallet</span>
-            <span style="font-size:10px;color:var(--text);font-family:'JetBrains Mono',monospace">${w.address.slice(0,6)}...${w.address.slice(-4)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace">Agent</span>
-            <span style="font-size:10px;color:var(--text);font-family:'JetBrains Mono',monospace">${w.agentAddress.slice(0,6)}...${w.agentAddress.slice(-4)}</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-            <span style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace">Chain</span>
-            <span style="font-size:10px;color:var(--text);font-family:'JetBrains Mono',monospace">Base</span>
-          </div>
-          <div style="display:flex;justify-content:space-between;align-items:center">
-            <span style="font-size:9px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;font-family:'JetBrains Mono',monospace">Limits</span>
-            <span style="font-size:10px;color:var(--text);font-family:'JetBrains Mono',monospace">$${(parseInt(w.policy?.dailyLimit||'50000000')/1e6).toFixed(0)}/day · $${(parseInt(w.policy?.perTxLimit||'25000000')/1e6).toFixed(0)}/tx</span>
-          </div>
-        </div>
-        ${w.setupUrl?'<a href="'+w.setupUrl+'" target="_blank" style="display:block;font-size:10px;color:var(--w30);font-family:JetBrains Mono,monospace;text-align:center;margin-bottom:12px;text-decoration:none">Manage limits &rarr;</a>':''}
-        <a href="https://basescan.org/address/${w.address}" target="_blank" style="display:block;font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;text-align:center;margin-bottom:16px;text-decoration:none">View on Basescan &rarr;</a>
+        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin:8px 0 12px;padding-left:30px">Multi-chain wallets deployed and secured.</div>
+        ${walletsHtml}
+        <div style="margin:8px 0 12px">${linksHtml}</div>
         <button class="spawn-btn" style="width:100%;padding:10px" id="wCloseBtn">CLOSE</button>`;
       document.getElementById('wCloseBtn').onclick=()=>overlay.classList.remove('open');
     }
@@ -2265,20 +2281,7 @@ setTimeout(()=>{autoFit(false);},100);
     wallet:{
       icon:'<svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg>',
       label:'Wallet',nodeClass:'node',
-      provision:async()=>{
-        // 1. Generate keypair
-        const kg=await fetch('/wallet/keygen',{method:'POST',headers:{'Content-Type':'application/json'}});
-        if(!kg.ok)throw new Error('Failed to generate keypair');
-        const keys=await kg.json();
-        // 2. Create smart wallet on-chain
-        const r=await fetch('/wallet',{method:'POST',headers:{'Content-Type':'application/json',...(authHeaders())},body:JSON.stringify({agent:keys.address,mode:'managed'})});
-        if(!r.ok){const e=await r.json();throw new Error(e.error||'Failed to create wallet');}
-        const d=await r.json();
-        const addr=d.wallet?.address||'';
-        const short=addr?addr.slice(0,6)+'..'+addr.slice(-4):'Created';
-        // 3. Show result modal with private key + setup URL
-        return{sub:short,_walletResult:{...d,keys}};
-      }
+      provision:async()=>{return{};}
     }
   };
 
@@ -2309,26 +2312,44 @@ setTimeout(()=>{autoFit(false);},100);
       el.addEventListener('mousedown',e=>{if(e.target.closest('.conn-handle'))return;dragNode=el;nodeMoved=false;dnsx=e.clientX;dnsy=e.clientY;const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}mdStartPos.clear();if(multiSelected.has(el)&&multiSelected.size>1){multiSelected.forEach(mn=>{const mb=bodies.get(mn);const px=mb?mb.x:(parseFloat(mn.style.left)||0);const py=mb?mb.y:(parseFloat(mn.style.top)||0);mdStartPos.set(mn,{x:px,y:py});});}e.stopPropagation();});
       if(window._wireConnectSrc){conns.push([window._wireConnectSrc,nodeId]);const _dci=addLinePair();window._wireConnectSrc=null;drawLines();const _dsf=startLineFlow(_dci,2500,true);setTimeout(_dsf,2500);}
       drawLines();pushState();
-      // Background provision
+      // Background provision: create BOTH Base + Solana wallets in parallel
       (async()=>{
         try{
-          const kg=await fetch('/wallet/keygen',{method:'POST',headers:{'Content-Type':'application/json'}});
-          if(!kg.ok)throw new Error('Keygen failed');
-          const keys=await kg.json();
-          const r=await fetch('/wallet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent:keys.address,mode:'managed'})});
-          if(!r.ok){const e=await r.json();throw new Error(e.error||'Wallet creation failed');}
-          const d=await r.json();
-          const addr=d.wallet?.address||'';
-          const short=addr?addr.slice(0,6)+'..'+addr.slice(-4):'Created';
-          // Save to localStorage (pk stored until user downloads)
-          const walletData={address:addr,agentAddress:keys.address,privateKey:keys.privateKey,setupUrl:d.setupUrl||'',setupToken:d.setupToken||'',policy:d.wallet?.policy||{},keySaved:false};
+          // Generate keypairs for both chains
+          const [kgBase,kgSol]=await Promise.all([
+            fetch('/wallet/keygen',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chain:'base'})}),
+            fetch('/wallet/keygen',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({chain:'solana'})})
+          ]);
+          if(!kgBase.ok||!kgSol.ok)throw new Error('Keygen failed');
+          const [keysBase,keysSol]=await Promise.all([kgBase.json(),kgSol.json()]);
+          // Create wallets on both chains
+          const [rBase,rSol]=await Promise.all([
+            fetch('/wallet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent:keysBase.address,mode:'managed',chain:'base'})}),
+            fetch('/wallet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({agent:keysSol.address,mode:'managed',chain:'solana'})})
+          ]);
+          const errs=[];
+          let dBase=null,dSol=null;
+          if(rBase.ok)dBase=await rBase.json(); else{const e=await rBase.json();errs.push('Base: '+(e.error||'failed'));}
+          if(rSol.ok)dSol=await rSol.json(); else{const e=await rSol.json();errs.push('Solana: '+(e.error||'failed'));}
+          if(!dBase&&!dSol)throw new Error(errs.join('; '));
+          // Build wallet data
+          const walletData={
+            base:dBase?{address:dBase.wallet?.address||'',agentAddress:keysBase.address,privateKey:keysBase.privateKey,setupUrl:dBase.setupUrl||'',setupToken:dBase.setupToken||'',policy:dBase.wallet?.policy||{}}:null,
+            solana:dSol?{address:dSol.wallet?.address||'',agentAddress:keysSol.address,privateKey:keysSol.privateKey,setupUrl:dSol.setupUrl||'',setupToken:dSol.setupToken||'',policy:dSol.wallet?.policy||{}}:null,
+            keySaved:false,setupDone:false
+          };
           localStorage.setItem('aw_'+nodeId,JSON.stringify(walletData));
-          // Update node
+          // Update node display
           el.querySelector('.s-dot').className='s-dot needs-setup';
-          el.querySelector('.node-sub').innerHTML='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:3px">'+short+' <span style="color:#f0a030;font-size:8px">setup required</span>';
+          let subHtml='';
+          if(walletData.base)subHtml+='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+walletData.base.address.slice(0,6)+'..'+walletData.base.address.slice(-4);
+          if(walletData.base&&walletData.solana)subHtml+=' <span style="color:var(--w20);margin:0 2px">/</span> ';
+          if(walletData.solana)subHtml+='<img src="/assets/logos/solana-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+walletData.solana.address.slice(0,4)+'..'+walletData.solana.address.slice(-4);
+          if(errs.length)subHtml+=' <span style="color:var(--red);font-size:8px">('+errs.join(', ')+')</span>';
+          else subHtml+=' <span style="color:#f0a030;font-size:8px">setup required</span>';
+          el.querySelector('.node-sub').innerHTML=subHtml;
           el.classList.remove('unconfigured');
           pushState();
-          // Click handler to open wallet modal
           if(!el._walletBound){el._walletBound=true;el.addEventListener('click',()=>{if(nodeMoved)return;showWalletModal(nodeId);});}
         }catch(err){
           el.querySelector('.s-dot').className='s-dot';el.querySelector('.s-dot').style.background='var(--red)';
