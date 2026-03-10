@@ -190,26 +190,28 @@ background-size:40px 40px}
 .balance-add{width:16px;height:16px;border-radius:4px;background:rgba(63,185,80,0.12);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;line-height:1;margin-left:2px}
 
 /* Funding modal */
-.fund-section{margin-bottom:20px}
-.fund-label{font-size:9px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;font-family:'JetBrains Mono',monospace}
-.fund-addr-row{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:6px}
-.fund-addr-chain{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;min-width:50px;font-family:'JetBrains Mono',monospace}
+.fund-balance-hero{text-align:center;padding:24px 0 20px}
+.fund-balance-amount{font-size:36px;font-weight:700;color:var(--text);letter-spacing:-1px}
+.fund-balance-label{font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1.5px;margin-top:4px;font-family:'JetBrains Mono',monospace}
+.fund-deposit-toggle{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;margin:0 auto;border:1px dashed var(--border);border-radius:8px;background:none;color:var(--w30);font-size:10px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s;text-transform:uppercase;letter-spacing:0.5px}
+.fund-deposit-toggle:hover{border-color:var(--w30);color:var(--text)}
+.fund-deposit-toggle svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.fund-addrs{margin-top:12px;display:none}
+.fund-addrs.open{display:block}
+.fund-addr-row{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:5px;cursor:pointer;transition:border-color .15s}
+.fund-addr-row:hover{border-color:var(--w30)}
+.fund-addr-chain{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;min-width:36px;font-family:'JetBrains Mono',monospace}
 .fund-addr-chain.sol{color:#9945FF}
 .fund-addr-chain.base{color:#0052FF}
-.fund-addr{font-size:10px;color:var(--text);font-family:'JetBrains Mono',monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.fund-copy-btn{background:none;border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--w30);font-size:9px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .15s}
-.fund-copy-btn:hover{border-color:var(--w40);color:var(--text)}
-.fund-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}
-.fund-stat{padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;text-align:center}
-.fund-stat-val{font-size:16px;font-weight:700;color:var(--text);margin-bottom:2px}
-.fund-stat-label{font-size:9px;color:var(--w20);text-transform:uppercase;letter-spacing:0.5px;font-family:'JetBrains Mono',monospace}
-.fund-tx-list{max-height:200px;overflow-y:auto}
-.fund-tx{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.03);font-size:11px;font-family:'JetBrains Mono',monospace}
-.fund-tx-desc{color:var(--w40);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:12px}
+.fund-addr{font-size:9px;color:var(--w40);font-family:'JetBrains Mono',monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fund-addr-copied{font-size:9px;color:var(--green);font-family:'JetBrains Mono',monospace;display:none}
+.fund-sep{height:1px;background:var(--border);margin:16px 0}
+.fund-tx-list{max-height:160px;overflow-y:auto}
+.fund-tx{display:flex;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.02);font-size:10px;font-family:'JetBrains Mono',monospace}
+.fund-tx-desc{color:var(--w30);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:8px}
 .fund-tx-amount{font-weight:600;white-space:nowrap}
 .fund-tx-amount.deposit{color:var(--green)}
 .fund-tx-amount.debit{color:var(--accent)}
-.fund-tx-time{color:var(--w20);font-size:9px;min-width:70px;text-align:right}
 
 /* Templates */
 .tpl-publish-btn{display:flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:1px solid var(--accent);background:none;color:var(--accent);font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s;text-transform:uppercase;letter-spacing:0.5px}
@@ -3261,83 +3263,58 @@ async function loadBalance(){
 
 async function openFundingModal(){
   if(!_authToken){requireAuth(()=>openFundingModal());return;}
-  
-  // Load fresh data
   await loadBalance();
-  let txHtml='<div style="font-size:11px;color:var(--w20);padding:12px 0">Loading transactions...</div>';
+  const bal=(_balanceData?.balance_usdc||0).toFixed(2);
 
   document.getElementById('modalBody').innerHTML=`
-    <div class="modal-title">BALANCE & FUNDING</div>
-    <div class="modal-subtitle">deposit USDC to deploy services</div>
-
-    <div class="fund-stats">
-      <div class="fund-stat">
-        <div class="fund-stat-val" style="color:var(--green)">$${(_balanceData?.balance_usdc||0).toFixed(2)}</div>
-        <div class="fund-stat-label">Available</div>
-      </div>
-      <div class="fund-stat">
-        <div class="fund-stat-val">$${(_balanceData?.total_deposited||0).toFixed(2)}</div>
-        <div class="fund-stat-label">Total Deposited</div>
-      </div>
-      <div class="fund-stat">
-        <div class="fund-stat-val" style="color:var(--accent)">$${(_balanceData?.total_spent||0).toFixed(2)}</div>
-        <div class="fund-stat-label">Total Spent</div>
-      </div>
+    <div class="fund-balance-hero">
+      <div class="fund-balance-amount">$${bal}</div>
+      <div class="fund-balance-label">USDC Balance</div>
     </div>
-
-    <div class="fund-section">
-      <div class="fund-label">Deposit USDC to your personal wallet</div>
-      <div class="fund-addr-row">
+    <div style="text-align:center">
+      <button class="fund-deposit-toggle" onclick="document.getElementById('fundAddrs').classList.toggle('open');this.querySelector('span').textContent=document.getElementById('fundAddrs').classList.contains('open')?'Hide addresses':'Deposit USDC'">
+        <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        <span>Deposit USDC</span>
+      </button>
+    </div>
+    <div class="fund-addrs" id="fundAddrs">
+      <div style="font-size:9px;color:var(--w20);text-align:center;margin:10px 0 8px">Send USDC to either address. Credits automatically.</div>
+      <div class="fund-addr-row" onclick="copyFundAddr(this,'${_depositAddresses?.solana||''}')">
         <span class="fund-addr-chain sol">SOL</span>
-        <span class="fund-addr" id="fundAddrSol">${_depositAddresses?.solana||'Loading...'}</span>
-        <button class="fund-copy-btn" onclick="copyAddr('fundAddrSol')">COPY</button>
+        <span class="fund-addr">${_depositAddresses?.solana||''}</span>
+        <span class="fund-addr-copied">copied</span>
       </div>
-      <div class="fund-addr-row">
+      <div class="fund-addr-row" onclick="copyFundAddr(this,'${_depositAddresses?.evm||''}')">
         <span class="fund-addr-chain base">BASE</span>
-        <span class="fund-addr" id="fundAddrBase">${_depositAddresses?.evm||'Loading...'}</span>
-        <button class="fund-copy-btn" onclick="copyAddr('fundAddrBase')">COPY</button>
-      </div>
-      <div style="font-size:10px;color:var(--w20);margin-top:6px;line-height:1.5">
-        Send USDC on Solana or Base. Balance credits automatically.
+        <span class="fund-addr">${_depositAddresses?.evm||''}</span>
+        <span class="fund-addr-copied">copied</span>
       </div>
     </div>
-
-    <div class="fund-section">
-      <div class="fund-label">Recent Transactions</div>
-      <div class="fund-tx-list" id="fundTxList">${txHtml}</div>
-    </div>
-
-    <div style="text-align:right;margin-top:8px">
-      <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
-    </div>
+    <div class="fund-sep"></div>
+    <div class="fund-tx-list" id="fundTxList"><div style="font-size:10px;color:var(--w20);padding:8px 0">Loading...</div></div>
   `;
   document.getElementById('modalOverlay').classList.add('open');
 
-  // Load transactions async
+  // Load transactions
   try{
-    const r=await fetch('/balance/transactions?limit=20',{headers:{Authorization:'Bearer '+_authToken}});
+    const r=await fetch('/balance/transactions?limit=10',{headers:{Authorization:'Bearer '+_authToken}});
     const d=await r.json();
-    const txList=document.getElementById('fundTxList');
-    if(!d.transactions?.length){
-      txList.innerHTML='<div style="font-size:11px;color:var(--w20);padding:12px 0">No transactions yet</div>';
-    }else{
-      txList.innerHTML=d.transactions.map(tx=>{
-        const isDeposit=tx.type==='deposit'||tx.type==='refund';
-        const sign=isDeposit?'+':'-';
-        const cls=isDeposit?'deposit':'debit';
-        const time=tx.created_at?new Date(tx.created_at+'Z').toLocaleDateString('en',{month:'short',day:'numeric'}):'-';
-        return `<div class="fund-tx"><span class="fund-tx-desc">${esc(tx.description||tx.type)}</span><span class="fund-tx-amount ${cls}">${sign}$${Math.abs(tx.amount_usdc).toFixed(2)}</span><span class="fund-tx-time">${time}</span></div>`;
-      }).join('');
-    }
+    const el=document.getElementById('fundTxList');
+    if(!d.transactions?.length){el.innerHTML='<div style="font-size:10px;color:var(--w20);padding:8px 0">No transactions yet</div>';return;}
+    el.innerHTML=d.transactions.map(tx=>{
+      const up=tx.type==='deposit'||tx.type==='refund';
+      return `<div class="fund-tx"><span class="fund-tx-desc">${esc(tx.description||tx.type)}</span><span class="fund-tx-amount ${up?'deposit':'debit'}">${up?'+':'-'}$${Math.abs(tx.amount_usdc).toFixed(2)}</span></div>`;
+    }).join('');
   }catch(e){}
 }
 
-function copyAddr(id){
-  const text=document.getElementById(id).textContent;
-  navigator.clipboard.writeText(text).then(()=>{
-    const btn=document.getElementById(id).parentElement.querySelector('.fund-copy-btn');
-    btn.textContent='COPIED';setTimeout(()=>btn.textContent='COPY',1500);
-  });
+function copyFundAddr(row,addr){
+  if(!addr)return;
+  navigator.clipboard.writeText(addr);
+  const cp=row.querySelector('.fund-addr-copied');
+  const ad=row.querySelector('.fund-addr');
+  ad.style.display='none';cp.style.display='inline';
+  setTimeout(()=>{ad.style.display='';cp.style.display='none';},1500);
 }
 
 // Refresh balance every 30s when logged in
