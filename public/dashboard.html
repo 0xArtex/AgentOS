@@ -182,6 +182,51 @@ background-size:40px 40px}
 .skill-card-install:hover{background:var(--accent);color:white}
 .skill-card-install.installed{border-color:var(--green);color:var(--green);pointer-events:none}
 .skill-card-source{font-size:9px;color:var(--w30);font-family:'JetBrains Mono',monospace}
+
+/* Templates */
+.tpl-publish-btn{display:flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:1px solid var(--accent);background:none;color:var(--accent);font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s;text-transform:uppercase;letter-spacing:0.5px}
+.tpl-publish-btn:hover{background:var(--accent);color:#fff}
+.tpl-publish-btn svg{width:13px;height:13px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.tpl-tabs{display:flex;gap:0;margin-top:16px;border-bottom:1px solid var(--border)}
+.tpl-tab{padding:8px 16px;background:none;border:none;border-bottom:2px solid transparent;color:var(--w30);font-size:11px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;text-transform:uppercase;letter-spacing:0.5px;transition:all .2s}
+.tpl-tab:hover{color:var(--w60)}
+.tpl-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+.tpl-sort-row{display:flex;gap:8px;margin-bottom:16px}
+.tpl-sort{padding:5px 14px;border-radius:16px;border:1px solid var(--border);background:none;color:var(--w30);font-size:10px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s}
+.tpl-sort:hover,.tpl-sort.active{border-color:var(--accent);color:var(--accent);background:rgba(245,73,0,0.06)}
+.tpl-empty{text-align:center;padding:60px 20px}
+.tpl-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;cursor:pointer;transition:border-color .2s,transform .15s}
+.tpl-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.tpl-card-preview{height:100px;background:var(--bg);display:flex;align-items:center;justify-content:center;gap:6px;padding:12px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.tpl-svc{padding:4px 10px;border-radius:6px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;font-family:'JetBrains Mono',monospace}
+.tpl-svc.compute{background:rgba(59,130,246,0.1);color:#60a5fa;border:1px solid rgba(59,130,246,0.2)}
+.tpl-svc.wallet{background:rgba(245,73,0,0.1);color:#f54900;border:1px solid rgba(245,73,0,0.2)}
+.tpl-svc.phone{background:rgba(16,185,129,0.1);color:#34d399;border:1px solid rgba(16,185,129,0.2)}
+.tpl-svc.email{background:rgba(168,85,247,0.1);color:#c084fc;border:1px solid rgba(168,85,247,0.2)}
+.tpl-svc.openclaw{background:rgba(251,191,36,0.1);color:#fbbf24;border:1px solid rgba(251,191,36,0.2)}
+.tpl-svc.domain{background:rgba(244,63,94,0.1);color:#fb7185;border:1px solid rgba(244,63,94,0.2)}
+.tpl-card-body{padding:14px 16px}
+.tpl-card-author{font-size:9px;color:var(--w20);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px}
+.tpl-card-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:4px}
+.tpl-card-desc{font-size:11px;color:var(--w40);line-height:1.5;margin-bottom:10px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.tpl-card-footer{display:flex;align-items:center;justify-content:space-between}
+.tpl-card-price{font-size:14px;font-weight:700;color:var(--accent)}
+.tpl-card-price span{font-size:9px;color:var(--w30);font-weight:400;margin-left:2px}
+.tpl-card-deploys{font-size:10px;color:var(--w20);font-family:'JetBrains Mono',monospace}
+.tpl-deploy-btn{padding:6px 14px;border-radius:6px;border:none;background:var(--accent);color:#fff;font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:background .2s;text-transform:uppercase}
+.tpl-deploy-btn:hover{background:#ff5c1a}
+.tpl-detail-services{display:flex;gap:6px;flex-wrap:wrap;margin:12px 0}
+.tpl-detail-price{display:flex;align-items:center;justify-content:space-between;padding:14px 0;border-top:1px solid var(--border);margin-top:12px}
+.tpl-detail-breakdown{font-size:11px;color:var(--w30);font-family:'JetBrains Mono',monospace}
+.tpl-detail-total{font-size:22px;font-weight:700;color:var(--accent)}
+.tpl-deploy-progress{margin-top:16px}
+.tpl-deploy-step{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11px;font-family:'JetBrains Mono',monospace}
+.tpl-step-icon{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0}
+.tpl-step-icon.done{background:rgba(16,185,129,0.15);color:var(--green)}
+.tpl-step-icon.running{background:rgba(245,73,0,0.15);color:var(--accent);animation:pulse 1s infinite}
+.tpl-step-icon.pending{background:rgba(100,100,100,0.15);color:var(--w20)}
+.tpl-step-icon.error{background:rgba(239,68,68,0.15);color:#ef4444}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 /* Settings */
 .settings-sections{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
 .settings-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px}
@@ -421,6 +466,7 @@ background-size:40px 40px}
   <div class="topbar-tabs" id="topTabs">
     <div class="topbar-tab active" data-tab="dashboard"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>DASH</div>
     <div class="topbar-tab" data-tab="skills"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>SKILLS</div>
+    <div class="topbar-tab" data-tab="templates"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>TEMPLATES</div>
     <div class="topbar-tab" data-tab="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82 1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>SETTINGS</div>
   </div>
   <div class="topbar-right">
@@ -432,8 +478,6 @@ background-size:40px 40px}
         <div class="agent-dd-loading" style="padding:12px;font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">Loading...</div>
       </div>
     </div>
-    <button class="new-agent-btn" id="publishBtn" style="border-color:var(--accent);color:var(--accent)" onclick="openPublishModal()"><svg viewBox="0 0 24 24" style="stroke:var(--accent)"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>PUBLISH</button>
-    <a href="/templates.html" class="new-agent-btn" style="text-decoration:none;font-size:10px"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>TEMPLATES</a>
     <button class="new-agent-btn" id="newAgentBtn"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>NEW AGENT</button>
     <div id="authArea">
       <button class="topbar-login" id="loginBtn" onclick="requireAuth()">LOG IN</button>
@@ -537,6 +581,57 @@ background-size:40px 40px}
           <div class="settings-card-title">Treasury</div>
           <div class="settings-row"><span class="settings-label">Solana</span><span class="settings-value" style="font-family:'JetBrains Mono',monospace;font-size:10px">B1YE...8oX3</span></div>
           <div class="settings-row"><span class="settings-label">Base</span><span class="settings-value" style="font-family:'JetBrains Mono',monospace;font-size:10px">0x7fA8...6ab2</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TEMPLATES PAGE -->
+  <div class="tab-page" id="pageTemplates" style="display:none">
+    <div class="tab-page-inner" style="max-width:1100px">
+      <div class="skills-header">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+          <div>
+            <div class="skills-title">Agent Templates</div>
+            <div class="skills-subtitle">Deploy pre-configured agents or publish your own</div>
+          </div>
+          <button class="tpl-publish-btn" onclick="openPublishModal()">
+            <svg viewBox="0 0 24 24"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+            PUBLISH TEMPLATE
+          </button>
+        </div>
+        <div class="tpl-tabs">
+          <button class="tpl-tab active" data-tpl-tab="browse">Browse</button>
+          <button class="tpl-tab" data-tpl-tab="mine">My Templates</button>
+        </div>
+        <div class="skills-search-wrap" style="margin-top:12px">
+          <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input type="text" class="skills-search" id="tplSearch" placeholder="Search templates...">
+        </div>
+      </div>
+
+      <!-- Browse tab -->
+      <div id="tplBrowse">
+        <div class="tpl-sort-row">
+          <button class="tpl-sort active" data-sort="popular">Popular</button>
+          <button class="tpl-sort" data-sort="newest">Newest</button>
+          <button class="tpl-sort" data-sort="cheapest">Cheapest</button>
+        </div>
+        <div class="skills-grid" id="tplGrid"></div>
+        <div class="tpl-empty" id="tplEmpty" style="display:none">
+          <svg viewBox="0 0 24 24" style="width:40px;height:40px;stroke:var(--w20);fill:none;stroke-width:1;margin-bottom:12px"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+          <div style="font-size:14px;color:var(--w40);font-weight:600;margin-bottom:4px">No templates yet</div>
+          <div style="font-size:11px;color:var(--w20)">Build an agent on the canvas and publish it as a template</div>
+        </div>
+      </div>
+
+      <!-- My templates tab -->
+      <div id="tplMine" style="display:none">
+        <div class="skills-grid" id="tplMineGrid"></div>
+        <div class="tpl-empty" id="tplMineEmpty" style="display:none">
+          <svg viewBox="0 0 24 24" style="width:40px;height:40px;stroke:var(--w20);fill:none;stroke-width:1;margin-bottom:12px"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>
+          <div style="font-size:14px;color:var(--w40);font-weight:600;margin-bottom:4px">No published templates</div>
+          <div style="font-size:11px;color:var(--w20)">Publish your canvas setup to start earning</div>
         </div>
       </div>
     </div>
@@ -1252,14 +1347,14 @@ document.getElementById('topTabs').addEventListener('click',e=>{
   t.classList.add('active');
   const canvas=document.getElementById('canvasWrap');
   const dock=document.getElementById('svcDock');
-  const pages={skills:document.getElementById('pageSkills'),settings:document.getElementById('pageSettings')};
+  const pages={skills:document.getElementById('pageSkills'),settings:document.getElementById('pageSettings'),templates:document.getElementById('pageTemplates')};
   // Hide all pages
   Object.values(pages).forEach(p=>p.style.display='none');
   if(tab==='dashboard'){
     canvas.style.display='';dock.style.display='';
   } else {
     canvas.style.display='none';dock.style.display='none';
-    if(pages[tab]){pages[tab].style.display='';if(tab==='skills')loadSkillsPage();}
+    if(pages[tab]){pages[tab].style.display='';if(tab==='skills')loadSkillsPage();if(tab==='templates')loadTemplatesPage();}
   }
 });
 
@@ -3081,47 +3176,190 @@ document.getElementById('skillsPageSearch').addEventListener('input',e=>{
   ));
 });
 
-// ─── Publish as Template ───
+// ─── TEMPLATES SYSTEM ───
+let _tplSort='popular';
+let _tplTab='browse';
+
+function loadTemplatesPage(){
+  if(_tplTab==='browse') loadBrowseTemplates();
+  else loadMyTemplates();
+}
+
+async function loadBrowseTemplates(){
+  const grid=document.getElementById('tplGrid');
+  const empty=document.getElementById('tplEmpty');
+  grid.innerHTML='<div style="padding:20px;font-size:11px;color:var(--w20)">Loading...</div>';
+  try{
+    const r=await fetch(`/api/templates?sort=${_tplSort}`);
+    const d=await r.json();
+    if(!d.templates?.length){grid.innerHTML='';empty.style.display='';return;}
+    empty.style.display='none';
+    grid.innerHTML=d.templates.map(t=>renderTplCard(t)).join('');
+  }catch(e){grid.innerHTML=`<div style="color:var(--red)">${e.message}</div>`;}
+}
+
+async function loadMyTemplates(){
+  const grid=document.getElementById('tplMineGrid');
+  const empty=document.getElementById('tplMineEmpty');
+  if(!_authToken){empty.style.display='';grid.innerHTML='';return;}
+  grid.innerHTML='<div style="padding:20px;font-size:11px;color:var(--w20)">Loading...</div>';
+  try{
+    const r=await fetch('/api/templates/mine/list',{headers:{Authorization:'Bearer '+_authToken}});
+    const d=await r.json();
+    if(!d.templates?.length){grid.innerHTML='';empty.style.display='';return;}
+    empty.style.display='none';
+    grid.innerHTML=d.templates.map(t=>`
+      <div class="tpl-card" onclick="openTplDetail('${t.id}')">
+        <div class="tpl-card-body">
+          <div class="tpl-card-name">${esc(t.name)}</div>
+          <div class="tpl-card-desc">${esc(t.description||'')}</div>
+          <div class="tpl-card-footer">
+            <div class="tpl-card-price">$${t.total_price_usdc}<span>USDC</span></div>
+            <div class="tpl-card-deploys">${t.deploys} deploy${t.deploys!==1?'s':''}</div>
+            <span style="font-size:9px;padding:3px 8px;border-radius:4px;background:rgba(255,255,255,0.04);color:var(--w30)">${t.status}</span>
+          </div>
+        </div>
+      </div>
+    `).join('');
+  }catch(e){grid.innerHTML='';}
+}
+
+function renderTplCard(t){
+  const svcs=(t.services||[]).map(s=>{
+    const type=(s.type||'').replace(/_.*$/,'');
+    const label=s.spec?`${s.type} ${s.spec}`:s.type;
+    return `<span class="tpl-svc ${type}">${label}</span>`;
+  }).join('');
+  return `<div class="tpl-card" onclick="openTplDetail('${t.id}')">
+    <div class="tpl-card-preview">${svcs||'<span style="color:var(--w20);font-size:10px">No services</span>'}</div>
+    <div class="tpl-card-body">
+      <div class="tpl-card-author">by ${esc(t.author?.name||'Anonymous')}</div>
+      <div class="tpl-card-name">${esc(t.name)}</div>
+      <div class="tpl-card-desc">${esc(t.description||'No description')}</div>
+      <div class="tpl-card-footer">
+        <div class="tpl-card-price">${t.total_price_usdc>0?'$'+t.total_price_usdc+'<span>USDC</span>':'FREE'}</div>
+        <div class="tpl-card-deploys">${t.deploys} deploy${t.deploys!==1?'s':''}</div>
+      </div>
+    </div>
+  </div>`;
+}
+
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+
+async function openTplDetail(id){
+  try{
+    const r=await fetch(`/api/templates/${id}`);
+    const t=await r.json();
+    const svcs=(t.services||[]).map(s=>{
+      const type=(s.type||'').replace(/_.*$/,'');
+      return `<span class="tpl-svc ${type}">${s.spec?s.type+' '+s.spec:s.type}</span>`;
+    }).join('');
+
+    const authorWallet=t.author?.wallet?t.author.wallet.slice(0,6)+'...'+t.author.wallet.slice(-4):'';
+
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title">${esc(t.name)}</div>
+      <div class="modal-subtitle">by ${esc(t.author?.name||'Anonymous')} ${authorWallet?'<span style="color:var(--w20)">('+authorWallet+')</span>':''}</div>
+      <div style="margin:14px 0;font-size:12px;color:var(--w40);line-height:1.6">${esc(t.description||'')}</div>
+      <div class="tpl-detail-services">${svcs}</div>
+      <div class="tpl-detail-price">
+        <div class="tpl-detail-breakdown">Base $${t.base_cost_usdc} + Margin $${t.margin_usdc}</div>
+        <div class="tpl-detail-total">${t.total_price_usdc>0?'$'+t.total_price_usdc:'FREE'}</div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:14px">
+        <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
+        <button class="tpl-deploy-btn" id="tplDeployBtn" onclick="deployTpl('${t.id}')">DEPLOY NOW</button>
+      </div>
+      <div id="tplDeployStatus"></div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  }catch(e){}
+}
+
+async function deployTpl(id){
+  if(!_authToken){requireAuth(()=>deployTpl(id));return;}
+  const btn=document.getElementById('tplDeployBtn');
+  const status=document.getElementById('tplDeployStatus');
+  btn.disabled=true;btn.textContent='DEPLOYING...';
+  try{
+    const r=await fetch(`/api/templates/${id}/deploy`,{
+      method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+_authToken}
+    });
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error);
+    pollTplDeploy(d.deploymentId,status,btn);
+  }catch(e){
+    status.innerHTML=`<div style="color:var(--red);padding:12px 0;font-size:11px">${e.message}</div>`;
+    btn.disabled=false;btn.textContent='DEPLOY NOW';
+  }
+}
+
+function pollTplDeploy(deployId,statusEl,btn){
+  const icons={done:'\u2713',running:'...',pending:'\u25CB',error:'\u2717'};
+  const poll=async()=>{
+    const r=await fetch(`/api/templates/deployments/${deployId}`,{headers:{Authorization:'Bearer '+_authToken}});
+    const d=await r.json();
+    statusEl.innerHTML='<div class="tpl-deploy-progress">'+
+      (d.provisioning_log||[]).map(s=>`<div class="tpl-deploy-step"><div class="tpl-step-icon ${s.status}">${icons[s.status]||'?'}</div><span style="color:var(--w40)">${s.step}</span><span style="color:var(--w20);margin-left:auto;font-size:10px">${s.detail||''}</span></div>`).join('')+
+    '</div>';
+    if(d.status==='completed'){
+      btn.textContent='DEPLOYED';btn.style.background='var(--green)';
+      statusEl.innerHTML+=`<div style="text-align:center;padding:14px 0"><div style="color:var(--green);font-weight:600;font-size:12px;margin-bottom:6px">Deployment complete</div><button class="tpl-deploy-btn" onclick="document.getElementById('modalOverlay').classList.remove('open');document.querySelector('[data-tab=dashboard]').click()">OPEN CANVAS</button></div>`;
+      loadBrowseTemplates();
+    }else if(d.status==='failed'){
+      btn.textContent='FAILED';btn.style.background='var(--red)';
+    }else{
+      setTimeout(poll,2000);
+    }
+  };
+  poll();
+}
+
+// Publish modal
 function openPublishModal(){
   requireAuth(()=>{
     const nodes=window.canvasNodes||[];
-    if(nodes.length===0){alert('Add some nodes to your canvas first.');return;}
+    if(nodes.length===0){
+      document.getElementById('modalBody').innerHTML=`
+        <div class="modal-title">PUBLISH TEMPLATE</div>
+        <div class="modal-subtitle" style="color:var(--w30)">Add some services to your canvas first, then publish it as a template for others to deploy.</div>
+        <div style="text-align:right;margin-top:16px"><button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">GOT IT</button></div>`;
+      document.getElementById('modalOverlay').classList.add('open');
+      return;
+    }
 
-    // Count services
     const svcCounts={};
-    nodes.forEach(n=>{
-      const t=n.type||'unknown';
-      svcCounts[t]=(svcCounts[t]||0)+1;
-    });
-    const svcSummary=Object.entries(svcCounts).map(([k,v])=>`${v}x ${k}`).join(', ');
+    nodes.forEach(n=>{const t=n.type||'unknown';svcCounts[t]=(svcCounts[t]||0)+1;});
+    const svcPills=Object.entries(svcCounts).map(([type,count])=>{
+      const cls=type.replace(/_.*$/,'');
+      return `<span class="tpl-svc ${cls}">${count}x ${type}</span>`;
+    }).join(' ');
 
     document.getElementById('modalBody').innerHTML=`
-      <div class="modal-title">PUBLISH AS TEMPLATE</div>
+      <div class="modal-title">PUBLISH TEMPLATE</div>
       <div class="modal-subtitle">share your agent setup on the marketplace</div>
-      <div style="margin:16px 0">
-        <div style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Services detected</div>
-        <div style="font-size:12px;color:var(--text)">${svcSummary || 'No services'}</div>
+      <div style="margin:14px 0"><div style="font-size:9px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px">Services detected</div><div style="display:flex;gap:6px;flex-wrap:wrap">${svcPills}</div></div>
+      <div style="margin-bottom:10px">
+        <label style="font-size:9px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Template Name</label>
+        <input id="pubName" type="text" placeholder="e.g. Trading Bot Pro" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:'JetBrains Mono',monospace;outline:none">
       </div>
-      <div style="margin-bottom:12px">
-        <label style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Template Name</label>
-        <input id="pubName" type="text" placeholder="e.g. Trading Bot Pro" style="width:100%;padding:8px 12px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace">
+      <div style="margin-bottom:10px">
+        <label style="font-size:9px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Description</label>
+        <textarea id="pubDesc" rows="3" placeholder="What does this agent do?" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:'JetBrains Mono',monospace;resize:vertical;outline:none"></textarea>
       </div>
-      <div style="margin-bottom:12px">
-        <label style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Description</label>
-        <textarea id="pubDesc" rows="3" placeholder="What does this agent do?" style="width:100%;padding:8px 12px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace;resize:vertical"></textarea>
-      </div>
-      <div style="margin-bottom:12px">
-        <label style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Your Margin (USDC)</label>
-        <input id="pubMargin" type="number" value="0" min="0" step="1" style="width:120px;padding:8px 12px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace">
-        <span style="font-size:11px;color:var(--w20);margin-left:8px">Base service costs are calculated automatically</span>
-      </div>
-      <div style="margin-bottom:12px">
-        <label style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Tags (comma separated)</label>
-        <input id="pubTags" type="text" placeholder="trading, defi, solana" style="width:100%;padding:8px 12px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace">
+      <div style="display:flex;gap:16px;margin-bottom:10px">
+        <div style="flex:1">
+          <label style="font-size:9px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Your Margin (USDC)</label>
+          <input id="pubMargin" type="number" value="0" min="0" step="1" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:'JetBrains Mono',monospace;outline:none">
+        </div>
+        <div style="flex:1">
+          <label style="font-size:9px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Tags</label>
+          <input id="pubTags" type="text" placeholder="trading, defi, solana" style="width:100%;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:'JetBrains Mono',monospace;outline:none">
+        </div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
         <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
-        <button class="spawn-btn" style="background:var(--accent);color:#fff;border:none" onclick="doPublishTemplate()">PUBLISH</button>
+        <button class="tpl-deploy-btn" onclick="doPublishTemplate()">PUBLISH</button>
       </div>
     `;
     document.getElementById('modalOverlay').classList.add('open');
@@ -3130,43 +3368,68 @@ function openPublishModal(){
 
 async function doPublishTemplate(){
   const name=document.getElementById('pubName').value.trim();
-  if(!name){alert('Name required');return;}
+  if(!name){document.getElementById('pubName').style.borderColor='var(--accent)';return;}
   const desc=document.getElementById('pubDesc').value.trim();
   const margin=parseFloat(document.getElementById('pubMargin').value)||0;
   const tags=document.getElementById('pubTags').value.trim();
-
-  const token=localStorage.getItem('dash_token');
-  const projectId=window.currentProjectId;
+  const projectId=window.currentProjectId||_currentProjectId;
   if(!projectId){alert('No project selected');return;}
-
-  // Save canvas first
   if(window.saveCanvasState) await window.saveCanvasState();
 
   try{
-    const resp=await fetch('/api/templates',{
+    const r=await fetch('/api/templates',{
       method:'POST',
-      headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      headers:{'Content-Type':'application/json',Authorization:'Bearer '+_authToken},
       body:JSON.stringify({name,description:desc,projectId,margin,tags:tags?tags.split(',').map(t=>t.trim()):[]})
     });
-    const data=await resp.json();
-    if(!resp.ok) throw new Error(data.error);
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error);
 
     document.getElementById('modalBody').innerHTML=`
       <div class="modal-title" style="color:var(--green)">PUBLISHED</div>
       <div class="modal-subtitle">your template is live on the marketplace</div>
-      <div style="margin:16px 0;font-size:12px;color:var(--text)">
-        <div><strong>Total price:</strong> $${data.totalPrice} USDC</div>
-        <div style="margin-top:4px"><strong>Base cost:</strong> $${data.baseCost} | <strong>Your margin:</strong> $${data.margin}</div>
+      <div style="margin:14px 0;font-size:12px;color:var(--text);font-family:'JetBrains Mono',monospace">
+        <div>Total price: <span style="color:var(--accent);font-weight:700">$${d.totalPrice} USDC</span></div>
+        <div style="margin-top:4px;font-size:11px;color:var(--w30)">Base $${d.baseCost} + Your margin $${d.margin}</div>
       </div>
       <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
-        <a href="/templates.html" class="spawn-btn" style="text-decoration:none;background:var(--accent);color:#fff;border:none;display:inline-block">VIEW ON MARKETPLACE</a>
         <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
+        <button class="tpl-deploy-btn" onclick="document.getElementById('modalOverlay').classList.remove('open');document.querySelector('[data-tab=templates]').click()">VIEW IN TEMPLATES</button>
       </div>
     `;
-  }catch(e){
-    alert('Publish failed: '+e.message);
-  }
+  }catch(e){alert('Publish failed: '+e.message);}
 }
+
+// Template sub-tabs
+document.querySelectorAll('.tpl-tab').forEach(tab=>{
+  tab.addEventListener('click',()=>{
+    document.querySelectorAll('.tpl-tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    _tplTab=tab.dataset.tplTab;
+    document.getElementById('tplBrowse').style.display=_tplTab==='browse'?'':'none';
+    document.getElementById('tplMine').style.display=_tplTab==='mine'?'':'none';
+    loadTemplatesPage();
+  });
+});
+
+// Template sort buttons
+document.querySelectorAll('.tpl-sort').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tpl-sort').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    _tplSort=btn.dataset.sort;
+    loadBrowseTemplates();
+  });
+});
+
+// Template search
+document.getElementById('tplSearch')?.addEventListener('input',e=>{
+  // Client-side filter on already loaded cards
+  const q=e.target.value.toLowerCase();
+  document.querySelectorAll('#tplGrid .tpl-card, #tplMineGrid .tpl-card').forEach(card=>{
+    card.style.display=card.textContent.toLowerCase().includes(q)?'':'none';
+  });
+});
 </script>
 </body>
 </html>
