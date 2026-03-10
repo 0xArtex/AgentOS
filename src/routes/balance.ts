@@ -52,6 +52,22 @@ router.get("/deposit-address", (req: Request, res: Response) => {
   });
 });
 
+// POST /debit — debit balance for service
+router.post("/debit", requireDashboardAuth, (req: Request, res: Response) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Auth required" });
+
+  const { amount, serviceType, description } = req.body || {};
+  if (!amount || amount <= 0) return res.status(400).json({ error: "amount required (positive number)" });
+
+  try {
+    const balance = balanceService.debit(userId, amount, serviceType || "service", description || "Service provisioning");
+    res.json({ success: true, ...balance });
+  } catch (e: any) {
+    res.status(402).json({ error: e.message });
+  }
+});
+
 // POST /deposit/crypto — manual deposit notification (with tx hash)
 router.post("/deposit/crypto", (req: Request, res: Response) => {
   const userId = getUserId(req);

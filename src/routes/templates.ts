@@ -223,8 +223,16 @@ router.post("/:id/deploy", requireDashboardAuth, async (req: DashboardRequest, r
   const template = db.prepare("SELECT * FROM templates WHERE id = ? AND status = 'published'").get(req.params.id) as any;
   if (!template) return res.status(404).json({ error: "Template not found" });
 
-  // TODO: Check balance / process payment
-  // For now, create deployment record and start provisioning
+  // Check balance and debit
+  const totalPrice = template.total_price_usdc || 0;
+  if (totalPrice > 0) {
+    try {
+      const { debit } = await import("../services/balance");
+      debit(userId!, totalPrice, "template_deploy", `Template: ${template.name}`);
+    } catch (e: any) {
+      return res.status(402).json({ error: e.message, required: totalPrice });
+    }
+  }
 
   const deployId = crypto.randomUUID();
   db.prepare(`

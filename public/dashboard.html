@@ -183,6 +183,34 @@ background-size:40px 40px}
 .skill-card-install.installed{border-color:var(--green);color:var(--green);pointer-events:none}
 .skill-card-source{font-size:9px;color:var(--w30);font-family:'JetBrains Mono',monospace}
 
+/* Balance chip */
+.balance-chip{display:flex;align-items:center;gap:6px;padding:5px 10px 5px 8px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all .2s;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:600;color:var(--green)}
+.balance-chip:hover{border-color:var(--green);background:rgba(63,185,80,0.06)}
+.balance-chip svg{width:12px;height:12px;stroke:var(--green);fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.balance-add{width:16px;height:16px;border-radius:4px;background:rgba(63,185,80,0.12);color:var(--green);display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;line-height:1;margin-left:2px}
+
+/* Funding modal */
+.fund-section{margin-bottom:20px}
+.fund-label{font-size:9px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;font-family:'JetBrains Mono',monospace}
+.fund-addr-row{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:6px}
+.fund-addr-chain{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;min-width:50px;font-family:'JetBrains Mono',monospace}
+.fund-addr-chain.sol{color:#9945FF}
+.fund-addr-chain.base{color:#0052FF}
+.fund-addr{font-size:10px;color:var(--text);font-family:'JetBrains Mono',monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fund-copy-btn{background:none;border:1px solid var(--border);border-radius:4px;padding:3px 8px;color:var(--w30);font-size:9px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .15s}
+.fund-copy-btn:hover{border-color:var(--w40);color:var(--text)}
+.fund-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:20px}
+.fund-stat{padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;text-align:center}
+.fund-stat-val{font-size:16px;font-weight:700;color:var(--text);margin-bottom:2px}
+.fund-stat-label{font-size:9px;color:var(--w20);text-transform:uppercase;letter-spacing:0.5px;font-family:'JetBrains Mono',monospace}
+.fund-tx-list{max-height:200px;overflow-y:auto}
+.fund-tx{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.03);font-size:11px;font-family:'JetBrains Mono',monospace}
+.fund-tx-desc{color:var(--w40);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:12px}
+.fund-tx-amount{font-weight:600;white-space:nowrap}
+.fund-tx-amount.deposit{color:var(--green)}
+.fund-tx-amount.debit{color:var(--accent)}
+.fund-tx-time{color:var(--w20);font-size:9px;min-width:70px;text-align:right}
+
 /* Templates */
 .tpl-publish-btn{display:flex;align-items:center;gap:6px;padding:8px 16px;border-radius:8px;border:1px solid var(--accent);background:none;color:var(--accent);font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s;text-transform:uppercase;letter-spacing:0.5px}
 .tpl-publish-btn:hover{background:var(--accent);color:#fff}
@@ -478,6 +506,11 @@ background-size:40px 40px}
         <div class="agent-dd-loading" style="padding:12px;font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">Loading...</div>
       </div>
     </div>
+    <div class="balance-chip" id="balanceChip" style="display:none" onclick="openFundingModal()">
+      <svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>
+      <span id="balanceAmount">$0.00</span>
+      <span class="balance-add">+</span>
+    </div>
     <button class="new-agent-btn" id="newAgentBtn"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>NEW AGENT</button>
     <div id="authArea">
       <button class="topbar-login" id="loginBtn" onclick="requireAuth()">LOG IN</button>
@@ -703,11 +736,15 @@ function onAuthSuccess(){
 
 function updateAuthUI(){
   const area=document.getElementById('authArea');
+  const chip=document.getElementById('balanceChip');
   if(_authUser){
     const name=_authUser.display_name||_authUser.email||'User';
     area.innerHTML=`<div class="topbar-user"><span class="user-dot"></span><span>${name}</span><span class="topbar-logout" onclick="doLogout()">logout</span></div>`;
+    chip.style.display='flex';
+    loadBalance();
   } else {
     area.innerHTML='<button class="topbar-login" onclick="requireAuth()">LOG IN</button>';
+    chip.style.display='none';
   }
 }
 
@@ -1928,13 +1965,43 @@ function showConfigModal(el,svcType,nodeId){
     const valEl=document.getElementById('cfgVal');
     const val=valEl?valEl.value:'';
 
+    // Check balance before provisioning
+    const svcCosts={phone:3,vps:5,domain:12,email:0,xaccount:0,wallet:0,openclaw:0,skills:0};
+    const cost=svcCosts[svcType]||0;
+    if(cost>0&&_authToken){
+      try{
+        const br=await fetch('/balance',{headers:{Authorization:'Bearer '+_authToken}});
+        const bd=await br.json();
+        if(bd.balance_usdc<cost){
+          document.getElementById('modalBody').innerHTML=`
+            <div class="modal-title" style="color:var(--accent)">INSUFFICIENT BALANCE</div>
+            <div class="modal-subtitle">you need $${cost} USDC to provision ${meta.label}</div>
+            <div style="padding:16px 0;text-align:center">
+              <div style="font-size:20px;font-weight:700;color:var(--text);margin-bottom:4px">$${bd.balance_usdc.toFixed(2)} available</div>
+              <div style="font-size:11px;color:var(--w20)">Need $${(cost-bd.balance_usdc).toFixed(2)} more</div>
+            </div>
+            <div style="display:flex;gap:8px">
+              <button class="spawn-btn" style="border-color:var(--border);color:var(--w40);flex:1" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
+              <button class="spawn-btn" style="flex:1" onclick="document.getElementById('modalOverlay').classList.remove('open');openFundingModal()">ADD FUNDS</button>
+            </div>`;
+          return;
+        }
+      }catch(e){}
+    }
+
     document.getElementById('modalBody').innerHTML=`
       <div class="modal-title">Provisioning ${meta.label}</div>
-      <div class="modal-subtitle">setting up service</div>
+      <div class="modal-subtitle">${cost>0?'charging $'+cost+' USDC — ':''}setting up service</div>
       <div class="provision-status"><div class="provision-spinner"></div>
       <div style="font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace">Provisioning...</div></div>`;
 
     try{
+      // Debit balance
+      if(cost>0&&_authToken){
+        const dr=await fetch('/balance/debit',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+_authToken},body:JSON.stringify({amount:cost,serviceType:svcType,description:meta.label+' provisioning'})});
+        if(!dr.ok){const dd=await dr.json();throw new Error(dd.error||'Payment failed');}
+        loadBalance(); // refresh topbar
+      }
       let sub='Configured';
       const hdr={'Content-Type':'application/json','X-Agent-Id':'dashboard'};
       if(svcType==='phone'){
@@ -3175,6 +3242,106 @@ document.getElementById('skillsPageSearch').addEventListener('input',e=>{
     (sk.description||'').toLowerCase().includes(q)
   ));
 });
+
+// ─── BALANCE & FUNDING ───
+let _balanceData=null;
+let _depositAddresses=null;
+
+async function loadBalance(){
+  if(!_authToken)return;
+  try{
+    const r=await fetch('/balance',{headers:{Authorization:'Bearer '+_authToken}});
+    if(!r.ok)return;
+    const d=await r.json();
+    _balanceData=d;
+    _depositAddresses=d.deposit_addresses;
+    document.getElementById('balanceAmount').textContent='$'+d.balance_usdc.toFixed(2);
+  }catch(e){}
+}
+
+async function openFundingModal(){
+  if(!_authToken){requireAuth(()=>openFundingModal());return;}
+  
+  // Load fresh data
+  await loadBalance();
+  let txHtml='<div style="font-size:11px;color:var(--w20);padding:12px 0">Loading transactions...</div>';
+
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">BALANCE & FUNDING</div>
+    <div class="modal-subtitle">deposit USDC to deploy services</div>
+
+    <div class="fund-stats">
+      <div class="fund-stat">
+        <div class="fund-stat-val" style="color:var(--green)">$${(_balanceData?.balance_usdc||0).toFixed(2)}</div>
+        <div class="fund-stat-label">Available</div>
+      </div>
+      <div class="fund-stat">
+        <div class="fund-stat-val">$${(_balanceData?.total_deposited||0).toFixed(2)}</div>
+        <div class="fund-stat-label">Total Deposited</div>
+      </div>
+      <div class="fund-stat">
+        <div class="fund-stat-val" style="color:var(--accent)">$${(_balanceData?.total_spent||0).toFixed(2)}</div>
+        <div class="fund-stat-label">Total Spent</div>
+      </div>
+    </div>
+
+    <div class="fund-section">
+      <div class="fund-label">Deposit USDC to your personal wallet</div>
+      <div class="fund-addr-row">
+        <span class="fund-addr-chain sol">SOL</span>
+        <span class="fund-addr" id="fundAddrSol">${_depositAddresses?.solana||'Loading...'}</span>
+        <button class="fund-copy-btn" onclick="copyAddr('fundAddrSol')">COPY</button>
+      </div>
+      <div class="fund-addr-row">
+        <span class="fund-addr-chain base">BASE</span>
+        <span class="fund-addr" id="fundAddrBase">${_depositAddresses?.evm||'Loading...'}</span>
+        <button class="fund-copy-btn" onclick="copyAddr('fundAddrBase')">COPY</button>
+      </div>
+      <div style="font-size:10px;color:var(--w20);margin-top:6px;line-height:1.5">
+        Send USDC on Solana or Base. Balance credits automatically.
+      </div>
+    </div>
+
+    <div class="fund-section">
+      <div class="fund-label">Recent Transactions</div>
+      <div class="fund-tx-list" id="fundTxList">${txHtml}</div>
+    </div>
+
+    <div style="text-align:right;margin-top:8px">
+      <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+
+  // Load transactions async
+  try{
+    const r=await fetch('/balance/transactions?limit=20',{headers:{Authorization:'Bearer '+_authToken}});
+    const d=await r.json();
+    const txList=document.getElementById('fundTxList');
+    if(!d.transactions?.length){
+      txList.innerHTML='<div style="font-size:11px;color:var(--w20);padding:12px 0">No transactions yet</div>';
+    }else{
+      txList.innerHTML=d.transactions.map(tx=>{
+        const isDeposit=tx.type==='deposit'||tx.type==='refund';
+        const sign=isDeposit?'+':'-';
+        const cls=isDeposit?'deposit':'debit';
+        const time=tx.created_at?new Date(tx.created_at+'Z').toLocaleDateString('en',{month:'short',day:'numeric'}):'-';
+        return `<div class="fund-tx"><span class="fund-tx-desc">${esc(tx.description||tx.type)}</span><span class="fund-tx-amount ${cls}">${sign}$${Math.abs(tx.amount_usdc).toFixed(2)}</span><span class="fund-tx-time">${time}</span></div>`;
+      }).join('');
+    }
+  }catch(e){}
+}
+
+function copyAddr(id){
+  const text=document.getElementById(id).textContent;
+  navigator.clipboard.writeText(text).then(()=>{
+    const btn=document.getElementById(id).parentElement.querySelector('.fund-copy-btn');
+    btn.textContent='COPIED';setTimeout(()=>btn.textContent='COPY',1500);
+  });
+}
+
+// Refresh balance every 30s when logged in
+setInterval(()=>{if(_authToken)loadBalance();},30000);
 
 // ─── TEMPLATES SYSTEM ───
 let _tplSort='popular';
