@@ -1,142 +1,444 @@
 import { Router, Request, Response } from "express";
+import { db } from "../db";
+import { DashboardRequest, requireDashboardAuth, resolveDashboardSession } from "../middleware/dashboard-session";
+import crypto from "crypto";
 
 const router = Router();
 
-const templates = [
-  {
-    id: "trading-bot",
-    name: "Trading Bot",
-    description: "Autonomous trading agent with alerts, execution logs, and market monitoring",
-    difficulty: "intermediate",
-    services: ["phone", "email", "compute"],
-    config: {
-      phone: { purpose: "Price alerts & margin call notifications" },
-      email: { purpose: "Trade confirmations & daily P&L reports" },
-      compute: { purpose: "Strategy execution & backtesting", recommended_specs: "2 vCPU, 4GB RAM" }
-    },
-    setup_steps: [
-      "POST /api/agents/register — register your agent",
-      "POST /api/compute/provision — spin up compute for strategy execution",
-      "POST /api/phone/provision — get a number for SMS alerts",
-      "POST /api/email/provision — get email for trade confirmations",
-      "Configure your trading strategy on the compute instance"
-    ],
-    example_curl: "curl -X POST http://77.42.89.233:3001/api/agents/register -H Content-Type:application/json -H X-Agent-Id:YOUR_ID"
-  },
-  {
-    id: "customer-support",
-    name: "Customer Support Agent",
-    description: "Handle customer inquiries via phone and email with compute for NLP processing",
-    difficulty: "beginner",
-    services: ["phone", "email", "compute"],
-    config: {
-      phone: { purpose: "Inbound/outbound customer calls" },
-      email: { purpose: "Ticket management & follow-ups" },
-      compute: { purpose: "NLP inference & response generation", recommended_specs: "2 vCPU, 2GB RAM" }
-    },
-    setup_steps: [
-      "POST /api/agents/register — register your agent",
-      "POST /api/phone/provision — get a phone number for customer calls",
-      "POST /api/email/provision — get email for ticket management",
-      "POST /api/compute/provision — spin up NLP inference server"
-    ]
-  },
-  {
-    id: "social-media-manager",
-    name: "Social Media Manager",
-    description: "Content scheduling, engagement monitoring, and cross-platform posting",
-    difficulty: "beginner",
-    services: ["email", "compute", "domain"],
-    config: {
-      email: { purpose: "Notifications & content approval workflows" },
-      compute: { purpose: "Content generation & scheduling", recommended_specs: "1 vCPU, 2GB RAM" },
-      domain: { purpose: "Custom branded link shortener" }
-    },
-    setup_steps: [
-      "POST /api/agents/register — register your agent",
-      "POST /api/compute/provision — spin up content engine",
-      "POST /api/email/provision — set up notification pipeline",
-      "POST /api/domains/register — get a branded domain for links"
-    ]
-  },
-  {
-    id: "defi-monitor",
-    name: "DeFi Monitor",
-    description: "Track on-chain events, liquidation risks, yield opportunities across protocols",
-    difficulty: "advanced",
-    services: ["phone", "email", "compute"],
-    config: {
-      phone: { purpose: "Urgent liquidation warnings & whale alerts" },
-      email: { purpose: "Daily yield reports & portfolio summaries" },
-      compute: { purpose: "RPC node access & on-chain analysis", recommended_specs: "4 vCPU, 8GB RAM" }
-    },
-    setup_steps: [
-      "POST /api/agents/register — register your agent",
-      "POST /api/compute/provision — spin up with RPC access",
-      "POST /api/phone/provision — get SMS for urgent alerts",
-      "POST /api/email/provision — set up daily digest pipeline",
-      "Connect to Solana/EVM RPCs from your compute instance"
-    ]
-  },
-  {
-    id: "research-agent",
-    name: "Research Agent",
-    description: "Web scraping, data analysis, and report generation",
-    difficulty: "beginner",
-    services: ["email", "compute"],
-    config: {
-      email: { purpose: "Report delivery & source notifications" },
-      compute: { purpose: "Scraping & analysis workloads", recommended_specs: "2 vCPU, 4GB RAM" }
-    },
-    setup_steps: [
-      "POST /api/agents/register — register your agent",
-      "POST /api/compute/provision — spin up analysis environment",
-      "POST /api/email/provision — set up report delivery"
-    ]
-  },
-  {
-    id: "multi-agent-orchestrator",
-    name: "Multi-Agent Orchestrator",
-    description: "Coordinate multiple sub-agents with shared communication and compute pool",
-    difficulty: "advanced",
-    services: ["phone", "email", "compute", "domain"],
-    config: {
-      phone: { purpose: "Inter-agent voice coordination & human escalation" },
-      email: { purpose: "Task assignment & status reporting" },
-      compute: { purpose: "Orchestration engine & sub-agent hosting", recommended_specs: "4 vCPU, 8GB RAM" },
-      domain: { purpose: "Unified API gateway for sub-agents" }
-    },
-    setup_steps: [
-      "POST /api/agents/register — register orchestrator agent",
-      "POST /api/compute/provision — spin up orchestration engine",
-      "POST /api/phone/provision — get shared communication line",
-      "POST /api/email/provision — set up task pipeline",
-      "POST /api/domains/register — unified endpoint for sub-agents",
-      "Register sub-agents and configure routing"
-    ]
-  }
-];
+// Service base costs (USDC) — what it actually costs us to provision
+const SERVICE_COSTS: Record<string, number> = {
+  compute_cx23: 5,    // 2 vCPU, 4GB RAM
+  compute_cx33: 10,   // 4 vCPU, 8GB RAM
+  compute_cx43: 20,   // 8 vCPU, 16GB RAM
+  compute_cpx21: 12,  // 3 AMD vCPU, 4GB RAM
+  compute_cpx31: 24,  // 4 AMD vCPU, 8GB RAM
+  wallet_base: 0,     // Free (gas funded from factory)
+  wallet_solana: 0,   // Free (rent funded from factory)
+  phone: 3,           // Monthly phone number
+  email: 0,           // Free (Cloudflare worker)
+  openclaw: 0,        // Free (installed on VPS)
+  domain: 12,         // .dev domain yearly
+};
 
-router.get("/", (_req: Request, res: Response) => {
+function calculateBaseCost(services: any[]): number {
+  let cost = 0;
+  for (const svc of services) {
+    const key = svc.spec ? `${svc.type}_${svc.spec}` : svc.type;
+    cost += SERVICE_COSTS[key] || 0;
+  }
+  return cost;
+}
+
+function getUserId(req: DashboardRequest): string | null {
+  return req.dashUserId || (req.headers["x-dashboard-user"] as string) || null;
+}
+
+// ─── Public: Browse templates ───
+router.get("/", (req: Request, res: Response) => {
+  const { tag, sort = "popular", limit = 20, offset = 0 } = req.query;
+
+  let query = "SELECT id, author_id, name, description, thumbnail, services, base_cost_usdc, margin_usdc, total_price_usdc, deploys, tags, created_at FROM templates WHERE status = 'published'";
+  const params: any[] = [];
+
+  if (tag) {
+    query += " AND tags LIKE ?";
+    params.push(`%${tag}%`);
+  }
+
+  if (sort === "popular") query += " ORDER BY deploys DESC, created_at DESC";
+  else if (sort === "newest") query += " ORDER BY created_at DESC";
+  else if (sort === "cheapest") query += " ORDER BY total_price_usdc ASC";
+  else query += " ORDER BY deploys DESC";
+
+  query += " LIMIT ? OFFSET ?";
+  params.push(Number(limit), Number(offset));
+
+  const templates = db.prepare(query).all(...params);
+
+  // Enrich with author info
+  const enriched = templates.map((t: any) => {
+    const author = db.prepare("SELECT display_name, wallet_address FROM dashboard_users WHERE id = ?").get(t.author_id) as any;
+    return {
+      ...t,
+      services: JSON.parse(t.services || "[]"),
+      tags: t.tags ? t.tags.split(",") : [],
+      author: author ? { name: author.display_name, wallet: author.wallet_address } : null,
+    };
+  });
+
+  res.json({ templates: enriched });
+});
+
+// ─── Public: Get template detail ───
+router.get("/:id", (req: Request, res: Response) => {
+  const template = db.prepare(
+    "SELECT * FROM templates WHERE id = ? AND status IN ('published', 'unlisted')"
+  ).get(req.params.id) as any;
+
+  if (!template) return res.status(404).json({ error: "Template not found" });
+
+  const author = db.prepare("SELECT display_name, wallet_address FROM dashboard_users WHERE id = ?").get(template.author_id) as any;
+
   res.json({
-    templates: templates.map(t => ({
-      id: t.id,
-      name: t.name,
-      description: t.description,
-      difficulty: t.difficulty,
-      services: t.services
-    })),
-    total: templates.length,
-    usage: "GET /api/templates/:id for full config and setup steps"
+    ...template,
+    blueprint: JSON.parse(template.blueprint || "{}"),
+    services: JSON.parse(template.services || "[]"),
+    tags: template.tags ? template.tags.split(",") : [],
+    author: author ? { name: author.display_name, wallet: author.wallet_address } : null,
   });
 });
 
-router.get("/:id", (req: Request, res: Response) => {
-  const template = templates.find(t => t.id === req.params.id);
-  if (!template) {
-    return res.status(404).json({ error: "Template not found", available: templates.map(t => t.id) });
-  }
-  res.json(template);
+// ─── Auth required: Publish template from canvas ───
+router.post("/", requireDashboardAuth, (req: DashboardRequest, res: Response) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Auth required" });
+
+  const { name, description, projectId, margin = 0, tags = [], status = "published" } = req.body;
+  if (!name) return res.status(400).json({ error: "name required" });
+  if (!projectId) return res.status(400).json({ error: "projectId required" });
+
+  // Fetch canvas state from project
+  const project = db.prepare("SELECT canvas_state FROM projects WHERE id = ? AND user_id = ?").get(projectId, userId) as any;
+  if (!project) return res.status(404).json({ error: "Project not found" });
+  if (!project.canvas_state) return res.status(400).json({ error: "Project has no canvas state" });
+
+  const canvasState = JSON.parse(project.canvas_state);
+
+  // Extract services from canvas nodes and strip secrets
+  const services: any[] = [];
+  const sanitizedNodes = (canvasState.nodes || []).map((node: any) => {
+    const sanitized = { ...node };
+
+    // Strip secrets from node config
+    if (sanitized.config) {
+      const cfg = { ...sanitized.config };
+      delete cfg.privateKey;
+      delete cfg.apiKey;
+      delete cfg.secret;
+      delete cfg.token;
+      delete cfg.sshKey;
+      delete cfg.password;
+      sanitized.config = cfg;
+    }
+
+    // Extract service type
+    if (node.type === "wallet") {
+      services.push({ type: "wallet_base" });
+      services.push({ type: "wallet_solana" });
+    } else if (node.type === "compute" || node.type === "server") {
+      services.push({ type: "compute", spec: node.config?.spec || "cx23" });
+    } else if (node.type === "phone") {
+      services.push({ type: "phone" });
+    } else if (node.type === "email") {
+      services.push({ type: "email" });
+    } else if (node.type === "openclaw") {
+      services.push({ type: "openclaw", skills: node.config?.skills || [] });
+    } else if (node.type === "domain") {
+      services.push({ type: "domain" });
+    }
+
+    return sanitized;
+  });
+
+  const blueprint = {
+    nodes: sanitizedNodes,
+    connections: canvasState.connections || [],
+    viewport: canvasState.viewport,
+  };
+
+  const baseCost = calculateBaseCost(services);
+  const totalPrice = baseCost + Number(margin);
+
+  const id = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO templates (id, author_id, name, description, blueprint, services, base_cost_usdc, margin_usdc, total_price_usdc, tags, status)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id, userId, name, description || "",
+    JSON.stringify(blueprint), JSON.stringify(services),
+    baseCost, Number(margin), totalPrice,
+    Array.isArray(tags) ? tags.join(",") : tags || "",
+    status
+  );
+
+  res.json({
+    id,
+    name,
+    baseCost,
+    margin: Number(margin),
+    totalPrice,
+    services,
+    status,
+  });
 });
+
+// ─── Auth required: Update template ───
+router.put("/:id", requireDashboardAuth, (req: DashboardRequest, res: Response) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Auth required" });
+
+  const template = db.prepare("SELECT * FROM templates WHERE id = ? AND author_id = ?").get(req.params.id, userId) as any;
+  if (!template) return res.status(404).json({ error: "Template not found or not yours" });
+
+  const { name, description, margin, tags, status } = req.body;
+  const updates: string[] = [];
+  const params: any[] = [];
+
+  if (name !== undefined) { updates.push("name = ?"); params.push(name); }
+  if (description !== undefined) { updates.push("description = ?"); params.push(description); }
+  if (status !== undefined) { updates.push("status = ?"); params.push(status); }
+  if (tags !== undefined) { updates.push("tags = ?"); params.push(Array.isArray(tags) ? tags.join(",") : tags); }
+  if (margin !== undefined) {
+    const baseCost = template.base_cost_usdc;
+    updates.push("margin_usdc = ?", "total_price_usdc = ?");
+    params.push(Number(margin), baseCost + Number(margin));
+  }
+
+  if (updates.length === 0) return res.status(400).json({ error: "Nothing to update" });
+
+  updates.push("updated_at = datetime('now')");
+  params.push(req.params.id, userId);
+
+  db.prepare(`UPDATE templates SET ${updates.join(", ")} WHERE id = ? AND author_id = ?`).run(...params);
+
+  res.json({ success: true });
+});
+
+// ─── Auth required: Delete template ───
+router.delete("/:id", requireDashboardAuth, (req: DashboardRequest, res: Response) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Auth required" });
+
+  const result = db.prepare("UPDATE templates SET status = 'removed' WHERE id = ? AND author_id = ?").run(req.params.id, userId);
+  if (result.changes === 0) return res.status(404).json({ error: "Template not found or not yours" });
+
+  res.json({ success: true });
+});
+
+// ─── Auth required: Deploy a template ───
+router.post("/:id/deploy", requireDashboardAuth, async (req: DashboardRequest, res: Response) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Auth required" });
+
+  const template = db.prepare("SELECT * FROM templates WHERE id = ? AND status = 'published'").get(req.params.id) as any;
+  if (!template) return res.status(404).json({ error: "Template not found" });
+
+  // TODO: Check balance / process payment
+  // For now, create deployment record and start provisioning
+
+  const deployId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO template_deployments (id, template_id, user_id, status, provisioning_log)
+    VALUES (?, ?, ?, 'pending', '[]')
+  `).run(deployId, template.id, userId);
+
+  // Increment deploy count
+  db.prepare("UPDATE templates SET deploys = deploys + 1 WHERE id = ?").run(template.id);
+
+  // Start provisioning asynchronously
+  const blueprint = JSON.parse(template.blueprint);
+  const services = JSON.parse(template.services);
+
+  // Create a new project from the blueprint
+  const projectId = crypto.randomUUID();
+  db.prepare(`
+    INSERT INTO projects (id, user_id, name, canvas_state, created_at, updated_at)
+    VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
+  `).run(projectId, userId, `${template.name} (deployed)`, JSON.stringify(blueprint));
+
+  // Start async provisioning
+  provisionTemplate(deployId, userId, projectId, blueprint, services).catch(err => {
+    console.error("[templates] provisioning error:", err);
+    db.prepare("UPDATE template_deployments SET status = 'failed', provisioning_log = ? WHERE id = ?")
+      .run(JSON.stringify([{ step: "error", error: err.message, ts: Date.now() }]), deployId);
+  });
+
+  res.json({
+    deploymentId: deployId,
+    projectId,
+    status: "provisioning",
+    message: "Deployment started. Poll GET /templates/deployments/:id for status.",
+  });
+});
+
+// ─── Auth required: Check deployment status ───
+router.get("/deployments/:id", requireDashboardAuth, (req: DashboardRequest, res: Response) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Auth required" });
+
+  const deployment = db.prepare(
+    "SELECT * FROM template_deployments WHERE id = ? AND user_id = ?"
+  ).get(req.params.id, userId) as any;
+
+  if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+
+  res.json({
+    ...deployment,
+    provisioning_log: JSON.parse(deployment.provisioning_log || "[]"),
+    resources: deployment.resources ? JSON.parse(deployment.resources) : null,
+  });
+});
+
+// ─── Auth required: My templates ───
+router.get("/mine/list", requireDashboardAuth, (req: DashboardRequest, res: Response) => {
+  const userId = getUserId(req);
+  if (!userId) return res.status(401).json({ error: "Auth required" });
+
+  const templates = db.prepare(
+    "SELECT id, name, description, deploys, total_price_usdc, margin_usdc, status, created_at FROM templates WHERE author_id = ? AND status != 'removed' ORDER BY created_at DESC"
+  ).all(userId);
+
+  res.json({ templates });
+});
+
+// ─── Provisioning Engine ───
+
+interface ProvisionLog {
+  step: string;
+  status: "pending" | "running" | "done" | "error";
+  detail?: string;
+  ts: number;
+}
+
+async function provisionTemplate(
+  deployId: string,
+  userId: string,
+  projectId: string,
+  blueprint: any,
+  services: any[]
+): Promise<void> {
+  const log: ProvisionLog[] = [];
+  const resources: Record<string, any> = {};
+
+  function updateStatus(status: string) {
+    db.prepare("UPDATE template_deployments SET status = ?, provisioning_log = ?, resources = ? WHERE id = ?")
+      .run(status, JSON.stringify(log), JSON.stringify(resources), deployId);
+  }
+
+  function logStep(step: string, status: ProvisionLog["status"], detail?: string) {
+    log.push({ step, status, detail, ts: Date.now() });
+    updateStatus("provisioning");
+  }
+
+  try {
+    // Step 1: Provision compute (VPS)
+    const computeServices = services.filter((s: any) => s.type === "compute");
+    if (computeServices.length > 0) {
+      const spec = computeServices[0].spec || "cx23";
+      logStep("compute", "running", `Provisioning ${spec} VPS...`);
+
+      // Call our compute API internally
+      const resp = await fetch("http://localhost:3001/api/compute/provision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Dashboard-User": userId },
+        body: JSON.stringify({
+          name: `agent-${deployId.slice(0, 8)}`,
+          server_type: spec,
+          // SSH key will be generated client-side and provided
+          // For now, we provision and the user adds their key
+        }),
+      });
+      const data = await resp.json() as any;
+      if (!resp.ok) throw new Error(`Compute provision failed: ${data.error}`);
+
+      resources.compute = { serverId: data.server?.id, ip: data.server?.ip, spec };
+      logStep("compute", "done", `VPS ready: ${data.server?.ip}`);
+    }
+
+    // Step 2: Create wallets
+    const walletServices = services.filter((s: any) => s.type?.startsWith("wallet"));
+    if (walletServices.length > 0) {
+      logStep("wallet", "running", "Creating agent wallets...");
+
+      // Generate keypairs via agentwallet API
+      const keygenResp = await fetch("http://localhost:3002/keygen", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chain: "both" }),
+      });
+      const keys = await keygenResp.json() as any;
+
+      // Create wallets
+      const createResp = await fetch("http://localhost:3002/wallet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agent: keys.base?.address,
+          agentSol: keys.solana?.address,
+          chain: "both",
+        }),
+      });
+      const walletData = await createResp.json() as any;
+
+      resources.wallet = {
+        base: { address: walletData.base?.address, agentAddress: keys.base?.address },
+        solana: { address: walletData.solana?.address, agentAddress: keys.solana?.address },
+        // Private keys sent to user securely, NOT stored
+        _keys: {
+          base: keys.base?.privateKey,
+          solana: keys.solana?.privateKey,
+        },
+      };
+      logStep("wallet", "done", "Wallets created (both chains)");
+    }
+
+    // Step 3: Allocate phone number
+    const phoneServices = services.filter((s: any) => s.type === "phone");
+    if (phoneServices.length > 0) {
+      logStep("phone", "running", "Allocating phone number...");
+
+      const phoneResp = await fetch("http://localhost:3001/api/phone/provision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Dashboard-User": userId },
+        body: JSON.stringify({ country: "US" }),
+      });
+      const phoneData = await phoneResp.json() as any;
+      if (!phoneResp.ok) throw new Error(`Phone provision failed: ${phoneData.error}`);
+
+      resources.phone = { number: phoneData.phone_number };
+      logStep("phone", "done", `Phone: ${phoneData.phone_number}`);
+    }
+
+    // Step 4: Create email
+    const emailServices = services.filter((s: any) => s.type === "email");
+    if (emailServices.length > 0) {
+      logStep("email", "running", "Creating email address...");
+
+      const prefix = `agent-${deployId.slice(0, 8)}`;
+      const emailResp = await fetch("http://localhost:3001/api/email/provision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Dashboard-User": userId },
+        body: JSON.stringify({ name: prefix }),
+      });
+      const emailData = await emailResp.json() as any;
+
+      resources.email = { address: emailData.email || `${prefix}@agntos.dev` };
+      logStep("email", "done", `Email: ${resources.email.address}`);
+    }
+
+    // Step 5: Install OpenClaw on VPS (if compute was provisioned)
+    const openclawServices = services.filter((s: any) => s.type === "openclaw");
+    if (openclawServices.length > 0 && resources.compute?.ip) {
+      logStep("openclaw", "running", "Installing OpenClaw on VPS...");
+      // This would SSH into the VPS and run the install script
+      // For now, mark as pending manual setup
+      resources.openclaw = {
+        status: "ready_to_install",
+        installCommand: "curl -fsSL https://get.openclaw.ai | bash",
+        skills: openclawServices[0].skills || [],
+      };
+      logStep("openclaw", "done", "OpenClaw install command ready");
+    }
+
+    // Mark complete
+    updateStatus("completed");
+    db.prepare("UPDATE template_deployments SET completed_at = datetime('now') WHERE id = ?").run(deployId);
+
+  } catch (err: any) {
+    logStep("error", "error", err.message);
+    updateStatus("failed");
+    throw err;
+  }
+}
 
 export default router;

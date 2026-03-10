@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Templates — agntOS</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { background: #0a0b0f; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; min-height: 100vh; }
+
+    .header { padding: 20px 40px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid #1a1b22; }
+    .header h1 { font-size: 22px; font-weight: 700; color: #fff; }
+    .header h1 span { color: #f54900; }
+    .header a { color: #888; text-decoration: none; font-size: 14px; transition: color 0.2s; }
+    .header a:hover { color: #f54900; }
+    .header-links { display: flex; gap: 20px; align-items: center; }
+
+    .hero { text-align: center; padding: 60px 20px 40px; }
+    .hero h2 { font-size: 36px; font-weight: 700; color: #fff; margin-bottom: 12px; }
+    .hero p { font-size: 16px; color: #888; max-width: 500px; margin: 0 auto; }
+
+    .filters { display: flex; gap: 12px; justify-content: center; padding: 0 20px 30px; flex-wrap: wrap; }
+    .filter-btn { padding: 8px 18px; border-radius: 20px; border: 1px solid #2a2b32; background: transparent; color: #888; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+    .filter-btn:hover, .filter-btn.active { border-color: #f54900; color: #f54900; background: rgba(245,73,0,0.08); }
+
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; padding: 0 40px 60px; max-width: 1200px; margin: 0 auto; }
+
+    .card { background: #12131a; border: 1px solid #1e1f28; border-radius: 14px; overflow: hidden; transition: border-color 0.2s, transform 0.15s; cursor: pointer; }
+    .card:hover { border-color: #f54900; transform: translateY(-2px); }
+    .card-preview { height: 180px; background: #0e0f14; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; }
+    .card-preview .node-preview { display: flex; gap: 8px; flex-wrap: wrap; padding: 20px; justify-content: center; }
+    .node-pill { padding: 6px 14px; border-radius: 8px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .node-pill.compute { background: rgba(59,130,246,0.15); color: #60a5fa; border: 1px solid rgba(59,130,246,0.3); }
+    .node-pill.wallet { background: rgba(245,73,0,0.15); color: #f54900; border: 1px solid rgba(245,73,0,0.3); }
+    .node-pill.phone { background: rgba(16,185,129,0.15); color: #34d399; border: 1px solid rgba(16,185,129,0.3); }
+    .node-pill.email { background: rgba(168,85,247,0.15); color: #c084fc; border: 1px solid rgba(168,85,247,0.3); }
+    .node-pill.openclaw { background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.3); }
+    .node-pill.domain { background: rgba(244,63,94,0.15); color: #fb7185; border: 1px solid rgba(244,63,94,0.3); }
+
+    .card-body { padding: 18px; }
+    .card-body h3 { font-size: 17px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+    .card-body p { font-size: 13px; color: #888; line-height: 1.5; margin-bottom: 14px; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .card-footer { display: flex; justify-content: space-between; align-items: center; }
+    .card-price { font-size: 18px; font-weight: 700; color: #f54900; }
+    .card-price span { font-size: 12px; color: #666; font-weight: 400; }
+    .card-stats { font-size: 12px; color: #666; }
+    .card-author { font-size: 12px; color: #555; margin-bottom: 8px; }
+
+    .deploy-btn { padding: 10px 24px; border-radius: 10px; border: none; background: #f54900; color: #fff; font-weight: 600; font-size: 14px; cursor: pointer; transition: background 0.2s; }
+    .deploy-btn:hover { background: #ff5c1a; }
+
+    /* Detail modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: #12131a; border: 1px solid #1e1f28; border-radius: 16px; width: 90%; max-width: 640px; max-height: 80vh; overflow-y: auto; padding: 30px; }
+    .modal h2 { font-size: 24px; color: #fff; margin-bottom: 8px; }
+    .modal .author { color: #888; font-size: 13px; margin-bottom: 16px; }
+    .modal .desc { color: #aaa; font-size: 14px; line-height: 1.6; margin-bottom: 20px; }
+    .modal .services-list { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 20px; }
+    .modal .price-row { display: flex; justify-content: space-between; align-items: center; padding: 16px 0; border-top: 1px solid #1e1f28; }
+    .modal .price-breakdown { font-size: 13px; color: #888; }
+    .modal .price-total { font-size: 24px; font-weight: 700; color: #f54900; }
+    .modal .close-btn { position: absolute; top: 16px; right: 20px; background: none; border: none; color: #666; font-size: 20px; cursor: pointer; }
+
+    .empty { text-align: center; padding: 80px 20px; color: #555; }
+    .empty h3 { font-size: 20px; color: #888; margin-bottom: 8px; }
+
+    /* Deployment status */
+    .deploy-status { padding: 20px; }
+    .deploy-step { display: flex; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid #1a1b22; }
+    .deploy-step .icon { width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; }
+    .deploy-step .icon.done { background: rgba(16,185,129,0.2); color: #34d399; }
+    .deploy-step .icon.running { background: rgba(245,73,0,0.2); color: #f54900; animation: pulse 1s infinite; }
+    .deploy-step .icon.pending { background: rgba(100,100,100,0.2); color: #666; }
+    .deploy-step .icon.error { background: rgba(239,68,68,0.2); color: #ef4444; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>agnt<span>OS</span> Templates</h1>
+    <div class="header-links">
+      <a href="/dashboard.html">Dashboard</a>
+      <a href="/">Home</a>
+    </div>
+  </div>
+
+  <div class="hero">
+    <h2>Deploy an Agent in 20 Seconds</h2>
+    <p>Pre-configured agent setups with wallet, phone, email, and compute. One click to deploy.</p>
+  </div>
+
+  <div class="filters">
+    <button class="filter-btn active" data-sort="popular">Popular</button>
+    <button class="filter-btn" data-sort="newest">Newest</button>
+    <button class="filter-btn" data-sort="cheapest">Cheapest</button>
+  </div>
+
+  <div class="grid" id="templates-grid"></div>
+  <div class="empty" id="empty-state" style="display:none">
+    <h3>No templates yet</h3>
+    <p>Build an agent on the dashboard and publish it as a template.</p>
+  </div>
+
+  <div class="modal-overlay" id="modal-overlay" onclick="if(event.target===this)closeModal()">
+    <div class="modal" id="modal-content"></div>
+  </div>
+
+  <script>
+    const API = '/api/templates';
+    let currentSort = 'popular';
+    let authToken = localStorage.getItem('dash_token');
+
+    async function loadTemplates() {
+      const resp = await fetch(`${API}?sort=${currentSort}`);
+      const data = await resp.json();
+      const grid = document.getElementById('templates-grid');
+      const empty = document.getElementById('empty-state');
+
+      if (!data.templates?.length) {
+        grid.innerHTML = '';
+        empty.style.display = 'block';
+        return;
+      }
+      empty.style.display = 'none';
+
+      grid.innerHTML = data.templates.map(t => `
+        <div class="card" onclick="openTemplate('${t.id}')">
+          <div class="card-preview">
+            <div class="node-preview">
+              ${(t.services || []).map(s => {
+                const type = s.type?.replace('wallet_', 'wallet').replace('compute_', 'compute');
+                return `<span class="node-pill ${type}">${s.spec ? s.type + ' ' + s.spec : s.type}</span>`;
+              }).join('')}
+            </div>
+          </div>
+          <div class="card-body">
+            <div class="card-author">by ${t.author?.name || 'Anonymous'}</div>
+            <h3>${esc(t.name)}</h3>
+            <p>${esc(t.description || 'No description')}</p>
+            <div class="card-footer">
+              <div class="card-price">$${t.total_price_usdc} <span>USDC</span></div>
+              <div class="card-stats">${t.deploys} deploy${t.deploys !== 1 ? 's' : ''}</div>
+            </div>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    async function openTemplate(id) {
+      const resp = await fetch(`${API}/${id}`);
+      const t = await resp.json();
+      const modal = document.getElementById('modal-content');
+
+      modal.innerHTML = `
+        <h2>${esc(t.name)}</h2>
+        <div class="author">by ${t.author?.name || 'Anonymous'} ${t.author?.wallet ? '(' + t.author.wallet.slice(0,6) + '...' + t.author.wallet.slice(-4) + ')' : ''}</div>
+        <div class="desc">${esc(t.description || 'No description')}</div>
+        <div class="services-list">
+          ${(t.services || []).map(s => {
+            const type = s.type?.replace('wallet_', 'wallet').replace('compute_', 'compute');
+            return `<span class="node-pill ${type}">${s.spec ? s.type + ' ' + s.spec : s.type}</span>`;
+          }).join('')}
+        </div>
+        <div class="price-row">
+          <div class="price-breakdown">
+            Base cost: $${t.base_cost_usdc} + Author margin: $${t.margin_usdc}
+          </div>
+          <div class="price-total">$${t.total_price_usdc}</div>
+        </div>
+        <div style="text-align:right;padding-top:16px">
+          <button class="deploy-btn" onclick="deployTemplate('${t.id}')">Deploy Now</button>
+        </div>
+        <div id="deploy-status"></div>
+      `;
+
+      document.getElementById('modal-overlay').classList.add('open');
+    }
+
+    function closeModal() {
+      document.getElementById('modal-overlay').classList.remove('open');
+    }
+
+    async function deployTemplate(id) {
+      if (!authToken) {
+        alert('Please log in on the dashboard first.');
+        return;
+      }
+
+      const statusEl = document.getElementById('deploy-status');
+      statusEl.innerHTML = '<div class="deploy-status"><div class="deploy-step"><div class="icon running">...</div><span>Starting deployment...</span></div></div>';
+
+      const resp = await fetch(`${API}/${id}/deploy`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authToken}` },
+      });
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        statusEl.innerHTML = `<div style="color:#ef4444;padding:16px">Error: ${data.error}</div>`;
+        return;
+      }
+
+      // Poll for status
+      pollDeployment(data.deploymentId, statusEl);
+    }
+
+    async function pollDeployment(deployId, statusEl) {
+      const poll = async () => {
+        const resp = await fetch(`${API}/deployments/${deployId}`, {
+          headers: { 'Authorization': `Bearer ${authToken}` },
+        });
+        const data = await resp.json();
+
+        const icons = { done: '&#10003;', running: '...', pending: '&#x25CB;', error: '&#x2717;' };
+        const steps = (data.provisioning_log || []).map(s => `
+          <div class="deploy-step">
+            <div class="icon ${s.status}">${icons[s.status] || '?'}</div>
+            <span>${s.step}: ${s.detail || s.status}</span>
+          </div>
+        `).join('');
+
+        statusEl.innerHTML = `<div class="deploy-status">${steps}</div>`;
+
+        if (data.status === 'completed') {
+          statusEl.innerHTML += `
+            <div style="padding:16px;text-align:center">
+              <div style="color:#34d399;font-weight:600;margin-bottom:8px">Deployment Complete</div>
+              <a href="/dashboard.html" class="deploy-btn" style="text-decoration:none;display:inline-block">Open Dashboard</a>
+            </div>`;
+          // Refresh templates list
+          loadTemplates();
+        } else if (data.status === 'failed') {
+          statusEl.innerHTML += '<div style="color:#ef4444;padding:16px;text-align:center">Deployment failed. Check logs above.</div>';
+        } else {
+          setTimeout(poll, 2000);
+        }
+      };
+      poll();
+    }
+
+    function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+    // Filter buttons
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentSort = btn.dataset.sort;
+        loadTemplates();
+      });
+    });
+
+    loadTemplates();
+  </script>
+</body>
+</html>

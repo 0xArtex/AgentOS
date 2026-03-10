@@ -432,6 +432,8 @@ background-size:40px 40px}
         <div class="agent-dd-loading" style="padding:12px;font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">Loading...</div>
       </div>
     </div>
+    <button class="new-agent-btn" id="publishBtn" style="border-color:var(--accent);color:var(--accent)" onclick="openPublishModal()"><svg viewBox="0 0 24 24" style="stroke:var(--accent)"><path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8"/><polyline points="16 6 12 2 8 6"/><line x1="12" y1="2" x2="12" y2="15"/></svg>PUBLISH</button>
+    <a href="/templates.html" class="new-agent-btn" style="text-decoration:none;font-size:10px"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>TEMPLATES</a>
     <button class="new-agent-btn" id="newAgentBtn"><svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>NEW AGENT</button>
     <div id="authArea">
       <button class="topbar-login" id="loginBtn" onclick="requireAuth()">LOG IN</button>
@@ -3078,6 +3080,93 @@ document.getElementById('skillsPageSearch').addEventListener('input',e=>{
     (sk.description||'').toLowerCase().includes(q)
   ));
 });
+
+// ─── Publish as Template ───
+function openPublishModal(){
+  requireAuth(()=>{
+    const nodes=window.canvasNodes||[];
+    if(nodes.length===0){alert('Add some nodes to your canvas first.');return;}
+
+    // Count services
+    const svcCounts={};
+    nodes.forEach(n=>{
+      const t=n.type||'unknown';
+      svcCounts[t]=(svcCounts[t]||0)+1;
+    });
+    const svcSummary=Object.entries(svcCounts).map(([k,v])=>`${v}x ${k}`).join(', ');
+
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title">PUBLISH AS TEMPLATE</div>
+      <div class="modal-subtitle">share your agent setup on the marketplace</div>
+      <div style="margin:16px 0">
+        <div style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Services detected</div>
+        <div style="font-size:12px;color:var(--text)">${svcSummary || 'No services'}</div>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Template Name</label>
+        <input id="pubName" type="text" placeholder="e.g. Trading Bot Pro" style="width:100%;padding:8px 12px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace">
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Description</label>
+        <textarea id="pubDesc" rows="3" placeholder="What does this agent do?" style="width:100%;padding:8px 12px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace;resize:vertical"></textarea>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Your Margin (USDC)</label>
+        <input id="pubMargin" type="number" value="0" min="0" step="1" style="width:120px;padding:8px 12px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace">
+        <span style="font-size:11px;color:var(--w20);margin-left:8px">Base service costs are calculated automatically</span>
+      </div>
+      <div style="margin-bottom:12px">
+        <label style="font-size:10px;color:var(--w30);text-transform:uppercase;letter-spacing:1px;display:block;margin-bottom:4px">Tags (comma separated)</label>
+        <input id="pubTags" type="text" placeholder="trading, defi, solana" style="width:100%;padding:8px 12px;background:var(--bg-dark);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'JetBrains Mono',monospace">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
+        <button class="spawn-btn" style="background:var(--accent);color:#fff;border:none" onclick="doPublishTemplate()">PUBLISH</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+  });
+}
+
+async function doPublishTemplate(){
+  const name=document.getElementById('pubName').value.trim();
+  if(!name){alert('Name required');return;}
+  const desc=document.getElementById('pubDesc').value.trim();
+  const margin=parseFloat(document.getElementById('pubMargin').value)||0;
+  const tags=document.getElementById('pubTags').value.trim();
+
+  const token=localStorage.getItem('dash_token');
+  const projectId=window.currentProjectId;
+  if(!projectId){alert('No project selected');return;}
+
+  // Save canvas first
+  if(window.saveCanvasState) await window.saveCanvasState();
+
+  try{
+    const resp=await fetch('/api/templates',{
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+token},
+      body:JSON.stringify({name,description:desc,projectId,margin,tags:tags?tags.split(',').map(t=>t.trim()):[]})
+    });
+    const data=await resp.json();
+    if(!resp.ok) throw new Error(data.error);
+
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title" style="color:var(--green)">PUBLISHED</div>
+      <div class="modal-subtitle">your template is live on the marketplace</div>
+      <div style="margin:16px 0;font-size:12px;color:var(--text)">
+        <div><strong>Total price:</strong> $${data.totalPrice} USDC</div>
+        <div style="margin-top:4px"><strong>Base cost:</strong> $${data.baseCost} | <strong>Your margin:</strong> $${data.margin}</div>
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">
+        <a href="/templates.html" class="spawn-btn" style="text-decoration:none;background:var(--accent);color:#fff;border:none;display:inline-block">VIEW ON MARKETPLACE</a>
+        <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
+      </div>
+    `;
+  }catch(e){
+    alert('Publish failed: '+e.message);
+  }
+}
 </script>
 </body>
 </html>

@@ -399,6 +399,49 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_dash_sessions_token ON dashboard_sessions(token);
   `);
 
+  // Agent Templates (marketplace)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS templates (
+      id TEXT PRIMARY KEY,
+      author_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      thumbnail TEXT,
+      blueprint TEXT NOT NULL,
+      services TEXT NOT NULL,
+      base_cost_usdc REAL NOT NULL DEFAULT 0,
+      margin_usdc REAL NOT NULL DEFAULT 0,
+      total_price_usdc REAL NOT NULL DEFAULT 0,
+      deploys INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'published' CHECK(status IN ('draft', 'published', 'unlisted', 'removed')),
+      tags TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      FOREIGN KEY (author_id) REFERENCES dashboard_users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_templates_author ON templates(author_id);
+    CREATE INDEX IF NOT EXISTS idx_templates_status ON templates(status);
+  `);
+
+  // Template deployments (tracks who bought/deployed what)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS template_deployments (
+      id TEXT PRIMARY KEY,
+      template_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'provisioning', 'completed', 'failed')),
+      provisioning_log TEXT,
+      resources TEXT,
+      payment_tx TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      completed_at TEXT,
+      FOREIGN KEY (template_id) REFERENCES templates(id),
+      FOREIGN KEY (user_id) REFERENCES dashboard_users(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_deployments_template ON template_deployments(template_id);
+    CREATE INDEX IF NOT EXISTS idx_deployments_user ON template_deployments(user_id);
+  `);
+
   // Projects (each project = a canvas with its own nodes/connections)
   db.exec(`
     CREATE TABLE IF NOT EXISTS projects (
