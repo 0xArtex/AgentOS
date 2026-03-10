@@ -40,15 +40,10 @@ export function getEvmPrivateKey(index: number): string {
 }
 
 export function getEvmAddress(index: number): string {
-  // Use Node crypto for keccak — import dynamically to avoid noble ESM issues
+  const { ethers } = require("ethers");
   const secret = deriveKey("evm", index);
-  // Simple EVM address derivation: we'll use a hash-based approach
-  // For production, use ethers.js. For deposit addresses this is sufficient.
-  const { createHash } = require("crypto");
-  // Derive a deterministic address from the private key
-  // This is a simplified version — in production use secp256k1 pubkey → keccak256
-  const hash = createHash("sha256").update(secret).update("evm-address").digest();
-  return "0x" + hash.subarray(0, 20).toString("hex");
+  const wallet = new ethers.Wallet("0x" + secret.toString("hex"));
+  return wallet.address;
 }
 
 export function getOrCreateWallet(userId: string): { solanaAddress: string; evmAddress: string } {
