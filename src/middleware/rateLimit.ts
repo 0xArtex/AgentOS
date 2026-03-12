@@ -23,8 +23,8 @@ setInterval(() => {
  */
 export function rateLimit(maxRequests: number = 10, windowMs: number = 60_000) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
-    // Use payer wallet if available, otherwise fall back to IP
-    const key = req.payment?.payer ?? req.ip ?? "unknown";
+    // Use dashboard user, payer wallet, or IP
+    const key = req.headers["x-dashboard-user"] as string || req.payment?.payer ?? req.ip ?? "unknown";
     const now = Date.now();
 
     let entry = store.get(key);

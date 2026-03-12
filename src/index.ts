@@ -147,7 +147,7 @@ app.use("/wallet", async (req: any, res: any) => {
 });
 
 app.use(requestTimeout(30_000));
-app.use(rateLimit(60, 60_000));
+app.use(rateLimit(200, 60_000));
 app.use(requestLogger);
 
 // ── Static files (landing page) ──────────────────────────────

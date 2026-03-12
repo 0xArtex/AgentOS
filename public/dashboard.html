@@ -2363,6 +2363,9 @@ window.saveModelConfig=function(btn){
 
   drawLines();pushState();
   document.getElementById('modalOverlay').classList.remove('open');
+
+  // Try auto-pushing OpenClaw config if VPS is ready
+  tryPushOpenClawConfig(el);
 };
 
 // ─── Channel Config Modal ───
@@ -2443,6 +2446,96 @@ window.saveChannelConfig=function(btn){
 
   drawLines();pushState();
   document.getElementById('modalOverlay').classList.remove('open');
+
+  // Try auto-pushing OpenClaw config if VPS is ready
+  tryPushOpenClawConfig(el);
+};
+
+// Auto-push OpenClaw config when model + channel + VPS are all configured
+window.tryPushOpenClawConfig=async function(triggerNode){
+  // Find the agent node connected to this trigger node
+  const trigId=triggerNode.id;
+  let agentId=null;
+  for(const [a,b] of conns){
+    if(a===trigId&&document.getElementById(b)?.classList.contains('agent-node'))agentId=b;
+    if(b===trigId&&document.getElementById(a)?.classList.contains('agent-node'))agentId=a;
+  }
+  if(!agentId)return;
+
+  // Find all nodes connected to this agent
+  const siblings=[];
+  for(const [a,b] of conns){
+    if(a===agentId)siblings.push(document.getElementById(b));
+    if(b===agentId)siblings.push(document.getElementById(a));
+  }
+
+  const modelNode=siblings.find(n=>n?.dataset?.svc==='model'&&n.dataset.modelData);
+  const channelNode=siblings.find(n=>n?.dataset?.svc==='channel'&&n.dataset.channelData);
+  const vpsNode=siblings.find(n=>n?.dataset?.svc==='vps'&&!n.classList.contains('unconfigured'));
+
+  if(!modelNode||!channelNode||!vpsNode)return; // Not all configured yet
+  if(vpsNode.dataset.openclawPushed)return; // Already pushed
+
+  const ip=vpsNode.querySelector('.node-sub')?.textContent?.trim();
+  if(!ip||ip==='setup required'||ip==='Provisioning...')return;
+
+  // Find the server ID
+  let serverId=vpsNode.dataset.serverId;
+  if(!serverId){
+    try{
+      const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+      const r=await fetch('/compute/servers',{headers:hdr});
+      const d=await r.json();
+      const srv=(d.servers||[]).find(s=>s.ipv4===ip);
+      if(srv){serverId=srv.id;vpsNode.dataset.serverId=serverId;}
+    }catch(e){}
+  }
+  if(!serverId)return;
+
+  const modelData=JSON.parse(modelNode.dataset.modelData);
+  const channelData=JSON.parse(channelNode.dataset.channelData);
+  const allowFrom=channelData.allowFrom==='*'?['*']:channelData.allowFrom.split(',').map(s=>s.trim()).filter(Boolean);
+
+  // Mark as pushing to avoid duplicates
+  vpsNode.dataset.openclawPushed='pushing';
+  const oldSub=vpsNode.querySelector('.node-sub')?.textContent;
+  vpsNode.querySelector('.node-sub').textContent='configuring openclaw...';
+
+  try{
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    const r=await fetch('/compute/servers/'+serverId+'/configure-openclaw',{
+      method:'POST',headers:hdr,
+      body:JSON.stringify({
+        anthropicKey:modelData.apiKey,
+        model:modelData.model,
+        channel:channelData.channel,
+        botToken:channelData.botToken,
+        allowFrom,
+      })
+    });
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||'Failed');
+
+    vpsNode.dataset.openclawPushed='done';
+    vpsNode.querySelector('.node-sub').textContent=ip+' · openclaw running';
+    vpsNode.querySelector('.s-dot')?.classList.add('active');
+
+    // Flash green on all connected lines
+    const agentIdx=[];
+    conns.forEach(([a,b],i)=>{if(a===agentId||b===agentId)agentIdx.push(i);});
+    agentIdx.forEach(i=>{
+      if(_lineEls[i]){
+        _lineEls[i].removeAttribute('stroke-dasharray');
+        const stop=startLineFlow(i,3000,true);setTimeout(stop,3000);
+      }
+    });
+
+    pushState();
+  }catch(e){
+    console.warn('OpenClaw config push failed:',e);
+    vpsNode.querySelector('.node-sub').textContent=oldSub;
+    vpsNode.dataset.openclawPushed='';
+  }
 };
 
 window.showOpenClawConfigModal=function(ip,serverId){
@@ -2801,6 +2894,10 @@ window.deployVps=async function(nodeId,agentId){
       vpsEl.classList.remove('unconfigured');
       vpsEl.querySelector('.node-sub').textContent=ip;
       vpsEl.querySelector('.s-dot')?.classList.add('active');
+      // Store server ID for auto-config
+      if(d.server?.id)vpsEl.dataset.serverId=String(d.server.id);
+      // Try auto-pushing OpenClaw config if model + channel already configured
+      setTimeout(()=>tryPushOpenClawConfig(vpsEl),2000);
     }
 
     // Animate the connection line
