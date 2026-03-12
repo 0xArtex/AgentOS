@@ -16,11 +16,15 @@ mkdir -p /root/.ssh && chmod 700 /root/.ssh
 echo '${platformPubKey}' >> /root/.ssh/authorized_keys
 chmod 600 /root/.ssh/authorized_keys
 
+# Clear Hetzner's forced password change (blocks SSH key auth otherwise)
+chage -d $(date +%Y-%m-%d) root 2>/dev/null || true
+passwd -u root 2>/dev/null || true
+
 # Disable password auth but allow pubkey
 sed -i 's/#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 sed -i 's/#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
-systemctl restart sshd
+systemctl restart ssh || systemctl restart sshd
 
 # Firewall
 apt-get update -qq

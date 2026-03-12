@@ -13,7 +13,7 @@ const PLATFORM_KEY = '/root/.ssh/id_ed25519_platform';
 /** Build SSH command — prefer platform key, fallback to password */
 function sshCmd(ip: string, pw?: string | null): string {
   // Always try platform key first (injected by cloud-init)
-  return `ssh -i ${PLATFORM_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o PasswordAuthentication=no root@${ip}`;
+  return `ssh -i ${PLATFORM_KEY} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -o PasswordAuthentication=no root@${ip}`;
 }
 
 // ── Plans (free, no auth) ─────────────────────────────────────

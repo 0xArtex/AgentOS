@@ -2327,8 +2327,8 @@ window.saveModelConfig=function(btn){
   // Save config to node data attribute
   el.dataset.modelData=JSON.stringify({provider,providerId,apiKey,model,authMode});
   el.classList.remove('unconfigured');
-  el.querySelector('.node-sub').textContent=model.split('/').pop();
-  el.querySelector('.s-dot')?.classList.add('active');
+  el.querySelector('.node-sub').textContent=model.split('/').pop()+' — saved';
+  // Don't mark as active until actually pushed to VPS
 
   // Update logo based on provider
   const logos={anthropic:'/assets/logos/anthropic-icon.svg',openrouter:'',openai:''};
@@ -2413,8 +2413,8 @@ window.saveChannelConfig=function(btn){
   // Update node label and logo
   const logos={telegram:'/assets/logos/telegram-icon.svg',discord:'/assets/logos/discord-icon.svg',whatsapp:'/assets/logos/whatsapp-icon.svg'};
   const names={telegram:'Telegram',discord:'Discord',whatsapp:'WhatsApp'};
-  el.querySelector('.node-label').innerHTML='<span class="s-dot active"></span>'+names[channel];
-  el.querySelector('.node-sub').textContent='connected';
+  el.querySelector('.node-label').innerHTML='<span class="s-dot"></span>'+names[channel];
+  el.querySelector('.node-sub').textContent='saved — deploy to connect';
   const img=el.querySelector('img');
   if(img)img.src=logos[channel];
 
@@ -2495,6 +2495,17 @@ window.tryPushOpenClawConfig=async function(triggerNode){
     vpsNode.dataset.openclawPushed='done';
     vpsNode.querySelector('.node-sub').textContent=ip+' · openclaw running';
     vpsNode.querySelector('.s-dot')?.classList.add('active');
+
+    // Mark model + channel nodes as truly connected
+    if(modelNode){
+      const md=JSON.parse(modelNode.dataset.modelData);
+      modelNode.querySelector('.node-sub').textContent=md.model.split('/').pop();
+      modelNode.querySelector('.s-dot')?.classList.add('active');
+    }
+    if(channelNode){
+      channelNode.querySelector('.node-sub').textContent='connected';
+      channelNode.querySelector('.s-dot')?.classList.add('active');
+    }
 
     // Flash green on all connected lines
     const agentIdx=[];
