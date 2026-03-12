@@ -928,6 +928,16 @@ function restoreState(state){
     }
     // Re-attach connection handles
     if(!el._handles&&window._addConnHandle)window._addConnHandle(el);
+    // Re-attach Model node click handler
+    if(s.id.startsWith('nodeModel_')&&!el._modelBound){
+      el._modelBound=true;
+      el.addEventListener('click',()=>{if(typeof nodeMoved!=='undefined'&&nodeMoved)return;openModelConfigModal(el);});
+    }
+    // Re-attach Channel node click handler
+    if(s.id.startsWith('nodeChannel_')&&!el._channelBound){
+      el._channelBound=true;
+      el.addEventListener('click',()=>{if(typeof nodeMoved!=='undefined'&&nodeMoved)return;openChannelConfigModal(el);});
+    }
     // Re-attach VPS click handler for unconfigured VPS nodes
     if(s.id.startsWith('nodeVps_')&&!el._vpsBound){
       el._vpsBound=true;
@@ -2267,6 +2277,174 @@ async function showVpsInfoModal(el){
   document.getElementById('modalOverlay').classList.add('open');
 }
 
+// ─── Model Config Modal ───
+function openModelConfigModal(el){
+  const configured=!el.classList.contains('unconfigured');
+  const saved=el.dataset.modelData?JSON.parse(el.dataset.modelData):null;
+
+  const providers=[
+    {id:'anthropic',name:'Anthropic (Claude)',logo:'/assets/logos/anthropic-icon.svg',hint:'Get a key at console.anthropic.com or use your Claude Max subscription token',placeholder:'sk-ant-...'},
+    {id:'openrouter',name:'OpenRouter',logo:'',hint:'Get a key at openrouter.ai — supports 100+ models',placeholder:'sk-or-...'},
+    {id:'openai',name:'OpenAI',logo:'',hint:'Get a key at platform.openai.com',placeholder:'sk-...'},
+  ];
+
+  const providerCards=providers.map((p,i)=>`
+    <div class="vps-tier-card${(saved?.provider===p.id||(i===0&&!saved))?' selected':''}" data-provider="${p.id}" onclick="selectModelProvider(this,'${p.id}')">
+      <div style="display:flex;align-items:center;gap:8px">
+        ${p.logo?`<img src="${p.logo}" style="width:16px;height:16px">`:''}
+        <span style="font-size:11px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">${p.name}</span>
+      </div>
+    </div>
+  `).join('');
+
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">AI MODEL</div>
+    <div class="modal-subtitle">${configured?'model configured':'connect your AI provider'}</div>
+    <div style="display:flex;flex-direction:column;gap:8px;margin:16px 0">
+      ${providerCards}
+    </div>
+    <div class="na-field">
+      <label class="na-label">API Key</label>
+      <input class="na-input" id="modelApiKey" type="password" placeholder="${providers[0].placeholder}" value="${saved?.apiKey||''}" style="font-family:'JetBrains Mono',monospace">
+      <div style="font-size:9px;color:var(--w20);margin-top:4px" id="modelProviderHint">${providers[0].hint}</div>
+    </div>
+    <div class="na-field" style="margin-top:8px">
+      <label class="na-label">Default Model</label>
+      <select class="na-select" id="modelSelect">
+        <option value="anthropic/claude-sonnet-4-20250514"${saved?.model==='anthropic/claude-sonnet-4-20250514'?' selected':''}>Claude Sonnet 4 (recommended)</option>
+        <option value="anthropic/claude-opus-4-6"${saved?.model==='anthropic/claude-opus-4-6'?' selected':''}>Claude Opus 4</option>
+        <option value="anthropic/claude-haiku-3-5"${saved?.model==='anthropic/claude-haiku-3-5'?' selected':''}>Claude Haiku 3.5 (fast)</option>
+      </select>
+    </div>
+    <div style="padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;margin-top:12px">
+      <div style="font-size:10px;color:var(--w30);line-height:1.5;font-family:'JetBrains Mono',monospace">
+        <strong style="color:var(--w50)">Claude Max subscribers:</strong> Go to console.anthropic.com > API Keys > Create Key. Your subscription includes API credits.
+      </div>
+    </div>
+    <div id="modelConfigStatus" style="margin-top:8px"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
+      <button class="spawn-btn" style="flex:2" id="modelSaveBtn" onclick="saveModelConfig(this)">SAVE</button>
+    </div>
+  `;
+  // Store ref to the node element
+  document.getElementById('modelSaveBtn').dataset.nodeId=el.id;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+window.selectModelProvider=function(card,providerId){
+  document.querySelectorAll('.vps-tier-card').forEach(c=>c.classList.remove('selected'));
+  card.classList.add('selected');
+  const hints={anthropic:'Get a key at console.anthropic.com or use your Claude Max subscription token',openrouter:'Get a key at openrouter.ai — supports 100+ models',openai:'Get a key at platform.openai.com'};
+  const placeholders={anthropic:'sk-ant-...',openrouter:'sk-or-...',openai:'sk-...'};
+  document.getElementById('modelProviderHint').textContent=hints[providerId]||'';
+  document.getElementById('modelApiKey').placeholder=placeholders[providerId]||'';
+};
+
+window.saveModelConfig=function(btn){
+  const nodeId=btn.dataset.nodeId;
+  const el=document.getElementById(nodeId);
+  const apiKey=document.getElementById('modelApiKey').value.trim();
+  const model=document.getElementById('modelSelect').value;
+  const provider=document.querySelector('.vps-tier-card.selected')?.dataset.provider||'anthropic';
+
+  if(!apiKey){document.getElementById('modelConfigStatus').innerHTML='<div style="color:var(--red);font-size:11px">API key is required</div>';return;}
+
+  // Save config to node data attribute
+  el.dataset.modelData=JSON.stringify({provider,apiKey,model});
+  el.classList.remove('unconfigured');
+  el.querySelector('.node-sub').textContent=model.split('/').pop();
+  el.querySelector('.s-dot')?.classList.add('active');
+
+  // Update logo based on provider
+  const logos={anthropic:'/assets/logos/anthropic-icon.svg',openrouter:'',openai:''};
+  const img=el.querySelector('img');
+  if(img&&logos[provider])img.src=logos[provider];
+
+  drawLines();pushState();
+  document.getElementById('modalOverlay').classList.remove('open');
+};
+
+// ─── Channel Config Modal ───
+function openChannelConfigModal(el){
+  const configured=!el.classList.contains('unconfigured');
+  const saved=el.dataset.channelData?JSON.parse(el.dataset.channelData):null;
+
+  const channels=[
+    {id:'telegram',name:'Telegram',logo:'/assets/logos/telegram-icon.svg',hint:'Talk to @BotFather on Telegram to create a bot and get a token',placeholder:'123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'},
+    {id:'discord',name:'Discord',logo:'/assets/logos/discord-icon.svg',hint:'Create a bot at discord.com/developers/applications',placeholder:'MTIz...'},
+    {id:'whatsapp',name:'WhatsApp',logo:'/assets/logos/whatsapp-icon.svg',hint:'Connect via QR code after deployment',placeholder:''},
+  ];
+
+  const channelCards=channels.map((ch,i)=>`
+    <div class="vps-tier-card${(saved?.channel===ch.id||(i===0&&!saved))?' selected':''}" data-channel="${ch.id}" onclick="selectChannelType(this,'${ch.id}')" style="display:flex;align-items:center;gap:10px;padding:10px 14px">
+      <img src="${ch.logo}" style="width:20px;height:20px;flex-shrink:0">
+      <span style="font-size:12px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">${ch.name}</span>
+    </div>
+  `).join('');
+
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">CHANNEL</div>
+    <div class="modal-subtitle">${configured?'channel configured':'connect your agent to a messaging platform'}</div>
+    <div style="display:flex;flex-direction:column;gap:6px;margin:16px 0">
+      ${channelCards}
+    </div>
+    <div id="channelTokenField">
+      <div class="na-field">
+        <label class="na-label">Bot Token</label>
+        <input class="na-input" id="channelBotToken" type="password" placeholder="${channels[0].placeholder}" value="${saved?.botToken||''}" style="font-family:'JetBrains Mono',monospace">
+        <div style="font-size:9px;color:var(--w20);margin-top:4px" id="channelHint">${channels[0].hint}</div>
+      </div>
+      <div class="na-field" style="margin-top:8px">
+        <label class="na-label">Allowed User IDs <span style="color:var(--w20)">(comma-separated, * for all)</span></label>
+        <input class="na-input" id="channelAllowFrom" placeholder="*" value="${saved?.allowFrom||'*'}" style="font-family:'JetBrains Mono',monospace">
+      </div>
+    </div>
+    <div id="channelConfigStatus" style="margin-top:8px"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
+      <button class="spawn-btn" style="flex:2" id="channelSaveBtn" onclick="saveChannelConfig(this)">SAVE</button>
+    </div>
+  `;
+  document.getElementById('channelSaveBtn').dataset.nodeId=el.id;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+window.selectChannelType=function(card,channelId){
+  document.querySelectorAll('.vps-tier-card').forEach(c=>c.classList.remove('selected'));
+  card.classList.add('selected');
+  const hints={telegram:'Talk to @BotFather on Telegram to create a bot and get a token',discord:'Create a bot at discord.com/developers/applications',whatsapp:'Connect via QR code after deployment'};
+  const placeholders={telegram:'123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11',discord:'MTIz...',whatsapp:''};
+  document.getElementById('channelHint').textContent=hints[channelId]||'';
+  document.getElementById('channelBotToken').placeholder=placeholders[channelId]||'';
+  document.getElementById('channelTokenField').style.display=channelId==='whatsapp'?'none':'block';
+};
+
+window.saveChannelConfig=function(btn){
+  const nodeId=btn.dataset.nodeId;
+  const el=document.getElementById(nodeId);
+  const channel=document.querySelector('.vps-tier-card.selected')?.dataset.channel||'telegram';
+  const botToken=document.getElementById('channelBotToken')?.value?.trim();
+  const allowFrom=document.getElementById('channelAllowFrom')?.value?.trim()||'*';
+
+  if(channel!=='whatsapp'&&!botToken){document.getElementById('channelConfigStatus').innerHTML='<div style="color:var(--red);font-size:11px">Bot token is required</div>';return;}
+
+  // Save config to node data attribute
+  el.dataset.channelData=JSON.stringify({channel,botToken,allowFrom});
+  el.classList.remove('unconfigured');
+
+  // Update node label and logo
+  const logos={telegram:'/assets/logos/telegram-icon.svg',discord:'/assets/logos/discord-icon.svg',whatsapp:'/assets/logos/whatsapp-icon.svg'};
+  const names={telegram:'Telegram',discord:'Discord',whatsapp:'WhatsApp'};
+  el.querySelector('.node-label').innerHTML='<span class="s-dot active"></span>'+names[channel];
+  el.querySelector('.node-sub').textContent='connected';
+  const img=el.querySelector('img');
+  if(img)img.src=logos[channel];
+
+  drawLines();pushState();
+  document.getElementById('modalOverlay').classList.remove('open');
+};
+
 window.showOpenClawConfigModal=function(ip,serverId){
   document.getElementById('modalBody').innerHTML=`
     <div class="modal-title">CONFIGURE OPENCLAW</div>
@@ -3032,46 +3210,58 @@ setTimeout(()=>{autoFit(false);},100);
     if(!_authToken){requireAuth(()=>{});return;}
 
     if(type==='agent'){
-      // Spawn agent node at center of viewport
       const ct=document.getElementById('canvasTransform');
       const cx=(wrap.clientWidth/2-tx)/scale, cy=(wrap.clientHeight/2-ty)/scale;
-      const el=document.createElement('div');
-      const agentId='nodeAgent_'+(Date.now());
-      el.id=agentId;el.className='agent-node';
-      el.style.cssText=`left:${cx}px;top:${cy}px`;
-      el.innerHTML='<span class="agent-node-inner">AO</span><span class="agent-node-label">new-agent</span>';
-      ct.appendChild(el);
-      bodies.set(el,{x:cx,y:cy});
-      el.addEventListener('mousedown',ev=>{
-        if(ev.target.closest('.conn-handle'))return;
-        dragNode=el;nodeMoved=false;dnsx=ev.clientX;dnsy=ev.clientY;
-        const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}
-        ev.stopPropagation();
-      });
-      if(window._addConnHandle)window._addConnHandle(el);
+      const ts=Date.now();
 
-      // Auto-spawn a connected VPS node (unconfigured — needs setup)
-      const vpsX=cx+200, vpsY=cy;
-      const vpsEl=document.createElement('div');
-      const vpsId='nodeVps_'+(Date.now());
-      vpsEl.id=vpsId;vpsEl.className='vps-node unconfigured';
-      vpsEl.dataset.svc='vps';
-      vpsEl.style.cssText=`left:${vpsX}px;top:${vpsY}px`;
-      vpsEl.innerHTML=`<img src="/assets/logos/hetzner-icon.svg" style="width:20px;height:20px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>VPS</div><div class="node-sub">setup required</div></div>`;
-      ct.appendChild(vpsEl);
-      bodies.set(vpsEl,{x:vpsX,y:vpsY});
-      vpsEl.addEventListener('mousedown',ev=>{
-        if(ev.target.closest('.conn-handle'))return;
-        dragNode=vpsEl;nodeMoved=false;dnsx=ev.clientX;dnsy=ev.clientY;
-        const b=bodies.get(vpsEl);if(b){dnox=b.x;dnoy=b.y;}
-        ev.stopPropagation();
-      });
+      // Helper to create a node with drag + connection handles
+      function spawnNode(id,cls,x,y,html,extra){
+        const el=document.createElement('div');
+        el.id=id;el.className=cls;
+        el.style.cssText=`left:${x}px;top:${y}px`;
+        el.innerHTML=html;
+        if(extra)Object.assign(el.dataset,extra);
+        ct.appendChild(el);
+        bodies.set(el,{x,y});
+        el.addEventListener('mousedown',ev=>{
+          if(ev.target.closest('.conn-handle'))return;
+          dragNode=el;nodeMoved=false;dnsx=ev.clientX;dnsy=ev.clientY;
+          const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}
+          ev.stopPropagation();
+        });
+        if(window._addConnHandle)window._addConnHandle(el);
+        return el;
+      }
+
+      // Agent node (center)
+      const agentId='nodeAgent_'+ts;
+      spawnNode(agentId,'agent-node',cx,cy,'<span class="agent-node-inner">AO</span><span class="agent-node-label">new-agent</span>');
+
+      // Model node (left of agent)
+      const modelId='nodeModel_'+ts;
+      const modelEl=spawnNode(modelId,'node unconfigured',cx-220,cy,
+        `<img src="/assets/logos/anthropic-icon.svg" style="width:18px;height:18px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>AI Model</div><div class="node-sub">setup required</div></div>`,
+        {svc:'model'});
+      modelEl.addEventListener('click',()=>{if(nodeMoved)return;openModelConfigModal(modelEl);});
+
+      // Channel node (below agent)
+      const channelId='nodeChannel_'+ts;
+      const channelEl=spawnNode(channelId,'node unconfigured',cx,cy+140,
+        `<img src="/assets/logos/telegram-icon.svg" style="width:18px;height:18px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>Telegram</div><div class="node-sub">setup required</div></div>`,
+        {svc:'channel'});
+      channelEl.addEventListener('click',()=>{if(nodeMoved)return;openChannelConfigModal(channelEl);});
+
+      // VPS node (right of agent)
+      const vpsId='nodeVps_'+ts;
+      const vpsEl=spawnNode(vpsId,'vps-node unconfigured',cx+220,cy,
+        `<img src="/assets/logos/hetzner-icon.svg" style="width:20px;height:20px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>VPS</div><div class="node-sub">setup required</div></div>`,
+        {svc:'vps'});
       vpsEl.addEventListener('click',()=>{if(nodeMoved)return;if(vpsEl.classList.contains('unconfigured')){openVpsSetupModal(vpsEl,agentId);}else{showVpsInfoModal(vpsEl);}});
-      if(window._addConnHandle)window._addConnHandle(vpsEl);
 
-      // Connect agent → VPS with dashed line
-      conns.push([agentId,vpsId]);
-      addLinePair();
+      // Connect all to agent
+      conns.push([modelId,agentId]);addLinePair();
+      conns.push([agentId,vpsId]);addLinePair();
+      conns.push([agentId,channelId]);addLinePair();
 
       drawLines();pushState();
       return;
