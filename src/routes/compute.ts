@@ -310,6 +310,155 @@ router.get("/servers/:id/verify", requireAuth(0.01, 'general'), async (req: Auth
 });
 
 /**
+ * POST /compute/servers/:id/configure-openclaw — Configure OpenClaw on the VPS
+ * Writes openclaw.json config and sets up the Anthropic API key
+ */
+router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const {
+      anthropicKey,
+      model,
+      channel,       // 'telegram' | 'discord' | 'none'
+      botToken,      // telegram bot token or discord token
+      allowFrom,     // array of allowed user IDs
+      gatewayPort,
+      agentName,
+    } = req.body;
+
+    if (!anthropicKey) return res.status(400).json({ error: "anthropicKey is required" });
+
+    const row = db.prepare("SELECT ipv4, root_password FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const ip = row.ipv4;
+    const pw = row.root_password;
+    if (!pw) return res.status(400).json({ error: "Cannot configure — root password deleted. Use SSH key access." });
+
+    const { execSync } = require("child_process");
+    const sshCmd = `sshpass -p '${pw.replace(/'/g, "'\\''")}' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@${ip}`;
+
+    // Build OpenClaw config
+    const config: any = {
+      auth: {
+        profiles: {
+          "anthropic:default": {
+            provider: "anthropic",
+            mode: "token"
+          }
+        }
+      },
+      agents: {
+        defaults: {
+          workspace: "/root/.openclaw/workspace",
+          compaction: { mode: "safeguard" },
+          maxConcurrent: 4,
+          subagents: { maxConcurrent: 8, model: model || "anthropic/claude-sonnet-4-20250514" }
+        }
+      },
+      commands: { native: "auto", nativeSkills: "auto", restart: true },
+      gateway: {
+        port: gatewayPort || 18789,
+        mode: "local",
+        bind: "loopback",
+        auth: { mode: "token" }
+      },
+      plugins: { entries: {} },
+      channels: {}
+    };
+
+    // Channel config
+    if (channel === "telegram" && botToken) {
+      config.channels.telegram = {
+        enabled: true,
+        dmPolicy: allowFrom?.length ? "allowlist" : "open",
+        botToken: botToken,
+        allowFrom: allowFrom || ["*"],
+        groupPolicy: "allowlist",
+        streaming: "partial"
+      };
+      config.plugins.entries.telegram = { enabled: true };
+    } else if (channel === "discord" && botToken) {
+      config.channels.discord = {
+        enabled: true,
+        token: botToken,
+        dmPolicy: "open",
+        allowFrom: allowFrom || ["*"],
+        groupPolicy: "allowlist",
+        streaming: "off"
+      };
+      config.plugins.entries.discord = { enabled: true };
+    }
+
+    const configJson = JSON.stringify(config, null, 2);
+
+    // 1. Create .openclaw directory
+    execSync(`${sshCmd} "mkdir -p /root/.openclaw/workspace"`, { timeout: 10000 });
+
+    // 2. Write config
+    const escapedConfig = configJson.replace(/\\/g, '\\\\').replace(/'/g, "'\\''").replace(/\$/g, '\\$');
+    execSync(`${sshCmd} "cat > /root/.openclaw/openclaw.json << 'OCEOF'\n${configJson}\nOCEOF"`, { timeout: 10000 });
+
+    // 3. Write Anthropic API key to environment
+    const escapedKey = anthropicKey.replace(/'/g, "'\\''");
+    execSync(`${sshCmd} "echo 'export ANTHROPIC_API_KEY=${escapedKey}' >> /root/.bashrc && echo 'ANTHROPIC_API_KEY=${escapedKey}' >> /etc/environment"`, { timeout: 10000 });
+
+    // 4. Create workspace files if agent name provided
+    if (agentName) {
+      const identityMd = `# IDENTITY.md\\n\\n- **Name:** ${agentName}\\n- **Born:** ${new Date().toISOString().split('T')[0]}\\n`;
+      execSync(`${sshCmd} "echo -e '${identityMd}' > /root/.openclaw/workspace/IDENTITY.md"`, { timeout: 10000 });
+    }
+
+    // 5. Create systemd service for OpenClaw
+    const serviceFile = `[Unit]
+Description=OpenClaw Gateway
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Environment=ANTHROPIC_API_KEY=${anthropicKey}
+ExecStart=/usr/bin/openclaw gateway start --allow-unconfigured
+WorkingDirectory=/root
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target`;
+
+    const escapedService = serviceFile.replace(/'/g, "'\\''");
+    execSync(`${sshCmd} "cat > /etc/systemd/system/openclaw.service << 'SVCEOF'\n${serviceFile}\nSVCEOF"`, { timeout: 10000 });
+    execSync(`${sshCmd} "systemctl daemon-reload && systemctl enable openclaw && systemctl start openclaw"`, { timeout: 20000 });
+
+    // 6. Verify it started
+    let running = false;
+    try {
+      const status = execSync(`${sshCmd} "systemctl is-active openclaw 2>/dev/null || echo inactive"`, { timeout: 10000, encoding: "utf-8" }).trim();
+      running = status === "active";
+    } catch (e) {}
+
+    // Update server record with openclaw configured flag
+    db.prepare("UPDATE servers SET openclaw_configured = 1 WHERE id = ?").run(serverId);
+
+    res.json({
+      success: true,
+      running,
+      message: running
+        ? "OpenClaw configured and running!"
+        : "OpenClaw configured but may still be starting. Check with: systemctl status openclaw",
+      config: {
+        model: model || "anthropic/claude-sonnet-4-20250514",
+        channel: channel || "none",
+        gateway_port: gatewayPort || 18789,
+      }
+    });
+  } catch (err: any) {
+    console.error("[compute] OpenClaw config error:", err);
+    res.status(500).json({ error: "Configuration failed", message: err.message?.split("\n")[0] || "Failed" });
+  }
+});
+
+/**
  * POST /compute/servers/:id/resize — Resize server (change plan)
  * Cost: 0.10 USDC (+ price difference on next billing)
  */

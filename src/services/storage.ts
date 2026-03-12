@@ -312,7 +312,8 @@ class Storage {
       owner: row.owner,
       priceMonthly: row.price_monthly,
       createdAt: row.created_at,
-      rootPassword: row.root_password
+      rootPassword: row.root_password,
+      openclawConfigured: !!row.openclaw_configured,
     }));
   }
 

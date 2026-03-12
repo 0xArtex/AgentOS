@@ -2188,15 +2188,15 @@ window.connectExistingVps=function(nodeId,ip,serverType,serverId){
 async function showVpsInfoModal(el){
   const ip=el.querySelector('.node-sub')?.textContent||'Unknown';
 
-  // Find server to check if SSH key is already set up (root_password = null means locked)
-  let server=null,sshConfigured=false;
+  // Find server to check SSH + OpenClaw status
+  let server=null,sshConfigured=false,openclawConfigured=false;
   try{
     const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
     const r=await fetch('/compute/servers',{headers:hdr});
     const d=await r.json();
     server=(d.servers||[]).find(s=>s.ipv4===ip);
-    // If rootPassword is null/missing, SSH was already configured
     sshConfigured=server&&!server.rootPassword;
+    openclawConfigured=!!server?.openclawConfigured;
   }catch(e){}
 
   const sshSection=sshConfigured?`
@@ -2239,6 +2239,24 @@ async function showVpsInfoModal(el){
         <button onclick="navigator.clipboard.writeText('ssh ${sshConfigured?'-i ~/.ssh/agentos_ed25519 ':''}root@${ip}');this.textContent='copied'" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--w30);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace">copy</button>
       </div>
       ${sshSection}
+      ${openclawConfigured?`
+        <div style="display:flex;align-items:center;gap:10px;padding:12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>
+          <div>
+            <div style="font-size:10px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace">OPENCLAW CONFIGURED</div>
+            <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-top:2px">Agent is running on this server</div>
+          </div>
+        </div>
+      `:`
+        <div style="padding:14px;border:1px dashed var(--w20);border-radius:8px;background:rgba(255,255,255,0.02)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--w40)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            <span style="font-size:11px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">CONFIGURE OPENCLAW</span>
+          </div>
+          <div style="font-size:10px;color:var(--w30);margin-bottom:12px;line-height:1.5">Set up your AI agent with an API key and connect it to Telegram or Discord.</div>
+          <button class="spawn-btn" style="width:100%" onclick="showOpenClawConfigModal('${ip}','${server?.id||''}')">CONFIGURE AGENT</button>
+        </div>
+      `}
     </div>
     <div id="vpsVerifyStatus"></div>
     <div style="display:flex;gap:8px;margin-top:4px">
@@ -2248,6 +2266,123 @@ async function showVpsInfoModal(el){
   `;
   document.getElementById('modalOverlay').classList.add('open');
 }
+
+window.showOpenClawConfigModal=function(ip,serverId){
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">CONFIGURE OPENCLAW</div>
+    <div class="modal-subtitle">set up your AI agent on ${ip}</div>
+    <div style="padding:16px 0;display:flex;flex-direction:column;gap:12px">
+      <div class="na-field">
+        <label class="na-label">Anthropic API Key</label>
+        <input class="na-input" id="ocApiKey" type="password" placeholder="sk-ant-..." style="font-family:'JetBrains Mono',monospace">
+        <div style="font-size:9px;color:var(--w20);margin-top:4px">Get one at <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent);text-decoration:none">console.anthropic.com</a></div>
+      </div>
+      <div class="na-field">
+        <label class="na-label">Model</label>
+        <select class="na-select" id="ocModel">
+          <option value="anthropic/claude-sonnet-4-20250514">Claude Sonnet 4 (recommended)</option>
+          <option value="anthropic/claude-opus-4-6">Claude Opus 4</option>
+          <option value="anthropic/claude-haiku-3-5">Claude Haiku 3.5 (fast/cheap)</option>
+        </select>
+      </div>
+      <div class="na-field">
+        <label class="na-label">Agent Name</label>
+        <input class="na-input" id="ocAgentName" placeholder="my-agent" style="font-family:'JetBrains Mono',monospace">
+      </div>
+      <div style="height:1px;background:var(--border);margin:4px 0"></div>
+      <div class="na-field">
+        <label class="na-label">Channel</label>
+        <select class="na-select" id="ocChannel" onchange="document.getElementById('ocBotTokenField').style.display=this.value==='none'?'none':'block';document.getElementById('ocChannelHint').textContent=this.value==='telegram'?'Talk to @BotFather to create a bot':'Create at discord.com/developers'">
+          <option value="telegram">Telegram</option>
+          <option value="discord">Discord</option>
+          <option value="none">None (configure later)</option>
+        </select>
+      </div>
+      <div id="ocBotTokenField">
+        <div class="na-field">
+          <label class="na-label">Bot Token</label>
+          <input class="na-input" id="ocBotToken" type="password" placeholder="123456:ABC-DEF..." style="font-family:'JetBrains Mono',monospace">
+          <div style="font-size:9px;color:var(--w20);margin-top:4px" id="ocChannelHint">Talk to @BotFather to create a bot</div>
+        </div>
+        <div class="na-field">
+          <label class="na-label">Allowed User IDs <span style="color:var(--w20)">(comma-separated, or * for all)</span></label>
+          <input class="na-input" id="ocAllowFrom" placeholder="*" value="*" style="font-family:'JetBrains Mono',monospace">
+        </div>
+      </div>
+    </div>
+    <div id="ocConfigStatus"></div>
+    <div style="display:flex;gap:8px">
+      <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
+      <button class="spawn-btn" style="flex:2" id="ocConfigBtn" onclick="submitOpenClawConfig('${ip}','${serverId}')">DEPLOY AGENT</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+};
+
+window.submitOpenClawConfig=async function(ip,serverId){
+  const btn=document.getElementById('ocConfigBtn');
+  const status=document.getElementById('ocConfigStatus');
+  const apiKey=document.getElementById('ocApiKey').value.trim();
+  const model=document.getElementById('ocModel').value;
+  const agentName=document.getElementById('ocAgentName').value.trim();
+  const channel=document.getElementById('ocChannel').value;
+  const botToken=document.getElementById('ocBotToken')?.value?.trim();
+  const allowFromRaw=document.getElementById('ocAllowFrom')?.value?.trim()||'*';
+  const allowFrom=allowFromRaw==='*'?['*']:allowFromRaw.split(',').map(s=>s.trim()).filter(Boolean);
+
+  if(!apiKey){status.innerHTML='<div style="color:var(--red);font-size:11px;padding:8px 0">Anthropic API key is required</div>';return;}
+  if(channel!=='none'&&!botToken){status.innerHTML='<div style="color:var(--red);font-size:11px;padding:8px 0">Bot token is required for '+channel+'</div>';return;}
+
+  btn.disabled=true;btn.textContent='CONFIGURING...';
+  status.innerHTML='<div style="padding:10px 0;text-align:center"><div class="provision-spinner" style="display:inline-block"></div><div style="font-size:10px;color:var(--w30);margin-top:6px" id="ocLog">Writing config to server...</div></div>';
+
+  try{
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    const r=await fetch('/compute/servers/'+serverId+'/configure-openclaw',{
+      method:'POST',headers:hdr,
+      body:JSON.stringify({
+        anthropicKey:apiKey,
+        model,
+        channel:channel==='none'?null:channel,
+        botToken:channel==='none'?null:botToken,
+        allowFrom,
+        agentName:agentName||undefined,
+      })
+    });
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||d.message||'Failed');
+
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title">AGENT DEPLOYED</div>
+      <div class="modal-subtitle">OpenClaw is ${d.running?'running':'starting'} on ${ip}</div>
+      <div style="padding:20px 0;text-align:center">
+        <div style="font-size:48px;margin-bottom:12px">\u{1F916}</div>
+        <div style="font-size:13px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace;margin-bottom:4px">${agentName||'Agent'} is live!</div>
+        <div style="font-size:10px;color:var(--w30);line-height:1.6;max-width:300px;margin:0 auto">
+          ${channel==='telegram'?'Send a message to your Telegram bot to start chatting.':channel==='discord'?'Add the bot to your Discord server to get started.':'Configure a channel later via SSH.'}
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-bottom:16px">
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+          <span style="color:var(--green)">\u2713</span>
+          <span style="font-size:10px;color:var(--w40);font-family:'JetBrains Mono',monospace;flex:1">Model: ${model.split('/').pop()}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+          <span style="color:var(--green)">\u2713</span>
+          <span style="font-size:10px;color:var(--w40);font-family:'JetBrains Mono',monospace;flex:1">Channel: ${channel==='none'?'none (configure later)':channel}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+          <span style="color:${d.running?'var(--green)':'var(--accent)'};">${d.running?'\u2713':'\u25CB'}</span>
+          <span style="font-size:10px;color:var(--w40);font-family:'JetBrains Mono',monospace;flex:1">Service: ${d.running?'running':'starting...'}</span>
+        </div>
+      </div>
+      <button class="spawn-btn" style="width:100%" onclick="document.getElementById('modalOverlay').classList.remove('open')">DONE</button>
+    `;
+  }catch(e){
+    status.innerHTML='<div style="color:var(--red);font-size:11px;padding:8px 0;text-align:center">'+e.message+'</div>';
+    btn.disabled=false;btn.textContent='DEPLOY AGENT';
+  }
+};
 
 window.startSshHandoff=async function(ip,serverId){
   const modal=document.getElementById('modalBody');
