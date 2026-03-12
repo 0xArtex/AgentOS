@@ -2247,9 +2247,10 @@ function openModelConfigModal(el){
   const saved=el.dataset.modelData?JSON.parse(el.dataset.modelData):null;
 
   const providers=[
-    {id:'anthropic',name:'Anthropic (Claude)',logo:'/assets/logos/anthropic-icon.svg',hint:'Get a key at console.anthropic.com or use your Claude Max subscription token',placeholder:'sk-ant-...'},
-    {id:'openrouter',name:'OpenRouter',logo:'',hint:'Get a key at openrouter.ai — supports 100+ models',placeholder:'sk-or-...'},
-    {id:'openai',name:'OpenAI',logo:'',hint:'Get a key at platform.openai.com',placeholder:'sk-...'},
+    {id:'anthropic-api',name:'Anthropic API Key',logo:'/assets/logos/anthropic-icon.svg',hint:'Pay per token. Get a key at console.anthropic.com',placeholder:'sk-ant-...',label:'API Key',authMode:'token'},
+    {id:'anthropic-max',name:'Claude Max Subscription',logo:'/assets/logos/anthropic-icon.svg',hint:'Flat rate, unlimited usage. Run "claude setup-token" in any terminal to generate',placeholder:'Paste setup-token here...',label:'Setup Token',authMode:'setup-token'},
+    {id:'openrouter',name:'OpenRouter',logo:'',hint:'Get a key at openrouter.ai — supports 100+ models',placeholder:'sk-or-...',label:'API Key',authMode:'token'},
+    {id:'openai',name:'OpenAI',logo:'',hint:'Get a key at platform.openai.com',placeholder:'sk-...',label:'API Key',authMode:'token'},
   ];
 
   const providerCards=providers.map((p,i)=>`
@@ -2268,7 +2269,7 @@ function openModelConfigModal(el){
       ${providerCards}
     </div>
     <div class="na-field">
-      <label class="na-label">API Key</label>
+      <label class="na-label" id="modelKeyLabel">${providers[0].label}</label>
       <input class="na-input" id="modelApiKey" type="password" placeholder="${providers[0].placeholder}" value="${saved?.apiKey||''}" style="font-family:'JetBrains Mono',monospace">
       <div style="font-size:9px;color:var(--w20);margin-top:4px" id="modelProviderHint">${providers[0].hint}</div>
     </div>
@@ -2280,9 +2281,9 @@ function openModelConfigModal(el){
         <option value="anthropic/claude-haiku-3-5"${saved?.model==='anthropic/claude-haiku-3-5'?' selected':''}>Claude Haiku 3.5 (fast)</option>
       </select>
     </div>
-    <div style="padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;margin-top:12px">
-      <div style="font-size:10px;color:var(--w30);line-height:1.5;font-family:'JetBrains Mono',monospace">
-        <strong style="color:var(--w50)">Claude Max subscribers:</strong> Go to console.anthropic.com > API Keys > Create Key. Your subscription includes API credits.
+    <div id="modelInfoBox" style="padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;margin-top:12px">
+      <div style="font-size:10px;color:var(--w30);line-height:1.6;font-family:'JetBrains Mono',monospace" id="modelInfoText">
+        Pay per token. Create an API key at <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent);text-decoration:none">console.anthropic.com</a>
       </div>
     </div>
     <div id="modelConfigStatus" style="margin-top:8px"></div>
@@ -2299,10 +2300,17 @@ function openModelConfigModal(el){
 window.selectModelProvider=function(card,providerId){
   document.querySelectorAll('.vps-tier-card').forEach(c=>c.classList.remove('selected'));
   card.classList.add('selected');
-  const hints={anthropic:'Get a key at console.anthropic.com or use your Claude Max subscription token',openrouter:'Get a key at openrouter.ai — supports 100+ models',openai:'Get a key at platform.openai.com'};
-  const placeholders={anthropic:'sk-ant-...',openrouter:'sk-or-...',openai:'sk-...'};
-  document.getElementById('modelProviderHint').textContent=hints[providerId]||'';
-  document.getElementById('modelApiKey').placeholder=placeholders[providerId]||'';
+  const data={
+    'anthropic-api':{label:'API Key',placeholder:'sk-ant-...',hint:'Pay per token. Get a key at console.anthropic.com',info:'Pay per token. Create an API key at <a href="https://console.anthropic.com" target="_blank" style="color:var(--accent);text-decoration:none">console.anthropic.com</a>'},
+    'anthropic-max':{label:'Setup Token',placeholder:'Paste setup-token here...',hint:'Run "claude setup-token" in any terminal to generate',info:'<strong style="color:var(--w50)">How to get your token:</strong><br>1. Install Claude Code: <span style="color:var(--w50)">npm i -g @anthropic-ai/claude-code</span><br>2. Run: <span style="color:var(--w50)">claude setup-token</span><br>3. Authorize in browser, copy the token'},
+    'openrouter':{label:'API Key',placeholder:'sk-or-...',hint:'Get a key at openrouter.ai — supports 100+ models',info:'Supports 100+ models. Get a key at <a href="https://openrouter.ai" target="_blank" style="color:var(--accent);text-decoration:none">openrouter.ai</a>'},
+    'openai':{label:'API Key',placeholder:'sk-...',hint:'Get a key at platform.openai.com',info:'Get a key at <a href="https://platform.openai.com" target="_blank" style="color:var(--accent);text-decoration:none">platform.openai.com</a>'},
+  };
+  const d=data[providerId]||data['anthropic-api'];
+  document.getElementById('modelKeyLabel').textContent=d.label;
+  document.getElementById('modelApiKey').placeholder=d.placeholder;
+  document.getElementById('modelProviderHint').textContent=d.hint;
+  document.getElementById('modelInfoText').innerHTML=d.info;
 };
 
 window.saveModelConfig=function(btn){
@@ -2310,12 +2318,14 @@ window.saveModelConfig=function(btn){
   const el=document.getElementById(nodeId);
   const apiKey=document.getElementById('modelApiKey').value.trim();
   const model=document.getElementById('modelSelect').value;
-  const provider=document.querySelector('.vps-tier-card.selected')?.dataset.provider||'anthropic';
+  const providerId=document.querySelector('.vps-tier-card.selected')?.dataset.provider||'anthropic-api';
+  const authMode=providerId==='anthropic-max'?'setup-token':'token';
+  const provider=providerId.startsWith('anthropic')?'anthropic':providerId;
 
-  if(!apiKey){document.getElementById('modelConfigStatus').innerHTML='<div style="color:var(--red);font-size:11px">API key is required</div>';return;}
+  if(!apiKey){document.getElementById('modelConfigStatus').innerHTML='<div style="color:var(--red);font-size:11px">'+(authMode==='setup-token'?'Setup token':'API key')+' is required</div>';return;}
 
   // Save config to node data attribute
-  el.dataset.modelData=JSON.stringify({provider,apiKey,model});
+  el.dataset.modelData=JSON.stringify({provider,providerId,apiKey,model,authMode});
   el.classList.remove('unconfigured');
   el.querySelector('.node-sub').textContent=model.split('/').pop();
   el.querySelector('.s-dot')?.classList.add('active');
@@ -2471,6 +2481,8 @@ window.tryPushOpenClawConfig=async function(triggerNode){
       method:'POST',headers:hdr,
       body:JSON.stringify({
         anthropicKey:modelData.apiKey,
+        authMode:modelData.authMode||'token',
+        provider:modelData.provider||'anthropic',
         model:modelData.model,
         channel:channelData.channel,
         botToken:channelData.botToken,

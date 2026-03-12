@@ -322,6 +322,8 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
     const serverId = String(req.params.id);
     const {
       anthropicKey,
+      authMode,      // 'token' | 'setup-token'
+      provider,      // 'anthropic' | 'openrouter' | 'openai'
       model,
       channel,       // 'telegram' | 'discord' | 'none'
       botToken,      // telegram bot token or discord token
@@ -330,7 +332,7 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
       agentName,
     } = req.body;
 
-    if (!anthropicKey) return res.status(400).json({ error: "anthropicKey is required" });
+    if (!anthropicKey) return res.status(400).json({ error: "API key or setup token is required" });
 
     const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
@@ -340,12 +342,15 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
     const ssh = sshCmd(ip);
 
     // Build OpenClaw config
+    const effectiveProvider = provider || "anthropic";
+    const effectiveAuthMode = authMode || "token";
+    const profileKey = effectiveProvider + ":default";
     const config: any = {
       auth: {
         profiles: {
-          "anthropic:default": {
-            provider: "anthropic",
-            mode: "token"
+          [profileKey]: {
+            provider: effectiveProvider,
+            mode: effectiveAuthMode,
           }
         }
       },
@@ -400,9 +405,17 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
     const escapedConfig = configJson.replace(/\\/g, '\\\\').replace(/'/g, "'\\''").replace(/\$/g, '\\$');
     execSync(`${ssh} "cat > /root/.openclaw/openclaw.json << 'OCEOF'\n${configJson}\nOCEOF"`, { timeout: 10000 });
 
-    // 3. Write Anthropic API key to environment
+    // 3. Set up auth credentials
     const escapedKey = anthropicKey.replace(/'/g, "'\\''");
-    execSync(`${ssh} "echo 'export ANTHROPIC_API_KEY=${escapedKey}' >> /root/.bashrc && echo 'ANTHROPIC_API_KEY=${escapedKey}' >> /etc/environment"`, { timeout: 10000 });
+    if (effectiveAuthMode === 'setup-token') {
+      // For setup-token: use openclaw's built-in token paste command
+      execSync(`${ssh} "echo '${escapedKey}' | openclaw models auth paste-token --provider ${effectiveProvider} 2>/dev/null || true"`, { timeout: 30000 });
+    } else {
+      // For API keys: set as environment variable
+      const envVarMap: Record<string, string> = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', openrouter: 'OPENROUTER_API_KEY' };
+      const envVar = envVarMap[effectiveProvider] || 'ANTHROPIC_API_KEY';
+      execSync(`${ssh} "echo 'export ${envVar}=${escapedKey}' >> /root/.bashrc && echo '${envVar}=${escapedKey}' >> /etc/environment"`, { timeout: 10000 });
+    }
 
     // 4. Create workspace files if agent name provided
     if (agentName) {
@@ -411,6 +424,9 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
     }
 
     // 5. Create systemd service for OpenClaw
+    const envVarMap: Record<string, string> = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', openrouter: 'OPENROUTER_API_KEY' };
+    const envVar = envVarMap[effectiveProvider] || 'ANTHROPIC_API_KEY';
+    const envLine = effectiveAuthMode === 'setup-token' ? '' : `Environment=${envVar}=${anthropicKey}`;
     const serviceFile = `[Unit]
 Description=OpenClaw Gateway
 After=network.target
@@ -418,7 +434,7 @@ After=network.target
 [Service]
 Type=simple
 User=root
-Environment=ANTHROPIC_API_KEY=${anthropicKey}
+${envLine}
 ExecStart=/usr/bin/openclaw gateway start --allow-unconfigured
 WorkingDirectory=/root
 Restart=always
