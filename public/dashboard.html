@@ -2185,41 +2185,197 @@ window.connectExistingVps=function(nodeId,ip,serverType,serverId){
   document.getElementById('modalOverlay').classList.remove('open');
 };
 
-function showVpsInfoModal(el){
+async function showVpsInfoModal(el){
   const ip=el.querySelector('.node-sub')?.textContent||'Unknown';
+
+  // Find server to check if SSH key is already set up (root_password = null means locked)
+  let server=null,sshConfigured=false;
+  try{
+    const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    const r=await fetch('/compute/servers',{headers:hdr});
+    const d=await r.json();
+    server=(d.servers||[]).find(s=>s.ipv4===ip);
+    // If rootPassword is null/missing, SSH was already configured
+    sshConfigured=server&&!server.rootPassword;
+  }catch(e){}
+
+  const sshSection=sshConfigured?`
+    <div style="display:flex;align-items:center;gap:10px;padding:12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <div style="flex:1">
+        <div style="font-size:10px;color:var(--green);font-weight:600;font-family:'JetBrains Mono',monospace">SSH KEY CONFIGURED</div>
+        <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-top:2px">Password auth disabled · platform access revoked</div>
+      </div>
+    </div>
+  `:`
+    <div style="padding:14px;border:1px dashed var(--accent);border-radius:8px;background:rgba(245,73,0,0.04)">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        <span style="font-size:11px;font-weight:600;color:var(--accent);font-family:'JetBrains Mono',monospace">SSH KEY REQUIRED</span>
+      </div>
+      <div style="font-size:10px;color:var(--w30);margin-bottom:12px;line-height:1.5">Generate a secure SSH keypair in your browser. The private key never leaves your device. After setup, we delete our access permanently.</div>
+      <button class="spawn-btn" style="width:100%" onclick="startSshHandoff('${ip}','${server?.id||''}')">GENERATE SSH KEY & LOCK SERVER</button>
+    </div>
+  `;
+
   document.getElementById('modalBody').innerHTML=`
     <div class="modal-title">VPS</div>
-    <div class="modal-subtitle">server is running</div>
-    <div style="padding:20px 0;display:flex;flex-direction:column;gap:12px">
+    <div class="modal-subtitle">${sshConfigured?'secured — key-only access':'server is running — SSH setup needed'}</div>
+    <div style="padding:16px 0;display:flex;flex-direction:column;gap:10px">
       <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
         <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
-        <div>
-          <div style="font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">IP Address</div>
+        <div style="flex:1">
+          <div style="font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">IP Address</div>
           <div style="font-size:14px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace">${ip}</div>
         </div>
-        <button onclick="navigator.clipboard.writeText('${ip}');this.textContent='copied'" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;color:var(--w30);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .2s">copy</button>
+        <button onclick="navigator.clipboard.writeText('${ip}');this.textContent='copied'" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--w30);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace">copy</button>
       </div>
       <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--w30)" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        <div>
-          <div style="font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">SSH Access</div>
-          <div style="font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace">ssh root@${ip}</div>
+        <div style="flex:1">
+          <div style="font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">SSH Command</div>
+          <div style="font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace">ssh ${sshConfigured?'-i ~/.ssh/agentos_ed25519 ':''} root@${ip}</div>
         </div>
-        <button onclick="navigator.clipboard.writeText('ssh root@${ip}');this.textContent='copied'" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;color:var(--w30);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .2s">copy</button>
+        <button onclick="navigator.clipboard.writeText('ssh ${sshConfigured?'-i ~/.ssh/agentos_ed25519 ':''}root@${ip}');this.textContent='copied'" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--w30);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace">copy</button>
       </div>
-      <div style="display:flex;gap:6px;align-items:center;padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
-        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-        <span style="font-size:10px;color:var(--green);font-family:'JetBrains Mono',monospace">Firewall active · OpenClaw installed · Zero platform access</span>
-      </div>
+      ${sshSection}
     </div>
     <div id="vpsVerifyStatus"></div>
     <div style="display:flex;gap:8px;margin-top:4px">
       <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
-      <button class="spawn-btn" style="flex:1" id="vpsVerifyBtn" onclick="verifyVps('${ip}')">VERIFY SETUP</button>
+      <button class="spawn-btn" style="flex:1" id="vpsVerifyBtn" onclick="verifyVps('${ip}')">VERIFY</button>
     </div>
   `;
   document.getElementById('modalOverlay').classList.add('open');
 }
+
+window.startSshHandoff=async function(ip,serverId){
+  const modal=document.getElementById('modalBody');
+  modal.innerHTML=`
+    <div class="modal-title">SSH KEY SETUP</div>
+    <div class="modal-subtitle">generating secure keypair in your browser</div>
+    <div style="padding:20px 0">
+      <div class="provision-status">
+        <div class="provision-spinner"></div>
+        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace" id="sshHandoffLog">Generating Ed25519 keypair...</div>
+      </div>
+    </div>`;
+
+  try{
+    // Step 1: Generate Ed25519 keypair in browser
+    const keyPair=await crypto.subtle.generateKey({name:'Ed25519'},true,['sign','verify']);
+
+    // Export private key (PKCS8)
+    const privRaw=await crypto.subtle.exportKey('pkcs8',keyPair.privateKey);
+    const privB64=btoa(String.fromCharCode(...new Uint8Array(privRaw)));
+    const privPem='-----BEGIN OPENSSH PRIVATE KEY-----\n'+privB64.match(/.{1,70}/g).join('\n')+'\n-----END OPENSSH PRIVATE KEY-----\n';
+
+    // Export public key for OpenSSH format
+    const pubRaw=await crypto.subtle.exportKey('raw',keyPair.publicKey);
+    const pubBytes=new Uint8Array(pubRaw);
+
+    // Build OpenSSH public key: "ssh-ed25519 <base64(type_len + type + key_len + key)>"
+    const typeStr='ssh-ed25519';
+    const typeBytes=new TextEncoder().encode(typeStr);
+    const buf=new Uint8Array(4+typeBytes.length+4+pubBytes.length);
+    const dv=new DataView(buf.buffer);
+    dv.setUint32(0,typeBytes.length);buf.set(typeBytes,4);
+    dv.setUint32(4+typeBytes.length,pubBytes.length);buf.set(pubBytes,4+typeBytes.length+4);
+    const pubKey='ssh-ed25519 '+btoa(String.fromCharCode(...buf))+' agentos-'+Date.now();
+
+    document.getElementById('sshHandoffLog').textContent='Keypair generated — save your private key';
+
+    // Step 2: Show private key download
+    modal.innerHTML=`
+      <div class="modal-title">SSH KEY SETUP</div>
+      <div class="modal-subtitle">step 1 of 2 — save your private key</div>
+      <div style="padding:16px 0">
+        <div style="padding:14px;background:rgba(245,73,0,0.06);border:1px solid rgba(245,73,0,0.15);border-radius:8px;margin-bottom:12px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
+            <span style="font-size:11px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace">SAVE THIS KEY NOW</span>
+          </div>
+          <div style="font-size:10px;color:var(--w30);line-height:1.5">This is your only copy. We don't store it. If you lose it, you lose access to this server permanently.</div>
+        </div>
+        <div style="display:flex;gap:8px">
+          <button class="spawn-btn" style="flex:1" id="sshDownloadBtn" onclick="downloadSshKey()">DOWNLOAD PRIVATE KEY</button>
+        </div>
+        <div style="text-align:center;margin-top:12px">
+          <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w30);width:100%" id="sshContinueBtn" disabled onclick="injectSshKey()">CONTINUE — LOCK SERVER</button>
+          <div style="font-size:9px;color:var(--w20);margin-top:6px">Download the key first to continue</div>
+        </div>
+      </div>`;
+
+    // Store in temp vars for the flow
+    window._sshPrivPem=privPem;
+    window._sshPubKey=pubKey;
+    window._sshServerId=serverId;
+    window._sshIp=ip;
+
+  }catch(e){
+    modal.innerHTML=`
+      <div class="modal-title">SSH KEY SETUP</div>
+      <div style="color:var(--red);padding:16px 0;text-align:center;font-size:11px">${e.message}<br><br><span style="color:var(--w30)">Your browser may not support Ed25519 key generation. Try Chrome or Firefox.</span></div>
+      <button class="spawn-btn" style="width:100%" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>`;
+  }
+};
+
+window.downloadSshKey=function(){
+  const blob=new Blob([window._sshPrivPem],{type:'application/x-pem-file'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download='agentos_ed25519';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  // Enable continue button
+  const btn=document.getElementById('sshContinueBtn');
+  if(btn){btn.disabled=false;btn.style.borderColor='var(--accent)';btn.style.color='var(--accent)';}
+};
+
+window.injectSshKey=async function(){
+  const btn=document.getElementById('sshContinueBtn');
+  btn.disabled=true;btn.textContent='LOCKING SERVER...';
+
+  try{
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    const r=await fetch('/compute/servers/'+window._sshServerId+'/setup-ssh',{
+      method:'POST',headers:hdr,
+      body:JSON.stringify({publicKey:window._sshPubKey})
+    });
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||d.message||'Failed');
+
+    // Clear private key from memory
+    delete window._sshPrivPem;
+    delete window._sshPubKey;
+
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title">SERVER LOCKED</div>
+      <div class="modal-subtitle">zero platform access — only your key works</div>
+      <div style="padding:20px 0;display:flex;flex-direction:column;gap:12px">
+        <div style="text-align:center">
+          <div style="font-size:48px;margin-bottom:8px">\u{1F512}</div>
+          <div style="font-size:12px;color:var(--green);font-weight:600;font-family:'JetBrains Mono',monospace">SSH KEY CONFIGURED</div>
+          <div style="font-size:10px;color:var(--w30);margin-top:4px">Password auth disabled · root password deleted from platform</div>
+        </div>
+        <div style="padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+          <div style="font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">Connect with</div>
+          <div style="font-size:12px;color:var(--text);font-family:'JetBrains Mono',monospace">ssh -i ~/.ssh/agentos_ed25519 root@${window._sshIp}</div>
+        </div>
+        <div style="padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px;font-size:10px;color:var(--green);font-family:'JetBrains Mono',monospace;text-align:center">
+          Move the downloaded key to ~/.ssh/ and run: chmod 600 ~/.ssh/agentos_ed25519
+        </div>
+      </div>
+      <button class="spawn-btn" style="width:100%" onclick="document.getElementById('modalOverlay').classList.remove('open')">DONE</button>`;
+
+  }catch(e){
+    btn.textContent='CONTINUE — LOCK SERVER';btn.disabled=false;
+    const status=document.createElement('div');
+    status.style.cssText='color:var(--red);font-size:11px;text-align:center;padding:8px 0';
+    status.textContent=e.message;
+    btn.parentNode.appendChild(status);
+  }
+};
 
 window.verifyVps=async function(ip){
   const btn=document.getElementById('vpsVerifyBtn');

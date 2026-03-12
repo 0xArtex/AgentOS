@@ -206,6 +206,53 @@ router.post("/servers/:id/actions", requireAuth(0.05, 'general'), async (req: Au
 });
 
 /**
+ * POST /compute/servers/:id/setup-ssh — Inject user's public key, disable password auth, delete root password from DB
+ * This is the "zero access" handoff: after this, only the user can SSH in.
+ */
+router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const { publicKey } = req.body as { publicKey: string };
+
+    if (!publicKey || !publicKey.startsWith("ssh-")) {
+      return res.status(400).json({ error: "Invalid SSH public key", hint: "Must start with ssh-ed25519 or ssh-rsa" });
+    }
+
+    const row = db.prepare("SELECT ipv4, root_password FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+    if (!row.root_password) return res.status(400).json({ error: "SSH already configured — root password was already deleted" });
+
+    const ip = row.ipv4;
+    const pw = row.root_password;
+    const { execSync } = require("child_process");
+    const sshCmd = `sshpass -p '${pw.replace(/'/g, "'\\''")}' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@${ip}`;
+
+    // 1. Inject public key
+    const escapedKey = publicKey.replace(/'/g, "'\\''");
+    execSync(`${sshCmd} "mkdir -p ~/.ssh && echo '${escapedKey}' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"`, { timeout: 20000 });
+
+    // 2. Disable password auth completely
+    execSync(`${sshCmd} "sed -i 's/#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && sed -i 's/#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && sed -i 's/#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config && systemctl restart sshd"`, { timeout: 20000 });
+
+    // 3. Delete root password from server (lock the account)
+    execSync(`${sshCmd} "passwd -l root"`, { timeout: 10000 });
+
+    // 4. Delete root password from our database — we can never access again
+    db.prepare("UPDATE servers SET root_password = NULL WHERE id = ?").run(serverId);
+
+    res.json({
+      success: true,
+      message: "SSH key injected, password auth disabled, root password deleted from platform. Only your key can access this server now.",
+      ip,
+      ssh: `ssh -i <your-key> root@${ip}`,
+    });
+  } catch (err: any) {
+    console.error("[compute] SSH setup error:", err);
+    res.status(500).json({ error: "SSH setup failed", message: err.message?.split("\n")[0] || "Failed" });
+  }
+});
+
+/**
  * GET /compute/servers/:id/verify — Verify OpenClaw installation on server
  */
 router.get("/servers/:id/verify", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
