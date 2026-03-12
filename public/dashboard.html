@@ -2276,10 +2276,9 @@ function openModelConfigModal(el){
     <div class="na-field" style="margin-top:8px">
       <label class="na-label">Default Model</label>
       <select class="na-select" id="modelSelect" style="appearance:auto;-webkit-appearance:auto;background:var(--bg)">
-        <option value="anthropic/claude-opus-4-6"${saved?.model==='anthropic/claude-opus-4-6'?' selected':''}>Claude Opus 4</option>
-        <option value="anthropic/claude-sonnet-4-20250514"${!saved||saved?.model==='anthropic/claude-sonnet-4-20250514'?' selected':''}>Claude Sonnet 4 (recommended)</option>
-        <option value="anthropic/claude-haiku-4-20250414"${saved?.model==='anthropic/claude-haiku-4-20250414'?' selected':''}>Claude Haiku 4</option>
-        <option value="anthropic/claude-haiku-3-5"${saved?.model==='anthropic/claude-haiku-3-5'?' selected':''}>Claude Haiku 3.5 (fast/cheap)</option>
+        <option value="anthropic/claude-opus-4-6"${saved?.model==='anthropic/claude-opus-4-6'?' selected':''}>Claude Opus 4.6 (most intelligent)</option>
+        <option value="anthropic/claude-sonnet-4-6"${!saved||saved?.model==='anthropic/claude-sonnet-4-6'?' selected':''}>Claude Sonnet 4.6 (recommended)</option>
+        <option value="anthropic/claude-haiku-4-5"${saved?.model==='anthropic/claude-haiku-4-5'?' selected':''}>Claude Haiku 4.5 (fastest)</option>
       </select>
     </div>
     <div id="modelInfoBox" style="padding:10px 12px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:8px;margin-top:12px">
