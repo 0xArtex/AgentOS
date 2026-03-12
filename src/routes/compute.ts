@@ -8,6 +8,14 @@ import { trackHackathonUsage } from "../middleware/hackathon";
 
 const router = Router();
 
+const PLATFORM_KEY = '/root/.ssh/id_ed25519_platform';
+
+/** Build SSH command — prefer platform key, fallback to password */
+function sshCmd(ip: string, pw?: string | null): string {
+  // Always try platform key first (injected by cloud-init)
+  return `ssh -i ${PLATFORM_KEY} -o StrictHostKeyChecking=no -o ConnectTimeout=15 -o PasswordAuthentication=no root@${ip}`;
+}
+
 // ── Plans (free, no auth) ─────────────────────────────────────
 
 /**
@@ -223,19 +231,18 @@ router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general'), async (req: 
     if (!row.root_password) return res.status(400).json({ error: "SSH already configured — root password was already deleted" });
 
     const ip = row.ipv4;
-    const pw = row.root_password;
     const { execSync } = require("child_process");
-    const sshCmd = `sshpass -p '${pw.replace(/'/g, "'\\''")}' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@${ip}`;
+    const ssh = sshCmd(ip);
 
-    // 1. Inject public key
+    // 1. Inject user's public key
     const escapedKey = publicKey.replace(/'/g, "'\\''");
-    execSync(`${sshCmd} "mkdir -p ~/.ssh && echo '${escapedKey}' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"`, { timeout: 20000 });
+    execSync(`${ssh} "mkdir -p ~/.ssh && echo '${escapedKey}' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"`, { timeout: 20000 });
 
-    // 2. Disable password auth completely
-    execSync(`${sshCmd} "sed -i 's/#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config && sed -i 's/#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && sed -i 's/#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config && systemctl restart sshd"`, { timeout: 20000 });
+    // 2. Remove platform temp key from authorized_keys
+    execSync(`${ssh} "sed -i '/agentos-platform-temp/d' ~/.ssh/authorized_keys"`, { timeout: 10000 });
 
-    // 3. Delete root password from server (lock the account)
-    execSync(`${sshCmd} "passwd -l root"`, { timeout: 10000 });
+    // 3. Lock root password
+    execSync(`${ssh} "passwd -l root"`, { timeout: 10000 });
 
     // 4. Delete root password from our database — we can never access again
     db.prepare("UPDATE servers SET root_password = NULL WHERE id = ?").run(serverId);
@@ -263,18 +270,15 @@ router.get("/servers/:id/verify", requireAuth(0.01, 'general'), async (req: Auth
 
     const { execSync } = require("child_process");
     const ip = row.ipv4;
-    const pw = row.root_password;
 
-    // Try SSH with root password (sshpass) — 10s timeout
+    // Try SSH with platform key
     let result: any = { ip, reachable: false, openclaw_installed: false, openclaw_version: null, hardened: false, provision_log: null };
 
     try {
-      const sshCmd = pw
-        ? `sshpass -p '${pw.replace(/'/g, "'\\''")}' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@${ip}`
-        : `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@${ip}`;
+      const ssh = sshCmd(ip);
 
       // Check reachability + OpenClaw version
-      const versionOut = execSync(`${sshCmd} "openclaw --version 2>/dev/null || echo NOT_INSTALLED"`, { timeout: 15000, encoding: "utf-8" }).trim();
+      const versionOut = execSync(`${ssh} "openclaw --version 2>/dev/null || echo NOT_INSTALLED"`, { timeout: 15000, encoding: "utf-8" }).trim();
       result.reachable = true;
 
       if (versionOut && !versionOut.includes("NOT_INSTALLED")) {
@@ -284,14 +288,14 @@ router.get("/servers/:id/verify", requireAuth(0.01, 'general'), async (req: Auth
 
       // Check provision metadata
       try {
-        const provisionJson = execSync(`${sshCmd} "cat /etc/openclaw/provision.json 2>/dev/null || echo {}"`, { timeout: 10000, encoding: "utf-8" }).trim();
+        const provisionJson = execSync(`${ssh} "cat /etc/openclaw/provision.json 2>/dev/null || echo {}"`, { timeout: 10000, encoding: "utf-8" }).trim();
         result.provision_log = JSON.parse(provisionJson);
         result.hardened = result.provision_log?.hardened || false;
       } catch (e) {}
 
       // Check firewall
       try {
-        const ufwStatus = execSync(`${sshCmd} "ufw status 2>/dev/null | head -1 || echo inactive"`, { timeout: 10000, encoding: "utf-8" }).trim();
+        const ufwStatus = execSync(`${ssh} "ufw status 2>/dev/null | head -1 || echo inactive"`, { timeout: 10000, encoding: "utf-8" }).trim();
         result.firewall = ufwStatus.includes("active") ? "active" : "inactive";
       } catch (e) { result.firewall = "unknown"; }
 
@@ -328,15 +332,12 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
 
     if (!anthropicKey) return res.status(400).json({ error: "anthropicKey is required" });
 
-    const row = db.prepare("SELECT ipv4, root_password FROM servers WHERE id = ?").get(serverId) as any;
+    const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const ip = row.ipv4;
-    const pw = row.root_password;
-    if (!pw) return res.status(400).json({ error: "Cannot configure — root password deleted. Use SSH key access." });
-
     const { execSync } = require("child_process");
-    const sshCmd = `sshpass -p '${pw.replace(/'/g, "'\\''")}' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=15 root@${ip}`;
+    const ssh = sshCmd(ip);
 
     // Build OpenClaw config
     const config: any = {
@@ -393,20 +394,20 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
     const configJson = JSON.stringify(config, null, 2);
 
     // 1. Create .openclaw directory
-    execSync(`${sshCmd} "mkdir -p /root/.openclaw/workspace"`, { timeout: 10000 });
+    execSync(`${ssh} "mkdir -p /root/.openclaw/workspace"`, { timeout: 10000 });
 
     // 2. Write config
     const escapedConfig = configJson.replace(/\\/g, '\\\\').replace(/'/g, "'\\''").replace(/\$/g, '\\$');
-    execSync(`${sshCmd} "cat > /root/.openclaw/openclaw.json << 'OCEOF'\n${configJson}\nOCEOF"`, { timeout: 10000 });
+    execSync(`${ssh} "cat > /root/.openclaw/openclaw.json << 'OCEOF'\n${configJson}\nOCEOF"`, { timeout: 10000 });
 
     // 3. Write Anthropic API key to environment
     const escapedKey = anthropicKey.replace(/'/g, "'\\''");
-    execSync(`${sshCmd} "echo 'export ANTHROPIC_API_KEY=${escapedKey}' >> /root/.bashrc && echo 'ANTHROPIC_API_KEY=${escapedKey}' >> /etc/environment"`, { timeout: 10000 });
+    execSync(`${ssh} "echo 'export ANTHROPIC_API_KEY=${escapedKey}' >> /root/.bashrc && echo 'ANTHROPIC_API_KEY=${escapedKey}' >> /etc/environment"`, { timeout: 10000 });
 
     // 4. Create workspace files if agent name provided
     if (agentName) {
       const identityMd = `# IDENTITY.md\\n\\n- **Name:** ${agentName}\\n- **Born:** ${new Date().toISOString().split('T')[0]}\\n`;
-      execSync(`${sshCmd} "echo -e '${identityMd}' > /root/.openclaw/workspace/IDENTITY.md"`, { timeout: 10000 });
+      execSync(`${ssh} "echo -e '${identityMd}' > /root/.openclaw/workspace/IDENTITY.md"`, { timeout: 10000 });
     }
 
     // 5. Create systemd service for OpenClaw
@@ -427,13 +428,13 @@ RestartSec=5
 WantedBy=multi-user.target`;
 
     const escapedService = serviceFile.replace(/'/g, "'\\''");
-    execSync(`${sshCmd} "cat > /etc/systemd/system/openclaw.service << 'SVCEOF'\n${serviceFile}\nSVCEOF"`, { timeout: 10000 });
-    execSync(`${sshCmd} "systemctl daemon-reload && systemctl enable openclaw && systemctl start openclaw"`, { timeout: 20000 });
+    execSync(`${ssh} "cat > /etc/systemd/system/openclaw.service << 'SVCEOF'\n${serviceFile}\nSVCEOF"`, { timeout: 10000 });
+    execSync(`${ssh} "systemctl daemon-reload && systemctl enable openclaw && systemctl start openclaw"`, { timeout: 20000 });
 
     // 6. Verify it started
     let running = false;
     try {
-      const status = execSync(`${sshCmd} "systemctl is-active openclaw 2>/dev/null || echo inactive"`, { timeout: 10000, encoding: "utf-8" }).trim();
+      const status = execSync(`${ssh} "systemctl is-active openclaw 2>/dev/null || echo inactive"`, { timeout: 10000, encoding: "utf-8" }).trim();
       running = status === "active";
     } catch (e) {}
 

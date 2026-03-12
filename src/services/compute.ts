@@ -6,11 +6,17 @@ import crypto from "crypto";
 const HCLOUD_API = "https://api.hetzner.cloud/v1";
 
 function generateCloudInit(): string {
+  const platformPubKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAeOkVwRfQpLUemQ6HwbglAPjv1WioahHED/SXSaK7r+ agentos-platform-temp';
   return `#!/bin/bash
 set -euo pipefail
 
 # ─── Security Hardening ───
-# Disable password auth
+# Inject platform temp key for provisioning (removed during SSH handoff)
+mkdir -p /root/.ssh && chmod 700 /root/.ssh
+echo '${platformPubKey}' >> /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+
+# Disable password auth but allow pubkey
 sed -i 's/#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 sed -i 's/#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
