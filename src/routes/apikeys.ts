@@ -19,7 +19,7 @@ router.post("/", rateLimit(10, 60_000), x402(1.0), async (req: AuthenticatedRequ
       return;
     }
 
-    const key = await apikeysService.generateKey(provider, req.payment!.payer, label);
+    const key = await apikeysService.generateKey(provider, req.agentId || req.payment?.payer || "unknown", label);
     res.status(201).json(key);
   } catch (err: any) {
     console.error("[apikeys] Generate error:", err);
@@ -33,7 +33,7 @@ router.post("/", rateLimit(10, 60_000), x402(1.0), async (req: AuthenticatedRequ
  */
 router.get("/", x402(0.01), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const keys = await apikeysService.listKeys(req.payment!.payer);
+    const keys = await apikeysService.listKeys(req.agentId || req.payment?.payer || "unknown");
     res.json({ keys });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

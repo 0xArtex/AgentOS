@@ -5,6 +5,57 @@ import crypto from "crypto";
 
 const HCLOUD_API = "https://api.hetzner.cloud/v1";
 
+function generateCloudInit(): string {
+  return `#!/bin/bash
+set -euo pipefail
+
+# ─── Security Hardening ───
+# Disable password auth
+sed -i 's/#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+sed -i 's/#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
+sed -i 's/#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
+systemctl restart sshd
+
+# Firewall
+apt-get update -qq
+apt-get install -y -qq ufw
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow 22/tcp
+ufw allow 80/tcp
+ufw allow 443/tcp
+ufw --force enable
+
+# Auto security updates
+apt-get install -y -qq unattended-upgrades
+dpkg-reconfigure -plow unattended-upgrades
+
+# ─── Install OpenClaw ───
+# Install Node.js 22
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y -qq nodejs
+
+# Install OpenClaw
+npm install -g openclaw
+
+# Mark setup complete
+mkdir -p /etc/openclaw
+cat > /etc/openclaw/provision.json << 'PROVISION_EOF'
+{
+  "provisioned_by": "agentos",
+  "provisioned_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "openclaw_installed": true,
+  "hardened": true,
+  "firewall": "ufw",
+  "ssh": "key-only"
+}
+PROVISION_EOF
+
+echo "OpenClaw provisioning complete" > /var/log/openclaw-provision.log
+openclaw --version >> /var/log/openclaw-provision.log 2>&1 || true
+`;
+}
+
 function headers() {
   return {
     Authorization: `Bearer ${config.hcloudToken}`,
@@ -34,7 +85,8 @@ export async function createServer(
   serverType: ServerType,
   image: string,
   owner: string,
-  sshKeyIds?: number[]
+  sshKeyIds?: number[],
+  installOpenClaw?: boolean
 ): Promise<Server> {
   const pricing = SERVER_PRICING[serverType];
   if (!pricing) throw new Error(`Unknown server type: ${serverType}`);
@@ -44,11 +96,15 @@ export async function createServer(
     server_type: serverType,
     image,
     location: config.hcloudLocation,
-    labels: { managed_by: "agentos", owner },
+    labels: { managed_by: "agentos" },
   };
 
   if (sshKeyIds?.length) {
     payload.ssh_keys = sshKeyIds;
+  }
+
+  if (installOpenClaw) {
+    payload.user_data = generateCloudInit();
   }
 
   const data = await hcloud("POST", "/servers", payload);

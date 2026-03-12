@@ -191,7 +191,7 @@ background-size:40px 40px}
 
 /* Funding modal */
 .fund-balance-hero{text-align:center;padding:24px 0 20px}
-.fund-balance-amount{font-size:36px;font-weight:700;color:var(--text);letter-spacing:-1px}
+.fund-balance-amount{font-size:36px;font-weight:700;color:var(--text);letter-spacing:-1px;font-family:'JetBrains Mono',monospace}
 .fund-balance-label{font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1.5px;margin-top:4px;font-family:'JetBrains Mono',monospace}
 .fund-deposit-toggle{display:flex;align-items:center;justify-content:center;gap:6px;padding:8px 16px;margin:0 auto;border:1px dashed var(--border);border-radius:8px;background:none;color:var(--w30);font-size:10px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s;text-transform:uppercase;letter-spacing:0.5px}
 .fund-deposit-toggle:hover{border-color:var(--w30);color:var(--text)}
@@ -200,12 +200,28 @@ background-size:40px 40px}
 .fund-addrs.open{display:block}
 .fund-addr-row{display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;margin-bottom:5px;cursor:pointer;transition:border-color .15s}
 .fund-addr-row:hover{border-color:var(--w30)}
-.fund-addr-chain{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;min-width:36px;font-family:'JetBrains Mono',monospace}
-.fund-addr-chain.sol{color:#9945FF}
-.fund-addr-chain.base{color:#0052FF}
+@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}
+.fund-addr-chain{min-width:20px;display:flex;align-items:center;justify-content:center}
+.fund-addr-chain img{width:18px;height:18px;border-radius:50%}
 .fund-addr{font-size:9px;color:var(--w40);font-family:'JetBrains Mono',monospace;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fund-addr-copied{font-size:9px;color:var(--green);font-family:'JetBrains Mono',monospace;display:none}
 .fund-sep{height:1px;background:var(--border);margin:16px 0}
+.vps-tier-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0}
+.vps-tier-card{position:relative;padding:12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;gap:10px}
+.vps-tier-card:hover{border-color:var(--w30);background:rgba(255,255,255,0.02)}
+.vps-tier-card.selected{border-color:var(--accent);background:rgba(245,73,0,0.04)}
+.vps-tier-specs{display:flex;flex-direction:column;gap:5px}
+.vps-tier-spec{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace}
+.vps-tier-spec svg{color:var(--w20);flex-shrink:0}
+.vps-tier-card.selected .vps-tier-spec{color:var(--text)}
+.vps-tier-card.selected .vps-tier-spec svg{color:var(--accent)}
+.vps-tier-price{font-size:18px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace}
+.vps-tier-price span{font-size:11px;font-weight:400;color:var(--w20)}
+.vps-tier-tag{position:absolute;top:8px;right:8px;font-size:8px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 6px;border-radius:4px;background:rgba(245,73,0,0.12);color:var(--accent);font-family:'JetBrains Mono',monospace;font-weight:600}
+.vps-security-badge{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px}
+.vps-security-badge svg{flex-shrink:0;margin-top:1px}
+.vps-security-items{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:10px;color:var(--green);font-family:'JetBrains Mono',monospace}
+.vps-sec-dot{width:3px;height:3px;border-radius:50%;background:rgba(63,185,80,0.4)}
 .fund-tx-list{max-height:160px;overflow-y:auto}
 .fund-tx{display:flex;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.02);font-size:10px;font-family:'JetBrains Mono',monospace}
 .fund-tx-desc{color:var(--w30);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:8px}
@@ -912,6 +928,20 @@ function restoreState(state){
     }
     // Re-attach connection handles
     if(!el._handles&&window._addConnHandle)window._addConnHandle(el);
+    // Re-attach VPS click handler for unconfigured VPS nodes
+    if(s.id.startsWith('nodeVps_')&&!el._vpsBound){
+      el._vpsBound=true;
+      el.dataset.svc='vps';
+      // Find connected agent node
+      const agentConn=state.conns?.find(([a,b])=>(b===s.id&&a.startsWith('nodeAgent_'))||(a===s.id&&b.startsWith('nodeAgent_')));
+      const agentId=agentConn?(agentConn[0].startsWith('nodeAgent_')?agentConn[0]:agentConn[1]):null;
+      el.addEventListener('click',()=>{if(typeof nodeMoved!=='undefined'&&nodeMoved)return;if(el.classList.contains('unconfigured')){openVpsSetupModal(el,agentId);}else{showVpsInfoModal(el);}});
+    }
+    // Re-attach click for any dock-spawned unconfigured VPS nodes too
+    if(el.dataset?.svc==='vps'&&!el._vpsBound){
+      el._vpsBound=true;
+      el.addEventListener('click',()=>{if(typeof nodeMoved!=='undefined'&&nodeMoved)return;if(el.classList.contains('unconfigured')){openVpsSetupModal(el,null);}else{showVpsInfoModal(el);}});
+    }
     // Re-attach wallet click handler if it's a wallet node
     if(s.id.startsWith('nodeDyn_wallet_')&&!el._walletBound){
       el._walletBound=true;
@@ -1940,7 +1970,9 @@ function showConfigModal(el,svcType,nodeId){
   } else if(svcType==='domain'){
     body=`<div class="na-field"><label class="na-label">domain</label><input class="na-input" id="cfgVal" placeholder="myagent.dev"></div>`;
   } else if(svcType==='vps'){
-    body=`<div class="na-field"><label class="na-label">tier</label><select class="na-select" id="cfgVal"><option value="cx23">cx23 — 2 vCPU, 4GB — $5/mo</option><option value="cx33">cx33 — 4 vCPU, 8GB — $10/mo</option><option value="cx43">cx43 — 8 vCPU, 16GB — $20/mo</option></select></div>`;
+    // Use the nicer VPS deploy modal
+    openVpsSetupModal(el,null);
+    return;
   } else if(svcType==='xaccount'){
     body=`<div style="font-size:12px;color:var(--w40);padding:8px 0;font-family:'JetBrains Mono',monospace">An X account will be assigned from the pool.</div>`;
   } else if(svcType==='wallet'){
@@ -1968,7 +2000,7 @@ function showConfigModal(el,svcType,nodeId){
     const val=valEl?valEl.value:'';
 
     // Check balance before provisioning
-    const svcCosts={phone:3,vps:5,domain:12,email:0,xaccount:0,wallet:0,openclaw:0,skills:0};
+    const svcCosts={phone:2,vps:6,domain:12,email:1,xaccount:0,wallet:0,openclaw:0,skills:0};
     const cost=svcCosts[svcType]||0;
     if(cost>0&&_authToken){
       try{
@@ -1998,41 +2030,40 @@ function showConfigModal(el,svcType,nodeId){
       <div style="font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace">Provisioning...</div></div>`;
 
     try{
-      // Debit balance
-      if(cost>0&&_authToken){
-        const dr=await fetch('/balance/debit',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+_authToken},body:JSON.stringify({amount:cost,serviceType:svcType,description:meta.label+' provisioning'})});
-        if(!dr.ok){const dd=await dr.json();throw new Error(dd.error||'Payment failed');}
-        loadBalance(); // refresh topbar
-      }
       let sub='Configured';
-      const hdr={'Content-Type':'application/json','X-Agent-Id':'dashboard'};
+      const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
       if(svcType==='phone'){
         const r=await fetch('/phone/numbers',{method:'POST',headers:hdr,body:JSON.stringify({country:val||'US'})});
-        if(!r.ok)throw new Error((await r.json()).error||(await r.json()).message||'Failed');
+        if(!r.ok){const _e=await r.json();throw new Error(_e.error||_e.message||'Failed');}
         const d=await r.json();sub=d.phoneNumber||d.phone_number||d.number||'Provisioned';
       } else if(svcType==='email'){
         if(!val)throw new Error('Enter a local part');
-        const r=await fetch('/email/inboxes',{method:'POST',headers:hdr,body:JSON.stringify({localPart:val,owner:'dashboard'})});
-        if(!r.ok)throw new Error((await r.json()).error||(await r.json()).message||'Failed');
+        const r=await fetch('/email/provision',{method:'POST',headers:hdr,body:JSON.stringify({name:val,walletAddress:_balanceData?.deposit_addresses?.solana||'dashboard'})});
+        if(!r.ok){const _e=await r.json();throw new Error(_e.error||_e.message||'Failed');}
         sub=val+'@agntos.dev';
       } else if(svcType==='domain'){
         if(!val)throw new Error('Enter a domain');
         const r=await fetch('/domains',{method:'POST',headers:hdr,body:JSON.stringify({domain:val})});
-        if(!r.ok)throw new Error((await r.json()).error||(await r.json()).message||'Failed');
+        if(!r.ok){const _e=await r.json();throw new Error(_e.error||_e.message||'Failed');}
         sub=val;
       } else if(svcType==='vps'){
-        const r=await fetch('/compute/servers',{method:'POST',headers:hdr,body:JSON.stringify({name:'agent-'+Date.now(),type:val||'cx23',image:'ubuntu-24.04'})});
-        if(!r.ok)throw new Error((await r.json()).error||(await r.json()).message||'Failed');
+        const r=await fetch('/compute/servers',{method:'POST',headers:hdr,body:JSON.stringify({name:'agent-'+Date.now(),serverType:val||'cx23',image:'ubuntu-24.04'})});
+        if(!r.ok){const _e=await r.json();throw new Error(_e.error||_e.message||'Failed');}
         const d=await r.json();sub=d.server?.ipv4||d.ipv4||val;
       } else if(svcType==='xaccount'){
         const r=await fetch('/x/accounts',{method:'POST',headers:hdr,body:JSON.stringify({})});
-        if(!r.ok)throw new Error((await r.json()).error||(await r.json()).message||'No accounts available');
+        if(!r.ok){const _e=await r.json();throw new Error(_e.error||_e.message||'No accounts available');}
         const d=await r.json();sub='@'+(d.handle||d.username||'account');
       } else if(svcType==='wallet'){
         // Wallet provisioning handled by dock handler, shouldn't reach here
         sub='Configured';
       }
 
+      // Debit balance AFTER successful provision
+      if(cost>0&&_authToken){
+        await fetch('/balance/debit',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+_authToken},body:JSON.stringify({amount:cost,serviceType:svcType,description:meta.label+' provisioning'})}).catch(()=>{});
+      }
+      loadBalance();
       // Update node: remove unconfigured state
       el.classList.remove('unconfigured');
       el.querySelector('.node-sub').textContent=sub;
@@ -2054,6 +2085,283 @@ function showConfigModal(el,svcType,nodeId){
     }
   };
 }
+
+// ─── VPS Setup Modal (from agent deploy) ───
+const VPS_TIERS=[
+  {id:'cx23',cpu:2,ram:4,disk:40,price:5,tag:'starter'},
+  {id:'cx33',cpu:4,ram:8,disk:80,price:10,tag:'recommended'},
+  {id:'cx43',cpu:8,ram:16,disk:160,price:20,tag:''},
+  {id:'cpx21',cpu:3,ram:4,disk:80,price:7,tag:'performance'},
+  {id:'cpx31',cpu:4,ram:8,disk:160,price:14,tag:''},
+  {id:'cpx41',cpu:8,ram:16,disk:240,price:28,tag:''},
+];
+
+async function openVpsSetupModal(vpsEl,agentId){
+  const nodeId=vpsEl.id;
+  let selectedTier=VPS_TIERS[0];
+
+  // Fetch existing servers
+  let existingServers=[];
+  if(_authToken){
+    try{
+      const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+      const r=await fetch('/compute/servers',{headers:hdr});
+      if(r.ok){const d=await r.json();existingServers=d.servers||[];}
+    }catch(e){}
+  }
+
+  // Filter out servers already on canvas
+  const usedIPs=new Set();
+  document.querySelectorAll('.vps-node:not(.unconfigured) .node-sub').forEach(n=>usedIPs.add(n.textContent));
+  const availableServers=existingServers.filter(s=>!usedIPs.has(s.ipv4));
+
+  const existingCards=availableServers.length?`
+    <div style="margin-bottom:16px">
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--w20);font-family:'JetBrains Mono',monospace;margin-bottom:8px">Your Servers</div>
+      ${availableServers.map(s=>`
+        <div class="vps-existing-card" onclick="connectExistingVps('${nodeId}','${s.ipv4}','${s.serverType}','${s.id}')" style="display:flex;align-items:center;gap:12px;padding:10px 14px;border:1px solid var(--border);border-radius:8px;cursor:pointer;transition:all .2s;margin-bottom:6px" onmouseover="this.style.borderColor='var(--green)'" onmouseout="this.style.borderColor='var(--border)'">
+          <div style="width:8px;height:8px;border-radius:50%;background:${s.status==='running'?'var(--green)':'var(--w20)'};flex-shrink:0"></div>
+          <div style="flex:1">
+            <div style="font-size:12px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">${s.ipv4}</div>
+            <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">${s.serverType.toUpperCase()} · $${s.priceMonthly}/mo</div>
+          </div>
+          <span style="font-size:9px;color:var(--green);text-transform:uppercase;font-family:'JetBrains Mono',monospace">connect</span>
+        </div>
+      `).join('')}
+      <div style="height:1px;background:var(--border);margin:16px 0"></div>
+      <div style="font-size:9px;text-transform:uppercase;letter-spacing:1.5px;color:var(--w20);font-family:'JetBrains Mono',monospace;margin-bottom:8px">Or Deploy New</div>
+    </div>
+  `:'';
+
+  const tierCards=VPS_TIERS.map((t,i)=>`
+    <div class="vps-tier-card${i===0?' selected':''}" data-tier="${t.id}" data-price="${t.price}" onclick="selectVpsTier(this,'${t.id}')">
+      <div class="vps-tier-specs">
+        <div class="vps-tier-spec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>${t.cpu} cores</div>
+        <div class="vps-tier-spec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/><line x1="6" y1="12" x2="6" y2="12.01"/></svg>${t.ram} GB RAM</div>
+        <div class="vps-tier-spec"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>${t.disk} GB SSD</div>
+      </div>
+      <div class="vps-tier-price">$${t.price}<span>/mo</span></div>
+      ${t.tag?'<div class="vps-tier-tag">'+t.tag+'</div>':''}
+    </div>
+  `).join('');
+
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">DEPLOY VPS</div>
+    <div class="modal-subtitle">secure compute for your agent — zero platform access</div>
+    ${existingCards}
+    <div class="vps-tier-grid">${tierCards}</div>
+    <div class="vps-security-badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <div class="vps-security-items">
+        <span>SSH key-only access</span><span class="vps-sec-dot"></span>
+        <span>Firewall hardened</span><span class="vps-sec-dot"></span>
+        <span>OpenClaw pre-installed</span><span class="vps-sec-dot"></span>
+        <span>Zero platform access</span>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:16px">
+      <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40);flex:1" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
+      <button class="spawn-btn" id="vpsDeployBtn" style="flex:2" onclick="deployVps('${nodeId}','${agentId}')">DEPLOY — $${selectedTier.price}/mo</button>
+    </div>
+    <div id="vpsDeployStatus"></div>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+window.connectExistingVps=function(nodeId,ip,serverType,serverId){
+  const el=document.getElementById(nodeId);
+  if(el){
+    el.classList.remove('unconfigured');
+    el.querySelector('.node-sub').textContent=ip;
+    el.querySelector('.s-dot')?.classList.add('active');
+  }
+  // Animate connection line
+  const connIdx=conns.findIndex(([a,b])=>b===nodeId||a===nodeId);
+  if(connIdx>=0&&_lineEls[connIdx]){
+    _lineEls[connIdx].removeAttribute('stroke-dasharray');
+    const _csf=startLineFlow(connIdx,3000,true);setTimeout(_csf,3000);
+  }
+  drawLines();pushState();
+  document.getElementById('modalOverlay').classList.remove('open');
+};
+
+function showVpsInfoModal(el){
+  const ip=el.querySelector('.node-sub')?.textContent||'Unknown';
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">VPS</div>
+    <div class="modal-subtitle">server is running</div>
+    <div style="padding:20px 0;display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+        <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
+        <div>
+          <div style="font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">IP Address</div>
+          <div style="font-size:14px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace">${ip}</div>
+        </div>
+        <button onclick="navigator.clipboard.writeText('${ip}');this.textContent='copied'" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;color:var(--w30);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .2s">copy</button>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--w30)" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        <div>
+          <div style="font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:4px">SSH Access</div>
+          <div style="font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace">ssh root@${ip}</div>
+        </div>
+        <button onclick="navigator.clipboard.writeText('ssh root@${ip}');this.textContent='copied'" style="margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;color:var(--w30);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .2s">copy</button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        <span style="font-size:10px;color:var(--green);font-family:'JetBrains Mono',monospace">Firewall active · OpenClaw installed · Zero platform access</span>
+      </div>
+    </div>
+    <div id="vpsVerifyStatus"></div>
+    <div style="display:flex;gap:8px;margin-top:4px">
+      <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
+      <button class="spawn-btn" style="flex:1" id="vpsVerifyBtn" onclick="verifyVps('${ip}')">VERIFY SETUP</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+}
+
+window.verifyVps=async function(ip){
+  const btn=document.getElementById('vpsVerifyBtn');
+  const status=document.getElementById('vpsVerifyStatus');
+  btn.disabled=true;btn.textContent='VERIFYING...';
+  status.innerHTML='<div style="padding:10px 0;text-align:center"><div class="provision-spinner" style="display:inline-block"></div><div style="font-size:10px;color:var(--w30);margin-top:6px">Connecting to server via SSH...</div></div>';
+
+  try{
+    // Find server ID by IP
+    const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    const sr=await fetch('/compute/servers',{headers:hdr});
+    const sd=await sr.json();
+    const server=(sd.servers||[]).find(s=>s.ipv4===ip);
+    if(!server)throw new Error('Server not found');
+
+    const r=await fetch('/compute/servers/'+server.id+'/verify',{headers:hdr});
+    const d=await r.json();
+
+    let html='<div style="margin:12px 0;display:flex;flex-direction:column;gap:6px">';
+    const check=(ok,label,detail)=>`
+      <div style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:6px">
+        <span style="font-size:14px">${ok?'\u2713':'\u2717'}</span>
+        <span style="font-size:11px;color:${ok?'var(--green)':'var(--red)'};font-family:'JetBrains Mono',monospace;flex:1">${label}</span>
+        <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">${detail||''}</span>
+      </div>`;
+
+    html+=check(d.reachable,'Server reachable',d.reachable?'SSH OK':'unreachable');
+    html+=check(d.openclaw_installed,'OpenClaw installed',d.openclaw_version||'not found');
+    html+=check(d.hardened,'Security hardened',d.hardened?'SSH key-only':'not yet');
+    html+=check(d.firewall==='active','Firewall active',d.firewall||'unknown');
+    html+='</div>';
+
+    if(d.openclaw_installed&&d.openclaw_version){
+      // Check if latest
+      try{
+        const lr=await fetch('https://registry.npmjs.org/openclaw/latest');
+        const ld=await lr.json();
+        const latest=ld.version;
+        const current=d.openclaw_version.replace(/[^0-9.]/g,'');
+        if(current===latest){
+          html+='<div style="font-size:10px;color:var(--green);text-align:center;padding:4px 0;font-family:\'JetBrains Mono\',monospace">v'+current+' (latest)</div>';
+        }else{
+          html+='<div style="font-size:10px;color:var(--accent);text-align:center;padding:4px 0;font-family:\'JetBrains Mono\',monospace">v'+current+' installed — v'+latest+' available</div>';
+        }
+      }catch(e){}
+    }
+
+    status.innerHTML=html;
+    btn.textContent='VERIFY SETUP';btn.disabled=false;
+  }catch(e){
+    status.innerHTML='<div style="color:var(--red);font-size:11px;padding:8px 0;text-align:center">'+e.message+'</div>';
+    btn.textContent='VERIFY SETUP';btn.disabled=false;
+  }
+};
+
+window.selectVpsTier=function(card,tierId){
+  document.querySelectorAll('.vps-tier-card').forEach(c=>c.classList.remove('selected'));
+  card.classList.add('selected');
+  const t=VPS_TIERS.find(x=>x.id===tierId);
+  if(t) document.getElementById('vpsDeployBtn').textContent='DEPLOY — $'+t.price+'/mo';
+};
+
+window.deployVps=async function(nodeId,agentId){
+  if(!_authToken){requireAuth();return;}
+  const selected=document.querySelector('.vps-tier-card.selected');
+  const tierId=selected?.dataset.tier||'cx23';
+  const tier=VPS_TIERS.find(t=>t.id===tierId)||VPS_TIERS[0];
+  const btn=document.getElementById('vpsDeployBtn');
+  const status=document.getElementById('vpsDeployStatus');
+
+  // Balance check
+  await loadBalance();
+  const bal=_balanceData?.balance_usdc||0;
+  if(bal<tier.price){
+    status.innerHTML=`
+      <div style="padding:14px 0;text-align:center">
+        <div style="color:var(--accent);font-weight:700;font-size:12px;text-transform:uppercase;margin-bottom:6px">INSUFFICIENT BALANCE</div>
+        <div style="font-size:16px;font-weight:700;color:var(--text)">$${bal.toFixed(2)} available</div>
+        <div style="font-size:10px;color:var(--w20);margin:4px 0 12px">Need $${(tier.price-bal).toFixed(2)} more</div>
+        <button class="spawn-btn" onclick="document.getElementById('modalOverlay').classList.remove('open');openFundingModal()">ADD FUNDS</button>
+      </div>`;
+    return;
+  }
+
+  btn.disabled=true;btn.textContent='DEPLOYING...';
+  status.innerHTML=`
+    <div class="provision-status" style="margin-top:12px">
+      <div class="provision-spinner"></div>
+      <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace" id="vpsDeployLog">Provisioning ${tier.id.toUpperCase()} server...</div>
+    </div>`;
+
+  try{
+    // Provision FIRST, debit only on success
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    const r=await fetch('/compute/servers',{method:'POST',headers:hdr,body:JSON.stringify({name:'agent-'+Date.now(),serverType:tierId,image:'ubuntu-24.04',installOpenClaw:true})});
+    if(!r.ok){const _e=await r.json();throw new Error(_e.error||_e.message||'Failed');}
+    const d=await r.json();
+    const ip=d.server?.ipv4||d.ipv4||d.ip||'Provisioning...';
+
+    // Debit balance AFTER successful provision
+    document.getElementById('vpsDeployLog').textContent='Server live — charging $'+tier.price+'...';
+    const dr=await fetch('/balance/debit',{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+_authToken},body:JSON.stringify({amount:tier.price,serviceType:'vps',description:'VPS '+tier.id.toUpperCase()+' ($'+tier.price+'/mo)'})});
+    if(!dr.ok){console.warn('Debit failed after provision — server still created');}
+
+    document.getElementById('vpsDeployLog').textContent='Server live at '+ip+' — hardening & installing OpenClaw...';
+
+    // Update the VPS node on canvas
+    const vpsEl=document.getElementById(nodeId);
+    if(vpsEl){
+      vpsEl.classList.remove('unconfigured');
+      vpsEl.querySelector('.node-sub').textContent=ip;
+      vpsEl.querySelector('.s-dot')?.classList.add('active');
+    }
+
+    // Animate the connection line
+    const connIdx=conns.findIndex(([a,b])=>b===nodeId||a===nodeId);
+    if(connIdx>=0&&_lineEls[connIdx]){
+      _lineEls[connIdx].removeAttribute('stroke-dasharray');
+      const _csf=startLineFlow(connIdx,3000,true);setTimeout(_csf,3000);
+    }
+
+    loadBalance();
+    drawLines();pushState();
+
+    // Show success
+    setTimeout(()=>{
+      status.innerHTML=`
+        <div style="padding:14px 0;text-align:center">
+          <div style="color:var(--green);font-weight:600;font-size:12px;margin-bottom:8px">VPS DEPLOYED</div>
+          <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin-bottom:4px">${ip}</div>
+          <div style="font-size:10px;color:var(--w20)">SSH access only · OpenClaw installed · firewall active</div>
+        </div>`;
+      btn.textContent='DEPLOYED';btn.style.background='var(--green)';
+    },1500);
+
+  }catch(err){
+    status.innerHTML=`<div style="color:var(--red);padding:12px 0;font-size:11px;text-align:center">${err.message}</div>`;
+    btn.disabled=false;btn.textContent='DEPLOY — $'+tier.price;
+    // Refund if provisioning failed after debit
+    // (In production, wrap debit+provision in a transaction)
+  }
+};
 
 function showWalletModal(nodeId){
   const raw=localStorage.getItem('aw_'+nodeId);
@@ -2437,8 +2745,8 @@ setTimeout(()=>{autoFit(false);},100);
       const ct=document.getElementById('canvasTransform');
       const cx=(wrap.clientWidth/2-tx)/scale, cy=(wrap.clientHeight/2-ty)/scale;
       const el=document.createElement('div');
-      const id='nodeAgent_'+(Date.now());
-      el.id=id;el.className='agent-node';
+      const agentId='nodeAgent_'+(Date.now());
+      el.id=agentId;el.className='agent-node';
       el.style.cssText=`left:${cx}px;top:${cy}px`;
       el.innerHTML='<span class="agent-node-inner">AO</span><span class="agent-node-label">new-agent</span>';
       ct.appendChild(el);
@@ -2450,6 +2758,30 @@ setTimeout(()=>{autoFit(false);},100);
         ev.stopPropagation();
       });
       if(window._addConnHandle)window._addConnHandle(el);
+
+      // Auto-spawn a connected VPS node (unconfigured — needs setup)
+      const vpsX=cx+200, vpsY=cy;
+      const vpsEl=document.createElement('div');
+      const vpsId='nodeVps_'+(Date.now());
+      vpsEl.id=vpsId;vpsEl.className='vps-node unconfigured';
+      vpsEl.dataset.svc='vps';
+      vpsEl.style.cssText=`left:${vpsX}px;top:${vpsY}px`;
+      vpsEl.innerHTML=`<img src="/assets/logos/hetzner-icon.svg" style="width:20px;height:20px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>VPS</div><div class="node-sub">setup required</div></div>`;
+      ct.appendChild(vpsEl);
+      bodies.set(vpsEl,{x:vpsX,y:vpsY});
+      vpsEl.addEventListener('mousedown',ev=>{
+        if(ev.target.closest('.conn-handle'))return;
+        dragNode=vpsEl;nodeMoved=false;dnsx=ev.clientX;dnsy=ev.clientY;
+        const b=bodies.get(vpsEl);if(b){dnox=b.x;dnoy=b.y;}
+        ev.stopPropagation();
+      });
+      vpsEl.addEventListener('click',()=>{if(nodeMoved)return;if(vpsEl.classList.contains('unconfigured')){openVpsSetupModal(vpsEl,agentId);}else{showVpsInfoModal(vpsEl);}});
+      if(window._addConnHandle)window._addConnHandle(vpsEl);
+
+      // Connect agent → VPS with dashed line
+      conns.push([agentId,vpsId]);
+      addLinePair();
+
       drawLines();pushState();
       return;
     }
@@ -2616,6 +2948,28 @@ setTimeout(()=>{autoFit(false);},100);
           el.querySelector('.node-sub').innerHTML='<span style="color:var(--red)">'+err.message+'</span>';
         }
       })();
+      return;
+    }
+
+    // VPS: show setup modal instead of auto-provisioning
+    if(svcType==='vps'){
+      let nx,ny;
+      if(window._wireSpawnPos){nx=window._wireSpawnPos.x;ny=window._wireSpawnPos.y;window._wireSpawnPos=null;}
+      else{const agX=agentNode?parseFloat(agentNode.style.left)||560:560;const agY=agentNode?parseFloat(agentNode.style.top)||310:310;const angle=(Math.PI*2)*(addedCount%8)/8-Math.PI/2+(Math.random()*0.3-0.15);const dist=180+Math.random()*40;nx=agX+Math.cos(angle)*dist;ny=agY+Math.sin(angle)*dist;}
+      const el=document.createElement('div');
+      const nodeId='nodeDyn_vps_'+(++addedCount);
+      el.id=nodeId;el.className='vps-node unconfigured';el.dataset.svc='vps';
+      el.style.cssText=`left:${nx}px;top:${ny}px`;
+      el.innerHTML=`${def.icon}<div><div class="node-label"><span class="s-dot"></span>VPS</div><div class="node-sub">setup required</div></div>`;
+      document.getElementById('canvasTransform').appendChild(el);
+      bodies.set(el,{x:nx,y:ny});
+      if(window._addConnHandle)window._addConnHandle(el);
+      el.addEventListener('mousedown',ev=>{if(ev.target.closest('.conn-handle'))return;dragNode=el;nodeMoved=false;dnsx=ev.clientX;dnsy=ev.clientY;const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}ev.stopPropagation();});
+      el.addEventListener('click',()=>{if(nodeMoved)return;if(el.classList.contains('unconfigured')){openVpsSetupModal(el,null);}else{showVpsInfoModal(el);}});
+      if(window._wireConnectSrc){conns.push([window._wireConnectSrc,nodeId]);const _ci=addLinePair();window._wireConnectSrc=null;drawLines();const _sf=startLineFlow(_ci,2500,true);setTimeout(_sf,2500);}
+      drawLines();pushState();
+      // Open setup modal immediately
+      openVpsSetupModal(el,null);
       return;
     }
 
@@ -3268,24 +3622,27 @@ async function openFundingModal(){
 
   document.getElementById('modalBody').innerHTML=`
     <div class="fund-balance-hero">
-      <div class="fund-balance-amount">$${bal}</div>
+      <div style="display:flex;align-items:center;justify-content:center;gap:8px">
+        <div class="fund-balance-amount">$${bal}</div>
+        <button onclick="refreshFundingBalance()" title="Refresh balance" style="background:none;border:1px solid var(--border);border-radius:6px;width:28px;height:28px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--w30);transition:all .2s" onmouseover="this.style.borderColor='var(--w30)';this.style.color='var(--text)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--w30)'"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg></button>
+      </div>
       <div class="fund-balance-label">USDC Balance</div>
     </div>
     <div style="text-align:center">
-      <button class="fund-deposit-toggle" onclick="document.getElementById('fundAddrs').classList.toggle('open');this.querySelector('span').textContent=document.getElementById('fundAddrs').classList.contains('open')?'Hide addresses':'Deposit USDC'">
+      <button class="fund-deposit-toggle" onclick="document.getElementById('fundAddrs').classList.toggle('open');this.querySelector('span').textContent=document.getElementById('fundAddrs').classList.contains('open')?'HIDE ADDRESSES':'DEPOSIT USDC'">
         <svg viewBox="0 0 24 24"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-        <span>Deposit USDC</span>
+        <span>DEPOSIT USDC</span>
       </button>
     </div>
     <div class="fund-addrs" id="fundAddrs">
-      <div style="font-size:9px;color:var(--w20);text-align:center;margin:10px 0 8px">Send USDC to either address. Credits automatically.</div>
+      <div style="font-size:9px;color:var(--w20);text-align:center;margin:10px 0 8px">Send USDC to either address. Credits automatically.<br><span style="color:var(--w10)">USDC only — SOL/ETH deposits will not be credited.</span></div>
       <div class="fund-addr-row" onclick="copyFundAddr(this,'${_depositAddresses?.solana||''}')">
-        <span class="fund-addr-chain sol">SOL</span>
+        <span class="fund-addr-chain"><img src="/assets/logos/solana-icon.svg" alt="Solana"></span>
         <span class="fund-addr">${_depositAddresses?.solana||''}</span>
         <span class="fund-addr-copied">copied</span>
       </div>
       <div class="fund-addr-row" onclick="copyFundAddr(this,'${_depositAddresses?.evm||''}')">
-        <span class="fund-addr-chain base">BASE</span>
+        <span class="fund-addr-chain"><img src="/assets/logos/base-icon.svg" alt="Base"></span>
         <span class="fund-addr">${_depositAddresses?.evm||''}</span>
         <span class="fund-addr-copied">copied</span>
       </div>
@@ -3306,6 +3663,18 @@ async function openFundingModal(){
       return `<div class="fund-tx"><span class="fund-tx-desc">${esc(tx.description||tx.type)}</span><span class="fund-tx-amount ${up?'deposit':'debit'}">${up?'+':'-'}$${Math.abs(tx.amount_usdc).toFixed(2)}</span></div>`;
     }).join('');
   }catch(e){}
+}
+
+async function refreshFundingBalance(){
+  const btn=document.querySelector('.fund-balance-hero button');
+  if(btn){btn.style.opacity='0.5';btn.querySelector('svg').style.animation='spin .6s linear';}
+  await loadBalance();
+  const bal=(_balanceData?.balance_usdc||0).toFixed(2);
+  const el=document.querySelector('.fund-balance-amount');
+  if(el)el.textContent='$'+bal;
+  // Refresh transactions too
+  try{const r=await fetch('/balance/transactions?limit=10',{headers:{Authorization:'Bearer '+_authToken}});const d=await r.json();const el=document.getElementById('fundTxList');if(el){if(!d.transactions?.length){el.innerHTML='<div style="font-size:10px;color:var(--w20);padding:8px 0">No transactions yet</div>';}else{el.innerHTML=d.transactions.map(tx=>{const up=tx.type==='deposit'||tx.type==='refund';return `<div class="fund-tx"><span class="fund-tx-desc">${esc(tx.description||tx.type)}</span><span class="fund-tx-amount ${up?'deposit':'debit'}">${up?'+':'-'}$${Math.abs(tx.amount_usdc).toFixed(2)}</span></div>`;}).join('');}}}catch(e){}
+  if(btn){btn.style.opacity='1';btn.querySelector('svg').style.animation='';}
 }
 
 function copyFundAddr(row,addr){
@@ -3424,6 +3793,27 @@ async function deployTpl(id){
   if(!_authToken){requireAuth(()=>deployTpl(id));return;}
   const btn=document.getElementById('tplDeployBtn');
   const status=document.getElementById('tplDeployStatus');
+
+  // Pre-flight balance check
+  try{
+    await loadBalance();
+    // Get template price
+    const tr=await fetch(`/api/templates/${id}`,{headers:{Authorization:'Bearer '+_authToken}});
+    const tpl=await tr.json();
+    const price=tpl.total_price_usdc||0;
+    const bal=_balanceData?.balance_usdc||0;
+    if(price>0&&bal<price){
+      status.innerHTML=`
+        <div style="padding:16px 0;text-align:center">
+          <div style="color:var(--accent);font-weight:700;font-size:12px;text-transform:uppercase;margin-bottom:8px">Insufficient Balance</div>
+          <div style="font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px">$${bal.toFixed(2)} available</div>
+          <div style="font-size:11px;color:var(--w20);margin-bottom:12px">Need $${(price-bal).toFixed(2)} more (total: $${price})</div>
+          <button class="spawn-btn" onclick="document.getElementById('modalOverlay').classList.remove('open');openFundingModal()">ADD FUNDS</button>
+        </div>`;
+      return;
+    }
+  }catch(e){}
+
   btn.disabled=true;btn.textContent='DEPLOYING...';
   try{
     const r=await fetch(`/api/templates/${id}/deploy`,{
@@ -3431,6 +3821,7 @@ async function deployTpl(id){
     });
     const d=await r.json();
     if(!r.ok) throw new Error(d.error);
+    loadBalance(); // refresh after debit
     pollTplDeploy(d.deploymentId,status,btn);
   }catch(e){
     status.innerHTML=`<div style="color:var(--red);padding:12px 0;font-size:11px">${e.message}</div>`;

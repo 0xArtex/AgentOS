@@ -18,7 +18,7 @@ router.post("/", x402(10.0), async (req: AuthenticatedRequest, res: Response) =>
       return;
     }
 
-    const domain = await domainService.register(name, tld, req.payment!.payer);
+    const domain = await domainService.register(name, tld, req.agentId || req.payment?.payer || "unknown");
     res.status(201).json(domain);
   } catch (err: any) {
     console.error("[domain] Register error:", err);

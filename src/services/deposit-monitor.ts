@@ -39,16 +39,45 @@ function ensureTable(): void {
   `);
 }
 
+// Track last seen balance per wallet+chain to only credit new deposits
+const _lastSeen = new Map<string, number>();
+
+function initLastSeen(): void {
+  // For Solana: track last seen on-chain balance (most recent credit amount_usdc = snapshot of balance at time of credit)
+  // For Base: not used (tx-hash dedup instead)
+  const rows = db.prepare(
+    "SELECT wallet_id, chain, amount_usdc FROM deposit_credits WHERE chain = 'solana' ORDER BY created_at DESC"
+  ).all() as any[];
+  for (const r of rows) {
+    const key = `${r.wallet_id}:${r.chain}`;
+    if (!_lastSeen.has(key)) _lastSeen.set(key, r.amount_usdc); // most recent
+  }
+}
+
+function getNewDeposit(walletId: string, chain: string, currentBalance: number): number {
+  const key = `${walletId}:${chain}`;
+  const lastCredited = _lastSeen.get(key) || 0;
+  // Only credit if balance is higher than what we've already credited (minus sweeps)
+  // Simple approach: if balance > 0 and we haven't credited this exact balance recently
+  return currentBalance; // We'll use the record check below
+}
+
 function wasAlreadyCredited(walletId: string, chain: string, amount: number): boolean {
-  // Check if we already credited this exact amount from this wallet recently (last 5 min)
-  // Use amount + wallet + chain as dedup key since we're polling balances not tx signatures
-  const row = db.prepare(
-    "SELECT 1 FROM deposit_credits WHERE wallet_id = ? AND chain = ? AND amount_usdc = ? AND created_at > datetime('now', '-5 minutes')"
-  ).get(walletId, chain, amount);
-  return !!row;
+  const key = `${walletId}:${chain}`;
+  const lastSeen = _lastSeen.get(key) || 0;
+  // If current on-chain balance matches what we already credited, skip
+  if (Math.abs(amount - lastSeen) < 0.001) return true;
+  // If current balance is LESS than last seen, the wallet was swept — reset
+  if (amount < lastSeen - 0.001) {
+    _lastSeen.set(key, 0);
+    return false;
+  }
+  return false;
 }
 
 function recordCredit(walletId: string, chain: string, amount: number, txSig?: string): void {
+  const key = `${walletId}:${chain}`;
+  _lastSeen.set(key, amount);
   db.prepare(
     "INSERT INTO deposit_credits (id, wallet_id, chain, amount_usdc, tx_signature) VALUES (?, ?, ?, ?, ?)"
   ).run(crypto.randomUUID(), walletId, chain, amount, txSig || null);
@@ -71,15 +100,20 @@ async function checkSolanaDeposits(): Promise<void> {
         const amount = info?.tokenAmount?.uiAmount || 0;
 
         if (amount > 0) {
-          // Check if already credited
+          // Check if balance changed since last seen
           if (wasAlreadyCredited(w.id, "solana", amount)) continue;
 
-          // Credit user balance
+          // Credit only the delta (new deposit amount)
+          const key = `${w.id}:solana`;
+          const lastSeen = _lastSeen.get(key) || 0;
+          const delta = amount - lastSeen;
+          if (delta < 0.001) continue;
+
           const refId = `sol_${w.solana_address}_${amount}_${Date.now()}`;
           try {
-            deposit(w.user_id, amount, refId, `Solana USDC deposit: $${amount}`);
+            deposit(w.user_id, delta, refId, `Solana USDC deposit: $${delta.toFixed(6)}`);
             recordCredit(w.id, "solana", amount);
-            console.log(`💰 [deposit-monitor] Credited $${amount} USDC to user ${w.user_id} (Solana)`);
+            console.log(`💰 [deposit-monitor] Credited $${delta.toFixed(6)} USDC to user ${w.user_id} (Solana)`);
 
             // Sweep to treasury
             if (amount >= SWEEP_MIN_USDC) {
@@ -129,45 +163,107 @@ async function sweepSolanaUsdc(derivationIndex: number, fromPubkey: PublicKey, a
   }
 }
 
-// ─── Base USDC Deposits ───
+async function sweepBaseUsdc(derivationIndex: number, fromAddress: string, amount: number): Promise<void> {
+  try {
+    const { ethers } = require("ethers");
+    const provider = new ethers.JsonRpcProvider(BASE_RPC);
+    const privateKey = getEvmPrivateKey(derivationIndex);
+    const wallet = new ethers.Wallet(privateKey, provider);
+
+    // ERC-20 transfer(address,uint256)
+    const iface = new ethers.Interface(["function transfer(address to, uint256 amount) returns (bool)"]);
+    const amountRaw = BigInt(Math.floor(amount * 1_000_000)); // USDC 6 decimals
+    const data = iface.encodeFunctionData("transfer", [TREASURY_EVM, amountRaw]);
+
+    const tx = await wallet.sendTransaction({
+      to: BASE_USDC,
+      data,
+      gasLimit: 65000,
+    });
+
+    console.log(`📤 [deposit-monitor] Sweeping $${amount} USDC to treasury (Base): ${tx.hash}`);
+    const receipt = await tx.wait(1);
+    if (receipt?.status === 1) {
+      console.log(`✅ [deposit-monitor] Swept $${amount} USDC to treasury (Base): ${tx.hash}`);
+    } else {
+      console.warn(`[deposit-monitor] Sweep tx reverted (Base): ${tx.hash}`);
+    }
+  } catch (e: any) {
+    // Sweep failures are non-critical — funds are safe, just not swept yet
+    // Common reason: deposit wallet has no ETH for gas
+    console.warn(`[deposit-monitor] Sweep failed (Base): ${e.message}`);
+  }
+}
+
+// ─── Base USDC Deposits (transfer event log-based) ───
+// Track last scanned block per wallet to avoid rescanning
+const _lastBlock = new Map<string, number>();
+
+async function getBaseBlockNumber(): Promise<number> {
+  const resp = await fetch(BASE_RPC, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+  });
+  const r = await resp.json() as any;
+  return parseInt(r.result, 16);
+}
+
 async function checkBaseDeposits(): Promise<void> {
   const wallets = db.prepare("SELECT * FROM deposit_wallets").all() as any[];
   if (!wallets.length) return;
 
+  const currentBlock = await getBaseBlockNumber();
+  // USDC Transfer event topic: Transfer(address,address,uint256)
+  const TRANSFER_TOPIC = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
   for (const w of wallets) {
     try {
-      // Query USDC balance via eth_call (balanceOf)
-      const paddedAddr = w.evm_address.replace("0x", "").padStart(64, "0");
-      const callData = "0x70a08231" + paddedAddr; // balanceOf(address)
+      const blockKey = `${w.id}:base`;
+      // Start from last scanned block or ~1 hour ago (~1800 blocks on Base)
+      let fromBlock = _lastBlock.get(blockKey) || (currentBlock - 1800);
+      
+      // Don't scan more than 10000 blocks at once
+      if (currentBlock - fromBlock > 10000) fromBlock = currentBlock - 10000;
 
+      const paddedAddr = w.evm_address.replace("0x", "").toLowerCase().padStart(64, "0");
+
+      // Get Transfer logs TO this address
       const resp = await fetch(BASE_RPC, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          jsonrpc: "2.0", id: 1, method: "eth_call",
-          params: [{ to: BASE_USDC, data: callData }, "latest"],
+          jsonrpc: "2.0", id: 1, method: "eth_getLogs",
+          params: [{
+            fromBlock: "0x" + fromBlock.toString(16),
+            toBlock: "0x" + currentBlock.toString(16),
+            address: BASE_USDC,
+            topics: [TRANSFER_TOPIC, null, "0x" + paddedAddr],
+          }],
         }),
       });
 
       const result = await resp.json() as any;
-      if (!result.result || result.result === "0x" || result.result === "0x0") continue;
+      _lastBlock.set(blockKey, currentBlock + 1);
 
-      const rawBalance = BigInt(result.result);
-      const amount = Number(rawBalance) / 1_000_000; // USDC has 6 decimals
+      if (!result.result || !Array.isArray(result.result)) continue;
 
-      if (amount > 0) {
-        if (wasAlreadyCredited(w.id, "base", amount)) continue;
+      for (const log of result.result) {
+        const txHash = log.transactionHash;
+        const rawAmount = BigInt(log.data);
+        const amount = Number(rawAmount) / 1_000_000; // USDC 6 decimals
 
-        const refId = `base_${w.evm_address}_${amount}_${Date.now()}`;
+        if (amount < 0.001) continue;
+
+        // Dedup by tx hash
+        const refId = `base_${txHash}`;
         try {
-          deposit(w.user_id, amount, refId, `Base USDC deposit: $${amount}`);
-          recordCredit(w.id, "base", amount);
-          console.log(`💰 [deposit-monitor] Credited $${amount} USDC to user ${w.user_id} (Base)`);
+          deposit(w.user_id, amount, refId, `Base USDC deposit: $${amount.toFixed(6)}`);
+          recordCredit(w.id, "base", amount, txHash);
+          console.log(`💰 [deposit-monitor] Credited $${amount.toFixed(6)} USDC to user ${w.user_id} (Base, tx: ${txHash.slice(0, 10)}...)`);
 
-          // TODO: Sweep Base USDC to treasury
-          // Needs: ethers/viem to sign tx with getEvmPrivateKey(w.derivation_index)
           if (amount >= SWEEP_MIN_USDC) {
-            console.log(`📤 [deposit-monitor] TODO: Sweep $${amount} USDC from ${w.evm_address} to ${TREASURY_EVM}`);
+            await sweepBaseUsdc(w.derivation_index, w.evm_address, amount);
           }
         } catch (e: any) {
           if (e.message?.includes("Duplicate")) continue;
@@ -187,6 +283,7 @@ let intervalId: NodeJS.Timeout | null = null;
 
 export function startDepositMonitor(): void {
   ensureTable();
+  initLastSeen();
   console.log(`👀 [deposit-monitor] Started (polling every ${POLL_INTERVAL / 1000}s, Solana RPC: ${SOL_RPC.includes("helius") ? "Helius" : "public"})`);
 
   // Initial check after 15s (let server finish starting)

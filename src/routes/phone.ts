@@ -47,7 +47,7 @@ router.post("/numbers", requireAuth(2.0, "phone"), async (req: AuthenticatedRequ
       return;
     }
 
-    const owner = req.isHackathonMode ? req.agentId! : req.payment!.payer;
+    const owner = req.agentId || req.payment?.payer || "unknown";
 
     const number = await phoneService.provisionNumber(country, owner, areaCode);
 

@@ -88,7 +88,7 @@ router.get("/:agentId", (req, res: Response) => {
  *       - hackathonAgent: []
  */
 router.post("/:agentId/endorse", requireAuth(0, 'general'), (req: AuthenticatedRequest, res: Response) => {
-  const fromAgent = req.isHackathonMode ? req.agentId! : req.payment!.payer;
+  const fromAgent = req.agentId || req.payment?.payer || "unknown";
   const toAgent = req.params.agentId;
 
   if (fromAgent === toAgent) {

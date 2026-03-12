@@ -32,7 +32,7 @@ router.post("/provision", requireAuth(1.0, "email"), async (req: AuthenticatedRe
       return;
     }
 
-    const owner = req.isHackathonMode ? req.agentId! : req.payment!.payer;
+    const owner = req.agentId || req.payment?.payer || "unknown";
     const result = emailService.createInbox(name, owner, solanaPublicKey);
 
     if (req.isHackathonMode && req.agentId) {
@@ -66,7 +66,7 @@ router.post("/inboxes", requireAuth(1.0, "email"), async (req: AuthenticatedRequ
     res.status(400).json({ error: "Missing 'name' and 'walletAddress'" });
     return;
   }
-  const owner = req.isHackathonMode ? req.agentId! : req.payment!.payer;
+  const owner = req.agentId || req.payment?.payer || "unknown";
   try {
     const result = emailService.createInbox(name, owner, walletAddress || spk);
     res.status(201).json({ inbox: { id: result.id, address: result.address, walletAddress: result.solanaPublicKey } });

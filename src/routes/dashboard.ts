@@ -23,7 +23,7 @@ const router = Router();
  */
 router.get("/", requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const owner = req.isHackathonMode ? req.agentId! : req.payment!.payer;
+    const owner = req.agentId || req.payment?.payer || "unknown";
 
     const phones = db.prepare("SELECT id, phone_number, country, provisioned_at FROM phone_numbers WHERE owner = ?").all(owner);
     const emails = db.prepare("SELECT id, address, created_at FROM email_inboxes WHERE owner = ?").all(owner);

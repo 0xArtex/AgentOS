@@ -3,6 +3,7 @@ import { requireAuth } from "../middleware/auth";
 import { rateLimit } from "../middleware/rateLimit";
 import { AuthenticatedRequest, ServerAction } from "../types";
 import * as computeService from "../services/compute";
+import { db } from "../db";
 import { trackHackathonUsage } from "../middleware/hackathon";
 
 const router = Router();
@@ -95,12 +96,13 @@ router.delete("/ssh-keys/:id", requireAuth(0.01, 'general'), async (req: Authent
  */
 router.post("/servers", rateLimit(5, 60_000), requireAuth(6.0, 'server'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, serverType, image, sshKeyIds, location } = req.body as {
+    const { name, serverType, image, sshKeyIds, location, installOpenClaw } = req.body as {
       name: string;
       serverType: string;
       image?: string;
       sshKeyIds?: number[];
       location?: string;
+      installOpenClaw?: boolean;
     };
 
     if (!name || !serverType) {
@@ -112,14 +114,15 @@ router.post("/servers", rateLimit(5, 60_000), requireAuth(6.0, 'server'), async 
       return;
     }
 
-    const owner = req.isHackathonMode ? req.agentId! : req.payment!.payer;
+    const owner = req.agentId || req.payment?.payer || "unknown";
 
     const server = await computeService.createServer(
       name,
       serverType as any,
       image ?? "ubuntu-24.04",
       owner,
-      sshKeyIds
+      sshKeyIds,
+      installOpenClaw
     );
 
     if (req.isHackathonMode && req.agentId) {
@@ -149,7 +152,7 @@ router.post("/servers", rateLimit(5, 60_000), requireAuth(6.0, 'server'), async 
  */
 router.get("/servers", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const owner = req.isHackathonMode ? req.agentId! : req.payment!.payer;
+    const owner = req.agentId || req.payment?.payer || "unknown";
     const servers = await computeService.listServers(owner);
     res.json({ servers, count: servers.length });
   } catch (err: any) {
@@ -199,6 +202,63 @@ router.post("/servers/:id/actions", requireAuth(0.05, 'general'), async (req: Au
     });
   } catch (err: any) {
     res.status(500).json({ error: "Action Failed", message: err.message });
+  }
+});
+
+/**
+ * GET /compute/servers/:id/verify — Verify OpenClaw installation on server
+ */
+router.get("/servers/:id/verify", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const row = db.prepare("SELECT ipv4, root_password FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row || !row.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const { execSync } = require("child_process");
+    const ip = row.ipv4;
+    const pw = row.root_password;
+
+    // Try SSH with root password (sshpass) — 10s timeout
+    let result: any = { ip, reachable: false, openclaw_installed: false, openclaw_version: null, hardened: false, provision_log: null };
+
+    try {
+      const sshCmd = pw
+        ? `sshpass -p '${pw.replace(/'/g, "'\\''")}' ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@${ip}`
+        : `ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 root@${ip}`;
+
+      // Check reachability + OpenClaw version
+      const versionOut = execSync(`${sshCmd} "openclaw --version 2>/dev/null || echo NOT_INSTALLED"`, { timeout: 15000, encoding: "utf-8" }).trim();
+      result.reachable = true;
+
+      if (versionOut && !versionOut.includes("NOT_INSTALLED")) {
+        result.openclaw_installed = true;
+        result.openclaw_version = versionOut;
+      }
+
+      // Check provision metadata
+      try {
+        const provisionJson = execSync(`${sshCmd} "cat /etc/openclaw/provision.json 2>/dev/null || echo {}"`, { timeout: 10000, encoding: "utf-8" }).trim();
+        result.provision_log = JSON.parse(provisionJson);
+        result.hardened = result.provision_log?.hardened || false;
+      } catch (e) {}
+
+      // Check firewall
+      try {
+        const ufwStatus = execSync(`${sshCmd} "ufw status 2>/dev/null | head -1 || echo inactive"`, { timeout: 10000, encoding: "utf-8" }).trim();
+        result.firewall = ufwStatus.includes("active") ? "active" : "inactive";
+      } catch (e) { result.firewall = "unknown"; }
+
+    } catch (e: any) {
+      if (e.message?.includes("timed out") || e.message?.includes("Connection refused")) {
+        result.reachable = false;
+      } else {
+        result.error = e.message?.split("\n")[0] || "SSH failed";
+      }
+    }
+
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: "Verification failed", message: err.message });
   }
 });
 

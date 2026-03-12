@@ -91,31 +91,23 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
       return paymentAuth(req, res, next);
     }
 
-    // Method 4: Dashboard balance-based auth
+    // Method 4: Dashboard balance-based auth (validate session token)
     const dashboardUser = req.headers["x-dashboard-user"] as string;
     if (dashboardUser) {
-      const balance = balanceService.getBalance(dashboardUser);
-      if (balance.balance_usdc >= minUsdc) {
-        try {
-          balanceService.debit(dashboardUser, minUsdc, serviceType, `${serviceType} provision via dashboard`);
-          req.agentId = `dashboard:${dashboardUser}`;
-          next();
+      // Validate session token matches the claimed user
+      const sessionToken = (req.headers["authorization"] || "").toString().replace("Bearer ", "");
+      if (sessionToken) {
+        const session = db.prepare(
+          "SELECT user_id FROM dashboard_sessions WHERE token = ? AND expires_at > datetime('now')"
+        ).get(sessionToken) as any;
+        if (!session || session.user_id !== dashboardUser) {
+          res.status(401).json({ error: "Invalid session for dashboard user" });
           return;
-        } catch (e: any) {
-          // Debit failed (race condition) — fall through to insufficient balance
         }
       }
-      const wallet = getOrCreateWallet(dashboardUser);
-      res.status(402).json({
-        error: "Insufficient Balance",
-        balance: balance.balance_usdc,
-        required: minUsdc,
-        deposit_addresses: {
-          solana: wallet.solanaAddress,
-          evm: wallet.evmAddress,
-        },
-        top_up: "Send USDC to your deposit address, or use POST /balance/deposit/test for testing",
-      });
+      // Dashboard handles its own balance check + debit via /balance/debit — just authorize here
+      req.agentId = `dashboard:${dashboardUser}`;
+      next();
       return;
     }
 
