@@ -2198,7 +2198,7 @@ window.connectExistingVps=function(nodeId,ip,serverType,serverId){
 async function showVpsInfoModal(el){
   const ip=el.querySelector('.node-sub')?.textContent||'Unknown';
 
-  // Find server to check SSH + OpenClaw status
+  // Find server to check status
   let server=null,sshConfigured=false,openclawConfigured=false;
   try{
     const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
@@ -2209,70 +2209,31 @@ async function showVpsInfoModal(el){
     openclawConfigured=!!server?.openclawConfigured;
   }catch(e){}
 
-  const sshSection=sshConfigured?`
-    <div style="display:flex;align-items:center;gap:10px;padding:12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-      <div style="flex:1">
-        <div style="font-size:10px;color:var(--green);font-weight:600;font-family:'JetBrains Mono',monospace">SSH KEY CONFIGURED</div>
-        <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-top:2px">Password auth disabled · platform access revoked</div>
-      </div>
-    </div>
-  `:`
-    <div style="padding:14px;border:1px dashed var(--accent);border-radius:8px;background:rgba(245,73,0,0.04)">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
-        <span style="font-size:11px;font-weight:600;color:var(--accent);font-family:'JetBrains Mono',monospace">SSH KEY REQUIRED</span>
-      </div>
-      <div style="font-size:10px;color:var(--w30);margin-bottom:12px;line-height:1.5">Generate a secure SSH keypair in your browser. The private key never leaves your device. After setup, we delete our access permanently.</div>
-      <button class="spawn-btn" style="width:100%" onclick="startSshHandoff('${ip}','${server?.id||''}')">GENERATE SSH KEY & LOCK SERVER</button>
-    </div>
-  `;
+  const statusItems=[
+    {label:'SSH',ok:sshConfigured,text:sshConfigured?'key-only access':'platform key active'},
+    {label:'OpenClaw',ok:openclawConfigured,text:openclawConfigured?'running':'configure via model + channel nodes'},
+    {label:'Firewall',ok:true,text:'UFW enabled'},
+  ];
 
   document.getElementById('modalBody').innerHTML=`
     <div class="modal-title">VPS</div>
-    <div class="modal-subtitle">${sshConfigured?'secured — key-only access':'server is running — SSH setup needed'}</div>
-    <div style="padding:16px 0;display:flex;flex-direction:column;gap:10px">
-      <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
-        <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
-        <div style="flex:1">
-          <div style="font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">IP Address</div>
-          <div style="font-size:14px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace">${ip}</div>
-        </div>
-        <button onclick="navigator.clipboard.writeText('${ip}');this.textContent='copied'" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--w30);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace">copy</button>
-      </div>
-      <div style="display:flex;align-items:center;gap:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
+    <div class="modal-subtitle">${ip}</div>
+    <div style="padding:16px 0;display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--w30)" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-        <div style="flex:1">
-          <div style="font-size:10px;color:var(--w20);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px">SSH Command</div>
-          <div style="font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace">ssh ${sshConfigured?'-i ~/.ssh/agentos_ed25519 ':''} root@${ip}</div>
-        </div>
-        <button onclick="navigator.clipboard.writeText('ssh ${sshConfigured?'-i ~/.ssh/agentos_ed25519 ':''}root@${ip}');this.textContent='copied'" style="background:none;border:1px solid var(--border);border-radius:6px;color:var(--w30);font-size:10px;padding:4px 10px;cursor:pointer;font-family:'JetBrains Mono',monospace">copy</button>
+        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;flex:1">ssh ${sshConfigured?'-i ~/.ssh/agentos_ed25519 ':''}root@${ip}</div>
+        <button onclick="navigator.clipboard.writeText('ssh ${sshConfigured?'-i ~/.ssh/agentos_ed25519 ':''}root@${ip}');this.textContent='\u2713'" style="background:none;border:1px solid var(--border);border-radius:4px;color:var(--w30);font-size:10px;padding:3px 8px;cursor:pointer;font-family:'JetBrains Mono',monospace;min-width:32px">copy</button>
       </div>
-      ${sshSection}
-      ${openclawConfigured?`
-        <div style="display:flex;align-items:center;gap:10px;padding:12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg>
-          <div>
-            <div style="font-size:10px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace">OPENCLAW CONFIGURED</div>
-            <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-top:2px">Agent is running on this server</div>
-          </div>
+      ${statusItems.map(s=>`
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px">
+          <div style="width:6px;height:6px;border-radius:50%;background:${s.ok?'var(--green)':'var(--w20)'};flex-shrink:0"></div>
+          <span style="font-size:10px;color:var(--w50);font-family:'JetBrains Mono',monospace;width:70px">${s.label}</span>
+          <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">${s.text}</span>
         </div>
-      `:`
-        <div style="padding:14px;border:1px dashed var(--w20);border-radius:8px;background:rgba(255,255,255,0.02)">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--w40)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-            <span style="font-size:11px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">CONFIGURE OPENCLAW</span>
-          </div>
-          <div style="font-size:10px;color:var(--w30);margin-bottom:12px;line-height:1.5">Set up your AI agent with an API key and connect it to Telegram or Discord.</div>
-          <button class="spawn-btn" style="width:100%" onclick="showOpenClawConfigModal('${ip}','${server?.id||''}')">CONFIGURE AGENT</button>
-        </div>
-      `}
+      `).join('')}
     </div>
-    <div id="vpsVerifyStatus"></div>
-    <div style="display:flex;gap:8px;margin-top:4px">
-      <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
-      <button class="spawn-btn" style="flex:1" id="vpsVerifyBtn" onclick="verifyVps('${ip}')">VERIFY</button>
-    </div>
+    ${!sshConfigured?`<div style="text-align:center;margin-bottom:8px"><a href="#" onclick="event.preventDefault();startSshHandoff('${ip}','${server?.id||''}')" style="font-size:10px;color:var(--w20);text-decoration:underline;font-family:'JetBrains Mono',monospace">lock server with your own SSH key</a></div>`:''}
+    <button class="spawn-btn" style="width:100%" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
   `;
   document.getElementById('modalOverlay').classList.add('open');
 }
