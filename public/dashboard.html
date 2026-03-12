@@ -2184,6 +2184,9 @@ window.connectExistingVps=function(nodeId,ip,serverType,serverId){
     el.classList.remove('unconfigured');
     el.querySelector('.node-sub').textContent=ip;
     el.querySelector('.s-dot')?.classList.add('active');
+    if(serverId)el.dataset.serverId=String(serverId);
+    // Try auto-pushing OpenClaw config if model + channel already set
+    setTimeout(()=>tryPushOpenClawConfig(el),500);
   }
   // Animate connection line
   const connIdx=conns.findIndex(([a,b])=>b===nodeId||a===nodeId);
