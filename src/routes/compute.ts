@@ -401,9 +401,9 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
     // 1. Create .openclaw directory
     execSync(`${ssh} "mkdir -p /root/.openclaw/workspace"`, { timeout: 10000 });
 
-    // 2. Write config
-    const escapedConfig = configJson.replace(/\\/g, '\\\\').replace(/'/g, "'\\''").replace(/\$/g, '\\$');
-    execSync(`${ssh} "cat > /root/.openclaw/openclaw.json << 'OCEOF'\n${configJson}\nOCEOF"`, { timeout: 10000 });
+    // 2. Write config via base64 to avoid shell escaping issues
+    const configB64 = Buffer.from(configJson).toString('base64');
+    execSync(`${ssh} "echo '${configB64}' | base64 -d > /root/.openclaw/openclaw.json"`, { timeout: 10000 });
 
     // 3. Set up auth credentials
     const escapedKey = anthropicKey.replace(/'/g, "'\\''");
@@ -435,7 +435,7 @@ After=network.target
 Type=simple
 User=root
 ${envLine}
-ExecStart=/usr/local/bin/openclaw gateway start --allow-unconfigured
+ExecStart=/usr/bin/env openclaw gateway run --allow-unconfigured
 WorkingDirectory=/root
 Restart=always
 RestartSec=5
@@ -443,8 +443,8 @@ RestartSec=5
 [Install]
 WantedBy=multi-user.target`;
 
-    const escapedService = serviceFile.replace(/'/g, "'\\''");
-    execSync(`${ssh} "cat > /etc/systemd/system/openclaw.service << 'SVCEOF'\n${serviceFile}\nSVCEOF"`, { timeout: 10000 });
+    const svcB64 = Buffer.from(serviceFile).toString('base64');
+    execSync(`${ssh} "echo '${svcB64}' | base64 -d > /etc/systemd/system/openclaw.service"`, { timeout: 10000 });
     execSync(`${ssh} "systemctl daemon-reload && systemctl enable openclaw && systemctl start openclaw"`, { timeout: 20000 });
 
     // 6. Verify it started
