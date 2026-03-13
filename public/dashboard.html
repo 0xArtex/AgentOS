@@ -2327,8 +2327,7 @@ window.saveModelConfig=function(btn){
   // Save config to node data attribute
   el.dataset.modelData=JSON.stringify({provider,providerId,apiKey,model,authMode});
   el.classList.remove('unconfigured');
-  el.querySelector('.node-sub').textContent=model.split('/').pop()+' — saved';
-  // Don't mark as active until actually pushed to VPS
+  el.querySelector('.node-sub').textContent='configuring...';
 
   // Update logo based on provider
   const logos={anthropic:'/assets/logos/anthropic-icon.svg',openrouter:'',openai:''};
@@ -2414,7 +2413,7 @@ window.saveChannelConfig=function(btn){
   const logos={telegram:'/assets/logos/telegram-icon.svg',discord:'/assets/logos/discord-icon.svg',whatsapp:'/assets/logos/whatsapp-icon.svg'};
   const names={telegram:'Telegram',discord:'Discord',whatsapp:'WhatsApp'};
   el.querySelector('.node-label').innerHTML='<span class="s-dot"></span>'+names[channel];
-  el.querySelector('.node-sub').textContent='saved — deploy to connect';
+  el.querySelector('.node-sub').textContent='configuring...';
   const img=el.querySelector('img');
   if(img)img.src=logos[channel];
 
@@ -2448,10 +2447,11 @@ window.tryPushOpenClawConfig=async function(triggerNode){
   const vpsNode=siblings.find(n=>n?.dataset?.svc==='vps'&&!n.classList.contains('unconfigured'));
 
   if(!modelNode||!channelNode||!vpsNode)return; // Not all configured yet
-  if(vpsNode.dataset.openclawPushed)return; // Already pushed
+  if(vpsNode.dataset.openclawPushed==='pushing')return; // In progress
 
-  const ip=vpsNode.querySelector('.node-sub')?.textContent?.trim();
-  if(!ip||ip==='setup required'||ip==='Provisioning...')return;
+  const rawSub=vpsNode.querySelector('.node-sub')?.textContent?.trim()||'';
+  const ip=rawSub.split('·')[0].trim().split(' ')[0].trim(); // Extract IP from "1.2.3.4 · openclaw running"
+  if(!ip||ip==='setup'||ip==='Provisioning...'||!ip.match(/^\d/))return;
 
   // Find the server ID
   let serverId=vpsNode.dataset.serverId;
@@ -2522,6 +2522,9 @@ window.tryPushOpenClawConfig=async function(triggerNode){
     console.warn('OpenClaw config push failed:',e);
     vpsNode.querySelector('.node-sub').textContent=oldSub;
     vpsNode.dataset.openclawPushed='';
+    // Revert model/channel to "saved" state
+    if(modelNode){const md=JSON.parse(modelNode.dataset.modelData);modelNode.querySelector('.node-sub').textContent=md.model.split('/').pop()+' — saved';}
+    if(channelNode)channelNode.querySelector('.node-sub').textContent='saved — check VPS';
   }
 };
 
