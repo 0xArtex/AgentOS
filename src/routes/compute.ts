@@ -467,6 +467,59 @@ WantedBy=multi-user.target`;
 });
 
 /**
+ * POST /compute/servers/:id/remove-openclaw-config — Remove channel or model config
+ */
+router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const { remove } = req.body; // 'channel' or 'model'
+
+    const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const { execSync } = require("child_process");
+    const ssh = sshCmd(row.ipv4);
+
+    // Read existing config
+    let config: any = {};
+    try {
+      const existing = execSync(`${ssh} "cat /root/.openclaw/openclaw.json 2>/dev/null || echo '{}'"`, { timeout: 10000, encoding: "utf-8" }).trim();
+      config = JSON.parse(existing);
+    } catch (e) { config = {}; }
+
+    if (remove === 'channel') {
+      // Remove all channel configs
+      delete config.channels;
+      config.channels = {};
+      if (config.plugins?.entries) {
+        delete config.plugins.entries.telegram;
+        delete config.plugins.entries.discord;
+      }
+    } else if (remove === 'model') {
+      // Remove auth profiles and env vars
+      if (config.auth) config.auth.profiles = {};
+      // Clear env var on server
+      try {
+        execSync(`${ssh} "grep -v '_API_KEY' /etc/environment > /tmp/env.tmp 2>/dev/null; mv /tmp/env.tmp /etc/environment"`, { timeout: 10000 });
+      } catch (e) {}
+    }
+
+    // Write updated config
+    const configJson = JSON.stringify(config, null, 2);
+    const configB64 = Buffer.from(configJson).toString('base64');
+    execSync(`${ssh} "echo '${configB64}' | base64 -d > /root/.openclaw/openclaw.json"`, { timeout: 10000 });
+
+    // Restart OpenClaw
+    execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
+
+    res.json({ success: true, removed: remove });
+  } catch (err: any) {
+    console.error("[compute] Remove config error:", err);
+    res.status(500).json({ error: "Failed to remove config", message: err.message?.split("\n")[0] || "Failed" });
+  }
+});
+
+/**
  * POST /compute/servers/:id/resize — Resize server (change plan)
  * Cost: 0.10 USDC (+ price difference on next billing)
  */
