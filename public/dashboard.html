@@ -2327,7 +2327,7 @@ window.saveModelConfig=function(btn){
   // Save config to node data attribute
   el.dataset.modelData=JSON.stringify({provider,providerId,apiKey,model,authMode});
   el.classList.remove('unconfigured');
-  el.querySelector('.node-sub').textContent='configuring...';
+  el.querySelector('.node-sub').textContent=model.split('/').pop();
 
   // Update logo based on provider
   const logos={anthropic:'/assets/logos/anthropic-icon.svg',openrouter:'',openai:''};
@@ -2413,7 +2413,7 @@ window.saveChannelConfig=function(btn){
   const logos={telegram:'/assets/logos/telegram-icon.svg',discord:'/assets/logos/discord-icon.svg',whatsapp:'/assets/logos/whatsapp-icon.svg'};
   const names={telegram:'Telegram',discord:'Discord',whatsapp:'WhatsApp'};
   el.querySelector('.node-label').innerHTML='<span class="s-dot"></span>'+names[channel];
-  el.querySelector('.node-sub').textContent='configuring...';
+  el.querySelector('.node-sub').textContent='saved';
   const img=el.querySelector('img');
   if(img)img.src=logos[channel];
 
