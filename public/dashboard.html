@@ -931,13 +931,18 @@ function restoreState(state){
     // Re-attach Model node click handler
     if(s.id.startsWith('nodeModel_')&&!el._modelBound){
       el._modelBound=true;
+      el.dataset.svc='model';
       el.addEventListener('click',()=>{if(typeof nodeMoved!=='undefined'&&nodeMoved)return;openModelConfigModal(el);});
     }
     // Re-attach Channel node click handler
     if(s.id.startsWith('nodeChannel_')&&!el._channelBound){
       el._channelBound=true;
+      el.dataset.svc='channel';
       el.addEventListener('click',()=>{if(typeof nodeMoved!=='undefined'&&nodeMoved)return;openChannelConfigModal(el);});
     }
+    // Fix stale "configuring..." text from old saves
+    const sub=el.querySelector?.('.node-sub');
+    if(sub&&(sub.textContent==='configuring...'||sub.textContent==='pushing to VPS...'))sub.textContent='saved';
     // Re-attach VPS click handler for unconfigured VPS nodes
     if(s.id.startsWith('nodeVps_')&&!el._vpsBound){
       el._vpsBound=true;
