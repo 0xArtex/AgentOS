@@ -2880,7 +2880,8 @@ window.deployVps=async function(nodeId,agentId){
       vpsEl.querySelector('.node-sub').textContent=ip;
       vpsEl.querySelector('.s-dot')?.classList.add('active');
       // Store server ID for auto-config
-      if(d.server?.id)vpsEl.dataset.serverId=String(d.server.id);
+      if(d.id)vpsEl.dataset.serverId=String(d.id);
+      else if(d.server?.id)vpsEl.dataset.serverId=String(d.server.id);
       // Try auto-pushing OpenClaw config if model + channel already configured
       setTimeout(()=>tryPushOpenClawConfig(vpsEl),2000);
     }
