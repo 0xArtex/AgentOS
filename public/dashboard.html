@@ -2424,10 +2424,12 @@ window.saveChannelConfig=function(btn){
   tryPushOpenClawConfig(el);
 };
 
-// Auto-push OpenClaw config when model + channel + VPS are all configured
+// Push config to VPS incrementally — each piece pushes independently
 window.tryPushOpenClawConfig=async function(triggerNode){
-  // Find the agent node connected to this trigger node
   const trigId=triggerNode.id;
+  const trigSvc=triggerNode.dataset?.svc;
+
+  // Find the agent node connected to this trigger
   let agentId=null;
   for(const [a,b] of conns){
     if(a===trigId&&document.getElementById(b)?.classList.contains('agent-node'))agentId=b;
@@ -2435,25 +2437,21 @@ window.tryPushOpenClawConfig=async function(triggerNode){
   }
   if(!agentId)return;
 
-  // Find all nodes connected to this agent
+  // Find sibling nodes
   const siblings=[];
   for(const [a,b] of conns){
     if(a===agentId)siblings.push(document.getElementById(b));
     if(b===agentId)siblings.push(document.getElementById(a));
   }
 
-  const modelNode=siblings.find(n=>n?.dataset?.svc==='model'&&n.dataset.modelData);
-  const channelNode=siblings.find(n=>n?.dataset?.svc==='channel'&&n.dataset.channelData);
   const vpsNode=siblings.find(n=>n?.dataset?.svc==='vps'&&!n.classList.contains('unconfigured'));
-
-  if(!modelNode||!channelNode||!vpsNode)return; // Not all configured yet
-  if(vpsNode.dataset.openclawPushed==='pushing')return; // In progress
+  if(!vpsNode)return; // No VPS deployed yet
 
   const rawSub=vpsNode.querySelector('.node-sub')?.textContent?.trim()||'';
-  const ip=rawSub.split('·')[0].trim().split(' ')[0].trim(); // Extract IP from "1.2.3.4 · openclaw running"
-  if(!ip||ip==='setup'||ip==='Provisioning...'||!ip.match(/^\d/))return;
+  const ip=rawSub.split('·')[0].trim().split(' ')[0].trim();
+  if(!ip||!ip.match(/^\d/))return;
 
-  // Find the server ID
+  // Find server ID
   let serverId=vpsNode.dataset.serverId;
   if(!serverId){
     try{
@@ -2466,65 +2464,62 @@ window.tryPushOpenClawConfig=async function(triggerNode){
   }
   if(!serverId)return;
 
-  const modelData=JSON.parse(modelNode.dataset.modelData);
-  const channelData=JSON.parse(channelNode.dataset.channelData);
-  const allowFrom=channelData.allowFrom==='*'?['*']:channelData.allowFrom.split(',').map(s=>s.trim()).filter(Boolean);
+  // Build partial payload based on what's configured
+  const payload={};
+  const modelNode=siblings.find(n=>n?.dataset?.svc==='model'&&n.dataset.modelData);
+  const channelNode=siblings.find(n=>n?.dataset?.svc==='channel'&&n.dataset.channelData);
 
-  // Mark as pushing to avoid duplicates
-  vpsNode.dataset.openclawPushed='pushing';
-  const oldSub=vpsNode.querySelector('.node-sub')?.textContent;
-  vpsNode.querySelector('.node-sub').textContent='configuring openclaw...';
+  if(modelNode){
+    const md=JSON.parse(modelNode.dataset.modelData);
+    Object.assign(payload,{anthropicKey:md.apiKey,authMode:md.authMode||'token',provider:md.provider||'anthropic',model:md.model});
+  }
+  if(channelNode){
+    const cd=JSON.parse(channelNode.dataset.channelData);
+    const af=cd.allowFrom==='*'?['*']:cd.allowFrom.split(',').map(s=>s.trim()).filter(Boolean);
+    Object.assign(payload,{channel:cd.channel,botToken:cd.botToken,allowFrom:af});
+  }
+
+  if(!Object.keys(payload).length)return;
+
+  // Update node states
+  if(trigSvc==='model'&&modelNode)modelNode.querySelector('.node-sub').textContent='pushing to VPS...';
+  if(trigSvc==='channel'&&channelNode)channelNode.querySelector('.node-sub').textContent='pushing to VPS...';
+  if(trigSvc==='vps')vpsNode.querySelector('.node-sub').textContent='configuring openclaw...';
 
   try{
     const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
-    const r=await fetch('/compute/servers/'+serverId+'/configure-openclaw',{
-      method:'POST',headers:hdr,
-      body:JSON.stringify({
-        anthropicKey:modelData.apiKey,
-        authMode:modelData.authMode||'token',
-        provider:modelData.provider||'anthropic',
-        model:modelData.model,
-        channel:channelData.channel,
-        botToken:channelData.botToken,
-        allowFrom,
-      })
-    });
+    const r=await fetch('/compute/servers/'+serverId+'/configure-openclaw',{method:'POST',headers:hdr,body:JSON.stringify(payload)});
     const d=await r.json();
     if(!r.ok)throw new Error(d.error||'Failed');
 
-    vpsNode.dataset.openclawPushed='done';
-    vpsNode.querySelector('.node-sub').textContent=ip+' · openclaw running';
+    // Update VPS node
+    vpsNode.querySelector('.node-sub').textContent=ip;
     vpsNode.querySelector('.s-dot')?.classList.add('active');
 
-    // Mark model + channel nodes as truly connected
-    if(modelNode){
+    // Update the trigger node to show success
+    if(modelNode&&modelNode.dataset.modelData){
       const md=JSON.parse(modelNode.dataset.modelData);
       modelNode.querySelector('.node-sub').textContent=md.model.split('/').pop();
       modelNode.querySelector('.s-dot')?.classList.add('active');
     }
-    if(channelNode){
+    if(channelNode&&channelNode.dataset.channelData){
       channelNode.querySelector('.node-sub').textContent='connected';
       channelNode.querySelector('.s-dot')?.classList.add('active');
     }
 
-    // Flash green on all connected lines
-    const agentIdx=[];
-    conns.forEach(([a,b],i)=>{if(a===agentId||b===agentId)agentIdx.push(i);});
-    agentIdx.forEach(i=>{
-      if(_lineEls[i]){
-        _lineEls[i].removeAttribute('stroke-dasharray');
-        const stop=startLineFlow(i,3000,true);setTimeout(stop,3000);
-      }
-    });
+    // Flash the line between trigger and agent
+    const lineIdx=conns.findIndex(([a,b])=>(a===trigId&&b===agentId)||(b===trigId&&a===agentId));
+    if(lineIdx>=0&&_lineEls[lineIdx]){
+      _lineEls[lineIdx].removeAttribute('stroke-dasharray');
+      const stop=startLineFlow(lineIdx,2000,true);setTimeout(stop,2000);
+    }
 
     pushState();
   }catch(e){
     console.warn('OpenClaw config push failed:',e);
-    vpsNode.querySelector('.node-sub').textContent=oldSub;
-    vpsNode.dataset.openclawPushed='';
-    // Revert model/channel to "saved" state
-    if(modelNode){const md=JSON.parse(modelNode.dataset.modelData);modelNode.querySelector('.node-sub').textContent=md.model.split('/').pop()+' — saved';}
-    if(channelNode)channelNode.querySelector('.node-sub').textContent='saved — check VPS';
+    if(trigSvc==='model'&&modelNode){const md=JSON.parse(modelNode.dataset.modelData);modelNode.querySelector('.node-sub').textContent=md.model.split('/').pop()+' — failed';}
+    if(trigSvc==='channel'&&channelNode)channelNode.querySelector('.node-sub').textContent='failed — retry';
+    if(trigSvc==='vps')vpsNode.querySelector('.node-sub').textContent=ip;
   }
 };
 

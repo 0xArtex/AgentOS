@@ -332,8 +332,6 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
       agentName,
     } = req.body;
 
-    if (!anthropicKey) return res.status(400).json({ error: "API key or setup token is required" });
-
     const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
@@ -341,44 +339,55 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
     const { execSync } = require("child_process");
     const ssh = sshCmd(ip);
 
-    // Build OpenClaw config
-    const effectiveProvider = provider || "anthropic";
-    const effectiveAuthMode = authMode || "token";
-    const profileKey = effectiveProvider + ":default";
-    const config: any = {
-      auth: {
-        profiles: {
-          [profileKey]: {
-            provider: effectiveProvider,
-            mode: effectiveAuthMode,
-          }
-        }
-      },
-      agents: {
-        defaults: {
-          workspace: "/root/.openclaw/workspace",
-          compaction: { mode: "safeguard" },
-          maxConcurrent: 4,
-          subagents: { maxConcurrent: 8, model: model || "anthropic/claude-sonnet-4-20250514" }
-        }
-      },
-      commands: { native: "auto", nativeSkills: "auto", restart: true },
-      gateway: {
-        port: gatewayPort || 18789,
-        mode: "local",
-        bind: "loopback",
-        auth: { mode: "token" }
-      },
-      plugins: { entries: {} },
-      channels: {}
-    };
+    // 1. Ensure directory exists
+    execSync(`${ssh} "mkdir -p /root/.openclaw/workspace"`, { timeout: 10000 });
 
-    // Channel config
+    // 2. Read existing config (or start fresh)
+    let config: any = {};
+    try {
+      const existing = execSync(`${ssh} "cat /root/.openclaw/openclaw.json 2>/dev/null || echo '{}'"`, { timeout: 10000, encoding: "utf-8" }).trim();
+      config = JSON.parse(existing);
+    } catch (e) { config = {}; }
+
+    // Ensure base structure
+    if (!config.auth) config.auth = { profiles: {} };
+    if (!config.agents) config.agents = { defaults: { workspace: "/root/.openclaw/workspace", compaction: { mode: "safeguard" }, maxConcurrent: 4, subagents: { maxConcurrent: 8 } } };
+    if (!config.commands) config.commands = { native: "auto", nativeSkills: "auto", restart: true };
+    if (!config.gateway) config.gateway = { port: gatewayPort || 18789, mode: "local", bind: "loopback", auth: { mode: "token" } };
+    if (!config.plugins) config.plugins = { entries: {} };
+    if (!config.channels) config.channels = {};
+
+    // 3. Apply model config if provided
+    let envVar = '';
+    let envValue = '';
+    if (anthropicKey) {
+      const effectiveProvider = provider || "anthropic";
+      const effectiveAuthMode = authMode || "token";
+      const profileKey = effectiveProvider + ":default";
+      config.auth.profiles[profileKey] = { provider: effectiveProvider, mode: effectiveAuthMode };
+
+      if (model) {
+        config.agents.defaults.subagents = { ...(config.agents.defaults.subagents || {}), model };
+      }
+
+      const escapedKey = anthropicKey.replace(/'/g, "'\\''");
+      if (effectiveAuthMode === 'setup-token') {
+        execSync(`${ssh} "echo '${escapedKey}' | openclaw models auth paste-token --provider ${effectiveProvider} 2>/dev/null || true"`, { timeout: 30000 });
+      } else {
+        const envVarMap: Record<string, string> = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', openrouter: 'OPENROUTER_API_KEY' };
+        envVar = envVarMap[effectiveProvider] || 'ANTHROPIC_API_KEY';
+        envValue = anthropicKey;
+        // Idempotent: remove old line, add new
+        execSync(`${ssh} "grep -v '${envVar}' /etc/environment > /tmp/env.tmp 2>/dev/null; echo '${envVar}=${escapedKey}' >> /tmp/env.tmp; mv /tmp/env.tmp /etc/environment"`, { timeout: 10000 });
+      }
+    }
+
+    // 4. Apply channel config if provided
     if (channel === "telegram" && botToken) {
       config.channels.telegram = {
         enabled: true,
         dmPolicy: allowFrom?.length ? "allowlist" : "open",
-        botToken: botToken,
+        botToken,
         allowFrom: allowFrom || ["*"],
         groupPolicy: "allowlist",
         streaming: "partial"
@@ -396,37 +405,19 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
       config.plugins.entries.discord = { enabled: true };
     }
 
+    // 5. Write merged config
     const configJson = JSON.stringify(config, null, 2);
-
-    // 1. Create .openclaw directory
-    execSync(`${ssh} "mkdir -p /root/.openclaw/workspace"`, { timeout: 10000 });
-
-    // 2. Write config via base64 to avoid shell escaping issues
     const configB64 = Buffer.from(configJson).toString('base64');
     execSync(`${ssh} "echo '${configB64}' | base64 -d > /root/.openclaw/openclaw.json"`, { timeout: 10000 });
 
-    // 3. Set up auth credentials
-    const escapedKey = anthropicKey.replace(/'/g, "'\\''");
-    if (effectiveAuthMode === 'setup-token') {
-      // For setup-token: use openclaw's built-in token paste command
-      execSync(`${ssh} "echo '${escapedKey}' | openclaw models auth paste-token --provider ${effectiveProvider} 2>/dev/null || true"`, { timeout: 30000 });
-    } else {
-      // For API keys: set as environment variable
-      const envVarMap: Record<string, string> = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', openrouter: 'OPENROUTER_API_KEY' };
-      const envVar = envVarMap[effectiveProvider] || 'ANTHROPIC_API_KEY';
-      execSync(`${ssh} "echo 'export ${envVar}=${escapedKey}' >> /root/.bashrc && echo '${envVar}=${escapedKey}' >> /etc/environment"`, { timeout: 10000 });
-    }
-
-    // 4. Create workspace files if agent name provided
+    // 6. Create workspace files if agent name provided
     if (agentName) {
       const identityMd = `# IDENTITY.md\\n\\n- **Name:** ${agentName}\\n- **Born:** ${new Date().toISOString().split('T')[0]}\\n`;
       execSync(`${ssh} "echo -e '${identityMd}' > /root/.openclaw/workspace/IDENTITY.md"`, { timeout: 10000 });
     }
 
-    // 5. Create systemd service for OpenClaw
-    const envVarMap: Record<string, string> = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', openrouter: 'OPENROUTER_API_KEY' };
-    const envVar = envVarMap[effectiveProvider] || 'ANTHROPIC_API_KEY';
-    const envLine = effectiveAuthMode === 'setup-token' ? '' : `Environment=${envVar}=${anthropicKey}`;
+    // 7. Create/update systemd service + restart
+    const envLine = envVar && envValue ? `Environment=${envVar}=${envValue}` : '';
     const serviceFile = `[Unit]
 Description=OpenClaw Gateway
 After=network.target
@@ -445,7 +436,7 @@ WantedBy=multi-user.target`;
 
     const svcB64 = Buffer.from(serviceFile).toString('base64');
     execSync(`${ssh} "echo '${svcB64}' | base64 -d > /etc/systemd/system/openclaw.service"`, { timeout: 10000 });
-    execSync(`${ssh} "systemctl daemon-reload && systemctl enable openclaw && systemctl start openclaw"`, { timeout: 20000 });
+    execSync(`${ssh} "systemctl daemon-reload && systemctl enable openclaw && systemctl restart openclaw"`, { timeout: 20000 });
 
     // 6. Verify it started
     let running = false;
