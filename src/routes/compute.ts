@@ -435,7 +435,7 @@ After=network.target
 Type=simple
 User=root
 ${envLine}
-ExecStart=/usr/bin/openclaw gateway start --allow-unconfigured
+ExecStart=/usr/local/bin/openclaw gateway start --allow-unconfigured
 WorkingDirectory=/root
 Restart=always
 RestartSec=5

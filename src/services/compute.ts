@@ -27,6 +27,7 @@ sed -i 's/#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication 
 systemctl restart ssh || systemctl restart sshd
 
 # Firewall
+export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq ufw
 ufw default deny incoming
@@ -37,8 +38,8 @@ ufw allow 443/tcp
 ufw --force enable
 
 # Auto security updates
-apt-get install -y -qq unattended-upgrades
-dpkg-reconfigure -plow unattended-upgrades
+DEBIAN_FRONTEND=noninteractive apt-get install -y -qq unattended-upgrades
+echo 'Unattended-Upgrade::Allowed-Origins { "\${distro_id}:\${distro_codename}-security"; };' > /etc/apt/apt.conf.d/50unattended-upgrades-local
 
 # ─── Install OpenClaw ───
 # Install Node.js 22
