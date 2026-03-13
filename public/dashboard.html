@@ -588,6 +588,8 @@ background-size:40px 40px}
         <div class="svc-dock-item" data-svc="email"><img src="/assets/logos/gmail.svg"><span class="dock-tip">Email<span class="dock-price">$1/mo</span></span></div>
         <div class="svc-dock-item" data-svc="domain"><img src="/assets/logos/cloudflare-icon.svg"><span class="dock-tip">Domain<span class="dock-price">$10/yr</span></span></div>
         <div class="svc-dock-item" data-svc="vps"><img src="/assets/logos/hetzner-icon.svg"><span class="dock-tip">VPS<span class="dock-price">from $5</span></span></div>
+        <div class="svc-dock-item" data-svc="channel"><img src="/assets/logos/telegram-icon.svg"><span class="dock-tip">Channel<span class="dock-price">free</span></span></div>
+        <div class="svc-dock-item" data-svc="model"><img src="/assets/logos/anthropic-icon.svg"><span class="dock-tip">AI Model<span class="dock-price">free</span></span></div>
         <div class="svc-dock-item" data-svc="xaccount"><svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg><span class="dock-tip">X Account<span class="dock-price">$5</span></span></div>
         <div class="svc-dock-item" data-svc="wallet"><svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg><span class="dock-tip">Wallet<span class="dock-price">Free</span></span></div>
       </div>
@@ -1894,7 +1896,9 @@ const SVC_META={
   vps:{label:'VPS',icon:'<img src="/assets/logos/hetzner-icon.svg" style="width:20px;height:20px;flex-shrink:0">',unconfigured:'click to select tier',cls:'vps-node'},
   xaccount:{label:'X Account',icon:'<svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg>',unconfigured:'click to assign account',cls:'node'},
   wallet:{label:'Wallet',icon:'<svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg>',unconfigured:'click to connect wallet',cls:'node'},
-  skills:{label:'Skills',icon:'<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',unconfigured:'click to select skills',cls:'node'}
+  skills:{label:'Skills',icon:'<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',unconfigured:'click to select skills',cls:'node'},
+  channel:{label:'Channel',icon:'<img src="/assets/logos/telegram-icon.svg" style="width:20px;height:20px;flex-shrink:0">',unconfigured:'setup required',cls:'node'},
+  model:{label:'AI Model',icon:'<img src="/assets/logos/anthropic-icon.svg" style="width:20px;height:20px;flex-shrink:0">',unconfigured:'setup required',cls:'node'}
 };
 
 function getSvcType(node){
@@ -1975,6 +1979,9 @@ function duplicateNode(srcNode){
   // Click to configure
   el.addEventListener('click',e=>{
     if(nodeMoved)return;
+    // Channel and model nodes are always clickable (to reconfigure)
+    if(svcType==='channel'){openChannelConfigModal(el);return;}
+    if(svcType==='model'){openModelConfigModal(el);return;}
     if(!el.classList.contains('unconfigured'))return;
     showConfigModal(el,svcType,nodeId);
   });
@@ -1991,8 +1998,19 @@ function showConfigModal(el,svcType,nodeId){
   } else if(svcType==='domain'){
     body=`<div class="na-field"><label class="na-label">domain</label><input class="na-input" id="cfgVal" placeholder="myagent.dev"></div>`;
   } else if(svcType==='vps'){
-    // Use the nicer VPS deploy modal
     openVpsSetupModal(el,null);
+    return;
+  } else if(svcType==='channel'){
+    el.dataset.svc='channel';
+    el.innerHTML=`<img src="/assets/logos/telegram-icon.svg" style="width:18px;height:18px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>Channel</div><div class="node-sub">setup required</div></div>`;
+    el.classList.add('unconfigured');
+    openChannelConfigModal(el);
+    return;
+  } else if(svcType==='model'){
+    el.dataset.svc='model';
+    el.innerHTML=`<img src="/assets/logos/anthropic-icon.svg" style="width:18px;height:18px;flex-shrink:0"><div><div class="node-label"><span class="s-dot"></span>AI Model</div><div class="node-sub">setup required</div></div>`;
+    el.classList.add('unconfigured');
+    openModelConfigModal(el);
     return;
   } else if(svcType==='xaccount'){
     body=`<div style="font-size:12px;color:var(--w40);padding:8px 0;font-family:'JetBrains Mono',monospace">An X account will be assigned from the pool.</div>`;
@@ -2021,7 +2039,7 @@ function showConfigModal(el,svcType,nodeId){
     const val=valEl?valEl.value:'';
 
     // Check balance before provisioning
-    const svcCosts={phone:2,vps:6,domain:12,email:1,xaccount:0,wallet:0,openclaw:0,skills:0};
+    const svcCosts={phone:2,vps:6,domain:12,email:1,xaccount:0,wallet:0,openclaw:0,skills:0,channel:0,model:0};
     const cost=svcCosts[svcType]||0;
     if(cost>0&&_authToken){
       try{
