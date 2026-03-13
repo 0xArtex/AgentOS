@@ -1585,7 +1585,13 @@ document.addEventListener('keydown',e=>{
     if(multiSelected.size>0){
       e.preventDefault();
       const toDelete=[...multiSelected];
-      toDelete.forEach(n=>deleteNode(n,true)); // silent=true, skip confirm
+      // If any node is a managed service (channel/model/vps), require confirmation
+      const hasManaged=toDelete.some(n=>n.dataset?.svc==='channel'||n.dataset?.svc==='model'||n.dataset?.svc==='vps');
+      if(hasManaged&&toDelete.length===1){deleteNode(toDelete[0]);clearMultiSelect();return;}
+      toDelete.forEach(n=>{
+        if(n.dataset?.svc==='channel'||n.dataset?.svc==='model'||n.dataset?.svc==='vps'){deleteNode(n);}
+        else{deleteNode(n,true);}
+      });
       clearMultiSelect();
       return;
     }
