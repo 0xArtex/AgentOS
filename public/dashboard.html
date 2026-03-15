@@ -2592,18 +2592,9 @@ window.syncSkillsToVps=async function(skillsNode){
   }
   if(!serverId)return;
 
-  // Collect all skill slugs from the skill graph
-  const skillSlugs=[];
-  document.querySelectorAll('.sg-skill').forEach(el=>{
-    if(el.dataset?.slug)skillSlugs.push(el.dataset.slug);
-  });
-  // Also include our workspace skills
-  const extraSkills=['weather','github','web'];
-  extraSkills.forEach(s=>{if(!skillSlugs.includes(s))skillSlugs.push(s);});
+  // Install ALL available skills (server figures out what's available)
 
-  if(!skillSlugs.length){skillsNode.querySelector('.node-sub').textContent='no skills found';return;}
-
-  skillsNode.querySelector('.node-sub').textContent='installing '+skillSlugs.length+' skills...';
+  skillsNode.querySelector('.node-sub').textContent='installing skills...';
 
   const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
   let installed=0,failed=0;
@@ -2611,7 +2602,7 @@ window.syncSkillsToVps=async function(skillsNode){
   try{
     const r=await fetch('/compute/servers/'+serverId+'/install-skills-bulk',{
       method:'POST',headers:hdr,
-      body:JSON.stringify({skills:skillSlugs})
+      body:JSON.stringify({skills:['__ALL__']})
     });
     const d=await r.json();
     if(!r.ok)throw new Error(d.error||'Failed');

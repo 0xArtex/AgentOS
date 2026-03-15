@@ -588,18 +588,29 @@ router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general'), as
     const serverId = String(req.params.id);
     const { skills } = req.body as { skills: string[] };
 
-    if (!skills?.length) return res.status(400).json({ error: "skills array is required" });
-
     const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const { execSync } = require("child_process");
-    const { existsSync } = require("fs");
+    const { existsSync, readdirSync } = require("fs");
     const path = require("path");
     const ssh = sshCmd(row.ipv4);
 
     // Create skills directory
     execSync(`${ssh} "mkdir -p /root/.openclaw/workspace/skills"`, { timeout: 10000 });
+
+    // If __ALL__, discover all available skills
+    let skillList = skills || [];
+    if (skillList.includes('__ALL__')) {
+      const wsDir = '/root/.openclaw/workspace/skills';
+      const builtinDir = '/usr/lib/node_modules/openclaw/skills';
+      const allSkills = new Set<string>();
+      try { readdirSync(wsDir).forEach((s: string) => allSkills.add(s)); } catch (e) {}
+      try { readdirSync(builtinDir).forEach((s: string) => allSkills.add(s)); } catch (e) {}
+      skillList = [...allSkills];
+    }
+
+    if (!skillList.length) return res.status(400).json({ error: "No skills found" });
 
     let installed = 0, failed = 0;
     const results: any[] = [];
@@ -608,7 +619,7 @@ router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general'), as
     const localSkills: { name: string; dir: string }[] = [];
     const notFound: string[] = [];
 
-    for (const skillName of skills) {
+    for (const skillName of skillList) {
       const wsPath = `/root/.openclaw/workspace/skills/${skillName}`;
       const builtinPath = `/usr/lib/node_modules/openclaw/skills/${skillName}`;
       if (existsSync(wsPath)) {
@@ -646,7 +657,7 @@ router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general'), as
     // Restart OpenClaw once after all installs
     execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
 
-    res.json({ success: true, installed, failed, total: skills.length, results });
+    res.json({ success: true, installed, failed, total: skillList.length, results });
   } catch (err: any) {
     console.error("[compute] Bulk skill install error:", err);
     res.status(500).json({ error: "Bulk install failed", message: err.message?.split("\n")[0] || "Failed" });
