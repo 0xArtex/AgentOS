@@ -2289,12 +2289,12 @@ function openModelConfigModal(el){
   const saved=el.dataset.modelData?JSON.parse(el.dataset.modelData):null;
   const isActive=el.querySelector('.s-dot')?.classList.contains('active');
 
-  // If fully configured + active, show status view
-  if(configured&&isActive&&saved){
+  // If configured (has modelData), show status view
+  if(configured&&saved){
     const providerNames={'anthropic':'Anthropic','anthropic-api':'Anthropic API','anthropic-max':'Claude Max','openrouter':'OpenRouter','openai':'OpenAI'};
     document.getElementById('modalBody').innerHTML=`
       <div class="modal-title">AI MODEL</div>
-      <div class="modal-subtitle">configured and active</div>
+      <div class="modal-subtitle">${isActive?'configured and active':'configured — connect to agent to activate'}</div>
       <div style="padding:16px 0;display:flex;flex-direction:column;gap:8px">
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
           <div style="width:8px;height:8px;border-radius:50%;background:var(--green)"></div>
@@ -2424,14 +2424,14 @@ function openChannelConfigModal(el){
   const saved=el.dataset.channelData?JSON.parse(el.dataset.channelData):null;
   const isActive=el.querySelector('.s-dot')?.classList.contains('active');
 
-  // If fully configured + active, show status view (not edit form)
-  if(configured&&isActive&&saved){
+  // If configured (has channelData), show status view
+  if(configured&&saved){
     const names={telegram:'Telegram',discord:'Discord',whatsapp:'WhatsApp'};
     const logos={telegram:'/assets/logos/telegram-icon.svg',discord:'/assets/logos/discord-icon.svg',whatsapp:'/assets/logos/whatsapp-icon.svg'};
     const modeLabels={pairing:'Pairing code',allowlist:'Allowlist',open:'Open to everyone'};
     document.getElementById('modalBody').innerHTML=`
       <div class="modal-title">${names[saved.channel]||'Channel'}</div>
-      <div class="modal-subtitle">connected and active</div>
+      <div class="modal-subtitle">${isActive?'connected and active':'configured — connect to agent to activate'}</div>
       <div style="padding:16px 0;display:flex;flex-direction:column;gap:8px">
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
           <div style="width:8px;height:8px;border-radius:50%;background:var(--green)"></div>
