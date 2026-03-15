@@ -2287,6 +2287,41 @@ async function showVpsInfoModal(el){
 function openModelConfigModal(el){
   const configured=!el.classList.contains('unconfigured');
   const saved=el.dataset.modelData?JSON.parse(el.dataset.modelData):null;
+  const isActive=el.querySelector('.s-dot')?.classList.contains('active');
+
+  // If fully configured + active, show status view
+  if(configured&&isActive&&saved){
+    const providerNames={'anthropic':'Anthropic','anthropic-api':'Anthropic API','anthropic-max':'Claude Max','openrouter':'OpenRouter','openai':'OpenAI'};
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title">AI MODEL</div>
+      <div class="modal-subtitle">configured and active</div>
+      <div style="padding:16px 0;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--green)"></div>
+          <img src="/assets/logos/anthropic-icon.svg" style="width:16px;height:16px">
+          <span style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace">ACTIVE</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px">
+          <span style="font-size:10px;color:var(--w50);font-family:'JetBrains Mono',monospace;width:80px">Provider</span>
+          <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">${providerNames[saved.providerId]||saved.provider||'anthropic'}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px">
+          <span style="font-size:10px;color:var(--w50);font-family:'JetBrains Mono',monospace;width:80px">Model</span>
+          <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">${saved.model?.split('/').pop()||'unknown'}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px">
+          <span style="font-size:10px;color:var(--w50);font-family:'JetBrains Mono',monospace;width:80px">API Key</span>
+          <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">${saved.apiKey?'••••••'+saved.apiKey.slice(-6):'not set'}</span>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="spawn-btn" style="flex:1" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
+        <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('${el.id}').classList.add('unconfigured');document.getElementById('${el.id}').querySelector('.s-dot').classList.remove('active');openModelConfigModal(document.getElementById('${el.id}'))">RECONFIGURE</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+    return;
+  }
 
   const providers=[
     {id:'anthropic-api',name:'Anthropic API Key',logo:'/assets/logos/anthropic-icon.svg',hint:'Pay per token. Get a key at console.anthropic.com',placeholder:'sk-ant-...',label:'API Key',authMode:'token'},
@@ -2387,6 +2422,50 @@ window.saveModelConfig=function(btn){
 function openChannelConfigModal(el){
   const configured=!el.classList.contains('unconfigured');
   const saved=el.dataset.channelData?JSON.parse(el.dataset.channelData):null;
+  const isActive=el.querySelector('.s-dot')?.classList.contains('active');
+
+  // If fully configured + active, show status view (not edit form)
+  if(configured&&isActive&&saved){
+    const names={telegram:'Telegram',discord:'Discord',whatsapp:'WhatsApp'};
+    const logos={telegram:'/assets/logos/telegram-icon.svg',discord:'/assets/logos/discord-icon.svg',whatsapp:'/assets/logos/whatsapp-icon.svg'};
+    const modeLabels={pairing:'Pairing code',allowlist:'Allowlist',open:'Open to everyone'};
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title">${names[saved.channel]||'Channel'}</div>
+      <div class="modal-subtitle">connected and active</div>
+      <div style="padding:16px 0;display:flex;flex-direction:column;gap:8px">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--green)"></div>
+          <img src="${logos[saved.channel]||''}" style="width:16px;height:16px">
+          <span style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace">CONNECTED</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px">
+          <span style="font-size:10px;color:var(--w50);font-family:'JetBrains Mono',monospace;width:80px">Access</span>
+          <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">${modeLabels[saved.dmPolicy]||saved.dmPolicy||'allowlist'}</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;padding:8px 12px">
+          <span style="font-size:10px;color:var(--w50);font-family:'JetBrains Mono',monospace;width:80px">Bot token</span>
+          <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">${saved.botToken?'••••••'+saved.botToken.slice(-6):'not set'}</span>
+        </div>
+      </div>
+      ${saved.dmPolicy==='pairing'?`
+        <div style="padding:12px;border:1px dashed var(--green);border-radius:8px;background:rgba(63,185,80,0.04);margin-bottom:12px">
+          <div style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace;margin-bottom:8px">APPROVE PAIRING CODE</div>
+          <div style="font-size:10px;color:var(--w30);margin-bottom:8px;line-height:1.5">New users can message your bot to get a code. Enter it here to grant access.</div>
+          <div style="display:flex;gap:8px">
+            <input class="na-input" id="pairingCode" placeholder="WK8MLG6Y" style="font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:2px;font-size:14px;text-align:center" maxlength="8">
+            <button class="spawn-btn" style="flex-shrink:0;padding:8px 16px" id="pairingApproveBtn" onclick="approvePairingCode()">APPROVE</button>
+          </div>
+          <div id="pairingStatus" style="margin-top:6px"></div>
+        </div>
+      `:''}
+      <div style="display:flex;gap:8px">
+        <button class="spawn-btn" style="flex:1" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
+        <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('${el.id}').classList.add('unconfigured');document.getElementById('${el.id}').querySelector('.s-dot').classList.remove('active');openChannelConfigModal(document.getElementById('${el.id}'))">RECONFIGURE</button>
+      </div>
+    `;
+    document.getElementById('modalOverlay').classList.add('open');
+    return;
+  }
 
   const channels=[
     {id:'telegram',name:'Telegram',logo:'/assets/logos/telegram-icon.svg',hint:'Talk to @BotFather on Telegram to create a bot and get a token',placeholder:'123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11'},
