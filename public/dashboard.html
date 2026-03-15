@@ -1782,6 +1782,10 @@ document.addEventListener('keydown',e=>{
         if(connectedNode.id==='nodeSkills'||getSvcType(connectedNode)==='skills'){
           syncSkillsToVps(connectedNode);
         }
+        // Auto-setup wallet when connecting Wallet node to agent
+        if(connectedNode.id?.includes('wallet')||getSvcType(connectedNode)==='wallet'){
+          pushWalletToVps(connectedNode,getNodeType(srcNode)==='agent'?srcNode:target);
+        }
       } else if(!target){
         // Dropped on empty space — show wire drop menu
         showWireMenu(srcNode,ev.clientX,ev.clientY);
@@ -2558,6 +2562,66 @@ window.tryPushOpenClawConfig=async function(triggerNode){
     if(trigSvc==='model'&&modelNode){const md=JSON.parse(modelNode.dataset.modelData);modelNode.querySelector('.node-sub').textContent=md.model.split('/').pop()+' — failed';}
     if(trigSvc==='channel'&&channelNode)channelNode.querySelector('.node-sub').textContent='failed — retry';
     if(trigSvc==='vps')vpsNode.querySelector('.node-sub').textContent=ip;
+  }
+};
+
+window.pushWalletToVps=async function(walletNode,agentNode){
+  // Find connected VPS
+  const agentId=agentNode.id;
+  let vpsNode=null;
+  for(const [a,b] of conns){
+    const n=document.getElementById(a===agentId?b:b===agentId?a:null);
+    if(n?.dataset?.svc==='vps'&&!n.classList.contains('unconfigured'))vpsNode=n;
+  }
+  if(!vpsNode)return;
+
+  const rawSub=vpsNode.querySelector('.node-sub')?.textContent?.trim()||'';
+  const ip=rawSub.split('·')[0].trim().split(' ')[0].trim();
+  let serverId=vpsNode.dataset.serverId;
+  if(!serverId&&ip.match(/^\d/)){
+    try{
+      const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+      const r=await fetch('/compute/servers',{headers:hdr});
+      const d=await r.json();
+      const srv=(d.servers||[]).find(s=>s.ipv4===ip);
+      if(srv){serverId=srv.id;vpsNode.dataset.serverId=serverId;}
+    }catch(e){}
+  }
+  if(!serverId)return;
+
+  // Get wallet data from localStorage
+  const walletData=JSON.parse(localStorage.getItem('aw_'+walletNode.id)||'{}');
+  const baseAddr=walletData.base?.address||'';
+  const solAddr=walletData.solana?.address||'';
+  const baseAgent=walletData.base?.agentAddress||'';
+  const solAgent=walletData.solana?.agentAddress||'';
+
+  walletNode.querySelector('.node-sub').textContent='pushing to VPS...';
+
+  try{
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+
+    // 1. Install agentwallet skill
+    await fetch('/compute/servers/'+serverId+'/install-skills-bulk',{method:'POST',headers:hdr,body:JSON.stringify({skills:['agentwallet']})});
+
+    // 2. Push wallet config to VPS
+    await fetch('/compute/servers/'+serverId+'/configure-wallet',{method:'POST',headers:hdr,body:JSON.stringify({
+      baseWallet:baseAddr,
+      solanaWallet:solAddr,
+      baseAgent:baseAgent,
+      solanaAgent:solAgent,
+    })});
+
+    // Update node
+    let sub='';
+    if(baseAddr)sub+='<img src="/assets/logos/base-icon.svg" style="width:10px;height:10px;vertical-align:-1px;margin-right:2px">'+baseAddr.slice(0,6)+'..'+baseAddr.slice(-4);
+    if(solAddr)sub+=(sub?' / ':'')+'\u2261'+solAddr.slice(0,4)+'..'+solAddr.slice(-4);
+    walletNode.querySelector('.node-sub').innerHTML=sub||'connected';
+    walletNode.querySelector('.s-dot')?.classList.add('active');
+    pushState();
+  }catch(e){
+    console.warn('Wallet push failed:',e);
+    walletNode.querySelector('.node-sub').textContent='push failed';
   }
 };
 

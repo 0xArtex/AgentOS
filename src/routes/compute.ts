@@ -727,6 +727,61 @@ router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) 
 });
 
 /**
+ * POST /compute/servers/:id/configure-wallet — Push wallet addresses to VPS
+ */
+router.post("/servers/:id/configure-wallet", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const { baseWallet, solanaWallet, baseAgent, solanaAgent } = req.body;
+
+    const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const { execSync } = require("child_process");
+    const ssh = sshCmd(row.ipv4);
+
+    // Write wallet config to TOOLS.md so the agent knows its wallets
+    const toolsContent = `# Wallet Configuration
+
+## AgentWallet
+- **Base Wallet:** ${baseWallet || 'not configured'}
+- **Solana Wallet:** ${solanaWallet || 'not configured'}
+- **Base Agent Address:** ${baseAgent || 'not configured'}
+- **Solana Agent Address:** ${solanaAgent || 'not configured'}
+- **API:** https://agntos.dev/wallet
+- **CLI:** npx @agntos/agentwallet
+
+## Usage
+The agent can use these wallets to send transactions via the AgentWallet API.
+Private keys are stored locally — use \`agentwallet send\` or the SDK.
+`;
+    const b64 = Buffer.from(toolsContent).toString('base64');
+    execSync(`${ssh} "echo '${b64}' | base64 -d > /root/.openclaw/workspace/TOOLS.md"`, { timeout: 10000 });
+
+    // Set wallet addresses as env vars
+    const envLines: string[] = [];
+    if (baseWallet) envLines.push(`AGENT_BASE_WALLET=${baseWallet}`);
+    if (solanaWallet) envLines.push(`AGENT_SOLANA_WALLET=${solanaWallet}`);
+    if (baseAgent) envLines.push(`AGENT_BASE_ADDRESS=${baseAgent}`);
+    if (solanaAgent) envLines.push(`AGENT_SOLANA_ADDRESS=${solanaAgent}`);
+
+    if (envLines.length) {
+      // Remove old wallet env vars, add new ones
+      const removeCmd = envLines.map(l => l.split('=')[0]).map(k => `grep -v '${k}' /etc/environment`).join(' | ');
+      execSync(`${ssh} "cat /etc/environment | ${removeCmd} > /tmp/env.tmp 2>/dev/null || cp /etc/environment /tmp/env.tmp; echo '${envLines.join('\\n')}' >> /tmp/env.tmp; mv /tmp/env.tmp /etc/environment"`, { timeout: 10000 });
+    }
+
+    // Restart OpenClaw to pick up new TOOLS.md + env
+    execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
+
+    res.json({ success: true, message: "Wallet config pushed to VPS" });
+  } catch (err: any) {
+    console.error("[compute] Wallet config error:", err);
+    res.status(500).json({ error: "Failed to configure wallet", message: err.message?.split("\n")[0] || "Failed" });
+  }
+});
+
+/**
  * GET /compute/skills/:slug/security — Get security scan for a skill from ClawHub
  */
 router.get("/skills/:slug/security", async (req: AuthenticatedRequest, res: Response) => {
