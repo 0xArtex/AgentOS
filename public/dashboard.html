@@ -2435,6 +2435,15 @@ function openChannelConfigModal(el){
         </div>
       </div>
     </div>
+    <div id="channelPairingApproval" style="margin-top:12px;padding:12px;border:1px dashed var(--green);border-radius:8px;background:rgba(63,185,80,0.04);display:${configured&&saved?.dmPolicy==='pairing'?'block':'none'}">
+      <div style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace;margin-bottom:8px">APPROVE PAIRING CODE</div>
+      <div style="font-size:10px;color:var(--w30);margin-bottom:8px;line-height:1.5">Message your bot on Telegram — it will reply with a pairing code. Enter it below to allow access.</div>
+      <div style="display:flex;gap:8px">
+        <input class="na-input" id="pairingCode" placeholder="WK8MLG6Y" style="font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:2px;font-size:14px;text-align:center" maxlength="8">
+        <button class="spawn-btn" style="flex-shrink:0;padding:8px 16px" id="pairingApproveBtn" onclick="approvePairingCode()">APPROVE</button>
+      </div>
+      <div id="pairingStatus" style="margin-top:6px"></div>
+    </div>
     <div id="channelConfigStatus" style="margin-top:8px"></div>
     <div style="display:flex;gap:8px;margin-top:12px">
       <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
@@ -2444,6 +2453,58 @@ function openChannelConfigModal(el){
   document.getElementById('channelSaveBtn').dataset.nodeId=el.id;
   document.getElementById('modalOverlay').classList.add('open');
 }
+
+window.approvePairingCode=async function(){
+  const code=document.getElementById('pairingCode')?.value?.trim()?.toUpperCase();
+  if(!code||code.length<6){document.getElementById('pairingStatus').innerHTML='<div style="color:var(--red);font-size:10px">Enter the pairing code from Telegram</div>';return;}
+
+  const btn=document.getElementById('pairingApproveBtn');
+  btn.textContent='APPROVING...';btn.disabled=true;
+
+  // Find VPS
+  let serverId=null;
+  document.querySelectorAll('[data-svc="vps"]').forEach(n=>{
+    if(!n.classList.contains('unconfigured')&&!serverId){
+      serverId=n.dataset.serverId;
+      if(!serverId){
+        const rawSub=n.querySelector('.node-sub')?.textContent?.trim()||'';
+        const ip=rawSub.split('·')[0].trim().split(' ')[0].trim();
+        // Try to find from server list (sync would be better but this works)
+        serverId=n.dataset.serverId;
+      }
+    }
+  });
+
+  if(!serverId){
+    // Try fetching server list
+    try{
+      const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+      const r=await fetch('/compute/servers',{headers:hdr});
+      const d=await r.json();
+      if(d.servers?.length)serverId=d.servers[0].id;
+    }catch(e){}
+  }
+
+  if(!serverId){
+    document.getElementById('pairingStatus').innerHTML='<div style="color:var(--red);font-size:10px">No VPS found — deploy a VPS first</div>';
+    btn.textContent='APPROVE';btn.disabled=false;
+    return;
+  }
+
+  try{
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    const r=await fetch('/compute/servers/'+serverId+'/pairing-approve',{method:'POST',headers:hdr,body:JSON.stringify({code})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||d.message||'Failed');
+
+    document.getElementById('pairingStatus').innerHTML='<div style="color:var(--green);font-size:10px;font-family:\'JetBrains Mono\',monospace">\u2713 Approved! You can now message the bot.</div>';
+    btn.textContent='APPROVED';btn.style.borderColor='var(--green)';btn.style.color='var(--green)';
+    document.getElementById('pairingCode').value='';
+  }catch(e){
+    document.getElementById('pairingStatus').innerHTML='<div style="color:var(--red);font-size:10px">'+e.message+'</div>';
+    btn.textContent='APPROVE';btn.disabled=false;
+  }
+};
 
 window.selectChannelType=function(card,channelId){
   document.querySelectorAll('.vps-tier-card').forEach(c=>c.classList.remove('selected'));
@@ -2478,6 +2539,10 @@ window.saveChannelConfig=function(btn){
   const names={telegram:'Telegram',discord:'Discord',whatsapp:'WhatsApp'};
   el.querySelector('.node-label').innerHTML='<span class="s-dot"></span>'+names[channel];
   el.querySelector('.node-sub').textContent='saved';
+
+  // Show pairing approval UI after save if in pairing mode
+  const pairingDiv=document.getElementById('channelPairingApproval');
+  if(pairingDiv&&accessMode==='pairing')pairingDiv.style.display='block';
   const img=el.querySelector('img');
   if(img)img.src=logos[channel];
 

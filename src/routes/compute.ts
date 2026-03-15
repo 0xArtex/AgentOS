@@ -821,6 +821,32 @@ Use the AgentWallet CLI or SDK to send transactions. Keys are pre-configured.
 });
 
 /**
+ * POST /compute/servers/:id/pairing-approve — Approve a pairing code on the VPS
+ */
+router.post("/servers/:id/pairing-approve", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const { code, channel: chan } = req.body;
+    if (!code) return res.status(400).json({ error: "Pairing code is required" });
+
+    const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const { execSync } = require("child_process");
+    const ssh = sshCmd(row.ipv4);
+    const channel = chan || 'telegram';
+
+    const result = execSync(`${ssh} "openclaw pairing approve ${channel} ${code} 2>&1"`, { timeout: 15000, encoding: "utf-8" }).trim();
+
+    res.json({ success: true, message: result || "Pairing approved" });
+  } catch (err: any) {
+    console.error("[compute] Pairing approve error:", err);
+    const msg = err.stderr?.toString() || err.message?.split("\n")[0] || "Failed";
+    res.status(400).json({ error: "Pairing approval failed", message: msg });
+  }
+});
+
+/**
  * GET /compute/skills/:slug/security — Get security scan for a skill from ClawHub
  */
 router.get("/skills/:slug/security", async (req: AuthenticatedRequest, res: Response) => {
