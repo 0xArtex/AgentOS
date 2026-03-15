@@ -689,6 +689,27 @@ router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general'), async (re
 });
 
 /**
+ * POST /compute/servers/:id/remove-all-skills — Remove all skills from the VPS
+ */
+router.post("/servers/:id/remove-all-skills", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const { execSync } = require("child_process");
+    const ssh = sshCmd(row.ipv4);
+
+    execSync(`${ssh} "rm -rf /root/.openclaw/workspace/skills/*"`, { timeout: 15000 });
+    execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
+
+    res.json({ success: true, message: "All skills removed from VPS" });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to remove skills", message: err.message?.split("\n")[0] || "Failed" });
+  }
+});
+
+/**
  * POST /compute/servers/:id/resize — Resize server (change plan)
  * Cost: 0.10 USDC (+ price difference on next billing)
  */
