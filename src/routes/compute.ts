@@ -362,7 +362,7 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
     let envValue = '';
     if (anthropicKey) {
       const effectiveProvider = provider || "anthropic";
-      const effectiveAuthMode = authMode || "token";
+      const effectiveAuthMode = authMode === 'setup-token' ? 'oauth' : (authMode || "token");
       const profileKey = effectiveProvider + ":default";
       config.auth.profiles[profileKey] = { provider: effectiveProvider, mode: effectiveAuthMode };
 
