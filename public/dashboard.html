@@ -2561,6 +2561,137 @@ window.tryPushOpenClawConfig=async function(triggerNode){
   }
 };
 
+window.openSkillsCatalogModal=async function(skillsNode){
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">SKILLS CATALOG</div>
+    <div class="modal-subtitle">select skills to install on your agent</div>
+    <div style="padding:12px 0"><div class="provision-spinner" style="display:inline-block"></div><span style="font-size:11px;color:var(--w30);margin-left:8px;font-family:'JetBrains Mono',monospace">Loading catalog from ClawHub...</span></div>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+
+  // Fetch catalog
+  let skills=[];
+  try{
+    const r=await fetch('/compute/skills/catalog');
+    const d=await r.json();
+    skills=d.items||[];
+  }catch(e){
+    document.getElementById('modalBody').innerHTML=`<div class="modal-title">ERROR</div><div style="color:var(--red);padding:16px 0;font-size:12px">Failed to load skill catalog</div><button class="spawn-btn" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>`;
+    return;
+  }
+
+  // Get currently installed skills on VPS
+  let installedSkills=new Set();
+  try{
+    const sub=skillsNode.querySelector('.node-sub')?.textContent||'';
+    if(sub.includes('installed'))installedSkills=new Set(skillsNode.dataset.installedSkills?.split(',')||[]);
+  }catch(e){}
+
+  const selected=new Set(installedSkills);
+
+  function renderList(filter=''){
+    const filtered=filter?skills.filter(s=>(s.slug+' '+s.displayName+' '+(s.summary||'')).toLowerCase().includes(filter.toLowerCase())):skills;
+    return filtered.slice(0,80).map(s=>`
+      <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s" onclick="this.querySelector('input').click()" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='none'">
+        <input type="checkbox" ${selected.has(s.slug)?'checked':''} onchange="event.stopPropagation();if(this.checked)window._skillSelected.add('${s.slug}');else window._skillSelected.delete('${s.slug}');document.getElementById('skillCount').textContent=window._skillSelected.size" style="accent-color:var(--accent);width:14px;height:14px;cursor:pointer">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">${s.slug}</div>
+          <div style="font-size:9px;color:var(--w30);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.summary||s.displayName||''}</div>
+        </div>
+        <div style="font-size:9px;color:var(--w20);font-family:'JetBrains Mono',monospace;flex-shrink:0">${s.stats?.downloads||0} dl</div>
+      </div>
+    `).join('');
+  }
+
+  window._skillSelected=selected;
+
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">SKILLS CATALOG</div>
+    <div class="modal-subtitle">${skills.length} skills available on ClawHub</div>
+    <div style="margin:12px 0">
+      <input class="na-input" id="skillSearch" placeholder="search skills..." oninput="document.getElementById('skillList').innerHTML=window._renderSkillList(this.value)" style="font-family:'JetBrains Mono',monospace">
+    </div>
+    <div id="skillList" style="max-height:350px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
+      ${renderList()}
+    </div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+      <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace"><span id="skillCount">${selected.size}</span> selected</span>
+      <div style="display:flex;gap:8px">
+        <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
+        <button class="spawn-btn" id="skillInstallBtn" onclick="installSelectedSkills()">INSTALL SELECTED</button>
+      </div>
+    </div>
+  `;
+  window._renderSkillList=renderList;
+  window._skillsNode=skillsNode;
+};
+
+window.installSelectedSkills=async function(){
+  const selected=[...window._skillSelected];
+  const skillsNode=window._skillsNode;
+  if(!selected.length){document.getElementById('modalOverlay').classList.remove('open');return;}
+
+  const btn=document.getElementById('skillInstallBtn');
+  btn.textContent='INSTALLING...';btn.disabled=true;
+
+  // Find connected VPS
+  let agentId=null;
+  for(const [a,b] of conns){
+    if(a===skillsNode.id&&document.getElementById(b)?.classList.contains('agent-node'))agentId=b;
+    if(b===skillsNode.id&&document.getElementById(a)?.classList.contains('agent-node'))agentId=a;
+  }
+  let vpsNode=null,serverId=null;
+  if(agentId){
+    for(const [a,b] of conns){
+      const n=document.getElementById(a===agentId?b:b===agentId?a:null);
+      if(n?.dataset?.svc==='vps'&&!n.classList.contains('unconfigured'))vpsNode=n;
+    }
+  }
+  if(vpsNode){
+    const rawSub=vpsNode.querySelector('.node-sub')?.textContent?.trim()||'';
+    const ip=rawSub.split('·')[0].trim().split(' ')[0].trim();
+    serverId=vpsNode.dataset.serverId;
+    if(!serverId&&ip.match(/^\d/)){
+      try{
+        const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+        const r=await fetch('/compute/servers',{headers:hdr});
+        const d=await r.json();
+        const srv=(d.servers||[]).find(s=>s.ipv4===ip);
+        if(srv){serverId=srv.id;vpsNode.dataset.serverId=serverId;}
+      }catch(e){}
+    }
+  }
+
+  if(!serverId){
+    btn.textContent='NO VPS CONNECTED';btn.style.borderColor='var(--red)';btn.style.color='var(--red)';
+    setTimeout(()=>{btn.textContent='INSTALL SELECTED';btn.disabled=false;btn.style.borderColor='';btn.style.color='';},2000);
+    return;
+  }
+
+  try{
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    // Install builtin skills first (from our server)
+    const builtinSlugs=selected.filter(s=>!s.includes('/'));
+    const r1=await fetch('/compute/servers/'+serverId+'/install-skills-bulk',{method:'POST',headers:hdr,body:JSON.stringify({skills:builtinSlugs})});
+    const d1=await r1.json();
+
+    // Install ClawHub skills
+    const r2=await fetch('/compute/servers/'+serverId+'/install-clawhub-skills',{method:'POST',headers:hdr,body:JSON.stringify({slugs:selected})});
+    const d2=await r2.json();
+
+    const total=(d1.installed||0)+(d2.installed||0);
+    skillsNode.querySelector('.node-sub').textContent=total+' skills installed';
+    skillsNode.querySelector('.s-dot')?.classList.add('active');
+    skillsNode.dataset.installedSkills=selected.join(',');
+
+    document.getElementById('modalOverlay').classList.remove('open');
+    pushState();
+  }catch(e){
+    btn.textContent='FAILED';btn.style.borderColor='var(--red)';btn.style.color='var(--red)';
+    setTimeout(()=>{btn.textContent='INSTALL SELECTED';btn.disabled=false;btn.style.borderColor='';btn.style.color='';},2000);
+  }
+};
+
 window.syncSkillsToVps=async function(skillsNode){
   // Find connected agent → connected VPS
   let agentId=null;
@@ -4133,7 +4264,15 @@ const _nodeX=document.getElementById('nodeX');if(_nodeX) _nodeX.addEventListener
     showCategories();
   });
   // Re-bind when skills node is dynamically created
-  window._bindSkillsNode=function(el){skillsNode=el;el.addEventListener('dblclick',e=>{e.stopPropagation();if(sgOpen){cleanup();return;}showCategories();});};
+  window._bindSkillsNode=function(el){
+    skillsNode=el;
+    el.addEventListener('dblclick',e=>{e.stopPropagation();if(sgOpen){cleanup();return;}showCategories();});
+    el.addEventListener('click',e=>{
+      if(typeof nodeMoved!=='undefined'&&nodeMoved)return;
+      if(e.detail===2)return; // let dblclick handle it
+      openSkillsCatalogModal(el);
+    });
+  };
 
 
 

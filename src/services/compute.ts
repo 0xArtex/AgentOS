@@ -47,7 +47,7 @@ curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
 apt-get install -y -qq nodejs
 
 # Install OpenClaw
-npm install -g openclaw
+npm install -g openclaw clawhub
 
 # Mark setup complete
 mkdir -p /etc/openclaw

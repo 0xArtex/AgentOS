@@ -689,6 +689,63 @@ router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general'), async (re
 });
 
 /**
+ * GET /compute/skills/catalog — Proxy to ClawHub API for skill catalog
+ */
+router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const r = await fetch("https://clawhub.ai/api/v1/skills?limit=500");
+    if (!r.ok) throw new Error(`ClawHub API error: ${r.status}`);
+    const data = await r.json();
+    res.json(data);
+  } catch (err: any) {
+    res.status(502).json({ error: "Failed to fetch skill catalog", message: err.message });
+  }
+});
+
+/**
+ * POST /compute/servers/:id/install-clawhub-skills — Install skills from ClawHub via clawhub CLI
+ */
+router.post("/servers/:id/install-clawhub-skills", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const { slugs } = req.body as { slugs: string[] };
+    if (!slugs?.length) return res.status(400).json({ error: "slugs array is required" });
+
+    const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const { execSync } = require("child_process");
+    const ssh = sshCmd(row.ipv4);
+
+    // Ensure clawhub is installed
+    execSync(`${ssh} "which clawhub >/dev/null 2>&1 || npm i -g clawhub"`, { timeout: 30000 });
+
+    let installed = 0, failed = 0;
+    const results: any[] = [];
+
+    // Install each skill via clawhub CLI (batched)
+    for (const slug of slugs) {
+      try {
+        execSync(`${ssh} "cd /root/.openclaw/workspace && clawhub install ${slug} --force --no-input 2>&1"`, { timeout: 30000, encoding: "utf-8" });
+        installed++;
+        results.push({ slug, status: 'installed' });
+      } catch (e: any) {
+        failed++;
+        results.push({ slug, status: 'failed', error: e.message?.split("\n")[0] });
+      }
+    }
+
+    // Restart OpenClaw
+    execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
+
+    res.json({ success: true, installed, failed, total: slugs.length, results });
+  } catch (err: any) {
+    console.error("[compute] ClawHub skill install error:", err);
+    res.status(500).json({ error: "Failed to install skills", message: err.message?.split("\n")[0] || "Failed" });
+  }
+});
+
+/**
  * POST /compute/servers/:id/remove-all-skills — Remove all skills from the VPS
  */
 router.post("/servers/:id/remove-all-skills", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
