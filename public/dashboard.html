@@ -3349,7 +3349,7 @@ function showWalletModal(nodeId){
       if(sol?.privateKey)bindCopyBtn('wCopySol',sol.privateKey);
       document.getElementById('wDownloadKeys').onclick=()=>{const obj={};if(b)obj.base={address:b.address,agentAddress:b.agentAddress,privateKey:b.privateKey};if(sol)obj.solana={address:sol.address,agentAddress:sol.agentAddress,privateKey:sol.privateKey};const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agent-wallet-keys.json';a.click();};
       document.getElementById('wNextBtn').onclick=()=>{w.keySaved=true;localStorage.setItem('aw_'+nodeId,JSON.stringify(w));renderStep(2);};
-    } else if(s<=2&&b?.setupUrl&&!w.setupDone){
+    } else if(s<=2&&!w.setupDone&&(b?.setupUrl||sol?.setupUrl)){
       const daily=(parseInt(b.policy?.dailyLimit||'50000000')/1e6).toFixed(0);
       const perTx=(parseInt(b.policy?.perTxLimit||'25000000')/1e6).toFixed(0);
       const solDaily=sol?(parseInt(sol.policy?.dailyLimit||'1000000')/1e6).toFixed(0):'';
@@ -3430,8 +3430,8 @@ function showWalletModal(nodeId){
           setTimeout(()=>{btn.textContent="I'VE COMPLETED SETUP";btn.style.borderColor='var(--border)';btn.style.color='var(--w40)';btn.disabled=false;btn.style.opacity='1';},2500);
         }
       };
-    } else {
-      // Step 3: Done / overview
+    } else if(w.setupDone||(!b?.setupUrl&&!sol?.setupUrl)){
+      // Step 3: Done / overview (only if passkeys done or unmanaged)
       let walletsHtml='';
       if(b){
         const daily=(parseInt(b.policy?.dailyLimit||'50000000')/1e6).toFixed(0);
@@ -3471,6 +3471,12 @@ function showWalletModal(nodeId){
         <div style="margin:8px 0 12px">${linksHtml}</div>
         <button class="spawn-btn" style="width:100%;padding:10px" id="wCloseBtn">CLOSE</button>`;
       document.getElementById('wCloseBtn').onclick=()=>overlay.classList.remove('open');
+    } else {
+      // Managed wallet but no setup URL — tokens expired, need to recreate
+      modal.innerHTML=`
+        <div class="modal-title" style="color:var(--accent)">Setup Required</div>
+        <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;margin:8px 0 16px">Passkey registration is required but the setup links have expired. Delete this wallet and create a new one.</div>
+        <button class="spawn-btn" style="width:100%;padding:10px" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>`;
     }
   }
 
