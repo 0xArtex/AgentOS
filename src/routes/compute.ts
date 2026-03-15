@@ -322,7 +322,7 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
     const serverId = String(req.params.id);
     const {
       anthropicKey,
-      authMode,      // 'token' | 'setup-token'
+      authMode,      // 'token' | 'oauth'
       provider,      // 'anthropic' | 'openrouter' | 'openai'
       model,
       channel,       // 'telegram' | 'discord' | 'none'
@@ -371,8 +371,20 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
       }
 
       const escapedKey = anthropicKey.replace(/'/g, "'\\''");
-      if (effectiveAuthMode === 'setup-token') {
-        execSync(`${ssh} "echo '${escapedKey}' | openclaw models auth paste-token --provider ${effectiveProvider} 2>/dev/null || true"`, { timeout: 30000 });
+      if (effectiveAuthMode === 'oauth') {
+        // Write auth-profiles.json directly (paste-token is interactive)
+        const authProfile = {
+          version: 1,
+          profiles: {
+            [`${effectiveProvider}:default`]: {
+              type: "oauth",
+              provider: effectiveProvider,
+              token: anthropicKey,
+            }
+          }
+        };
+        const authB64 = Buffer.from(JSON.stringify(authProfile, null, 2)).toString('base64');
+        execSync(`${ssh} "mkdir -p /root/.openclaw/agents/main/agent && echo '${authB64}' | base64 -d > /root/.openclaw/agents/main/agent/auth-profiles.json"`, { timeout: 10000 });
       } else {
         const envVarMap: Record<string, string> = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', openrouter: 'OPENROUTER_API_KEY' };
         envVar = envVarMap[effectiveProvider] || 'ANTHROPIC_API_KEY';

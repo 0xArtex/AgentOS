@@ -2290,7 +2290,7 @@ function openModelConfigModal(el){
 
   const providers=[
     {id:'anthropic-api',name:'Anthropic API Key',logo:'/assets/logos/anthropic-icon.svg',hint:'Pay per token. Get a key at console.anthropic.com',placeholder:'sk-ant-...',label:'API Key',authMode:'token'},
-    {id:'anthropic-max',name:'Claude Max Subscription',logo:'/assets/logos/anthropic-icon.svg',hint:'Flat rate, unlimited usage. Run "claude setup-token" in any terminal to generate',placeholder:'Paste setup-token here...',label:'Setup Token',authMode:'setup-token'},
+    {id:'anthropic-max',name:'Claude Max Subscription',logo:'/assets/logos/anthropic-icon.svg',hint:'Flat rate, unlimited usage. Run "claude setup-token" in any terminal to generate',placeholder:'Paste setup-token here...',label:'Setup Token',authMode:'oauth'},
     {id:'openrouter',name:'OpenRouter',logo:'',hint:'Get a key at openrouter.ai — supports 100+ models',placeholder:'sk-or-...',label:'API Key',authMode:'token'},
     {id:'openai',name:'OpenAI',logo:'',hint:'Get a key at platform.openai.com',placeholder:'sk-...',label:'API Key',authMode:'token'},
   ];
