@@ -1588,7 +1588,7 @@ document.addEventListener('keydown',e=>{
       e.preventDefault();
       const toDelete=[...multiSelected];
       // If any node is a managed service (channel/model/vps), require confirmation
-      const hasManaged=toDelete.some(n=>n.dataset?.svc==='channel'||n.dataset?.svc==='model'||n.dataset?.svc==='vps'||n.id==='nodeSkills'||getSvcType(n)==='skills');
+      const hasManaged=toDelete.some(n=>n.dataset?.svc==='channel'||n.dataset?.svc==='model'||n.dataset?.svc==='vps'||n.id==='nodeSkills'||getSvcType(n)==='skills'||n.id?.includes('Channel')||n.id?.includes('Model'));
       if(hasManaged&&toDelete.length===1){deleteNode(toDelete[0]);clearMultiSelect();return;}
       toDelete.forEach(n=>{
         if(n.dataset?.svc==='channel'||n.dataset?.svc==='model'||n.dataset?.svc==='vps'){deleteNode(n);}
@@ -3546,8 +3546,8 @@ function deleteNode(node,silent){
     <div class="modal-title" style="color:var(--red)"><svg viewBox="0 0 24 24" style="width:18px;height:18px;stroke:var(--red);fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg> DELETE ${svcName.toUpperCase()}</div>
     <div class="modal-subtitle">this action is irreversible</div>
     <div style="padding:12px 0;font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace;line-height:1.6">
-      ${node.dataset?.svc==='channel'?'This will disconnect <strong style="color:var(--text)">'+svcName+'</strong> from your agent. The channel config will be removed from the VPS and your bot will stop responding.':
-        node.dataset?.svc==='model'?'This will remove the <strong style="color:var(--text)">AI model</strong> config from your agent. The VPS will keep running but the agent won\'t be able to respond until a new model is configured.':
+      ${(node.dataset?.svc==='channel'||nodeId.includes('Channel')||nodeId.includes('channel'))?'This will disconnect <strong style="color:var(--text)">'+svcName+'</strong> from your agent. The channel config will be removed from the VPS and your bot will stop responding.':
+        (node.dataset?.svc==='model'||nodeId.includes('Model')||nodeId.includes('model'))?'This will remove the <strong style="color:var(--text)">AI model</strong> config from your agent. The VPS will keep running but the agent won\'t be able to respond until a new model is configured.':
         (nodeId==='nodeSkills'||getSvcType(node)==='skills')?'This will remove <strong style="color:var(--text)">all skills</strong> from your agent on the VPS. The agent will lose all skill capabilities until you reconnect.':
         'This will permanently remove <strong style="color:var(--text)">'+svcName+'</strong>'+(sub?' ('+sub+')':'')+' from this agent. The service will be deprovisioned and all associated data deleted.'}
     </div>
@@ -3624,7 +3624,8 @@ function deleteNode(node,silent){
       }
 
       // If deleting a channel or model node, remove config from connected VPS
-      if(node.dataset?.svc==='channel'||node.dataset?.svc==='model'){
+      const nodeSvc=node.dataset?.svc||(nodeId.includes('Channel')||nodeId.includes('channel')?'channel':nodeId.includes('Model')||nodeId.includes('model')?'model':null);
+      if(nodeSvc==='channel'||nodeSvc==='model'){
         try{
           // Find connected agent → find connected VPS
           let agentId=null;
@@ -3651,7 +3652,7 @@ function deleteNode(node,silent){
               }
               if(serverId){
                 const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
-                const removeType=node.dataset.svc; // 'channel' or 'model'
+                const removeType=nodeSvc; // 'channel' or 'model'
                 await fetch('/compute/servers/'+serverId+'/remove-openclaw-config',{
                   method:'POST',headers:hdr,
                   body:JSON.stringify({remove:removeType})
