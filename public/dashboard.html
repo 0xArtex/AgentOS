@@ -1773,6 +1773,15 @@ document.addEventListener('keydown',e=>{
         // Flow animation on new connection
         const _stopFlow=startLineFlow(_ci,2500,false);
         setTimeout(_stopFlow,2500);
+        // Auto-push config when connecting managed nodes to agent
+        const connectedNode=getNodeType(srcNode)==='agent'?target:srcNode;
+        if(connectedNode.dataset?.svc==='model'||connectedNode.dataset?.svc==='channel'){
+          tryPushOpenClawConfig(connectedNode);
+        }
+        // Auto-install skills when connecting Skills node to agent
+        if(connectedNode.id==='nodeSkills'||getSvcType(connectedNode)==='skills'){
+          syncSkillsToVps(connectedNode);
+        }
       } else if(!target){
         // Dropped on empty space — show wire drop menu
         showWireMenu(srcNode,ev.clientX,ev.clientY);
@@ -2550,6 +2559,79 @@ window.tryPushOpenClawConfig=async function(triggerNode){
     if(trigSvc==='channel'&&channelNode)channelNode.querySelector('.node-sub').textContent='failed — retry';
     if(trigSvc==='vps')vpsNode.querySelector('.node-sub').textContent=ip;
   }
+};
+
+window.syncSkillsToVps=async function(skillsNode){
+  // Find connected agent → connected VPS
+  let agentId=null;
+  for(const [a,b] of conns){
+    if(a===skillsNode.id&&document.getElementById(b)?.classList.contains('agent-node'))agentId=b;
+    if(b===skillsNode.id&&document.getElementById(a)?.classList.contains('agent-node'))agentId=a;
+  }
+  if(!agentId)return;
+
+  // Find VPS
+  let vpsNode=null;
+  for(const [a,b] of conns){
+    const n=document.getElementById(a===agentId?b:b===agentId?a:null);
+    if(n?.dataset?.svc==='vps'&&!n.classList.contains('unconfigured'))vpsNode=n;
+  }
+  if(!vpsNode){skillsNode.querySelector('.node-sub').textContent='no VPS connected';return;}
+
+  const rawSub=vpsNode.querySelector('.node-sub')?.textContent?.trim()||'';
+  const ip=rawSub.split('·')[0].trim().split(' ')[0].trim();
+  let serverId=vpsNode.dataset.serverId;
+  if(!serverId&&ip.match(/^\d/)){
+    try{
+      const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+      const r=await fetch('/compute/servers',{headers:hdr});
+      const d=await r.json();
+      const srv=(d.servers||[]).find(s=>s.ipv4===ip);
+      if(srv){serverId=srv.id;vpsNode.dataset.serverId=serverId;}
+    }catch(e){}
+  }
+  if(!serverId)return;
+
+  // Collect all skill slugs from the skill graph
+  const skillSlugs=[];
+  document.querySelectorAll('.sg-skill').forEach(el=>{
+    if(el.dataset?.slug)skillSlugs.push(el.dataset.slug);
+  });
+  // Also include our workspace skills
+  const extraSkills=['weather','github','web'];
+  extraSkills.forEach(s=>{if(!skillSlugs.includes(s))skillSlugs.push(s);});
+
+  if(!skillSlugs.length){skillsNode.querySelector('.node-sub').textContent='no skills found';return;}
+
+  skillsNode.querySelector('.node-sub').textContent='installing '+skillSlugs.length+' skills...';
+
+  const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+  let installed=0,failed=0;
+  // Bulk install via new endpoint
+  try{
+    const r=await fetch('/compute/servers/'+serverId+'/install-skills-bulk',{
+      method:'POST',headers:hdr,
+      body:JSON.stringify({skills:skillSlugs})
+    });
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||'Failed');
+    installed=d.installed||0;
+    failed=d.failed||0;
+  }catch(e){
+    console.error('Bulk skill install failed:',e);
+    skillsNode.querySelector('.node-sub').textContent='install failed';
+    return;
+  }
+
+  skillsNode.querySelector('.node-sub').textContent=installed+' skills installed';
+  skillsNode.querySelector('.s-dot')?.classList.add('active');
+  // Animate connection line
+  const lineIdx=conns.findIndex(([a,b])=>(a===skillsNode.id||b===skillsNode.id)&&(a===agentId||b===agentId));
+  if(lineIdx>=0&&_lineEls[lineIdx]){
+    _lineEls[lineIdx].removeAttribute('stroke-dasharray');
+    const stop=startLineFlow(lineIdx,3000,true);setTimeout(stop,3000);
+  }
+  pushState();
 };
 
 window.installSkillToVps=async function(skillName){

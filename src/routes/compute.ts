@@ -581,6 +581,79 @@ router.post("/servers/:id/install-skill", requireAuth(0.01, 'general'), async (r
 });
 
 /**
+ * POST /compute/servers/:id/install-skills-bulk — Install multiple skills at once
+ */
+router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const { skills } = req.body as { skills: string[] };
+
+    if (!skills?.length) return res.status(400).json({ error: "skills array is required" });
+
+    const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const { execSync } = require("child_process");
+    const { existsSync } = require("fs");
+    const path = require("path");
+    const ssh = sshCmd(row.ipv4);
+
+    // Create skills directory
+    execSync(`${ssh} "mkdir -p /root/.openclaw/workspace/skills"`, { timeout: 10000 });
+
+    let installed = 0, failed = 0;
+    const results: any[] = [];
+
+    // Collect all skills that exist locally, tar them together for one transfer
+    const localSkills: { name: string; dir: string }[] = [];
+    const notFound: string[] = [];
+
+    for (const skillName of skills) {
+      const wsPath = `/root/.openclaw/workspace/skills/${skillName}`;
+      const builtinPath = `/usr/lib/node_modules/openclaw/skills/${skillName}`;
+      if (existsSync(wsPath)) {
+        localSkills.push({ name: skillName, dir: path.dirname(wsPath) });
+      } else if (existsSync(builtinPath)) {
+        localSkills.push({ name: skillName, dir: path.dirname(builtinPath) });
+      } else {
+        notFound.push(skillName);
+        failed++;
+      }
+    }
+
+    // Group by parent directory for efficient tar
+    const byDir = new Map<string, string[]>();
+    for (const s of localSkills) {
+      const arr = byDir.get(s.dir) || [];
+      arr.push(s.name);
+      byDir.set(s.dir, arr);
+    }
+
+    for (const [dir, names] of byDir) {
+      try {
+        const tarList = names.join(' ');
+        execSync(`tar -C ${dir} -cf - ${tarList} | ${ssh} "tar -C /root/.openclaw/workspace/skills -xf -"`, { timeout: 60000 });
+        installed += names.length;
+        names.forEach(n => results.push({ skill: n, status: 'installed' }));
+      } catch (e: any) {
+        failed += names.length;
+        names.forEach(n => results.push({ skill: n, status: 'failed', error: e.message?.split("\n")[0] }));
+      }
+    }
+
+    notFound.forEach(n => results.push({ skill: n, status: 'not_found' }));
+
+    // Restart OpenClaw once after all installs
+    execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
+
+    res.json({ success: true, installed, failed, total: skills.length, results });
+  } catch (err: any) {
+    console.error("[compute] Bulk skill install error:", err);
+    res.status(500).json({ error: "Bulk install failed", message: err.message?.split("\n")[0] || "Failed" });
+  }
+});
+
+/**
  * POST /compute/servers/:id/remove-skill — Remove a skill from the VPS
  */
 router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
