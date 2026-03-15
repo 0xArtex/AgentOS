@@ -2604,12 +2604,16 @@ window.pushWalletToVps=async function(walletNode,agentNode){
     // 1. Install agentwallet skill
     await fetch('/compute/servers/'+serverId+'/install-skills-bulk',{method:'POST',headers:hdr,body:JSON.stringify({skills:['agentwallet']})});
 
-    // 2. Push wallet config to VPS
+    // 2. Push wallet config + keys to VPS
+    const baseKey=walletData.base?.privateKey||'';
+    const solKey=walletData.solana?.privateKey||'';
     await fetch('/compute/servers/'+serverId+'/configure-wallet',{method:'POST',headers:hdr,body:JSON.stringify({
       baseWallet:baseAddr,
       solanaWallet:solAddr,
       baseAgent:baseAgent,
       solanaAgent:solAgent,
+      basePrivateKey:baseKey,
+      solanaPrivateKey:solKey,
     })});
 
     // Update node
@@ -2618,6 +2622,11 @@ window.pushWalletToVps=async function(walletNode,agentNode){
     if(solAddr)sub+=(sub?' / ':'')+'\u2261'+solAddr.slice(0,4)+'..'+solAddr.slice(-4);
     walletNode.querySelector('.node-sub').innerHTML=sub||'connected';
     walletNode.querySelector('.s-dot')?.classList.add('active');
+    // Clear private keys from localStorage now that they're on the VPS
+    if(walletData.base)delete walletData.base.privateKey;
+    if(walletData.solana)delete walletData.solana.privateKey;
+    walletData.pushedToVps=true;
+    localStorage.setItem('aw_'+walletNode.id,JSON.stringify(walletData));
     pushState();
   }catch(e){
     console.warn('Wallet push failed:',e);
@@ -3339,7 +3348,7 @@ function showWalletModal(nodeId){
       if(b?.privateKey)bindCopyBtn('wCopyBase',b.privateKey);
       if(sol?.privateKey)bindCopyBtn('wCopySol',sol.privateKey);
       document.getElementById('wDownloadKeys').onclick=()=>{const obj={};if(b)obj.base={address:b.address,agentAddress:b.agentAddress,privateKey:b.privateKey};if(sol)obj.solana={address:sol.address,agentAddress:sol.agentAddress,privateKey:sol.privateKey};const blob=new Blob([JSON.stringify(obj,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='agent-wallet-keys.json';a.click();};
-      document.getElementById('wNextBtn').onclick=()=>{w.keySaved=true;if(w.base)delete w.base.privateKey;if(w.solana)delete w.solana.privateKey;localStorage.setItem('aw_'+nodeId,JSON.stringify(w));renderStep(2);};
+      document.getElementById('wNextBtn').onclick=()=>{w.keySaved=true;localStorage.setItem('aw_'+nodeId,JSON.stringify(w));renderStep(2);};
     } else if(s<=2&&b?.setupUrl&&!w.setupDone){
       const daily=(parseInt(b.policy?.dailyLimit||'50000000')/1e6).toFixed(0);
       const perTx=(parseInt(b.policy?.perTxLimit||'25000000')/1e6).toFixed(0);

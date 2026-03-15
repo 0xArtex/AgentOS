@@ -732,7 +732,7 @@ router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) 
 router.post("/servers/:id/configure-wallet", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
-    const { baseWallet, solanaWallet, baseAgent, solanaAgent } = req.body;
+    const { baseWallet, solanaWallet, baseAgent, solanaAgent, basePrivateKey, solanaPrivateKey } = req.body;
 
     const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
@@ -751,19 +751,36 @@ router.post("/servers/:id/configure-wallet", requireAuth(0.01, 'general'), async
 - **API:** https://agntos.dev/wallet
 - **CLI:** npx @agntos/agentwallet
 
+## Private Keys
+- **Base key:** ${basePrivateKey ? '/root/.agentwallet/base.key (also in AGENTWALLET_KEY env)' : 'not configured — ask user to provide'}
+- **Solana key:** ${solanaPrivateKey ? '/root/.agentwallet/solana.key (also in AGENTWALLET_SOL_KEY env)' : 'not configured — ask user to provide'}
+
 ## Usage
-The agent can use these wallets to send transactions via the AgentWallet API.
-Private keys are stored locally — use \`agentwallet send\` or the SDK.
+Use the AgentWallet CLI or SDK to send transactions. Keys are pre-configured.
+- \`agentwallet send --wallet $AGENT_BASE_WALLET --to <recipient> --amount <amt> --key $AGENTWALLET_KEY\`
+- On-chain spending limits are enforced by the smart contract — safe to transact autonomously within limits.
 `;
     const b64 = Buffer.from(toolsContent).toString('base64');
     execSync(`${ssh} "echo '${b64}' | base64 -d > /root/.openclaw/workspace/TOOLS.md"`, { timeout: 10000 });
 
-    // Set wallet addresses as env vars
+    // Store private keys securely (chmod 600)
+    if (basePrivateKey) {
+      const keyB64 = Buffer.from(basePrivateKey).toString('base64');
+      execSync(`${ssh} "mkdir -p /root/.agentwallet && echo '${keyB64}' | base64 -d > /root/.agentwallet/base.key && chmod 600 /root/.agentwallet/base.key"`, { timeout: 10000 });
+    }
+    if (solanaPrivateKey) {
+      const keyB64 = Buffer.from(solanaPrivateKey).toString('base64');
+      execSync(`${ssh} "mkdir -p /root/.agentwallet && echo '${keyB64}' | base64 -d > /root/.agentwallet/solana.key && chmod 600 /root/.agentwallet/solana.key"`, { timeout: 10000 });
+    }
+
+    // Set wallet addresses + keys as env vars
     const envLines: string[] = [];
     if (baseWallet) envLines.push(`AGENT_BASE_WALLET=${baseWallet}`);
     if (solanaWallet) envLines.push(`AGENT_SOLANA_WALLET=${solanaWallet}`);
     if (baseAgent) envLines.push(`AGENT_BASE_ADDRESS=${baseAgent}`);
     if (solanaAgent) envLines.push(`AGENT_SOLANA_ADDRESS=${solanaAgent}`);
+    if (basePrivateKey) envLines.push(`AGENTWALLET_KEY=${basePrivateKey}`);
+    if (solanaPrivateKey) envLines.push(`AGENTWALLET_SOL_KEY=${solanaPrivateKey}`);
 
     if (envLines.length) {
       // Remove old wallet env vars, add new ones
