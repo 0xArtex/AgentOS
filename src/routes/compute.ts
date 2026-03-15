@@ -396,14 +396,21 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
 
     // 4. Apply channel config if provided
     if (channel === "telegram" && botToken) {
-      config.channels.telegram = {
+      const isPairing = allowFrom?.includes?.('__PAIRING__') || (!allowFrom?.length);
+      const telegramConfig: any = {
         enabled: true,
-        dmPolicy: allowFrom?.length ? "allowlist" : "open",
+        dmPolicy: isPairing ? "pairing" : (allowFrom?.[0] === "*" ? "open" : "allowlist"),
         botToken,
-        allowFrom: allowFrom || ["*"],
         groupPolicy: "allowlist",
         streaming: "partial"
       };
+      // Only set allowFrom for allowlist mode (pairing manages its own)
+      if (!isPairing && allowFrom?.[0] !== "*") {
+        telegramConfig.allowFrom = allowFrom.filter((a: string) => a !== '__PAIRING__');
+      } else if (allowFrom?.[0] === "*") {
+        telegramConfig.allowFrom = ["*"];
+      }
+      config.channels.telegram = telegramConfig;
       config.plugins.entries.telegram = { enabled: true };
     } else if (channel === "discord" && botToken) {
       config.channels.discord = {
