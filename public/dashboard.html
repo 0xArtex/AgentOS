@@ -2414,8 +2414,19 @@ function openChannelConfigModal(el){
         <div style="font-size:9px;color:var(--w20);margin-top:4px" id="channelHint">${channels[0].hint}</div>
       </div>
       <div class="na-field" style="margin-top:8px">
-        <label class="na-label">Allowed User IDs <span style="color:var(--w20)">(comma-separated, * for all)</span></label>
-        <input class="na-input" id="channelAllowFrom" placeholder="*" value="${saved?.allowFrom||'*'}" style="font-family:'JetBrains Mono',monospace">
+        <label class="na-label">Access Mode</label>
+        <select class="na-select" id="channelAccessMode" style="appearance:auto;-webkit-appearance:auto;background:var(--bg)" onchange="document.getElementById('channelAllowIds').style.display=this.value==='allowlist'?'block':'none'">
+          <option value="allowlist"${!saved||saved?.allowFrom!=='*'?' selected':''}>Allowlist (recommended)</option>
+          <option value="open"${saved?.allowFrom==='*'?' selected':''}>Open to everyone</option>
+        </select>
+        <div style="font-size:9px;color:var(--accent);margin-top:4px;display:${!saved||saved?.allowFrom!=='*'?'none':'block'}" id="channelOpenWarn">Anyone can message your bot and use your API credits</div>
+      </div>
+      <div id="channelAllowIds" style="display:${!saved||saved?.allowFrom!=='*'?'block':'none'}">
+        <div class="na-field" style="margin-top:8px">
+          <label class="na-label">Your Telegram User ID</label>
+          <input class="na-input" id="channelAllowFrom" placeholder="123456789" value="${saved?.allowFrom&&saved.allowFrom!=='*'?saved.allowFrom:''}" style="font-family:'JetBrains Mono',monospace">
+          <div style="font-size:9px;color:var(--w20);margin-top:4px;line-height:1.5">Send /start to <a href="https://t.me/userinfobot" target="_blank" style="color:var(--accent);text-decoration:none">@userinfobot</a> on Telegram to get your ID. Comma-separate multiple IDs.</div>
+        </div>
       </div>
     </div>
     <div id="channelConfigStatus" style="margin-top:8px"></div>
@@ -2436,6 +2447,8 @@ window.selectChannelType=function(card,channelId){
   document.getElementById('channelHint').textContent=hints[channelId]||'';
   document.getElementById('channelBotToken').placeholder=placeholders[channelId]||'';
   document.getElementById('channelTokenField').style.display=channelId==='whatsapp'?'none':'block';
+  const openWarn=document.getElementById('channelOpenWarn');
+  if(openWarn)openWarn.style.display=document.getElementById('channelAccessMode')?.value==='open'?'block':'none';
 };
 
 window.saveChannelConfig=function(btn){
@@ -2443,9 +2456,12 @@ window.saveChannelConfig=function(btn){
   const el=document.getElementById(nodeId);
   const channel=document.querySelector('.vps-tier-card.selected')?.dataset.channel||'telegram';
   const botToken=document.getElementById('channelBotToken')?.value?.trim();
-  const allowFrom=document.getElementById('channelAllowFrom')?.value?.trim()||'*';
+  const accessMode=document.getElementById('channelAccessMode')?.value||'allowlist';
+  const allowFromRaw=document.getElementById('channelAllowFrom')?.value?.trim()||'';
+  const allowFrom=accessMode==='open'?'*':allowFromRaw;
 
   if(channel!=='whatsapp'&&!botToken){document.getElementById('channelConfigStatus').innerHTML='<div style="color:var(--red);font-size:11px">Bot token is required</div>';return;}
+  if(accessMode==='allowlist'&&!allowFromRaw){document.getElementById('channelConfigStatus').innerHTML='<div style="color:var(--red);font-size:11px">Enter your Telegram User ID (send /start to @userinfobot to get it)</div>';return;}
 
   // Save config to node data attribute
   el.dataset.channelData=JSON.stringify({channel,botToken,allowFrom});
