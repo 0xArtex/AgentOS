@@ -3634,6 +3634,18 @@ setTimeout(()=>{autoFit(false);},100);
       icon:'<svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg>',
       label:'Wallet',nodeClass:'node',
       provision:async()=>{return{};}
+    },
+    channel:{
+      icon:'<img src="/assets/logos/telegram-icon.svg" style="width:20px;height:20px;flex-shrink:0">',
+      label:'Channel',nodeClass:'node',
+      noAutoDeploy:true,
+      provision:async()=>{return{sub:'setup required'};}
+    },
+    model:{
+      icon:'<img src="/assets/logos/anthropic-icon.svg" style="width:20px;height:20px;flex-shrink:0">',
+      label:'AI Model',nodeClass:'node',
+      noAutoDeploy:true,
+      provision:async()=>{return{sub:'setup required'};}
     }
   };
 
@@ -3730,6 +3742,29 @@ setTimeout(()=>{autoFit(false);},100);
       drawLines();pushState();
       // Open setup modal immediately
       openVpsSetupModal(el,null);
+      return;
+    }
+
+    // Channel/Model: drop node + open config modal (no provisioning needed)
+    if(svcType==='channel'||svcType==='model'){
+      let nx,ny;
+      if(window._wireSpawnPos){nx=window._wireSpawnPos.x;ny=window._wireSpawnPos.y;window._wireSpawnPos=null;}
+      else{const agX=agentNode?parseFloat(agentNode.style.left)||560:560;const agY=agentNode?parseFloat(agentNode.style.top)||310:310;const angle=(Math.PI*2)*(addedCount%8)/8-Math.PI/2+(Math.random()*0.3-0.15);const dist=180+Math.random()*40;nx=agX+Math.cos(angle)*dist;ny=agY+Math.sin(angle)*dist;}
+      const el=document.createElement('div');
+      const nodeId='nodeDyn_'+svcType+'_'+(++addedCount);
+      el.id=nodeId;el.className='node unconfigured';el.dataset.svc=svcType;
+      el.style.cssText=`left:${nx}px;top:${ny}px`;
+      el.innerHTML=`${def.icon}<div><div class="node-label"><span class="s-dot"></span>${def.label}</div><div class="node-sub">setup required</div></div>`;
+      document.getElementById('canvasTransform').appendChild(el);
+      bodies.set(el,{x:nx,y:ny});
+      if(window._addConnHandle)window._addConnHandle(el);
+      el.addEventListener('mousedown',ev=>{if(ev.target.closest('.conn-handle'))return;dragNode=el;nodeMoved=false;dnsx=ev.clientX;dnsy=ev.clientY;const b=bodies.get(el);if(b){dnox=b.x;dnoy=b.y;}ev.stopPropagation();});
+      el.addEventListener('click',()=>{if(nodeMoved)return;if(svcType==='channel')openChannelConfigModal(el);else openModelConfigModal(el);});
+      if(window._wireConnectSrc){conns.push([window._wireConnectSrc,nodeId]);const _ci=addLinePair();window._wireConnectSrc=null;drawLines();const _sf=startLineFlow(_ci,2500,true);setTimeout(_sf,2500);}
+      drawLines();pushState();
+      // Open config modal immediately
+      if(svcType==='channel')openChannelConfigModal(el);
+      else openModelConfigModal(el);
       return;
     }
 
