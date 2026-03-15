@@ -784,8 +784,11 @@ Use the AgentWallet CLI or SDK to send transactions. Keys are pre-configured.
 
     if (envLines.length) {
       // Remove old wallet env vars, add new ones
-      const removeCmd = envLines.map(l => l.split('=')[0]).map(k => `grep -v '${k}' /etc/environment`).join(' | ');
-      execSync(`${ssh} "cat /etc/environment | ${removeCmd} > /tmp/env.tmp 2>/dev/null || cp /etc/environment /tmp/env.tmp; echo '${envLines.join('\\n')}' >> /tmp/env.tmp; mv /tmp/env.tmp /etc/environment"`, { timeout: 10000 });
+      const keys = envLines.map(l => l.split('=')[0]);
+      const grepPattern = keys.join('\\|');
+      const envContent = envLines.join('\n');
+      const envB64 = Buffer.from(envContent).toString('base64');
+      execSync(`${ssh} "grep -v '${grepPattern}' /etc/environment > /tmp/env.tmp 2>/dev/null || cp /etc/environment /tmp/env.tmp; echo '${envB64}' | base64 -d >> /tmp/env.tmp; mv /tmp/env.tmp /etc/environment"`, { timeout: 10000 });
     }
 
     // Restart OpenClaw to pick up new TOOLS.md + env
