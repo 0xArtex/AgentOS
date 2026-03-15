@@ -544,7 +544,7 @@ background-size:40px 40px}
         <div class="panel-title">// STATUS</div>
         <div class="stat-card"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4m-7.07-3.93l2.83-2.83m8.48-8.48l2.83-2.83M2 12h4m12 0h4m-3.93 7.07l-2.83-2.83M6.34 6.34L3.51 3.51"/></svg><div class="stat-info"><span class="stat-val green">3</span><span class="stat-label">agents online</span></div></div>
         <div class="stat-card"><svg viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg><div class="stat-info"><span class="stat-val orange">$1,240</span><span class="stat-label">revenue 30d</span></div></div>
-        <div class="stat-card"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><div class="stat-info"><span class="stat-val">56</span><span class="stat-label">skills catalog</span></div></div>
+        <div class="stat-card"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><div class="stat-info"><span class="stat-val">1.9k</span><span class="stat-label">skills catalog</span></div></div>
         <div class="stat-card"><svg viewBox="0 0 24 24"><path d="M4 4l11.733 16h4.267l-11.733-16zM4 20l6.768-6.768M15.232 11.232L20 4"/></svg><div class="stat-info"><span class="stat-val">5</span><span class="stat-label">x accounts pool</span></div></div>
       </div>
       <div class="panel-section" style="border-top:1px dashed var(--border)">
@@ -3719,7 +3719,7 @@ setTimeout(()=>{autoFit(false);},100);
       const el=document.createElement('div');
       el.id='nodeSkills';el.className='node';
       el.style.cssText=`left:${cx}px;top:${cy}px`;
-      el.innerHTML='<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><div><div class="node-label">Skills</div><div class="node-sub">12 categories · 56 total</div></div>';
+      el.innerHTML='<svg viewBox="0 0 24 24"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg><div><div class="node-label">Skills</div><div class="node-sub">click to browse catalog</div></div>';
       ct.appendChild(el);
       bodies.set(el,{x:cx,y:cy});
       el.addEventListener('mousedown',ev=>{
