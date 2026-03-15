@@ -2431,12 +2431,12 @@ function openChannelConfigModal(el){
     const modeLabels={pairing:'Pairing code',allowlist:'Allowlist',open:'Open to everyone'};
     document.getElementById('modalBody').innerHTML=`
       <div class="modal-title">${names[saved.channel]||'Channel'}</div>
-      <div class="modal-subtitle">${isActive?'connected and active':'configured — connect to agent to activate'}</div>
+      <div class="modal-subtitle">configured</div>
       <div style="padding:16px 0;display:flex;flex-direction:column;gap:8px">
         <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px">
           <div style="width:8px;height:8px;border-radius:50%;background:var(--green)"></div>
           <img src="${logos[saved.channel]||''}" style="width:16px;height:16px">
-          <span style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace">CONNECTED</span>
+          <span style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace">CONFIGURED</span>
         </div>
         <div style="display:flex;align-items:center;gap:10px;padding:8px 12px">
           <span style="font-size:10px;color:var(--w50);font-family:'JetBrains Mono',monospace;width:80px">Access</span>
@@ -2452,7 +2452,7 @@ function openChannelConfigModal(el){
           <div style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace;margin-bottom:8px">APPROVE PAIRING CODE</div>
           <div style="font-size:10px;color:var(--w30);margin-bottom:8px;line-height:1.5">New users can message your bot to get a code. Enter it here to grant access.</div>
           <div style="display:flex;gap:8px">
-            <input class="na-input" id="pairingCode" placeholder="WK8MLG6Y" style="font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:2px;font-size:14px;text-align:center" maxlength="8">
+            <input class="na-input" id="pairingCode" placeholder="WK8MLG6Y" style="font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:2px;font-size:14px;text-align:center;flex:1;width:auto" maxlength="8">
             <button class="spawn-btn" style="flex-shrink:0;padding:8px 16px" id="pairingApproveBtn" onclick="approvePairingCode()">APPROVE</button>
           </div>
           <div id="pairingStatus" style="margin-top:6px"></div>
@@ -2518,7 +2518,7 @@ function openChannelConfigModal(el){
       <div style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace;margin-bottom:8px">APPROVE PAIRING CODE</div>
       <div style="font-size:10px;color:var(--w30);margin-bottom:8px;line-height:1.5">Message your bot on Telegram — it will reply with a pairing code. Enter it below to allow access.</div>
       <div style="display:flex;gap:8px">
-        <input class="na-input" id="pairingCode" placeholder="WK8MLG6Y" style="font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:2px;font-size:14px;text-align:center" maxlength="8">
+        <input class="na-input" id="pairingCode" placeholder="WK8MLG6Y" style="font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:2px;font-size:14px;text-align:center;flex:1;width:auto" maxlength="8">
         <button class="spawn-btn" style="flex-shrink:0;padding:8px 16px" id="pairingApproveBtn" onclick="approvePairingCode()">APPROVE</button>
       </div>
       <div id="pairingStatus" style="margin-top:6px"></div>
