@@ -2552,6 +2552,50 @@ window.tryPushOpenClawConfig=async function(triggerNode){
   }
 };
 
+window.installSkillToVps=async function(skillName){
+  // Find the VPS node on canvas
+  let vpsNode=null,serverId=null;
+  document.querySelectorAll('[data-svc="vps"]').forEach(n=>{
+    if(!n.classList.contains('unconfigured'))vpsNode=n;
+  });
+  if(!vpsNode){
+    alert('No VPS deployed. Deploy a VPS first to install skills.');
+    return;
+  }
+  const rawSub=vpsNode.querySelector('.node-sub')?.textContent?.trim()||'';
+  const ip=rawSub.split('·')[0].trim().split(' ')[0].trim();
+  serverId=vpsNode.dataset.serverId;
+  if(!serverId&&ip.match(/^\d/)){
+    try{
+      const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+      const r=await fetch('/compute/servers',{headers:hdr});
+      const d=await r.json();
+      const srv=(d.servers||[]).find(s=>s.ipv4===ip);
+      if(srv){serverId=srv.id;vpsNode.dataset.serverId=serverId;}
+    }catch(e){}
+  }
+  if(!serverId){alert('Cannot find VPS server ID.');return;}
+
+  // Find the button and update it
+  const btn=event?.target;
+  if(btn){btn.textContent='INSTALLING...';btn.disabled=true;}
+
+  try{
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    const r=await fetch('/compute/servers/'+serverId+'/install-skill',{
+      method:'POST',headers:hdr,
+      body:JSON.stringify({skillName})
+    });
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||'Failed');
+
+    if(btn){btn.textContent='INSTALLED';btn.style.borderColor='var(--green)';btn.style.color='var(--green)';}
+  }catch(e){
+    if(btn){btn.textContent='FAILED';btn.style.borderColor='var(--red)';btn.style.color='var(--red)';btn.disabled=false;setTimeout(()=>{btn.textContent='INSTALL TO VPS';btn.style.borderColor='var(--accent)';btn.style.color='var(--accent)';},2000);}
+    console.error('Skill install failed:',e);
+  }
+};
+
 window.showOpenClawConfigModal=function(ip,serverId){
   document.getElementById('modalBody').innerHTML=`
     <div class="modal-title">CONFIGURE OPENCLAW</div>
@@ -3923,7 +3967,7 @@ const _nodeX=document.getElementById('nodeX');if(_nodeX) _nodeX.addEventListener
       const desc=sk.description||'No description available.';
       const dl=Math.floor(Math.random()*800+50);
       el.innerHTML=`<span class="sg-dot"></span><span class="sg-name">${slug}</span>`;
-      el._ttHtml=`<div class="sg-tt-title">${sk.name||slug}</div><div class="sg-tt-desc">${desc}</div><div class="sg-tt-meta"><span><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>${dl}</span><a href="https://clawhub.com/skills/${encodeURIComponent(slug)}" target="_blank" style="color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;gap:4px"><svg viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>clawhub</a></div>`;
+      el._ttHtml=`<div class="sg-tt-title">${sk.name||slug}</div><div class="sg-tt-desc">${desc}</div><div class="sg-tt-meta"><span><svg viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>${dl}</span><a href="https://clawhub.com/skills/${encodeURIComponent(slug)}" target="_blank" style="color:var(--accent);text-decoration:none;display:inline-flex;align-items:center;gap:4px"><svg viewBox="0 0 24 24" style="width:11px;height:11px"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>clawhub</a></div><button onclick="installSkillToVps('${slug}')" style="width:100%;margin-top:8px;padding:6px;background:none;border:1px solid var(--accent);color:var(--accent);border-radius:6px;font-size:10px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s" onmouseover="this.style.background='var(--accent)';this.style.color='#000'" onmouseout="this.style.background='none';this.style.color='var(--accent)'">INSTALL TO VPS</button>`;
       el.dataset.slug=slug;
       sgContainer.appendChild(el);
       const sObj={el};

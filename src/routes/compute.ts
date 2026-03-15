@@ -520,6 +520,91 @@ router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general'),
 });
 
 /**
+ * POST /compute/servers/:id/install-skill — Install a skill on the VPS
+ */
+router.post("/servers/:id/install-skill", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const { skillName, skillUrl } = req.body; // skillUrl = clawhub URL or git repo
+
+    if (!skillName) return res.status(400).json({ error: "skillName is required" });
+
+    const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const { execSync } = require("child_process");
+    const ssh = sshCmd(row.ipv4);
+
+    // Create skills directory
+    execSync(`${ssh} "mkdir -p /root/.openclaw/workspace/skills"`, { timeout: 10000 });
+
+    // Install skill via git clone or copy from clawhub
+    const gitUrl = skillUrl || `https://github.com/openclaw/skills.git`;
+    const skillDir = `/root/.openclaw/workspace/skills/${skillName}`;
+
+    // Try clawhub first (openclaw install), fallback to direct copy from our VPS
+    try {
+      // Check if skill exists locally on our server, copy it
+      const { existsSync } = require("fs");
+      const localSkillPath = `/root/.openclaw/workspace/skills/${skillName}`;
+      const builtinSkillPath = `/usr/lib/node_modules/openclaw/skills/${skillName}`;
+      const sourcePath = existsSync(localSkillPath) ? localSkillPath : existsSync(builtinSkillPath) ? builtinSkillPath : null;
+      if (sourcePath) {
+        // Tar + pipe to remote
+        const parentDir = require("path").dirname(sourcePath);
+        execSync(`tar -C ${parentDir} -cf - ${skillName} | ${ssh} "tar -C /root/.openclaw/workspace/skills -xf -"`, { timeout: 30000 });
+      } else if (skillUrl) {
+        // Git clone
+        execSync(`${ssh} "git clone --depth 1 ${skillUrl} ${skillDir} 2>/dev/null || echo 'clone failed'"`, { timeout: 30000 });
+      } else {
+        return res.status(400).json({ error: `Skill '${skillName}' not found locally and no URL provided` });
+      }
+    } catch (e: any) {
+      return res.status(500).json({ error: "Failed to install skill", message: e.message?.split("\n")[0] });
+    }
+
+    // Verify it installed
+    let installed = false;
+    try {
+      const check = execSync(`${ssh} "test -f ${skillDir}/SKILL.md && echo yes || echo no"`, { timeout: 10000, encoding: "utf-8" }).trim();
+      installed = check === "yes";
+    } catch (e) {}
+
+    // Restart OpenClaw to pick up the new skill
+    execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
+
+    res.json({ success: true, skill: skillName, installed, message: installed ? `Skill '${skillName}' installed and OpenClaw restarted` : `Skill directory created but SKILL.md not found` });
+  } catch (err: any) {
+    console.error("[compute] Skill install error:", err);
+    res.status(500).json({ error: "Failed to install skill", message: err.message?.split("\n")[0] || "Failed" });
+  }
+});
+
+/**
+ * POST /compute/servers/:id/remove-skill — Remove a skill from the VPS
+ */
+router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const { skillName } = req.body;
+    if (!skillName) return res.status(400).json({ error: "skillName is required" });
+
+    const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+
+    const { execSync } = require("child_process");
+    const ssh = sshCmd(row.ipv4);
+
+    execSync(`${ssh} "rm -rf /root/.openclaw/workspace/skills/${skillName}"`, { timeout: 10000 });
+    execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
+
+    res.json({ success: true, skill: skillName, message: `Skill '${skillName}' removed` });
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to remove skill", message: err.message?.split("\n")[0] || "Failed" });
+  }
+});
+
+/**
  * POST /compute/servers/:id/resize — Resize server (change plan)
  * Cost: 0.10 USDC (+ price difference on next billing)
  */
