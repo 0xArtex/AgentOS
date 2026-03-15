@@ -689,16 +689,70 @@ router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general'), async (re
 });
 
 /**
- * GET /compute/skills/catalog — Proxy to ClawHub API for skill catalog
+ * GET /compute/skills/catalog — Proxy to ClawHub API with pagination + caching
  */
+let _skillCache: { items: any[]; fetchedAt: number } | null = null;
+const CACHE_TTL = 30 * 60 * 1000; // 30 min
+
 router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) => {
   try {
-    const r = await fetch("https://clawhub.ai/api/v1/skills?limit=500");
-    if (!r.ok) throw new Error(`ClawHub API error: ${r.status}`);
-    const data = await r.json();
-    res.json(data);
+    // Return cache if fresh
+    if (_skillCache && Date.now() - _skillCache.fetchedAt < CACHE_TTL) {
+      return res.json({ items: _skillCache.items, cached: true });
+    }
+
+    // Paginate through all skills, sorted by downloads
+    const allItems: any[] = [];
+    let cursor: string | null = null;
+    const maxPages = 20; // safety limit
+    for (let i = 0; i < maxPages; i++) {
+      let url = `https://clawhub.ai/api/v1/skills?limit=100&sort=downloads`;
+      if (cursor) url += `&cursor=${cursor}`;
+      const r = await fetch(url);
+      if (!r.ok) break;
+      const data = await r.json() as any;
+      if (!data.items?.length) break;
+      allItems.push(...data.items);
+      cursor = data.nextCursor;
+      if (!cursor) break;
+    }
+
+    _skillCache = { items: allItems, fetchedAt: Date.now() };
+    res.json({ items: allItems, total: allItems.length });
   } catch (err: any) {
+    // Return stale cache on error
+    if (_skillCache) return res.json({ items: _skillCache.items, cached: true, stale: true });
     res.status(502).json({ error: "Failed to fetch skill catalog", message: err.message });
+  }
+});
+
+/**
+ * GET /compute/skills/:slug/security — Get security scan for a skill from ClawHub
+ */
+router.get("/skills/:slug/security", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { slug } = req.params;
+    const r = await fetch(`https://clawhub.ai/api/v1/skills/${slug}`);
+    if (!r.ok) throw new Error(`Skill not found: ${slug}`);
+    const skillData = await r.json() as any;
+    const version = skillData.latestVersion?.version;
+    if (!version) return res.json({ slug, security: null, message: "No version found" });
+
+    const vr = await fetch(`https://clawhub.ai/api/v1/skills/${slug}/versions/${version}`);
+    if (!vr.ok) return res.json({ slug, security: null });
+    const vData = await vr.json() as any;
+
+    res.json({
+      slug,
+      version,
+      security: vData.version?.security || null,
+      files: vData.version?.files?.length || 0,
+      license: vData.version?.license || null,
+      owner: skillData.owner || null,
+      stats: skillData.skill?.stats || null,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
   }
 });
 

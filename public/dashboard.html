@@ -2591,16 +2591,25 @@ window.openSkillsCatalogModal=async function(skillsNode){
 
   function renderList(filter=''){
     const filtered=filter?skills.filter(s=>(s.slug+' '+s.displayName+' '+(s.summary||'')).toLowerCase().includes(filter.toLowerCase())):skills;
-    return filtered.slice(0,80).map(s=>`
+    return filtered.slice(0,100).map(s=>{
+      const dl=s.stats?.downloads||0;
+      const stars=s.stats?.stars||0;
+      const dlFmt=dl>=1000?(dl/1000).toFixed(1)+'k':dl;
+      return `
       <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .15s" onclick="this.querySelector('input').click()" onmouseover="this.style.background='rgba(255,255,255,0.02)'" onmouseout="this.style.background='none'">
         <input type="checkbox" ${selected.has(s.slug)?'checked':''} onchange="event.stopPropagation();if(this.checked)window._skillSelected.add('${s.slug}');else window._skillSelected.delete('${s.slug}');document.getElementById('skillCount').textContent=window._skillSelected.size" style="accent-color:var(--accent);width:14px;height:14px;cursor:pointer">
         <div style="flex:1;min-width:0">
-          <div style="font-size:11px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">${s.slug}</div>
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-size:11px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">${s.slug}</span>
+            ${s.latestVersion?.version?'<span style="font-size:8px;color:var(--w20);font-family:\'JetBrains Mono\',monospace">v'+s.latestVersion.version+'</span>':''}
+          </div>
           <div style="font-size:9px;color:var(--w30);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${s.summary||s.displayName||''}</div>
         </div>
-        <div style="font-size:9px;color:var(--w20);font-family:'JetBrains Mono',monospace;flex-shrink:0">${s.stats?.downloads||0} dl</div>
-      </div>
-    `).join('');
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;flex-shrink:0">
+          <span style="font-size:9px;color:var(--w20);font-family:'JetBrains Mono',monospace">${dlFmt} dl · ${stars} ★</span>
+        </div>
+      </div>`;
+    }).join('');
   }
 
   window._skillSelected=selected;
@@ -2614,7 +2623,8 @@ window.openSkillsCatalogModal=async function(skillsNode){
     <div id="skillList" style="max-height:350px;overflow-y:auto;border:1px solid var(--border);border-radius:8px">
       ${renderList()}
     </div>
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:12px">
+    <div style="font-size:9px;color:var(--w20);margin-top:8px;font-family:'JetBrains Mono',monospace;text-align:center">sorted by downloads · click skill name to view security scan</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-top:8px">
       <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace"><span id="skillCount">${selected.size}</span> selected</span>
       <div style="display:flex;gap:8px">
         <button class="spawn-btn" style="background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
