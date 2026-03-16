@@ -2473,8 +2473,12 @@ function openChannelConfigModal(el){
           <div id="pairingStatus" style="margin-top:6px"></div>
         </div>
       `:`
-        <div style="padding:10px 12px;border:1px dashed var(--w20);border-radius:8px;margin-bottom:12px">
-          <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.5">Connect this node to an Agent node to activate. Pairing code approval will appear here once deployed.</div>
+        <div style="padding:14px;border:1px solid var(--accent);border-radius:8px;margin-bottom:12px;background:rgba(245,73,0,0.06)">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <span style="font-size:12px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace">NOT CONNECTED</span>
+          </div>
+          <div style="font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace;line-height:1.6">Drag a connection from this node to an <strong style="color:var(--text)">Agent</strong> node to activate. Pairing code approval will appear here once deployed.</div>
         </div>
       `}
       <div style="display:flex;gap:8px">
