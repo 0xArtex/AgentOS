@@ -2466,9 +2466,9 @@ function openChannelConfigModal(el){
         <div style="padding:12px;border:1px dashed var(--green);border-radius:8px;background:rgba(63,185,80,0.04);margin-bottom:12px">
           <div style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace;margin-bottom:8px">APPROVE PAIRING CODE</div>
           <div style="font-size:10px;color:var(--w30);margin-bottom:8px;line-height:1.5">Message your bot on Telegram to get a code. Enter it here to grant access.</div>
-          <div style="display:flex;gap:8px;align-items:center">
-            <input class="na-input" id="pairingCode" placeholder="ENTER CODE" style="font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:2px;font-size:13px;text-align:center;flex:1;width:auto;min-width:0" maxlength="8">
-            <button class="spawn-btn" style="flex-shrink:0;padding:8px 14px;white-space:nowrap" id="pairingApproveBtn" onclick="approvePairingCode()">APPROVE</button>
+          <div style="display:flex;gap:8px;align-items:stretch">
+            <input id="pairingCode" placeholder="ENTER CODE" maxlength="8" style="flex:1;min-width:0;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:3px;font-size:14px;text-align:center;outline:none">
+            <button class="spawn-btn" style="flex-shrink:0;padding:10px 18px;white-space:nowrap" id="pairingApproveBtn" onclick="approvePairingCode()">APPROVE</button>
           </div>
           <div id="pairingStatus" style="margin-top:6px"></div>
         </div>
@@ -2541,7 +2541,7 @@ function openChannelConfigModal(el){
       <div style="font-size:11px;font-weight:600;color:var(--green);font-family:'JetBrains Mono',monospace;margin-bottom:8px">APPROVE PAIRING CODE</div>
       <div style="font-size:10px;color:var(--w30);margin-bottom:8px;line-height:1.5">Message your bot on Telegram — it will reply with a pairing code. Enter it below to allow access.</div>
       <div style="display:flex;gap:8px">
-        <input class="na-input" id="pairingCode" placeholder="WK8MLG6Y" style="font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:2px;font-size:14px;text-align:center;flex:1;width:auto" maxlength="8">
+        <input id="pairingCode" placeholder="ENTER CODE" maxlength="8" style="flex:1;min-width:0;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:3px;font-size:14px;text-align:center;outline:none">
         <button class="spawn-btn" style="flex-shrink:0;padding:8px 16px" id="pairingApproveBtn" onclick="approvePairingCode()">APPROVE</button>
       </div>
       <div id="pairingStatus" style="margin-top:6px"></div>
