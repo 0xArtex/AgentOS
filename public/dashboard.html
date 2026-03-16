@@ -2668,11 +2668,6 @@ window.saveChannelConfig=function(btn){
   if(img)img.src=logos[channel];
 
   drawLines();pushState();
-
-  // Show pairing approval UI after save if in pairing mode
-  const pairingDiv=document.getElementById('channelPairingApproval');
-  if(pairingDiv&&accessMode==='pairing')pairingDiv.style.display='block';
-
   document.getElementById('modalOverlay').classList.remove('open');
 
   // Push directly — find any VPS server and push
