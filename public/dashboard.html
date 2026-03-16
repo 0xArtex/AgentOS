@@ -2314,8 +2314,10 @@ function openModelConfigModal(el){
           <span style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace">${saved.apiKey?'••••••'+saved.apiKey.slice(-6):'not set'}</span>
         </div>
       </div>
+      <div id="modelPushStatus" style="margin-bottom:8px"></div>
       <div style="display:flex;gap:8px">
         <button class="spawn-btn" style="flex:1" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
+        <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--accent);color:var(--accent)" onclick="rePushModel('${el.id}')">PUSH TO VPS</button>
         <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('${el.id}').classList.add('unconfigured');document.getElementById('${el.id}').querySelector('.s-dot').classList.remove('active');openModelConfigModal(document.getElementById('${el.id}'))">RECONFIGURE</button>
       </div>
     `;
@@ -2797,6 +2799,55 @@ window.pushWalletToVps=async function(walletNode,agentNode){
   }catch(e){
     console.warn('Wallet push failed:',e);
     walletNode.querySelector('.node-sub').textContent='push failed';
+  }
+};
+
+window.rePushModel=async function(nodeId){
+  const el=document.getElementById(nodeId);
+  if(!el?.dataset?.modelData)return;
+  const status=document.getElementById('modelPushStatus');
+  status.innerHTML='<div style="font-size:10px;color:var(--w30);font-family:\'JetBrains Mono\',monospace">Pushing to VPS...</div>';
+
+  // Find VPS
+  let serverId=null;
+  document.querySelectorAll('[data-svc="vps"]').forEach(n=>{
+    if(!n.classList.contains('unconfigured')){
+      serverId=n.dataset.serverId;
+      if(!serverId){
+        const rawSub=n.querySelector('.node-sub')?.textContent?.trim()||'';
+        const ip=rawSub.split('·')[0].trim().split(' ')[0].trim();
+      }
+    }
+  });
+  if(!serverId){
+    try{
+      const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+      const r=await fetch('/compute/servers',{headers:hdr});
+      const d=await r.json();
+      if(d.servers?.length){serverId=d.servers[0].id;
+        // Also set it on the VPS node
+        document.querySelectorAll('[data-svc="vps"]').forEach(n=>{if(!n.classList.contains('unconfigured'))n.dataset.serverId=serverId;});
+      }
+    }catch(e){}
+  }
+
+  if(!serverId){status.innerHTML='<div style="color:var(--red);font-size:10px">No VPS found</div>';return;}
+
+  const md=JSON.parse(el.dataset.modelData);
+  try{
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+    const r=await fetch('/compute/servers/'+serverId+'/configure-openclaw',{
+      method:'POST',headers:hdr,
+      body:JSON.stringify({anthropicKey:md.apiKey,authMode:md.authMode||'token',provider:md.provider||'anthropic',model:md.model})
+    });
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||'Failed');
+    status.innerHTML='<div style="color:var(--green);font-size:10px;font-family:\'JetBrains Mono\',monospace">\u2713 Pushed successfully — agent restarting</div>';
+    el.querySelector('.s-dot')?.classList.add('active');
+    el.querySelector('.node-sub').textContent=md.model.split('/').pop();
+    pushState();
+  }catch(e){
+    status.innerHTML='<div style="color:var(--red);font-size:10px">'+e.message+'</div>';
   }
 };
 
