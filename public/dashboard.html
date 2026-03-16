@@ -2472,7 +2472,11 @@ function openChannelConfigModal(el){
           </div>
           <div id="pairingStatus" style="margin-top:6px"></div>
         </div>
-      `:''}
+      `:`
+        <div style="padding:10px 12px;border:1px dashed var(--w20);border-radius:8px;margin-bottom:12px">
+          <div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.5">Connect this node to an Agent node to activate. Pairing code approval will appear here once deployed.</div>
+        </div>
+      `}
       <div style="display:flex;gap:8px">
         <button class="spawn-btn" style="flex:1" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>
         <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40);font-size:10px" onclick="document.getElementById('${el.id}').classList.add('unconfigured');document.getElementById('${el.id}').querySelector('.s-dot').classList.remove('active');openChannelConfigModal(document.getElementById('${el.id}'))">RECONFIGURE</button>
