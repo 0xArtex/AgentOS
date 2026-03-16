@@ -2398,7 +2398,7 @@ window.saveModelConfig=function(btn){
   const apiKey=document.getElementById('modelApiKey').value.trim();
   const model=document.getElementById('modelSelect').value;
   const providerId=document.querySelector('.vps-tier-card.selected')?.dataset.provider||'anthropic-api';
-  const authMode=providerId==='anthropic-max'?'setup-token':'token';
+  const authMode=providerId==='anthropic-max'?'oauth':'token';
   const provider=providerId.startsWith('anthropic')?'anthropic':providerId;
 
   if(!apiKey){document.getElementById('modelConfigStatus').innerHTML='<div style="color:var(--red);font-size:11px">'+(authMode==='setup-token'?'Setup token':'API key')+' is required</div>';return;}
@@ -2416,8 +2416,27 @@ window.saveModelConfig=function(btn){
   drawLines();pushState();
   document.getElementById('modalOverlay').classList.remove('open');
 
-  // Try auto-pushing OpenClaw config if VPS is ready
-  tryPushOpenClawConfig(el);
+  // Push directly — find any VPS server and push
+  (async()=>{
+    try{
+      const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+      const sr=await fetch('/compute/servers',{headers:hdr});
+      const sd=await sr.json();
+      const srv=(sd.servers||[])[0];
+      if(!srv)return;
+      const pushHdr={'Content-Type':'application/json',...hdr};
+      const r=await fetch('/compute/servers/'+srv.id+'/configure-openclaw',{
+        method:'POST',headers:pushHdr,
+        body:JSON.stringify({anthropicKey:apiKey,authMode,provider,model})
+      });
+      const d=await r.json();
+      if(r.ok){
+        el.querySelector('.s-dot')?.classList.add('active');
+        el.querySelector('.node-sub').textContent=model.split('/').pop();
+        pushState();
+      }else{console.warn('Model push failed:',d);}
+    }catch(e){console.warn('Model push error:',e);}
+  })();
 };
 
 // ─── Channel Config Modal ───
@@ -2649,10 +2668,35 @@ window.saveChannelConfig=function(btn){
   if(img)img.src=logos[channel];
 
   drawLines();pushState();
+
+  // Show pairing approval UI after save if in pairing mode
+  const pairingDiv=document.getElementById('channelPairingApproval');
+  if(pairingDiv&&accessMode==='pairing')pairingDiv.style.display='block';
+
   document.getElementById('modalOverlay').classList.remove('open');
 
-  // Try auto-pushing OpenClaw config if VPS is ready
-  tryPushOpenClawConfig(el);
+  // Push directly — find any VPS server and push
+  (async()=>{
+    try{
+      const hdr={'X-Dashboard-User':_authUser?.id||'','Authorization':'Bearer '+_authToken};
+      const sr=await fetch('/compute/servers',{headers:hdr});
+      const sd=await sr.json();
+      const srv=(sd.servers||[])[0];
+      if(!srv)return;
+      const afArr=allowFrom==='*'?['*']:allowFrom==='__PAIRING__'?['__PAIRING__']:allowFrom.split(',').map(s=>s.trim()).filter(Boolean);
+      const pushHdr={'Content-Type':'application/json',...hdr};
+      const r=await fetch('/compute/servers/'+srv.id+'/configure-openclaw',{
+        method:'POST',headers:pushHdr,
+        body:JSON.stringify({channel,botToken,allowFrom:afArr})
+      });
+      const d=await r.json();
+      if(r.ok){
+        el.querySelector('.s-dot')?.classList.add('active');
+        el.querySelector('.node-sub').textContent='connected';
+        pushState();
+      }else{console.warn('Channel push failed:',d);}
+    }catch(e){console.warn('Channel push error:',e);}
+  })();
 };
 
 // Push config to VPS incrementally — each piece pushes independently
