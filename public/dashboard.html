@@ -4879,17 +4879,32 @@ function renderProjectDropdown(){
   dd.appendChild(newBtn);
 }
 
-window.renameProject=async function(id,currentName){
-  const newName=prompt('Rename project:',currentName);
-  if(!newName||newName===currentName)return;
-  try{
-    const r=await fetch('/projects/'+id,{method:'PUT',headers:authHeaders(),body:JSON.stringify({name:newName})});
-    if(!r.ok)throw new Error('Failed');
-    const p=_projects.find(p=>p.id===id);
-    if(p)p.name=newName;
-    if(id===_currentProjectId)document.getElementById('agentName').textContent=newName;
+window.renameProject=function(id,currentName){
+  // Inline edit — replace the name span with an input
+  const item=[...document.querySelectorAll('.agent-dd-item')].find(i=>i.dataset.projectId===id);
+  if(!item)return;
+  const nameEl=item.querySelector('.dd-name');
+  if(!nameEl)return;
+  const input=document.createElement('input');
+  input.type='text';input.value=currentName;
+  input.style.cssText='background:var(--bg);border:1px solid var(--accent);border-radius:4px;color:var(--text);font-family:JetBrains Mono,monospace;font-size:11px;padding:2px 6px;width:100%;outline:none';
+  nameEl.replaceWith(input);
+  input.focus();input.select();
+
+  const save=async()=>{
+    const newName=input.value.trim();
+    if(!newName||newName===currentName){renderProjectDropdown();return;}
+    try{
+      const r=await fetch('/projects/'+id,{method:'PUT',headers:authHeaders(),body:JSON.stringify({name:newName})});
+      if(!r.ok)throw new Error('Failed');
+      const p=_projects.find(p=>p.id===id);
+      if(p)p.name=newName;
+      if(id===_currentProjectId)document.getElementById('agentName').textContent=newName;
+    }catch(e){}
     renderProjectDropdown();
-  }catch(e){alert('Failed to rename project');}
+  };
+  input.addEventListener('keydown',e=>{if(e.key==='Enter')save();if(e.key==='Escape')renderProjectDropdown();});
+  input.addEventListener('blur',save);
 };
 
 window.deleteProject=async function(id,name){
