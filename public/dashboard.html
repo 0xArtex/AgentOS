@@ -877,7 +877,14 @@ const _HIST_MAX=80;
 function captureState(){
   const nodes=[];
   document.querySelectorAll('#canvasTransform > .node, #canvasTransform > .agent-node, #canvasTransform > .vps-node, #canvasTransform > .x-profile-node').forEach(n=>{
-    nodes.push({id:n.id,cls:n.className.replace(/\s*(selected|multi-selected)\s*/g,' ').trim(),left:n.style.left,top:n.style.top,html:n.innerHTML,modal:n.dataset.modal||''});
+    const entry={id:n.id,cls:n.className.replace(/\s*(selected|multi-selected)\s*/g,' ').trim(),left:n.style.left,top:n.style.top,html:n.innerHTML,modal:n.dataset.modal||''};
+    // Persist important datasets
+    if(n.dataset.svc)entry.svc=n.dataset.svc;
+    if(n.dataset.channelData)entry.channelData=n.dataset.channelData;
+    if(n.dataset.modelData)entry.modelData=n.dataset.modelData;
+    if(n.dataset.serverId)entry.serverId=n.dataset.serverId;
+    if(n.dataset.installedSkills)entry.installedSkills=n.dataset.installedSkills;
+    nodes.push(entry);
   });
   return{nodes,conns:conns.map(c=>[...c])};
 }
@@ -910,6 +917,12 @@ function restoreState(state){
     }
     el.className=s.cls;
     el.style.left=s.left;el.style.top=s.top;
+    // Restore persisted datasets
+    if(s.svc)el.dataset.svc=s.svc;
+    if(s.channelData)el.dataset.channelData=s.channelData;
+    if(s.modelData)el.dataset.modelData=s.modelData;
+    if(s.serverId)el.dataset.serverId=s.serverId;
+    if(s.installedSkills)el.dataset.installedSkills=s.installedSkills;
     el.innerHTML=s.html;
     if(s.modal)el.dataset.modal=s.modal; else delete el.dataset.modal;
     // Update bodies map
@@ -931,13 +944,13 @@ function restoreState(state){
     // Re-attach connection handles
     if(!el._handles&&window._addConnHandle)window._addConnHandle(el);
     // Re-attach Model node click handler
-    if(s.id.startsWith('nodeModel_')&&!el._modelBound){
+    if((s.id.startsWith('nodeModel_')||s.id.startsWith('nodeDyn_model'))&&!el._modelBound){
       el._modelBound=true;
       el.dataset.svc='model';
       el.addEventListener('click',()=>{if(typeof nodeMoved!=='undefined'&&nodeMoved)return;openModelConfigModal(el);});
     }
     // Re-attach Channel node click handler
-    if(s.id.startsWith('nodeChannel_')&&!el._channelBound){
+    if((s.id.startsWith('nodeChannel_')||s.id.startsWith('nodeDyn_channel'))&&!el._channelBound){
       el._channelBound=true;
       el.dataset.svc='channel';
       el.addEventListener('click',()=>{if(typeof nodeMoved!=='undefined'&&nodeMoved)return;openChannelConfigModal(el);});
