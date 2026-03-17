@@ -5039,13 +5039,101 @@ function renderSkillCards(featured,catalog){
 
 function makeSkillCard(sk,isFeatured){
   const dlFmt=sk.downloads>=1000?(sk.downloads/1000).toFixed(1)+'k':(sk.downloads||0);
+  const starFmt=sk.stars>=1000?(sk.stars/1000).toFixed(1)+'k':(sk.stars||0);
+  const installFmt=sk.installs>=1000?(sk.installs/1000).toFixed(1)+'k':(sk.installs||0);
   const card=document.createElement('div');
   card.className='skill-card';
   card.dataset.name=(sk.name||sk.slug||'').toLowerCase();
   card.dataset.desc=(sk.description||'').toLowerCase();
-  card.innerHTML=`<div class="skill-card-name">${sk.name||sk.slug}${sk.version?' <span style="font-size:9px;color:var(--w20);font-weight:400">v'+sk.version+'</span>':''}${isFeatured?' <span style="font-size:8px;color:var(--accent);font-weight:400">featured</span>':''}</div><div class="skill-card-cat">${sk.downloads?dlFmt+' downloads · '+sk.stars+' ★':'community submitted'}</div><div class="skill-card-desc">${sk.description||'No description'}</div><div class="skill-card-footer"><button class="skill-card-install" onclick="installSkillToVps('${sk.slug}');this.textContent='Installing...';this.disabled=true">Install</button><a href="https://clawhub.ai/skills/${sk.slug}" target="_blank" class="skill-card-source" style="text-decoration:none">clawhub</a></div>`;
+  card.innerHTML=`
+    <div class="skill-card-name">${sk.name||sk.slug}${sk.version?' <span style="font-size:9px;color:var(--w20);font-weight:400">v'+sk.version+'</span>':''}${isFeatured?' <span style="font-size:8px;color:var(--accent);font-weight:400">featured</span>':''}</div>
+    <div class="skill-card-desc">${sk.description||'No description'}</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin:6px 0 8px">
+      <span style="font-size:9px;color:var(--w30);font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:3px"><svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:var(--w30);fill:none;stroke-width:2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>${dlFmt}</span>
+      <span style="font-size:9px;color:var(--w30);font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:3px"><svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:var(--w30);fill:none;stroke-width:2"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>${installFmt}</span>
+      <span style="font-size:9px;color:var(--w30);font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:3px"><svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:#f0c030;fill:none;stroke-width:2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>${starFmt}</span>
+      <span class="skill-security-badge" data-slug="${sk.slug}" style="font-size:9px;font-family:'JetBrains Mono',monospace;display:flex;align-items:center;gap:3px;color:var(--w20);cursor:pointer" onclick="event.stopPropagation();showSkillSecurity('${sk.slug}')"><svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:var(--w20);fill:none;stroke-width:2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>scan</span>
+    </div>
+    <div class="skill-card-footer">
+      <button class="skill-card-install" onclick="installSkillToVps('${sk.slug}');this.textContent='Installing...';this.disabled=true">Install</button>
+      <a href="https://clawhub.ai/skills/${sk.slug}" target="_blank" class="skill-card-source" style="text-decoration:none">view on clawhub</a>
+    </div>`;
   return card;
 }
+
+window.showSkillSecurity=async function(slug){
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title">SECURITY SCAN</div>
+    <div class="modal-subtitle">${slug}</div>
+    <div style="padding:16px 0"><div class="provision-spinner" style="display:inline-block"></div><span style="font-size:11px;color:var(--w30);margin-left:8px;font-family:'JetBrains Mono',monospace">Fetching scan results...</span></div>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+
+  try{
+    const r=await fetch('/compute/skills/'+slug+'/security');
+    const d=await r.json();
+    const sec=d.security;
+    if(!sec||!sec.hasScanResult){
+      document.getElementById('modalBody').innerHTML=`
+        <div class="modal-title">SECURITY SCAN</div>
+        <div class="modal-subtitle">${slug}</div>
+        <div style="padding:16px 0;font-size:11px;color:var(--w30);font-family:'JetBrains Mono',monospace">No security scan available for this skill.</div>
+        <button class="spawn-btn" style="width:100%" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>`;
+      return;
+    }
+
+    const statusColor=sec.status==='clean'?'var(--green)':sec.status==='suspicious'?'#f0a030':'var(--red)';
+    const statusIcon=sec.status==='clean'?'\u2713':sec.status==='suspicious'?'\u26A0':'\u2717';
+    const llm=sec.scanners?.llm||{};
+    const vt=sec.scanners?.vt||{};
+
+    // Build dimensions list
+    let dimsHtml='';
+    if(llm.dimensions){
+      dimsHtml=llm.dimensions.map(dim=>{
+        const ratingColor=dim.rating==='ok'?'var(--green)':dim.rating==='note'?'#f0a030':'var(--red)';
+        const ratingIcon=dim.rating==='ok'?'\u2713':dim.rating==='note'?'\u2139':'\u2717';
+        return `<div style="padding:8px 0;border-bottom:1px solid var(--border)">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px">
+            <span style="color:${ratingColor};font-size:12px">${ratingIcon}</span>
+            <span style="font-size:10px;font-weight:600;color:var(--text);font-family:'JetBrains Mono',monospace">${dim.label}</span>
+          </div>
+          <div style="font-size:9px;color:var(--w30);line-height:1.5">${dim.detail}</div>
+        </div>`;
+      }).join('');
+    }
+
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title">SECURITY SCAN</div>
+      <div class="modal-subtitle">${slug} v${d.version||'?'}</div>
+      <div style="padding:12px 0">
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:rgba(${sec.status==='clean'?'63,185,80':'245,73,0'},0.06);border:1px solid rgba(${sec.status==='clean'?'63,185,80':'245,73,0'},0.15);border-radius:8px;margin-bottom:12px">
+          <span style="font-size:18px;color:${statusColor}">${statusIcon}</span>
+          <div>
+            <div style="font-size:12px;font-weight:700;color:${statusColor};font-family:'JetBrains Mono',monospace;text-transform:uppercase">${sec.status}${sec.hasWarnings?' (with notes)':''}</div>
+            <div style="font-size:9px;color:var(--w30);font-family:'JetBrains Mono',monospace;margin-top:2px">Scanned by ${sec.model||'AI'} · ${d.files||'?'} files · ${d.license||'no license'}</div>
+          </div>
+        </div>
+        ${llm.confidence?`<div style="font-size:9px;color:var(--w30);margin-bottom:8px;font-family:'JetBrains Mono',monospace">Confidence: <strong style="color:var(--text)">${llm.confidence}</strong></div>`:''}
+        ${llm.summary?`<div style="font-size:10px;color:var(--w40);line-height:1.6;margin-bottom:12px;padding:10px;background:var(--bg);border-radius:6px;border:1px solid var(--border)">${llm.summary}</div>`:''}
+        ${dimsHtml?`<div style="margin-bottom:12px">${dimsHtml}</div>`:''}
+        ${llm.guidance?`<div style="padding:10px;background:rgba(255,255,255,0.02);border:1px solid var(--border);border-radius:6px;margin-bottom:12px"><div style="font-size:9px;font-weight:600;color:var(--w50);font-family:'JetBrains Mono',monospace;margin-bottom:4px">GUIDANCE</div><div style="font-size:9px;color:var(--w30);line-height:1.5">${llm.guidance}</div></div>`:''}
+        ${sec.virustotalUrl?`<a href="${sec.virustotalUrl}" target="_blank" style="font-size:9px;color:var(--accent);font-family:'JetBrains Mono',monospace;text-decoration:none;display:flex;align-items:center;gap:4px;margin-bottom:8px"><svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:var(--accent);fill:none;stroke-width:2"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>View on VirusTotal</a>`:''}
+      </div>
+      <button class="spawn-btn" style="width:100%" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>`;
+
+    // Also update the badge on the card
+    const badge=document.querySelector('.skill-security-badge[data-slug="'+slug+'"]');
+    if(badge){
+      badge.innerHTML=`<svg viewBox="0 0 24 24" style="width:10px;height:10px;stroke:${statusColor};fill:none;stroke-width:2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg><span style="color:${statusColor}">${sec.status}</span>`;
+    }
+  }catch(e){
+    document.getElementById('modalBody').innerHTML=`
+      <div class="modal-title">SECURITY SCAN</div>
+      <div style="color:var(--red);padding:16px 0;font-size:11px">Failed to load scan: ${e.message}</div>
+      <button class="spawn-btn" style="width:100%" onclick="document.getElementById('modalOverlay').classList.remove('open')">CLOSE</button>`;
+  }
+};
 
 window.submitFeaturedSkill=async function(){
   const input=document.getElementById('submitSkillSlug');
