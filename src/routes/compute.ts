@@ -727,7 +727,7 @@ router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) 
     // Search with broad queries to build catalog (skills list endpoint is unreliable)
     const allItems: any[] = [];
     const seen = new Set<string>();
-    const queries = ['skill', 'agent', 'api', 'tool', 'data', 'code', 'web', 'ai', 'file', 'search', 'auto', 'dev', 'chat', 'write', 'read', 'manage', 'build', 'test', 'deploy', 'monitor'];
+    const queries = ['self-improving', 'memory', 'github', 'weather', 'crypto', 'skill', 'agent', 'api', 'tool', 'code', 'web', 'ai', 'search', 'dev', 'chat', 'deploy', 'image', 'security'];
     
     for (const q of queries) {
       try {
@@ -757,8 +757,31 @@ router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) 
       }
     } catch (e) {}
     
-    // Sort by score (from search) or downloads
-    allItems.sort((a: any, b: any) => (b.stats?.downloads || 0) - (a.stats?.downloads || 0) || (b.score || 0) - (a.score || 0));
+    // Enrich top skills with stats (fetch in parallel, max 30)
+    const toEnrich = allItems.slice(0, 30);
+    const enrichResults = await Promise.allSettled(
+      toEnrich.map(async (item: any) => {
+        try {
+          const r = await fetch(`https://clawhub.ai/api/v1/skills/${encodeURIComponent(item.slug)}`);
+          if (!r.ok) return;
+          const d = await r.json() as any;
+          if (d.skill?.stats) {
+            item.stats = d.skill.stats;
+            item.displayName = d.skill.displayName || item.displayName;
+            item.summary = d.skill.summary || item.summary;
+          }
+          if (d.latestVersion) item.latestVersion = d.latestVersion;
+        } catch (e) {}
+      })
+    );
+
+    // Sort: enriched skills with downloads first, then rest by score
+    allItems.sort((a: any, b: any) => {
+      const aDl = a.stats?.downloads || 0;
+      const bDl = b.stats?.downloads || 0;
+      if (aDl || bDl) return bDl - aDl;
+      return (b.score || 0) - (a.score || 0);
+    });
 
     if (allItems.length > 0) _skillCache = { items: allItems, fetchedAt: Date.now() };
     res.json({ items: allItems, total: allItems.length });
