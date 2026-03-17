@@ -766,22 +766,42 @@ router.post("/servers/:id/configure-wallet", requireAuth(0.01, 'general'), async
     // Write wallet config to TOOLS.md so the agent knows its wallets
     const toolsContent = `# Wallet Configuration
 
-## AgentWallet
-- **Base Wallet:** ${baseWallet || 'not configured'}
-- **Solana Wallet:** ${solanaWallet || 'not configured'}
-- **Base Agent Address:** ${baseAgent || 'not configured'}
-- **Solana Agent Address:** ${solanaAgent || 'not configured'}
-- **API:** https://agntos.dev/wallet
-- **CLI:** npx @agntos/agentwallet
+## Your Wallets
+You have two wallets — one on Base (EVM) and one on Solana. Each has a **smart wallet** (holds funds, enforces limits) and a **signing key** (you use to authorize transactions).
+
+### Base (EVM)
+- **Smart Wallet (deposit here):** ${baseWallet || 'not configured'}
+- **Your Signing Key:** ${baseAgent || 'not configured'}
+- **Chain:** Base Mainnet
+- To receive funds, give people the smart wallet address above.
+
+### Solana
+- **Smart Wallet (deposit here):** ${solanaWallet || 'not configured'}
+- **Your Signing Key:** ${solanaAgent || 'not configured'}
+- **Chain:** Solana (devnet)
 
 ## Private Keys
-- **Base key:** ${basePrivateKey ? '/root/.agentwallet/base.key (also in AGENTWALLET_KEY env)' : 'not configured — ask user to provide'}
-- **Solana key:** ${solanaPrivateKey ? '/root/.agentwallet/solana.key (also in AGENTWALLET_SOL_KEY env)' : 'not configured — ask user to provide'}
+- **Base key:** ${basePrivateKey ? '/root/.agentwallet/base.key (also in AGENTWALLET_KEY env)' : 'not configured'}
+- **Solana key:** ${solanaPrivateKey ? '/root/.agentwallet/solana.key (also in AGENTWALLET_SOL_KEY env)' : 'not configured'}
 
-## Usage
-Use the AgentWallet CLI or SDK to send transactions. Keys are pre-configured.
-- \`agentwallet send --wallet $AGENT_BASE_WALLET --to <recipient> --amount <amt> --key $AGENTWALLET_KEY\`
-- On-chain spending limits are enforced by the smart contract — safe to transact autonomously within limits.
+## How It Works
+- Your signing key authorizes transactions. The smart contract wallet enforces spending limits.
+- You sign with your key → smart wallet executes → on-chain limits prevent overspending.
+- Your human owner set the limits via passkey (FaceID/fingerprint). You cannot change them.
+
+## Sending Transactions
+\`\`\`bash
+# Send USDC on Base
+agentwallet send --wallet $AGENT_BASE_WALLET --to <recipient> --amount <amount> --key $AGENTWALLET_KEY --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+
+# Send ETH on Base
+agentwallet send --wallet $AGENT_BASE_WALLET --to <recipient> --amount <amount> --key $AGENTWALLET_KEY
+\`\`\`
+
+## API
+- **Endpoint:** https://agntos.dev/wallet
+- **CLI:** npx @agntos/agentwallet
+- **Docs:** See the agentwallet skill for full API reference
 `;
     const b64 = Buffer.from(toolsContent).toString('base64');
     execSync(`${ssh} "echo '${b64}' | base64 -d > /root/.openclaw/workspace/TOOLS.md"`, { timeout: 10000 });
