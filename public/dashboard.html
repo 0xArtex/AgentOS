@@ -4973,51 +4973,109 @@ let _skillsLoaded=false;
 async function loadSkillsPage(){
   if(_skillsLoaded)return;
   const grid=document.getElementById('skillsPageGrid');
-  grid.innerHTML='<div style="color:var(--w30);font-size:11px;font-family:JetBrains Mono,monospace">Loading skills from ClawHub...</div>';
+  grid.innerHTML='<div style="color:var(--w30);font-size:11px;font-family:JetBrains Mono,monospace">Loading skills...</div>';
   try{
-    const res=await fetch('/compute/skills/catalog');
-    const data=await res.json();
-    const allSkills=(data.items||[]).map(sk=>({
-      slug:sk.slug,
-      name:sk.displayName||sk.slug,
-      description:sk.summary||'',
-      version:sk.latestVersion?.version||'',
-      downloads:sk.stats?.downloads||0,
-      stars:sk.stats?.stars||0,
-      installs:sk.stats?.installsAllTime||0,
-      source:'clawhub'
+    // Load featured + ClawHub in parallel
+    const [featRes,catRes]=await Promise.all([
+      fetch('/compute/skills/featured'),
+      fetch('/compute/skills/catalog')
+    ]);
+    const featData=await featRes.json();
+    const catData=await catRes.json();
+
+    const featured=(featData.skills||[]).map(sk=>({
+      slug:sk.slug,name:sk.display_name||sk.slug,description:sk.description||'',
+      version:'',downloads:0,stars:0,source:'community',featured:true
     }));
-    grid.innerHTML='';
+
+    const allSkills=(catData.items||[]).map(sk=>({
+      slug:sk.slug,name:sk.displayName||sk.slug,description:sk.summary||'',
+      version:sk.latestVersion?.version||'',downloads:sk.stats?.downloads||0,
+      stars:sk.stats?.stars||0,installs:sk.stats?.installsAllTime||0,source:'clawhub'
+    }));
+
+    window._featuredSlugs=new Set(featured.map(s=>s.slug));
     window._allSkills=allSkills;
-    renderSkillCards(allSkills);
+    window._featuredSkills=featured;
+    grid.innerHTML='';
+    renderSkillCards(featured,allSkills);
     _skillsLoaded=true;
   }catch(e){
     grid.innerHTML='<div style="color:var(--accent);font-size:11px">Failed to load skills</div>';
   }
 }
-function renderSkillCards(skills){
+function renderSkillCards(featured,catalog){
   const grid=document.getElementById('skillsPageGrid');
   grid.innerHTML='';
-  if(!skills.length){grid.innerHTML='<div style="color:var(--w30);font-size:11px;font-family:JetBrains Mono,monospace">No skills found</div>';return;}
-  skills.forEach(sk=>{
-    const dlFmt=sk.downloads>=1000?(sk.downloads/1000).toFixed(1)+'k':sk.downloads;
-    const card=document.createElement('div');
-    card.className='skill-card';
-    card.dataset.name=(sk.name||sk.slug||'').toLowerCase();
-    card.dataset.desc=(sk.description||'').toLowerCase();
-    card.innerHTML=`<div class="skill-card-name">${sk.name||sk.slug}${sk.version?' <span style="font-size:9px;color:var(--w20);font-weight:400">v'+sk.version+'</span>':''}</div><div class="skill-card-cat">${dlFmt} downloads · ${sk.stars} ★</div><div class="skill-card-desc">${sk.description||'No description'}</div><div class="skill-card-footer"><button class="skill-card-install" onclick="installSkillToVps('${sk.slug}');this.textContent='Installing...';this.disabled=true">Install</button><a href="https://clawhub.ai/skills/${sk.slug}" target="_blank" class="skill-card-source" style="text-decoration:none">clawhub</a></div>`;
-    grid.appendChild(card);
-  });
+
+  // Submit skill form
+  const submitHtml=document.createElement('div');
+  submitHtml.style.cssText='grid-column:1/-1;display:flex;gap:8px;align-items:center;padding:8px 0';
+  submitHtml.innerHTML=`
+    <input id="submitSkillSlug" placeholder="Enter ClawHub skill slug..." style="flex:1;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;outline:none">
+    <button class="spawn-btn" style="padding:8px 16px;font-size:10px;white-space:nowrap" onclick="submitFeaturedSkill()">SUBMIT SKILL</button>
+  `;
+  grid.appendChild(submitHtml);
+
+  // Featured section
+  if(featured&&featured.length){
+    const header=document.createElement('div');
+    header.style.cssText='grid-column:1/-1;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent);font-family:JetBrains Mono,monospace;font-weight:600;padding:8px 0 4px;border-bottom:1px solid rgba(245,73,0,0.15);margin-bottom:4px';
+    header.textContent='COMMUNITY SUBMITTED';
+    grid.appendChild(header);
+    featured.forEach(sk=>grid.appendChild(makeSkillCard(sk,true)));
+  }
+
+  // All skills
+  const allSkills=catalog||window._allSkills||[];
+  if(allSkills.length){
+    const header=document.createElement('div');
+    header.style.cssText='grid-column:1/-1;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--w30);font-family:JetBrains Mono,monospace;font-weight:600;padding:12px 0 4px;border-bottom:1px solid var(--border);margin-bottom:4px';
+    header.textContent='ALL SKILLS · '+allSkills.length+' ON CLAWHUB';
+    grid.appendChild(header);
+    allSkills.forEach(sk=>grid.appendChild(makeSkillCard(sk,false)));
+  }
 }
+
+function makeSkillCard(sk,isFeatured){
+  const dlFmt=sk.downloads>=1000?(sk.downloads/1000).toFixed(1)+'k':(sk.downloads||0);
+  const card=document.createElement('div');
+  card.className='skill-card';
+  card.dataset.name=(sk.name||sk.slug||'').toLowerCase();
+  card.dataset.desc=(sk.description||'').toLowerCase();
+  card.innerHTML=`<div class="skill-card-name">${sk.name||sk.slug}${sk.version?' <span style="font-size:9px;color:var(--w20);font-weight:400">v'+sk.version+'</span>':''}${isFeatured?' <span style="font-size:8px;color:var(--accent);font-weight:400">featured</span>':''}</div><div class="skill-card-cat">${sk.downloads?dlFmt+' downloads · '+sk.stars+' ★':'community submitted'}</div><div class="skill-card-desc">${sk.description||'No description'}</div><div class="skill-card-footer"><button class="skill-card-install" onclick="installSkillToVps('${sk.slug}');this.textContent='Installing...';this.disabled=true">Install</button><a href="https://clawhub.ai/skills/${sk.slug}" target="_blank" class="skill-card-source" style="text-decoration:none">clawhub</a></div>`;
+  return card;
+}
+
+window.submitFeaturedSkill=async function(){
+  const input=document.getElementById('submitSkillSlug');
+  const slug=input?.value?.trim();
+  if(!slug){input.style.borderColor='var(--red)';setTimeout(()=>input.style.borderColor='var(--border)',1500);return;}
+  input.disabled=true;input.style.borderColor='var(--accent)';
+  try{
+    const hdr={'Content-Type':'application/json','X-Dashboard-User':_authUser?.id||''};
+    const r=await fetch('/compute/skills/featured',{method:'POST',headers:hdr,body:JSON.stringify({slug})});
+    const d=await r.json();
+    if(!r.ok)throw new Error(d.error||'Failed');
+    input.value='';input.style.borderColor='var(--green)';
+    // Reload
+    _skillsLoaded=false;loadSkillsPage();
+  }catch(e){
+    input.style.borderColor='var(--red)';
+    input.placeholder=e.message||'Not found on ClawHub';
+    setTimeout(()=>{input.placeholder='Enter ClawHub skill slug...';input.style.borderColor='var(--border)';},2000);
+  }
+  input.disabled=false;
+};
 document.getElementById('skillsPageSearch').addEventListener('input',e=>{
   const q=e.target.value.toLowerCase().trim();
   if(!window._allSkills)return;
-  if(!q){renderSkillCards(window._allSkills);return;}
-  renderSkillCards(window._allSkills.filter(sk=>
+  if(!q){renderSkillCards(window._featuredSkills,window._allSkills);return;}
+  const filter=arr=>(arr||[]).filter(sk=>
     (sk.name||sk.slug||'').toLowerCase().includes(q)||
-    (sk.category||'').toLowerCase().includes(q)||
     (sk.description||'').toLowerCase().includes(q)
-  ));
+  );
+  renderSkillCards(filter(window._featuredSkills),filter(window._allSkills));
 });
 
 // ─── BALANCE & FUNDING ───

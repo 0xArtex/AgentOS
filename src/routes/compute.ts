@@ -871,6 +871,56 @@ router.post("/servers/:id/pairing-approve", requireAuth(0.01, 'general'), async 
 });
 
 /**
+ * GET /compute/skills/featured — Get community-submitted featured skills
+ */
+router.get("/skills/featured", async (_req: AuthenticatedRequest, res: Response) => {
+  try {
+    const rows = db.prepare("SELECT * FROM featured_skills ORDER BY created_at DESC").all();
+    res.json({ skills: rows });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /compute/skills/featured — Submit a ClawHub skill to the featured list
+ */
+router.post("/skills/featured", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { slug } = req.body;
+    if (!slug) return res.status(400).json({ error: "slug is required" });
+
+    // Verify it exists on ClawHub
+    const r = await fetch(`https://clawhub.ai/api/v1/skills/${slug}`);
+    if (!r.ok) return res.status(404).json({ error: `Skill '${slug}' not found on ClawHub` });
+    const data = await r.json() as any;
+
+    const displayName = data.skill?.displayName || slug;
+    const description = data.skill?.summary || '';
+    const submittedBy = req.headers['x-dashboard-user'] as string || 'anonymous';
+
+    db.prepare("INSERT OR IGNORE INTO featured_skills (slug, submitted_by, display_name, description, clawhub_url) VALUES (?, ?, ?, ?, ?)")
+      .run(slug, submittedBy, displayName, description, `https://clawhub.ai/skills/${slug}`);
+
+    res.json({ success: true, slug, displayName });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /compute/skills/featured/:slug — Remove a featured skill
+ */
+router.delete("/skills/featured/:slug", async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    db.prepare("DELETE FROM featured_skills WHERE slug = ?").run(req.params.slug);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * GET /compute/skills/:slug/security — Get security scan for a skill from ClawHub
  */
 router.get("/skills/:slug/security", async (req: AuthenticatedRequest, res: Response) => {
