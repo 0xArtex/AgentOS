@@ -377,7 +377,7 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
           version: 1,
           profiles: {
             [`${effectiveProvider}:default`]: {
-              type: "oauth",
+              type: "token",
               provider: effectiveProvider,
               token: anthropicKey,
             }
