@@ -39,6 +39,8 @@ body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;o
 .agent-dd-item:hover{background:var(--glass)}
 .agent-dd-item.active{color:var(--text)}
 .agent-dd-item .dd-dot{width:5px;height:5px;border-radius:50%;background:var(--green)}
+.agent-dd-item .dd-action{padding:3px;border-radius:4px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:background .15s}
+.agent-dd-item .dd-action:hover{background:rgba(255,255,255,0.08)}
 .agent-dd-sep{height:1px;background:var(--border);margin:2px 0}
 .agent-dd-new{color:var(--w30);gap:6px}
 .agent-dd-new:hover{color:var(--text)}
@@ -4856,7 +4858,17 @@ function renderProjectDropdown(){
     const item=document.createElement('div');
     item.className='agent-dd-item'+(p.id===_currentProjectId?' active':'');
     item.dataset.projectId=p.id;
-    item.innerHTML=`<span class="dd-dot" style="background:${p.id===_currentProjectId?'var(--green)':'var(--w20)'}"></span>${p.name}`;
+    item.style.cssText='display:flex;align-items:center;gap:6px';
+    item.innerHTML=`
+      <span class="dd-dot" style="background:${p.id===_currentProjectId?'var(--green)':'var(--w20)'}"></span>
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" class="dd-name">${p.name}</span>
+      <span class="dd-actions" style="display:flex;gap:2px;opacity:0;transition:opacity .15s;flex-shrink:0">
+        <span class="dd-action" onclick="event.stopPropagation();renameProject('${p.id}','${p.name.replace(/'/g,"\\'")}')" title="Rename"><svg viewBox="0 0 24 24" style="width:11px;height:11px;stroke:var(--w30);fill:none;stroke-width:2;stroke-linecap:round"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg></span>
+        ${_projects.length>1?`<span class="dd-action" onclick="event.stopPropagation();deleteProject('${p.id}','${p.name.replace(/'/g,"\\'")}')" title="Delete"><svg viewBox="0 0 24 24" style="width:11px;height:11px;stroke:var(--red);fill:none;stroke-width:2;stroke-linecap:round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg></span>`:''}
+      </span>
+    `;
+    item.addEventListener('mouseenter',()=>item.querySelector('.dd-actions').style.opacity='1');
+    item.addEventListener('mouseleave',()=>item.querySelector('.dd-actions').style.opacity='0');
     dd.appendChild(item);
   });
   // Separator + New Project
@@ -4866,6 +4878,37 @@ function renderProjectDropdown(){
   newBtn.innerHTML='<svg viewBox="0 0 24 24" style="width:12px;height:12px;stroke:var(--w40);fill:none;stroke-width:2;stroke-linecap:round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>New Project';
   dd.appendChild(newBtn);
 }
+
+window.renameProject=async function(id,currentName){
+  const newName=prompt('Rename project:',currentName);
+  if(!newName||newName===currentName)return;
+  try{
+    const r=await fetch('/projects/'+id,{method:'PUT',headers:authHeaders(),body:JSON.stringify({name:newName})});
+    if(!r.ok)throw new Error('Failed');
+    const p=_projects.find(p=>p.id===id);
+    if(p)p.name=newName;
+    if(id===_currentProjectId)document.getElementById('agentName').textContent=newName;
+    renderProjectDropdown();
+  }catch(e){alert('Failed to rename project');}
+};
+
+window.deleteProject=async function(id,name){
+  if(!confirm('Delete project "'+name+'"? This cannot be undone.'))return;
+  try{
+    const r=await fetch('/projects/'+id,{method:'DELETE',headers:authHeaders()});
+    if(!r.ok)throw new Error('Failed');
+    _projects=_projects.filter(p=>p.id!==id);
+    if(id===_currentProjectId&&_projects.length>0){
+      _currentProjectId=_projects[0].id;
+      document.getElementById('agentName').textContent=_projects[0].name;
+      // Load the new project's canvas
+      const pRes=await fetch('/projects/'+_currentProjectId,{headers:authHeaders()});
+      const pData=await pRes.json();
+      if(pData.canvas_state)loadCanvasState(pData.canvas_state);
+    }
+    renderProjectDropdown();
+  }catch(e){alert('Failed to delete project');}
+};
 
 // Init: load projects from API
 async function initProjects(){
