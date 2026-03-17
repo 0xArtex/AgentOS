@@ -517,6 +517,10 @@ router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general'),
     } else if (remove === 'model') {
       // Remove auth profiles and env vars
       if (config.auth) config.auth.profiles = {};
+      // Clear auth-profiles.json
+      try {
+        execSync(`${ssh} "rm -f /root/.openclaw/agents/main/agent/auth-profiles.json"`, { timeout: 10000 });
+      } catch (e) {}
       // Clear env var on server
       try {
         execSync(`${ssh} "grep -v '_API_KEY' /etc/environment > /tmp/env.tmp 2>/dev/null; mv /tmp/env.tmp /etc/environment"`, { timeout: 10000 });
