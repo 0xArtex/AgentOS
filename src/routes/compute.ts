@@ -724,58 +724,72 @@ router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) 
       return res.json({ items: _skillCache.items, cached: true });
     }
 
-    // Search with broad queries to build catalog (skills list endpoint is unreliable)
+    // Phase 1: Search diverse queries, take top 5 per query to get variety
     const allItems: any[] = [];
     const seen = new Set<string>();
-    const queries = ['self-improving', 'memory', 'github', 'weather', 'crypto', 'skill', 'agent', 'api', 'tool', 'code', 'web', 'ai', 'search', 'dev', 'chat', 'deploy', 'image', 'security'];
+    const queries = [
+      'self-improving', 'summarize', 'memory', 'calendar', 'email',
+      'github', 'git', 'docker', 'database', 'postgres', 'redis',
+      'weather', 'finance', 'crypto', 'solana', 'ethereum', 'trading',
+      'notion', 'obsidian', 'slack', 'discord', 'telegram', 'whatsapp',
+      'home assistant', 'smart home', 'music', 'spotify',
+      'image', 'video', 'voice', 'tts', 'whisper',
+      'security', 'monitor', 'backup', 'deploy', 'ci cd',
+      'skill', 'agent', 'api', 'tool', 'code', 'web', 'ai',
+      'file', 'search', 'dev', 'chat', 'write', 'read', 'build', 'test',
+      'browser', 'scrape', 'pdf', 'csv', 'json', 'markdown',
+    ];
     
-    for (const q of queries) {
-      try {
+    // Fetch all queries in parallel (faster)
+    const searchResults = await Promise.allSettled(
+      queries.map(async (q) => {
         const r = await fetch(`https://clawhub.ai/api/v1/search?q=${encodeURIComponent(q)}&limit=100`);
-        if (!r.ok) continue;
+        if (!r.ok) return [];
         const data = await r.json() as any;
-        for (const item of (data.results || [])) {
-          if (!seen.has(item.slug)) {
-            seen.add(item.slug);
-            allItems.push(item);
-          }
-        }
-      } catch (e) { continue; }
-    }
-    
-    // Also try the list endpoint as fallback
-    try {
-      const r = await fetch('https://clawhub.ai/api/v1/skills?limit=100&sort=downloads');
-      if (r.ok) {
-        const data = await r.json() as any;
-        for (const item of (data.items || [])) {
-          if (!seen.has(item.slug)) {
-            seen.add(item.slug);
-            allItems.push(item);
-          }
-        }
-      }
-    } catch (e) {}
-    
-    // Enrich top skills with stats (fetch in parallel, max 30)
-    const toEnrich = allItems.slice(0, 30);
-    const enrichResults = await Promise.allSettled(
-      toEnrich.map(async (item: any) => {
-        try {
-          const r = await fetch(`https://clawhub.ai/api/v1/skills/${encodeURIComponent(item.slug)}`);
-          if (!r.ok) return;
-          const d = await r.json() as any;
-          if (d.skill?.stats) {
-            item.stats = d.skill.stats;
-            item.displayName = d.skill.displayName || item.displayName;
-            item.summary = d.skill.summary || item.summary;
-          }
-          if (d.latestVersion) item.latestVersion = d.latestVersion;
-        } catch (e) {}
+        return data.results || [];
       })
     );
+    
+    for (const result of searchResults) {
+      if (result.status !== 'fulfilled') continue;
+      for (const item of result.value) {
+        if (!seen.has(item.slug)) {
+          seen.add(item.slug);
+          allItems.push(item);
+        }
+      }
+    }
 
-    // Sort: enriched skills with downloads first, then rest by score
+    // Ensure known popular skills are included
+    const knownPopular = ['self-improving-agent','find-skills','summarize','github-pr','taskmaster-ai','context7'];
+    for (const slug of knownPopular) {
+      if (!seen.has(slug)) { seen.add(slug); allItems.unshift({ slug, displayName: slug }); }
+    }
+
+    // Phase 2: Enrich items with stats in batches of 20 (parallel)
+    const batchSize = 20;
+    for (let i = 0; i < allItems.length; i += batchSize) {
+      const batch = allItems.slice(i, i + batchSize);
+      await Promise.allSettled(
+        batch.map(async (item: any) => {
+          try {
+            const r = await fetch(`https://clawhub.ai/api/v1/skills/${encodeURIComponent(item.slug)}`);
+            if (!r.ok) return;
+            const d = await r.json() as any;
+            if (d.skill?.stats) {
+              item.stats = d.skill.stats;
+              item.displayName = d.skill.displayName || item.displayName;
+              item.summary = d.skill.summary || item.summary;
+            }
+            if (d.latestVersion) item.latestVersion = d.latestVersion;
+          } catch (e) {}
+        })
+      );
+      // Stop enriching after 200 skills to keep load time reasonable
+      if (i + batchSize >= 200) break;
+    }
+
+    // Sort by downloads (enriched first, then by score)
     allItems.sort((a: any, b: any) => {
       const aDl = a.stats?.downloads || 0;
       const bDl = b.stats?.downloads || 0;
