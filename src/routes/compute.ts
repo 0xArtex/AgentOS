@@ -720,27 +720,47 @@ const CACHE_TTL = 30 * 60 * 1000; // 30 min
 router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) => {
   try {
     // Return cache if fresh
-    if (_skillCache && Date.now() - _skillCache.fetchedAt < CACHE_TTL) {
+    if (_skillCache && _skillCache.items.length > 0 && Date.now() - _skillCache.fetchedAt < CACHE_TTL) {
       return res.json({ items: _skillCache.items, cached: true });
     }
 
-    // Paginate through all skills, sorted by downloads
+    // Search with broad queries to build catalog (skills list endpoint is unreliable)
     const allItems: any[] = [];
-    let cursor: string | null = null;
-    const maxPages = 20; // safety limit
-    for (let i = 0; i < maxPages; i++) {
-      let url = `https://clawhub.ai/api/v1/skills?limit=100&sort=downloads`;
-      if (cursor) url += `&cursor=${cursor}`;
-      const r = await fetch(url);
-      if (!r.ok) break;
-      const data = await r.json() as any;
-      if (!data.items?.length) break;
-      allItems.push(...data.items);
-      cursor = data.nextCursor;
-      if (!cursor) break;
+    const seen = new Set<string>();
+    const queries = ['skill', 'agent', 'api', 'tool', 'data', 'code', 'web', 'ai', 'file', 'search', 'auto', 'dev', 'chat', 'write', 'read', 'manage', 'build', 'test', 'deploy', 'monitor'];
+    
+    for (const q of queries) {
+      try {
+        const r = await fetch(`https://clawhub.ai/api/v1/search?q=${encodeURIComponent(q)}&limit=100`);
+        if (!r.ok) continue;
+        const data = await r.json() as any;
+        for (const item of (data.results || [])) {
+          if (!seen.has(item.slug)) {
+            seen.add(item.slug);
+            allItems.push(item);
+          }
+        }
+      } catch (e) { continue; }
     }
+    
+    // Also try the list endpoint as fallback
+    try {
+      const r = await fetch('https://clawhub.ai/api/v1/skills?limit=100&sort=downloads');
+      if (r.ok) {
+        const data = await r.json() as any;
+        for (const item of (data.items || [])) {
+          if (!seen.has(item.slug)) {
+            seen.add(item.slug);
+            allItems.push(item);
+          }
+        }
+      }
+    } catch (e) {}
+    
+    // Sort by score (from search) or downloads
+    allItems.sort((a: any, b: any) => (b.stats?.downloads || 0) - (a.stats?.downloads || 0) || (b.score || 0) - (a.score || 0));
 
-    _skillCache = { items: allItems, fetchedAt: Date.now() };
+    if (allItems.length > 0) _skillCache = { items: allItems, fetchedAt: Date.now() };
     res.json({ items: allItems, total: allItems.length });
   } catch (err: any) {
     // Return stale cache on error
