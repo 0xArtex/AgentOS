@@ -4907,22 +4907,41 @@ window.renameProject=function(id,currentName){
   input.addEventListener('blur',save);
 };
 
-window.deleteProject=async function(id,name){
-  if(!confirm('Delete project "'+name+'"? This cannot be undone.'))return;
-  try{
-    const r=await fetch('/projects/'+id,{method:'DELETE',headers:authHeaders()});
-    if(!r.ok)throw new Error('Failed');
-    _projects=_projects.filter(p=>p.id!==id);
-    if(id===_currentProjectId&&_projects.length>0){
-      _currentProjectId=_projects[0].id;
-      document.getElementById('agentName').textContent=_projects[0].name;
-      // Load the new project's canvas
-      const pRes=await fetch('/projects/'+_currentProjectId,{headers:authHeaders()});
-      const pData=await pRes.json();
-      if(pData.canvas_state)loadCanvasState(pData.canvas_state);
+window.deleteProject=function(id,name){
+  document.getElementById('modalBody').innerHTML=`
+    <div class="modal-title" style="color:var(--red)">DELETE PROJECT</div>
+    <div class="modal-subtitle">this cannot be undone</div>
+    <div style="padding:16px 0;font-size:12px;color:var(--w40);font-family:'JetBrains Mono',monospace;line-height:1.6">
+      Delete <strong style="color:var(--text)">${name}</strong> and all its nodes? This will not deprovision any services — only the canvas layout is removed.
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="spawn-btn" style="flex:1;background:none;border:1px solid var(--border);color:var(--w40)" onclick="document.getElementById('modalOverlay').classList.remove('open')">CANCEL</button>
+      <button class="spawn-btn" style="flex:1;border-color:var(--red);color:var(--red)" id="confirmDeleteProject">DELETE</button>
+    </div>
+  `;
+  document.getElementById('modalOverlay').classList.add('open');
+  document.getElementById('confirmDeleteProject').onclick=async()=>{
+    document.getElementById('confirmDeleteProject').textContent='DELETING...';
+    document.getElementById('confirmDeleteProject').disabled=true;
+    try{
+      const r=await fetch('/projects/'+id,{method:'DELETE',headers:authHeaders()});
+      if(!r.ok)throw new Error('Failed');
+      _projects=_projects.filter(p=>p.id!==id);
+      if(id===_currentProjectId&&_projects.length>0){
+        _currentProjectId=_projects[0].id;
+        document.getElementById('agentName').textContent=_projects[0].name;
+        const pRes=await fetch('/projects/'+_currentProjectId,{headers:authHeaders()});
+        const pData=await pRes.json();
+        if(pData.canvas_state)loadCanvasState(pData.canvas_state);
+      }
+      renderProjectDropdown();
+      document.getElementById('modalOverlay').classList.remove('open');
+    }catch(e){
+      document.getElementById('confirmDeleteProject').textContent='FAILED';
+      document.getElementById('confirmDeleteProject').style.color='var(--red)';
+      setTimeout(()=>{document.getElementById('confirmDeleteProject').textContent='DELETE';document.getElementById('confirmDeleteProject').disabled=false;},2000);
     }
-    renderProjectDropdown();
-  }catch(e){alert('Failed to delete project');}
+  };
 };
 
 // Init: load projects from API
