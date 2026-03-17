@@ -4973,17 +4973,21 @@ let _skillsLoaded=false;
 async function loadSkillsPage(){
   if(_skillsLoaded)return;
   const grid=document.getElementById('skillsPageGrid');
-  grid.innerHTML='<div style="color:var(--w30);font-size:11px;font-family:JetBrains Mono,monospace">Loading skills...</div>';
+  grid.innerHTML='<div style="color:var(--w30);font-size:11px;font-family:JetBrains Mono,monospace">Loading skills from ClawHub...</div>';
   try{
-    const res=await fetch('/skills/all');
+    const res=await fetch('/compute/skills/catalog');
     const data=await res.json();
+    const allSkills=(data.items||[]).map(sk=>({
+      slug:sk.slug,
+      name:sk.displayName||sk.slug,
+      description:sk.summary||'',
+      version:sk.latestVersion?.version||'',
+      downloads:sk.stats?.downloads||0,
+      stars:sk.stats?.stars||0,
+      installs:sk.stats?.installsAllTime||0,
+      source:'clawhub'
+    }));
     grid.innerHTML='';
-    const allSkills=[];
-    data.categories.forEach(cat=>{
-      cat.skills.forEach(sk=>{
-        allSkills.push({...sk,category:cat.name});
-      });
-    });
     window._allSkills=allSkills;
     renderSkillCards(allSkills);
     _skillsLoaded=true;
@@ -4996,12 +5000,12 @@ function renderSkillCards(skills){
   grid.innerHTML='';
   if(!skills.length){grid.innerHTML='<div style="color:var(--w30);font-size:11px;font-family:JetBrains Mono,monospace">No skills found</div>';return;}
   skills.forEach(sk=>{
+    const dlFmt=sk.downloads>=1000?(sk.downloads/1000).toFixed(1)+'k':sk.downloads;
     const card=document.createElement('div');
     card.className='skill-card';
     card.dataset.name=(sk.name||sk.slug||'').toLowerCase();
-    card.dataset.cat=(sk.category||'').toLowerCase();
     card.dataset.desc=(sk.description||'').toLowerCase();
-    card.innerHTML=`<div class="skill-card-name">${sk.name||sk.slug}</div><div class="skill-card-cat">${sk.category}</div><div class="skill-card-desc">${sk.description||'No description'}</div><div class="skill-card-footer"><button class="skill-card-install" onclick="this.textContent='Installed';this.classList.add('installed')">Install</button><span class="skill-card-source">${sk.source||'clawhub'}</span></div>`;
+    card.innerHTML=`<div class="skill-card-name">${sk.name||sk.slug}${sk.version?' <span style="font-size:9px;color:var(--w20);font-weight:400">v'+sk.version+'</span>':''}</div><div class="skill-card-cat">${dlFmt} downloads · ${sk.stars} ★</div><div class="skill-card-desc">${sk.description||'No description'}</div><div class="skill-card-footer"><button class="skill-card-install" onclick="installSkillToVps('${sk.slug}');this.textContent='Installing...';this.disabled=true">Install</button><a href="https://clawhub.ai/skills/${sk.slug}" target="_blank" class="skill-card-source" style="text-decoration:none">clawhub</a></div>`;
     grid.appendChild(card);
   });
 }
