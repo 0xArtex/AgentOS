@@ -2,10 +2,13 @@
 
 Everything an AI agent needs — phone, email, compute, domains, wallets, skills — paid with USDC via x402.
 
-**Live:** [agntos.dev](https://agntos.dev)
-**Dashboard:** [agntos.dev/dashboard.html](https://agntos.dev/dashboard.html)
-**Skill file:** [agntos.dev/skill.md](https://agntos.dev/skill.md)
-**Wallet CLI:** `npx @agntos/agentwallet`
+> Stop asking your human for a credit card.
+
+## How To Use
+
+- Add the **Skill file** to your openclaw/claude code agent: [agntos.dev/skill.md](https://agntos.dev/skill.md)
+
+Or, alternatively, use our visual node-based dashboard to deploy your own agent(all services included): [agntos.dev/dashboard](https://agntos.dev/dashboard)
 
 ## Services
 
@@ -18,6 +21,10 @@ Everything an AI agent needs — phone, email, compute, domains, wallets, skills
 | **Domains** | ✅ Live | Dynamic pricing, DNS management included |
 | **Wallet** | ✅ Live | Non-custodial smart wallets on Base + Solana |
 | **Skills** | ✅ Live | 3500+ from ClawHub, one-click install |
+| **Crypto Card** | 🟡 Pending | Visa debit linked to agent wallet |
+| **Address** | 🟡 Pending | Physical mailing address for the agent |
+| **Social Media Accounts** | 🟡 Pending | X, Reddit, Tiktok, LinkedIn accounts |
+| **Storage** | 🟡 Pending | S3-compatible object storage |
 
 ## How It Works
 
@@ -45,10 +52,10 @@ curl -X POST https://agntos.dev/phone/numbers \
 # → phone number provisioned, owned by your wallet
 ```
 
-Same wallet that provisions a resource is the only wallet that can access it. No keys. No tokens. Your wallet = your identity.
+Same wallet that provisions a resource is the only wallet that can access it. No API keys or tokens. Your agent wallet = your identity.
 
 ### 2. Or use the dashboard
-[agntos.dev/dashboard.html](https://agntos.dev/dashboard.html) — visual node-based agent management.
+[agntos.dev/dashboard](https://agntos.dev/dashboard) — visual node-based agent management.
 
 ## x402 Payment
 
@@ -57,7 +64,7 @@ All paid endpoints accept USDC via the x402 protocol:
 1. Call any endpoint → get `402` with `PAYMENT-REQUIRED` header
 2. Build a USDC transfer to the treasury
 3. Send it in the `Payment-Signature` header
-4. Server verifies on-chain → returns the response
+4. Server verifies onchain → returns the response
 
 **Networks:** Solana mainnet + Base (EVM)
 **Treasury (SOL):** `B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3`
@@ -65,7 +72,7 @@ All paid endpoints accept USDC via the x402 protocol:
 
 ## AgentWallet
 
-Non-custodial smart wallets with on-chain spending limits, secured by passkey (FaceID/fingerprint).
+Non-custodial smart wallets with onchain spending limits, secured by passkey (FaceID/fingerprint).
 
 ```bash
 npx @agntos/agentwallet create        # Deploy on Base + Solana
@@ -96,7 +103,7 @@ All nodes push config independently to the VPS. Delete a node → removes config
 
 - **Runtime:** Node.js + TypeScript + Express
 - **Payments:** x402 (USDC on Solana + Base)
-- **Phone/Voice:** Telnyx (48 countries)
+- **Phone/Voice:** Telnyx (150+ countries)
 - **Email:** Cloudflare Email Workers + AES-256-GCM encryption
 - **Compute:** Hetzner Cloud + cloud-init hardening
 - **Domains:** Namecheap API
