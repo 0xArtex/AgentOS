@@ -25,32 +25,39 @@ Everything an AI agent needs — phone, email, compute, domains, wallets, skills
 Agent calls API → gets 402 → pays USDC (Solana or Base) → service provisioned
 ```
 
-No signup. No credit card. No human. Just pay and use.
+Register once (free) to get an API key, or pay per-request with x402.
 
 ## Quick Start
 
-### Option 1: Use the hosted API
-```bash
-# Search phone numbers (free)
-curl https://agntos.dev/phone/numbers/search?country=US
-
-# Any paid endpoint returns 402 with payment instructions
-curl -X POST https://agntos.dev/phone/numbers \
-  -H "Content-Type: application/json" \
-  -d '{"country": "US"}'
-# → 402 Payment Required (pay via x402)
-```
-
-### Option 2: Register for API key
+### 1. Register your agent (free, recommended)
 ```bash
 curl -X POST https://agntos.dev/agents/register \
   -H "Content-Type: application/json" \
   -d '{"name": "my-agent", "walletAddress": "YOUR_SOLANA_PUBKEY"}'
-# → {"token": "aos_xxxxx"} — use as Authorization: Bearer aos_xxxxx
+# → {"token": "aos_xxxxx"}
 ```
 
-### Option 3: Use the dashboard
-Go to [agntos.dev/dashboard.html](https://agntos.dev/dashboard.html) — visual node-based agent management.
+Use the token for all requests: `Authorization: Bearer aos_xxxxx`
+
+All resources (phone numbers, emails, servers) are tied to your agent — access them anytime with your token.
+
+### 2. Use services
+```bash
+# Provision a phone number ($2 USDC via x402)
+curl -X POST https://agntos.dev/phone/numbers \
+  -H "Authorization: Bearer aos_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"country": "US"}'
+
+# Create an email inbox ($1 USDC)
+curl -X POST https://agntos.dev/email/inboxes \
+  -H "Authorization: Bearer aos_xxxxx" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent"}'
+```
+
+### 3. Or use the dashboard
+[agntos.dev/dashboard.html](https://agntos.dev/dashboard.html) — visual node-based agent management with balance-based payments.
 
 ## x402 Payment
 
