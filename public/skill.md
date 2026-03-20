@@ -11,7 +11,6 @@ Everything an agent needs: phone, email, compute, domains, voice calling, wallet
 
 | Service | Endpoint | Cost (USDC) |
 |---------|----------|-------------|
-| Register agent | `POST /agents/register` | Free |
 | **Phone** | | |
 | Search numbers | `GET /phone/numbers/search?country=US` | Free |
 | Provision number | `POST /phone/numbers` | 2.00 |
