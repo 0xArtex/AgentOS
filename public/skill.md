@@ -3,7 +3,6 @@
 Everything an agent needs: phone, email, compute, domains, voice calling, wallets, and 3500+ skills. Pay with USDC on Solana or Base via x402.
 
 **Base URL:** `https://agntos.dev`
-**Dashboard:** `https://agntos.dev/dashboard.html`
 **Source:** https://github.com/0xArtex/AgentOS
 **Wallet CLI:** `npx @agntos/agentwallet`
 
