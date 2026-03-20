@@ -39,7 +39,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
           return paymentAuth(req, res, next);
         }
 
-        send402Response(res, req, minUsdc, "This service requires USDC payment via x402.");
+        send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet = your identity.");
         return;
       }
     }
@@ -64,7 +64,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
           return paymentAuth(req, res, next);
         }
 
-        send402Response(res, req, minUsdc, "This service requires USDC payment via x402.");
+        send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet = your identity.");
         return;
       }
       
@@ -74,7 +74,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
         return paymentAuth(req, res, next);
       }
 
-      send402Response(res, req, minUsdc, "Agent not found. Pay with x402 or register at POST /agents/register.");
+      send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet address becomes the owner.");
       return;
     }
 
@@ -105,6 +105,6 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
     }
 
     // No auth at all — send 402 so x402-compatible agents can pay
-    send402Response(res, req, minUsdc, "Pay with USDC via x402 to use this service. Or register your agent at POST /agents/register for API key access.");
+    send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet address becomes the owner.");
   };
 }

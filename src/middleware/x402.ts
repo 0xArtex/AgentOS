@@ -67,6 +67,12 @@ export function send402Response(res: Response, req: Request, minUsdc: number, me
   res.status(402).json({
     error: "Payment Required",
     message,
+    how: "Pay USDC via x402. Your wallet address becomes the resource owner.",
+    steps: [
+      "1. Send USDC to the treasury (see 'accepts' below)",
+      "2. Include the payment in the Payment-Signature header",
+      "3. Your wallet address = your identity (same wallet to access later)"
+    ],
     ...paymentRequired,
   });
 }
