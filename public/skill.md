@@ -83,7 +83,6 @@ curl "https://agntos.dev/phone/numbers/search?country=US&limit=5"
 
 ```bash
 curl -X POST https://agntos.dev/phone/numbers \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"country": "US"}'
 ```
@@ -103,7 +102,6 @@ Response:
 
 ```bash
 curl -X POST https://agntos.dev/phone/numbers/PHONE_ID/send \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"to": "+15551234567", "body": "Hello from my agent!"}'
 ```
@@ -111,8 +109,7 @@ curl -X POST https://agntos.dev/phone/numbers/PHONE_ID/send \
 ### Read Messages (0.01 USDC)
 
 ```bash
-curl https://agntos.dev/phone/numbers/PHONE_ID/messages \
-  -H "Authorization: Bearer aos_xxxxx"
+curl https://agntos.dev/phone/numbers/PHONE_ID/messages
 ```
 
 ---
@@ -123,7 +120,6 @@ curl https://agntos.dev/phone/numbers/PHONE_ID/messages \
 
 ```bash
 curl -X POST https://agntos.dev/phone/numbers/PHONE_ID/call \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "to": "+15551234567",
@@ -161,7 +157,6 @@ Once a call is connected, use the `callControlId` from the dial response:
 **Speak text (TTS) — 0.05 USDC:**
 ```bash
 curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/speak \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"text": "Please press 1 for sales or 2 for support", "voice": "female", "language": "en-US"}'
 ```
@@ -169,7 +164,6 @@ curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/speak \
 **Play audio file — 0.05 USDC:**
 ```bash
 curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/play \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"audioUrl": "https://example.com/greeting.mp3"}'
 ```
@@ -177,7 +171,6 @@ curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/play \
 **Send DTMF tones — 0.02 USDC:**
 ```bash
 curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/dtmf \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"digits": "1234#"}'
 ```
@@ -185,7 +178,6 @@ curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/dtmf \
 **Gather DTMF input — 0.05 USDC:**
 ```bash
 curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/gather \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{
     "maxDigits": 4,
@@ -197,7 +189,6 @@ curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/gather \
 **Start recording — 0.05 USDC:**
 ```bash
 curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/record \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"format": "mp3"}'
 ```
@@ -205,13 +196,11 @@ curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/record \
 **Stop recording:**
 ```bash
 curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/record/stop \
-  -H "Authorization: Bearer aos_xxxxx"
 ```
 
 **Transfer call — 0.10 USDC:**
 ```bash
 curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/transfer \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"to": "+15559876543"}'
 ```
@@ -219,13 +208,11 @@ curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/transfer \
 **Answer inbound call:**
 ```bash
 curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/answer \
-  -H "Authorization: Bearer aos_xxxxx"
 ```
 
 **Hang up:**
 ```bash
 curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/hangup \
-  -H "Authorization: Bearer aos_xxxxx"
 ```
 
 ### Call History
@@ -233,13 +220,11 @@ curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/hangup \
 **List calls for a number (0.01 USDC):**
 ```bash
 curl https://agntos.dev/phone/numbers/PHONE_ID/calls \
-  -H "Authorization: Bearer aos_xxxxx"
 ```
 
 **Get call details (0.01 USDC):**
 ```bash
 curl https://agntos.dev/phone/calls/CALL_ID \
-  -H "Authorization: Bearer aos_xxxxx"
 ```
 
 ### Example: Agent calls a restaurant
@@ -261,7 +246,6 @@ curl https://agntos.dev/phone/calls/CALL_ID \
 
 ```bash
 curl -X POST https://agntos.dev/email/inboxes \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-agent", "walletAddress": "YOUR_SOLANA_PUBKEY"}'
 ```
@@ -289,7 +273,7 @@ curl -X POST https://agntos.dev/email/inboxes/INBOX_ID/send \
 ### List Plans (Free)
 
 ```bash
-curl https://agntos.dev/compute/plans
+curl https://agntos.dev/compute/plans \
 ```
 
 Available plans:
@@ -309,7 +293,6 @@ Available plans:
 
 ```bash
 curl -X POST https://agntos.dev/compute/ssh-keys \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-key", "publicKey": "ssh-ed25519 AAAA..."}'
 ```
@@ -320,7 +303,6 @@ Returns `id` — use it when creating servers.
 
 ```bash
 curl -X POST https://agntos.dev/compute/servers \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"name": "my-server", "serverType": "cx23", "sshKeyIds": [KEY_ID]}'
 ```
@@ -343,7 +325,6 @@ Response:
 
 ```bash
 curl -X POST https://agntos.dev/compute/servers/SERVER_ID/actions \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"action": "reboot"}'
 ```
@@ -354,7 +335,6 @@ Actions: `reboot`, `poweron`, `poweroff`, `rebuild`, `reset`
 
 ```bash
 curl -X POST https://agntos.dev/compute/servers/SERVER_ID/resize \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"serverType": "cx33"}'
 ```
@@ -365,7 +345,6 @@ Note: Server must be powered off to resize.
 
 ```bash
 curl -X DELETE https://agntos.dev/compute/servers/SERVER_ID \
-  -H "Authorization: Bearer aos_xxxxx"
 ```
 
 ---
@@ -375,20 +354,19 @@ curl -X DELETE https://agntos.dev/compute/servers/SERVER_ID \
 ### Check Availability (Free)
 
 ```bash
-curl "https://agntos.dev/domains/check?domain=example.com"
+curl "https://agntos.dev/domains/check?domain=example.com" \
 ```
 
 ### Get Pricing (Free)
 
 ```bash
-curl "https://agntos.dev/domains/pricing?domain=example"
+curl "https://agntos.dev/domains/pricing?domain=example" \
 ```
 
 ### Register Domain (dynamic pricing via x402)
 
 ```bash
 curl -X POST https://agntos.dev/domains/register \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"domain": "my-agent.dev"}'
 ```
@@ -397,11 +375,9 @@ curl -X POST https://agntos.dev/domains/register \
 
 ```bash
 # Get records
-curl https://agntos.dev/domains/my-agent.dev/dns -H "Authorization: Bearer aos_xxxxx"
 
 # Set records
 curl -X POST https://agntos.dev/domains/my-agent.dev/dns \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"records": [{"type": "A", "name": "@", "value": "1.2.3.4"}]}'
 ```
@@ -443,7 +419,7 @@ curl -X POST https://agntos.dev/wallet \
   -d '{"agent": "0xAGENT_ADDRESS", "mode": "managed", "chain": "base"}'
 
 # Check wallet status
-curl https://agntos.dev/wallet/0xWALLET_ADDRESS
+curl https://agntos.dev/wallet/0xWALLET_ADDRESS \
 ```
 
 **Security model:**
@@ -463,10 +439,10 @@ Browse and install skills from ClawHub:
 
 ```bash
 # Browse catalog (sorted by popularity)
-curl https://agntos.dev/compute/skills/catalog
+curl https://agntos.dev/compute/skills/catalog \
 
 # Security scan for a skill
-curl https://agntos.dev/compute/skills/self-improving-agent/security
+curl https://agntos.dev/compute/skills/self-improving-agent/security \
 ```
 
 Skills can be installed on your agent's VPS via the dashboard or CLI (`clawhub install <slug>`).
