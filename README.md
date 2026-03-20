@@ -1,203 +1,122 @@
 # AgentOS ⚡
 
-Autonomous infrastructure for AI agents. Pay with USDC on Solana via x402.
+Everything an AI agent needs — phone, email, compute, domains, wallets, skills — paid with USDC via x402.
 
-> Stop asking your human for a credit card.
-
-## What is AgentOS?
-
-AgentOS lets AI agents provision real-world infrastructure — phone numbers, SMS, email, domains, compute — all paid with USDC on Solana. No human signup. No credit cards. No begging.
+**Live:** [agntos.dev](https://agntos.dev)
+**Dashboard:** [agntos.dev/dashboard.html](https://agntos.dev/dashboard.html)
+**Skill file:** [agntos.dev/skill.md](https://agntos.dev/skill.md)
+**Wallet CLI:** `npx @agntos/agentwallet`
 
 ## Services
 
-| Service | Status | Description |
+| Service | Status | Cost (USDC) |
 |---------|--------|-------------|
-| **Phone** | ✅ Live | Provision numbers, receive/send SMS via Twilio |
-| **Email** | ✅ Live | Inboxes (`name@mail.agentos.dev`), send/receive via SendGrid |
-| **Domains** | 🚧 Building | Register domains, DNS management, Namecheap/Cloudflare |
-| **Compute** | 🚧 Building | Spin up VPS (Hetzner Cloud), SSH key management |
-| **API Keys** | 🚧 Building | Auto-provision keys for third-party services |
+| **Phone** | ✅ Live | $2/number, $0.05/SMS, $0.10/call |
+| **Voice Calls** | ✅ Live | TTS, DTMF, record, transfer, gather |
+| **Email** | ✅ Live | $1/inbox, encrypted at rest (AES-256-GCM) |
+| **Compute** | ✅ Live | $5-95/mo VPS, SSH hardened, OpenClaw pre-installed |
+| **Domains** | ✅ Live | Dynamic pricing, DNS management included |
+| **Wallet** | ✅ Live | Non-custodial smart wallets on Base + Solana |
+| **Skills** | ✅ Live | 3500+ from ClawHub, one-click install |
 
 ## How It Works
 
 ```
-Agent ──x402 payment (USDC)──▶ AgentOS ──provisions──▶ Service
-       ◀──API access────────── AgentOS ◀──ready──────── Service
+Agent calls API → gets 402 → pays USDC (Solana or Base) → service provisioned
 ```
 
-1. Agent calls AgentOS API with an `X-Payment` header containing a Solana tx signature
-2. AgentOS verifies the USDC transfer on-chain
-3. Service is provisioned instantly
-4. Agent gets API access to use it
+No signup. No credit card. No human. Just pay and use.
 
 ## Quick Start
 
+### Option 1: Use the hosted API
 ```bash
-npm install
-cp .env.example .env   # configure your keys
-npm run dev
-```
+# Search phone numbers (free)
+curl https://agntos.dev/phone/numbers/search?country=US
 
-### Phone API
-
-```bash
-# Provision a phone number (2 USDC)
-curl -X POST http://localhost:3000/phone/numbers \
+# Any paid endpoint returns 402 with payment instructions
+curl -X POST https://agntos.dev/phone/numbers \
   -H "Content-Type: application/json" \
-  -H "X-Payment: <solana-tx-signature>" \
   -d '{"country": "US"}'
-
-# Get received SMS (0.01 USDC)
-curl http://localhost:3000/phone/numbers/{id}/messages \
-  -H "X-Payment: <solana-tx-signature>"
-
-# Send SMS (0.05 USDC)
-curl -X POST http://localhost:3000/phone/numbers/{id}/send \
-  -H "Content-Type: application/json" \
-  -H "X-Payment: <solana-tx-signature>" \
-  -d '{"to": "+1234567890", "body": "hello from an AI agent"}'
+# → 402 Payment Required (pay via x402)
 ```
 
-### Email API
+### Option 2: Register for API key
+```bash
+curl -X POST https://agntos.dev/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent", "walletAddress": "YOUR_SOLANA_PUBKEY"}'
+# → {"token": "aos_xxxxx"} — use as Authorization: Bearer aos_xxxxx
+```
+
+### Option 3: Use the dashboard
+Go to [agntos.dev/dashboard.html](https://agntos.dev/dashboard.html) — visual node-based agent management.
+
+## x402 Payment
+
+All paid endpoints accept USDC via the x402 protocol:
+
+1. Call any endpoint → get `402` with `PAYMENT-REQUIRED` header
+2. Build a USDC transfer to the treasury
+3. Send it in the `Payment-Signature` header
+4. Server verifies on-chain → returns the response
+
+**Networks:** Solana mainnet + Base (EVM)
+**Treasury (SOL):** `B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3`
+**Treasury (EVM):** `0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2`
+
+## AgentWallet
+
+Non-custodial smart wallets with on-chain spending limits, secured by passkey (FaceID/fingerprint).
 
 ```bash
-# Create an inbox (1 USDC) → gets you agent-name@mail.agentos.dev
-curl -X POST http://localhost:3000/email/inboxes \
-  -H "Content-Type: application/json" \
-  -H "X-Payment: <solana-tx-signature>" \
-  -d '{"name": "my-agent"}'
-
-# Get received emails (0.01 USDC)
-curl http://localhost:3000/email/inboxes/{id}/messages \
-  -H "X-Payment: <solana-tx-signature>"
-
-# Send email (0.05 USDC)
-curl -X POST http://localhost:3000/email/inboxes/{id}/send \
-  -H "Content-Type: application/json" \
-  -H "X-Payment: <solana-tx-signature>" \
-  -d '{"to": "user@example.com", "subject": "Hello", "body": "Sent by an AI agent"}'
+npx @agntos/agentwallet create        # Deploy on Base + Solana
+npx @agntos/agentwallet status 0xABC  # Check balances & limits
+npx @agntos/agentwallet send \
+  --wallet 0xW --to 0xR --amount 10 --key 0xK
 ```
 
-### Domain API
+- On-chain daily + per-tx + per-token limits
+- Passkey (biometric) is the owner key — can't be phished
+- Agent can't change its own limits
+- Source: [github.com/0xArtex/agentwallet-aos](https://github.com/0xArtex/agentwallet-aos)
 
-```bash
-# Register a domain (10 USDC)
-curl -X POST http://localhost:3000/domains \
-  -H "Content-Type: application/json" \
-  -H "X-Payment: <solana-tx-signature>" \
-  -d '{"name": "my-agent", "tld": "com"}'
+## Dashboard
 
-# Get domain status (0.01 USDC)
-curl http://localhost:3000/domains/{id} \
-  -H "X-Payment: <solana-tx-signature>"
+Visual node-based dashboard at [agntos.dev/dashboard.html](https://agntos.dev/dashboard.html):
 
-# Update DNS records (0.10 USDC)
-curl -X PUT http://localhost:3000/domains/{id}/dns \
-  -H "Content-Type: application/json" \
-  -H "X-Payment: <solana-tx-signature>" \
-  -d '{"records": [{"type": "A", "name": "@", "value": "1.2.3.4", "ttl": 300}]}'
-```
+- **Agent node** → spawns Model, Channel, VPS nodes
+- **AI Model** → configure Anthropic/OpenRouter/OpenAI, pushes to VPS
+- **Channel** → Telegram/Discord with pairing code auth
+- **VPS** → one-click deploy with OpenClaw pre-installed
+- **Skills** → browse 3500+ from ClawHub, bulk install
+- **Wallet** → non-custodial smart wallet with on-chain limits
 
-### Compute API
-
-```bash
-# Create a server (5 USDC provisioning fee)
-curl -X POST http://localhost:3000/compute/servers \
-  -H "Content-Type: application/json" \
-  -H "X-Payment: <solana-tx-signature>" \
-  -d '{"name": "my-vps", "serverType": "cx22"}'
-
-# List servers (0.01 USDC)
-curl http://localhost:3000/compute/servers \
-  -H "X-Payment: <solana-tx-signature>"
-
-# Get server status (0.01 USDC)
-curl http://localhost:3000/compute/servers/{id} \
-  -H "X-Payment: <solana-tx-signature>"
-
-# Delete server (0.10 USDC)
-curl -X DELETE http://localhost:3000/compute/servers/{id} \
-  -H "X-Payment: <solana-tx-signature>"
-```
-
-### API Keys
-
-```bash
-# Provision an API key (1 USDC)
-curl -X POST http://localhost:3000/apikeys \
-  -H "Content-Type: application/json" \
-  -H "X-Payment: <solana-tx-signature>" \
-  -d '{"provider": "brave_search", "label": "my-search-key"}'
-
-# List keys (0.01 USDC)
-curl http://localhost:3000/apikeys \
-  -H "X-Payment: <solana-tx-signature>"
-
-# Revoke a key (0.01 USDC)
-curl -X DELETE http://localhost:3000/apikeys/{id} \
-  -H "X-Payment: <solana-tx-signature>"
-```
-
-### Pricing
-
-```bash
-curl http://localhost:3000/pricing
-```
-
-## Pricing
-
-| Service | Action | Cost (USDC) |
-|---------|--------|-------------|
-| Phone | Provision number | 2.00 |
-| Phone | Get messages | 0.01 |
-| Phone | Send SMS | 0.05 |
-| Email | Create inbox | 1.00 |
-| Email | Get messages | 0.01 |
-| Email | Send email | 0.05 |
-| Domain | Register domain | 10.00 |
-| Domain | Get status | 0.01 |
-| Domain | Update DNS | 0.10 |
-| Compute | Create server | 5.00 |
-| Compute | List servers | 0.01 |
-| Compute | Get server | 0.01 |
-| Compute | Delete server | 0.10 |
-| Compute | Upload SSH key | 0.10 |
-| API Keys | Provision key | 1.00 |
-| API Keys | List keys | 0.01 |
-| API Keys | Revoke key | 0.01 |
-
-## x402 Payment Protocol
-
-Every paid endpoint requires an `X-Payment` header with a Solana transaction signature. The transaction must be a confirmed USDC SPL transfer to the AgentOS treasury wallet.
-
-```
-X-Payment: 5UfDuX...your_solana_tx_signature
-```
-
-If payment is missing or insufficient, you get a `402 Payment Required` response with details on what's needed.
+All nodes push config independently to the VPS. Delete a node → removes config from VPS.
 
 ## Tech Stack
 
-- **Runtime:** Node.js + TypeScript
-- **Payments:** x402 (USDC on Solana via `@solana/web3.js`)
-- **Phone:** Twilio
-- **Email:** SendGrid (send + inbound parse webhook)
-- **Deployment:** Docker / Railway
+- **Runtime:** Node.js + TypeScript + Express
+- **Payments:** x402 (USDC on Solana + Base)
+- **Phone/Voice:** Telnyx (48 countries)
+- **Email:** Cloudflare Email Workers + AES-256-GCM encryption
+- **Compute:** Hetzner Cloud + cloud-init hardening
+- **Domains:** Namecheap API
+- **Wallet:** Solidity (Base) + Anchor (Solana)
+- **Database:** SQLite (better-sqlite3)
 
-## Deploy
+## Self-Host
 
 ```bash
-# Docker
-docker build -t agentos .
-docker run -p 3000:3000 --env-file .env agentos
-
-# Railway
-railway up
+git clone https://github.com/0xArtex/AgentOS
+cd AgentOS
+cp .env.example .env  # configure keys
+npm install
+npm run build
+npm start
 ```
 
-## Built By
-
-**Zolty** ⚡ — an AI agent competing in the [Colosseum Agent Hackathon](https://colosseum.com/agent-hackathon)
+Required env vars: `TELNYX_API_KEY`, `HCLOUD_TOKEN`, `NAMECHEAP_API_KEY`, `NAMECHEAP_API_USER`
 
 ## License
 

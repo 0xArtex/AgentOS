@@ -1,9 +1,11 @@
 # AgentOS — Infrastructure for AI Agents
 
-Phone, email, compute, domains, and voice calling for AI agents. Pay with USDC on Solana or Base via x402.
+Everything an agent needs: phone, email, compute, domains, voice calling, wallets, and 3500+ skills. Pay with USDC on Solana or Base via x402.
 
 **Base URL:** `https://agntos.dev`
+**Dashboard:** `https://agntos.dev/dashboard.html`
 **Source:** https://github.com/0xArtex/AgentOS
+**Wallet CLI:** `npx @agntos/agentwallet`
 
 ## Quick Reference
 
@@ -47,6 +49,14 @@ Phone, email, compute, domains, and voice calling for AI agents. Pay with USDC o
 | DNS records | `GET /domains/:domain/dns` | Free |
 | Update DNS | `POST /domains/:domain/dns` | Free |
 | Pricing | `GET /pricing` | Free |
+| **Wallet** | | |
+| Create wallet | `POST /wallet` | Free |
+| Wallet status | `GET /wallet/:address` | Free |
+| Generate keypair | `POST /wallet/keygen` | Free |
+| Transfer (ERC20) | Via smart contract | Gas only |
+| **Skills** | | |
+| Browse catalog | `GET /compute/skills/catalog` | Free |
+| Security scan | `GET /compute/skills/:slug/security` | Free |
 
 All paid endpoints use **x402** — make the request, get a 402, pay with USDC, done.
 
@@ -426,6 +436,78 @@ curl -X POST https://agntos.dev/domains/my-agent.dev/dns \
 - **Base (EVM):** USDC to `0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2`
 - **x402 Version:** 2
 - **Facilitator:** `4R67MWivvc52g9BSzQRvQyD8GshttW1QLbnj46usBrcQ`
+
+---
+
+## 💼 AgentWallet — Non-Custodial Smart Wallets
+
+Give your agent a wallet with on-chain spending limits, secured by your passkey (FaceID/fingerprint).
+
+### CLI (recommended)
+
+```bash
+npx @agntos/agentwallet create          # Deploy wallets on Base + Solana
+npx @agntos/agentwallet status 0xABC    # Check balances and limits
+npx @agntos/agentwallet send \
+  --wallet 0xWALLET --to 0xRECIPIENT \
+  --amount 10 --key 0xPRIVATE_KEY       # Send tokens
+npx @agntos/agentwallet execute \
+  --wallet 0xW --program 0xCONTRACT \
+  --data 0xCALLDATA --key 0xK           # Call any contract
+```
+
+### API
+
+```bash
+# Create managed wallet (with passkey owner)
+curl -X POST https://agntos.dev/wallet \
+  -H "Content-Type: application/json" \
+  -d '{"agent": "0xAGENT_ADDRESS", "mode": "managed", "chain": "base"}'
+
+# Check wallet status
+curl https://agntos.dev/wallet/0xWALLET_ADDRESS
+```
+
+**Security model:**
+- Agent's private key generated on its machine — never leaves
+- Your passkey (FaceID/fingerprint) is the on-chain owner
+- Smart contract enforces daily + per-tx + per-token limits
+- Agent cannot change its own limits — mathematically impossible
+
+**Chains:** Base mainnet (live), Solana (devnet)
+**Source:** https://github.com/0xArtex/agentwallet-aos
+
+---
+
+## 🧰 Skills Catalog (3500+)
+
+Browse and install skills from ClawHub:
+
+```bash
+# Browse catalog (sorted by popularity)
+curl https://agntos.dev/compute/skills/catalog
+
+# Security scan for a skill
+curl https://agntos.dev/compute/skills/self-improving-agent/security
+```
+
+Skills can be installed on your agent's VPS via the dashboard or CLI (`clawhub install <slug>`).
+
+---
+
+## 🖥️ Dashboard
+
+Visual node-based dashboard for managing agents: `https://agntos.dev/dashboard.html`
+
+- Drop an **Agent** node → auto-creates Model, Channel, VPS nodes
+- Configure **AI Model** (Anthropic/OpenRouter/OpenAI) → pushes to VPS
+- Configure **Channel** (Telegram/Discord) → pushes to VPS
+- Deploy **VPS** → auto-installs OpenClaw with cloud-init hardening
+- Connect **Skills** → bulk-installs from ClawHub
+- Connect **Wallet** → installs agentwallet skill + pushes keys to VPS
+- All config pushes independently — no waiting for everything
+
+---
 
 ## Webhooks
 
