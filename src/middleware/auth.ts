@@ -74,14 +74,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
         return paymentAuth(req, res, next);
       }
 
-      res.status(401).json({
-        error: "Agent Not Registered",
-        message: "Register your agent first, or pay with x402",
-        register: {
-          endpoint: "POST /agents/register",
-          body: { name: "your-agent-name", walletAddress: "<solana-pubkey>" },
-        },
-      });
+      send402Response(res, req, minUsdc, "Agent not found. Pay with x402 or register at POST /agents/register.");
       return;
     }
 
@@ -111,18 +104,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
       return;
     }
 
-    // No auth at all
-    res.status(401).json({
-      error: "Authentication Required",
-      message: "Register your agent or pay with USDC to use AgentOS",
-      register: {
-        endpoint: "POST /agents/register",
-        body: { name: "your-agent-name", walletAddress: "<solana-pubkey>" },
-      },
-      payment: {
-        method: "x402",
-        header: "Payment-Signature: <base64-encoded-payment>",
-      },
-    });
+    // No auth at all — send 402 so x402-compatible agents can pay
+    send402Response(res, req, minUsdc, "Pay with USDC via x402 to use this service. Or register your agent at POST /agents/register for API key access.");
   };
 }
