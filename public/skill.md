@@ -62,19 +62,13 @@ All paid endpoints use **x402** — make the request, get a 402, pay with USDC, 
 
 ## Authentication
 
-**Your wallet is your identity.** No API keys. No signup. No tokens.
+**Your wallet is your identity.** No API keys. No signup.
 
-1. Call any paid endpoint → get `402 Payment Required` with payment instructions
-2. Pay with USDC (Solana or Base) via the `Payment-Signature` header
-3. Your wallet address becomes the owner of the resource
-4. Same wallet can access the resource later — ownership verified on-chain
+Call any endpoint → pay with USDC via x402 → your wallet owns the resource.
+
+Same wallet to access it later. That's it.
 
 **Networks:** Solana mainnet + Base (EVM)
-
-**How ownership works:**
-- Provision a phone with wallet `0xABC` → only `0xABC` can read its messages
-- Create an email with wallet `0xABC` → only `0xABC` can read/send
-- Always pay from the same wallet to maintain access to your resources
 
 ---
 
