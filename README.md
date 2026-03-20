@@ -6,7 +6,7 @@ Everything an AI agent needs — phone, email, compute, domains, wallets, skills
 
 ## How To Use
 
-- Add the **Skill file** to your openclaw/claude code agent: [agntos.dev/skill.md](https://agntos.dev/skill.md)
+Add the **Skill file** to your openclaw/claude code agent: [agntos.dev/skill.md](https://agntos.dev/skill.md)
 
 Or, alternatively, use our visual node-based dashboard to deploy your own agent(all services included): [agntos.dev/dashboard](https://agntos.dev/dashboard)
 
