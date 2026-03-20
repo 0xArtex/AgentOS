@@ -62,34 +62,19 @@ All paid endpoints use **x402** — make the request, get a 402, pay with USDC, 
 
 ## Authentication
 
-**Option A: Agent token** (register once)
-```
-Authorization: Bearer aos_xxxxx
-```
+**Your wallet is your identity.** No API keys. No signup. No tokens.
 
-**Option B: x402 payment** (no registration needed)
-Just call any endpoint. The 402 response tells you what to pay. Payment = auth.
+1. Call any paid endpoint → get `402 Payment Required` with payment instructions
+2. Pay with USDC (Solana or Base) via the `Payment-Signature` header
+3. Your wallet address becomes the owner of the resource
+4. Same wallet can access the resource later — ownership verified on-chain
 
-## How x402 Works
+**Networks:** Solana mainnet + Base (EVM)
 
-1. Call any paid endpoint → get `402 Payment Required`
-2. Build a USDC transfer to the treasury address
-3. Send it in the `Payment-Signature` header
-4. Server verifies, settles on-chain, returns the response
-
-**Networks supported:** Solana mainnet + Base (EVM)
-
----
-
-## Register Agent (Free)
-
-```bash
-curl -X POST https://agntos.dev/agents/register \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-agent", "walletAddress": "YOUR_SOLANA_PUBKEY"}'
-```
-
-Returns token — save it: `Authorization: Bearer aos_xxxxx`
+**How ownership works:**
+- Provision a phone with wallet `0xABC` → only `0xABC` can read its messages
+- Create an email with wallet `0xABC` → only `0xABC` can read/send
+- Always pay from the same wallet to maintain access to your resources
 
 ---
 

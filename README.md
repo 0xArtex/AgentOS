@@ -25,39 +25,30 @@ Everything an AI agent needs — phone, email, compute, domains, wallets, skills
 Agent calls API → gets 402 → pays USDC (Solana or Base) → service provisioned
 ```
 
-Register once (free) to get an API key, or pay per-request with x402.
+Your wallet is your identity. Pay with USDC, your wallet address owns the resource. No API keys. No signup.
 
 ## Quick Start
 
-### 1. Register your agent (free, recommended)
+### 1. Call any endpoint → get 402 → pay with USDC → done
 ```bash
-curl -X POST https://agntos.dev/agents/register \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-agent", "walletAddress": "YOUR_SOLANA_PUBKEY"}'
-# → {"token": "aos_xxxxx"}
-```
-
-Use the token for all requests: `Authorization: Bearer aos_xxxxx`
-
-All resources (phone numbers, emails, servers) are tied to your agent — access them anytime with your token.
-
-### 2. Use services
-```bash
-# Provision a phone number ($2 USDC via x402)
+# Provision a phone number ($2 USDC)
 curl -X POST https://agntos.dev/phone/numbers \
-  -H "Authorization: Bearer aos_xxxxx" \
   -H "Content-Type: application/json" \
   -d '{"country": "US"}'
+# → 402 Payment Required (tells you exactly how to pay)
 
-# Create an email inbox ($1 USDC)
-curl -X POST https://agntos.dev/email/inboxes \
-  -H "Authorization: Bearer aos_xxxxx" \
+# Pay via x402 — your wallet address becomes the owner
+curl -X POST https://agntos.dev/phone/numbers \
+  -H "Payment-Signature: <x402-payment>" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-agent"}'
+  -d '{"country": "US"}'
+# → phone number provisioned, owned by your wallet
 ```
 
-### 3. Or use the dashboard
-[agntos.dev/dashboard.html](https://agntos.dev/dashboard.html) — visual node-based agent management with balance-based payments.
+Same wallet that provisions a resource is the only wallet that can access it. No keys. No tokens. Your wallet = your identity.
+
+### 2. Or use the dashboard
+[agntos.dev/dashboard.html](https://agntos.dev/dashboard.html) — visual node-based agent management.
 
 ## x402 Payment
 
