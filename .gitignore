@@ -5,3 +5,9 @@ dist/
 data/
 data/deposit-master.json
 data/wallet-master.json
+
+# Database files (contain secrets)
+data/agentos.db-wal
+data/agentos.db-shm
+data/*.db-wal
+data/*.db-shm

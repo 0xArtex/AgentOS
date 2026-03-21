@@ -230,36 +230,51 @@ import partnerHealthRoutes from "./routes/partner-health";app.use("/api/partner-
 app.get("/pricing", (_req, res) => {
   res.json({
     currency: "USDC",
-    network: "solana",
+    networks: ["solana", "base"],
+    auth: "Your wallet is your identity. Pay via x402 — your wallet address owns the resource.",
     services: {
       phone: {
-        "provision_number": "2.00",
-        "get_messages": "0.01",
-        "send_sms": "0.05",
+        provision_number: "2.00",
+        send_sms: "0.05",
+        read_messages: "0.01",
+        place_call: "0.10",
+        speak_tts: "0.05",
+        play_audio: "0.05",
+        send_dtmf: "0.02",
+        gather_input: "0.05",
+        record_call: "0.05",
+        hangup: "0.01",
+        transfer_call: "0.10",
       },
       email: {
-        "create_inbox": "1.00",
-        "get_messages": "0.01",
-        "send_email": "0.05",
-      },
-      domains: {
-        "register_domain": "10.00",
-        "get_status": "0.01",
-        "update_dns": "0.10",
+        create_inbox: "1.00",
+        read_messages: "0.01",
+        send_email: "0.05",
       },
       compute: {
-        "create_server": "5.00",
-        "list_servers": "0.01",
-        "get_server": "0.01",
-        "delete_server": "0.10",
-        "upload_ssh_key": "0.10",
+        create_server: "5.00-95.00",
+        server_actions: "0.05",
+        resize_server: "0.10",
+        delete_server: "0.05",
       },
-      apikeys: {
-        "provision_key": "1.00",
-        "list_keys": "0.01",
-        "revoke_key": "0.01",
+      domains: {
+        register: "dynamic (14-88)",
+        check_availability: "free",
+        pricing: "free",
+        dns_management: "free",
+      },
+      wallet: {
+        create: "free",
+        status: "free",
+        keygen: "free",
+        note: "Non-custodial smart wallet on Base + Solana. CLI: npx @agntos/agentwallet",
       },
     },
+    treasury: {
+      solana: "B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3",
+      base: "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2",
+    },
+    docs: "https://agntos.dev/skill.md",
   });
 
 });

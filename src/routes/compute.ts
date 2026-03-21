@@ -102,7 +102,7 @@ router.delete("/ssh-keys/:id", requireAuth(0.01, 'general'), async (req: Authent
  * POST /compute/servers — Create a server
  * Cost: varies by plan (6-50 USDC)
  */
-router.post("/servers", rateLimit(5, 60_000), requireAuth(6.0, 'server'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, serverType, image, sshKeyIds, location, installOpenClaw } = req.body as {
       name: string;
