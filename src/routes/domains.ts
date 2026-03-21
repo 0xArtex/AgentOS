@@ -222,7 +222,7 @@ router.get('/check', async (req: Request, res: Response) => {
       });
 
       const basePrice = await getTldPrice(tld);
-      const markupPrice = Math.round(basePrice * 1.10 * 100) / 100;
+      const markupPrice = Math.round(basePrice * 1.25 * 100) / 100;
 
       const result: DomainCheckResult = {
         available: checkResult.available || false,
@@ -268,7 +268,7 @@ router.get('/pricing', async (_req: Request, res: Response) => {
   
   await Promise.all(tlds.map(async (tld) => {
     const base = await getTldPrice(tld);
-    pricing[tld] = Math.round(base * 1.10 * 100) / 100; // 10% markup
+    pricing[tld] = Math.round(base * 1.25 * 100) / 100; // 25% markup
   }));
 
   res.json({
@@ -309,7 +309,7 @@ router.post('/register', requireAuth(20.0, 'general'), async (req: Authenticated
     const domainParts = domain.split('.');
     const tld = domainParts.slice(1).join('.');
     const basePrice = await getTldPrice(tld);
-    const finalPrice = Math.round(basePrice * 1.10 * 100) / 100;
+    const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
 
     // Register domain via Namecheap
     const registerResult = await namecheapRequest('namecheap.domains.create', {

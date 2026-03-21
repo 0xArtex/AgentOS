@@ -12,38 +12,38 @@ Everything an agent needs: phone, email, compute, domains, voice calling, wallet
 |---------|----------|-------------|
 | **Phone** | | |
 | Search numbers | `GET /phone/numbers/search?country=US` | Free |
-| Provision number | `POST /phone/numbers` | 2.00 |
+| Provision number | `POST /phone/numbers` | 3.00 |
 | Send SMS | `POST /phone/numbers/:id/send` | 0.05 |
-| Read messages | `GET /phone/numbers/:id/messages` | 0.01 |
+| Read messages | `GET /phone/numbers/:id/messages` | 0.02 |
 | **Voice Calls** | | |
 | Place call | `POST /phone/numbers/:id/call` | 0.10 |
-| Speak (TTS) | `POST /phone/calls/:callControlId/speak` | 0.05 |
-| Play audio | `POST /phone/calls/:callControlId/play` | 0.05 |
+| Speak (TTS) | `POST /phone/calls/:callControlId/speak` | 0.08 |
+| Play audio | `POST /phone/calls/:callControlId/play` | 0.08 |
 | Send DTMF | `POST /phone/calls/:callControlId/dtmf` | 0.02 |
-| Gather input | `POST /phone/calls/:callControlId/gather` | 0.05 |
-| Record call | `POST /phone/calls/:callControlId/record` | 0.05 |
-| Hangup | `POST /phone/calls/:callControlId/hangup` | 0.01 |
-| Answer inbound | `POST /phone/calls/:callControlId/answer` | 0.01 |
+| Gather input | `POST /phone/calls/:callControlId/gather` | 0.08 |
+| Record call | `POST /phone/calls/:callControlId/record` | 0.10 |
+| Hangup | `POST /phone/calls/:callControlId/hangup` | 0.02 |
+| Answer inbound | `POST /phone/calls/:callControlId/answer` | 0.02 |
 | Transfer call | `POST /phone/calls/:callControlId/transfer` | 0.10 |
-| List calls | `GET /phone/numbers/:id/calls` | 0.01 |
-| Call details | `GET /phone/calls/:id` | 0.01 |
+| List calls | `GET /phone/numbers/:id/calls` | 0.02 |
+| Call details | `GET /phone/calls/:id` | 0.02 |
 | **Email** | | |
-| Provision inbox | `POST /email/inboxes` | 1.00 |
-| Read inbox | `GET /email/inboxes/:id/messages` | 0.01 |
-| Send email | `POST /email/inboxes/:id/send` | 0.05 |
+| Provision inbox | `POST /email/inboxes` | 2.00 |
+| Read inbox | `GET /email/inboxes/:id/messages` | 0.02 |
+| Send email | `POST /email/inboxes/:id/send` | 0.08 |
 | **Compute** | | |
 | List plans | `GET /compute/plans` | Free |
 | Upload SSH key | `POST /compute/ssh-keys` | 0.10 |
-| Create server | `POST /compute/servers` | 5.00-95.00 |
+| Create server | `POST /compute/servers` | 8.00-40.00 |
 | List servers | `GET /compute/servers` | 0.01 |
 | Server status | `GET /compute/servers/:id` | 0.01 |
-| Server action | `POST /compute/servers/:id/actions` | 0.05 |
+| Server action | `POST /compute/servers/:id/actions` | 0.10 |
 | Resize server | `POST /compute/servers/:id/resize` | 0.10 |
-| Delete server | `DELETE /compute/servers/:id` | 0.05 |
+| Delete server | `DELETE /compute/servers/:id` | 0.10 |
 | **Domains** | | |
 | Check availability | `GET /domains/check?domain=example.com` | Free |
 | TLD pricing | `GET /domains/pricing?domain=example` | Free |
-| Register domain | `POST /domains/register` | ~14-88 |
+| Register domain | `POST /domains/register` | dynamic (25% markup) |
 | DNS records | `GET /domains/:domain/dns` | Free |
 | Update DNS | `POST /domains/:domain/dns` | Free |
 | Pricing | `GET /pricing` | Free |

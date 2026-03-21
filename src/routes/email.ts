@@ -11,7 +11,7 @@ const router = Router();
  * POST /email/provision — Create an email inbox
  * Cost: 1.00 USDC (or free during hackathon)
  */
-router.post("/provision", requireAuth(1.0, "email"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/provision", requireAuth(2.0, "email"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, walletAddress } = req.body;
 
@@ -60,7 +60,7 @@ router.post("/provision", requireAuth(1.0, "email"), async (req: AuthenticatedRe
 /**
  * POST /email/inboxes — Alias for /email/provision
  */
-router.post("/inboxes", requireAuth(1.0, "email"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/inboxes", requireAuth(2.0, "email"), async (req: AuthenticatedRequest, res: Response) => {
   const { name, walletAddress, solanaPublicKey: spk } = req.body;
   if (!name || !(walletAddress || spk)) {
     res.status(400).json({ error: "Missing 'name' and 'walletAddress'" });
@@ -84,7 +84,7 @@ router.post("/inboxes", requireAuth(1.0, "email"), async (req: AuthenticatedRequ
  * 
  * Messages are encrypted at rest — only decrypted in-flight during this request.
  */
-router.get("/inboxes/:id/messages", x402(0.01), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/inboxes/:id/messages", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
     const inbox = emailService.getInbox(inboxId);
@@ -158,7 +158,7 @@ router.get("/inboxes/:id/messages", x402(0.01), async (req: AuthenticatedRequest
  * POST /email/inboxes/:id/send — Send email
  * Cost: 0.05 USDC
  */
-router.post("/inboxes/:id/send", x402(0.05), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/inboxes/:id/send", x402(0.08), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
     const inbox = emailService.getInbox(inboxId);

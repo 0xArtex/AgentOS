@@ -185,7 +185,7 @@ router.get("/servers/:id", requireAuth(0.01, 'general'), async (req: Authenticat
  * POST /compute/servers/:id/actions — Perform server action (reboot, poweron, poweroff, rebuild, reset)
  * Cost: 0.05 USDC
  */
-router.post("/servers/:id/actions", requireAuth(0.05, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/actions", requireAuth(0.10, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { action, image } = req.body as { action: string; image?: string };
     const validActions: ServerAction[] = ["reboot", "poweron", "poweroff", "rebuild", "reset"];
@@ -1105,7 +1105,7 @@ router.post("/servers/:id/resize", requireAuth(0.10, 'general'), async (req: Aut
  * DELETE /compute/servers/:id — Destroy server permanently
  * Cost: 0.05 USDC
  */
-router.delete("/servers/:id", requireAuth(0.05, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/servers/:id", requireAuth(0.10, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     await computeService.deleteServer(String(req.params.id));
     res.json({ deleted: true, id: String(req.params.id), message: "Server permanently destroyed." });

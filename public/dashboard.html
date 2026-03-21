@@ -2155,12 +2155,12 @@ function showConfigModal(el,svcType,nodeId){
 
 // ─── VPS Setup Modal (from agent deploy) ───
 const VPS_TIERS=[
-  {id:'cx23',cpu:2,ram:4,disk:40,price:5,tag:'starter'},
-  {id:'cx33',cpu:4,ram:8,disk:80,price:10,tag:'recommended'},
-  {id:'cx43',cpu:8,ram:16,disk:160,price:20,tag:''},
-  {id:'cpx21',cpu:3,ram:4,disk:80,price:7,tag:'performance'},
-  {id:'cpx31',cpu:4,ram:8,disk:160,price:14,tag:''},
-  {id:'cpx41',cpu:8,ram:16,disk:240,price:28,tag:''},
+  {id:'cx23',cpu:2,ram:4,disk:40,price:8,tag:'starter'},
+  {id:'cx33',cpu:4,ram:8,disk:80,price:15,tag:'recommended'},
+  {id:'cx43',cpu:8,ram:16,disk:160,price:25,tag:''},
+  {id:'cpx21',cpu:3,ram:4,disk:80,price:12,tag:'performance'},
+  {id:'cpx31',cpu:4,ram:8,disk:160,price:25,tag:''},
+  {id:'cpx41',cpu:8,ram:16,disk:240,price:40,tag:''},
 ];
 
 async function openVpsSetupModal(vpsEl,agentId){
