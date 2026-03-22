@@ -111,43 +111,59 @@ router.get("/inboxes/:id/messages", x402(0.02), async (req: AuthenticatedRequest
       return;
     }
 
-    // Get encrypted messages and decrypt them server-side
+    // Get messages and handle decryption based on type
     const encryptedMsgs = emailService.getMessages(inboxId);
-    const decryptedMsgs = encryptedMsgs.map(msg => {
-      try {
+    const isE2E = inbox.e2eEnabled;
+
+    const messages = encryptedMsgs.map(msg => {
+      if (!msg.encrypted) {
+        return { id: msg.id, direction: msg.direction, from: msg.from, to: msg.to, subject: msg.subject, body: msg.body, html: msg.html, timestamp: msg.timestamp };
+      }
+
+      // Check if message is wallet-encrypted (E2E) — starts with "w:"
+      const isWalletEncrypted = msg.subject?.startsWith("w:") || msg.body?.startsWith("w:");
+      
+      if (isWalletEncrypted) {
+        // E2E: return ciphertext — only the agent can decrypt with its private key
         return {
-          id: msg.id,
-          direction: msg.direction,
-          from: msg.from,
-          to: msg.to,
-          subject: msg.encrypted ? emailService.serverDecrypt(inboxId, msg.subject) : msg.subject,
-          body: msg.encrypted ? emailService.serverDecrypt(inboxId, msg.body) : msg.body,
-          html: msg.html && msg.encrypted ? emailService.serverDecrypt(inboxId, msg.html) : msg.html,
-          timestamp: msg.timestamp,
-        };
-      } catch (decErr: any) {
-        // If server can't decrypt (old wallet-encrypted messages), return as-is
-        return {
-          id: msg.id,
-          direction: msg.direction,
-          from: msg.from,
-          to: msg.to,
-          subject: msg.subject,
-          body: msg.body,
-          html: msg.html,
+          id: msg.id, direction: msg.direction, from: msg.from, to: msg.to,
+          subject: msg.subject, body: msg.body, html: msg.html,
           timestamp: msg.timestamp,
           encrypted: true,
-          decryptionNote: "Legacy wallet-encrypted message. Decrypt client-side with your Solana private key.",
+          e2e: true,
+          decryptionNote: "E2E encrypted with your wallet's public key. Decrypt client-side using nacl.box.open with your Solana private key (Ed25519→X25519).",
+        };
+      }
+
+      // Server-encrypted: decrypt server-side (we hold the key)
+      try {
+        return {
+          id: msg.id, direction: msg.direction, from: msg.from, to: msg.to,
+          subject: emailService.serverDecrypt(inboxId, msg.subject),
+          body: emailService.serverDecrypt(inboxId, msg.body),
+          html: msg.html ? emailService.serverDecrypt(inboxId, msg.html) : undefined,
+          timestamp: msg.timestamp,
+          e2e: false,
+        };
+      } catch {
+        return {
+          id: msg.id, direction: msg.direction, from: msg.from, to: msg.to,
+          subject: msg.subject, body: msg.body, html: msg.html,
+          timestamp: msg.timestamp, encrypted: true,
+          decryptionNote: "Could not decrypt. May require client-side decryption.",
         };
       }
     });
     
     res.json({
       inbox: inbox.address,
-      messages: decryptedMsgs,
-      totalMessages: decryptedMsgs.length,
+      messages,
+      totalMessages: messages.length,
       paidBy: payer,
-      security: "Messages encrypted at rest. Decrypted in-flight after x402 payment proved wallet ownership. Served over TLS.",
+      e2eEnabled: isE2E,
+      security: isE2E
+        ? "E2E encrypted — messages encrypted with your wallet's public key. Only you can decrypt. We cannot read your emails."
+        : "Encrypted at rest (AES-256-GCM). Decrypted in-flight after x402 payment proved wallet ownership.",
     });
   } catch (err: any) {
     res.status(err.message?.includes("not found") ? 404 : 500).json({ error: err.message });

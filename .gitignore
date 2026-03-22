@@ -11,3 +11,4 @@ data/agentos.db-wal
 data/agentos.db-shm
 data/*.db-wal
 data/*.db-shm
+data/agentos.db

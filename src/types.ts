@@ -63,6 +63,8 @@ export interface EmailInbox {
   publicKey: string;
   /** Solana Ed25519 public key (base58) — the wallet that owns this inbox */
   solanaPublicKey: string;
+  /** If true, messages are encrypted with wallet key (E2E) — server can't read */
+  e2eEnabled?: boolean;
   createdAt: string;
   active: boolean;
 }

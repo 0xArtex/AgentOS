@@ -171,6 +171,7 @@ export function createInbox(
     owner,
     publicKey: publicKeyB64,
     solanaPublicKey,
+    e2eEnabled: true, // Default to E2E encryption — we can't read agent emails
     createdAt: new Date().toISOString(),
     active: true,
   };
@@ -181,11 +182,13 @@ export function createInbox(
   return {
     ...inbox,
     decryptionGuide: {
-      note: "Messages are encrypted at rest. Read them by paying $0.01 via x402 from your wallet.",
+      note: "E2E encrypted — messages encrypted with your wallet's public key. Only you can decrypt.",
+      encryption: "NaCl box (X25519 + XSalsa20-Poly1305)",
       steps: [
-        "1. GET /email/inboxes/:id/messages (x402 payment of $0.01 from your wallet)",
-        "2. Payment proves you own the inbox — server decrypts and returns messages",
-        "3. Messages served over TLS, never stored in plaintext",
+        "1. GET /email/inboxes/:id/messages (x402 payment from your wallet)",
+        "2. Messages returned as ciphertext — we cannot read them",
+        "3. Decrypt client-side: strip 'w:' prefix, base64 decode, nacl.box.open(ciphertext, nonce, serverPub, yourPrivateKey)",
+        "4. Convert your Ed25519 key to X25519 for decryption",
       ],
     },
   };
@@ -224,15 +227,29 @@ export function handleInboundEmail(
     return null;
   }
 
-  // Encrypt with server-managed key (AES-256-GCM)
+  // Encrypt: use wallet key (E2E) if available, else server-managed
+  const useE2E = inbox.publicKey && inbox.e2eEnabled;
+  const encrypt = (text: string) => {
+    if (useE2E && inbox.publicKey) {
+      try {
+        const x25519Pub = decodeBase64(inbox.publicKey);
+        return "w:" + encryptForWallet(text, x25519Pub); // "w:" prefix = wallet-encrypted (E2E)
+      } catch (e) {
+        console.warn("[email] E2E encryption failed, falling back to server:", e);
+        return serverEncrypt(inboxId, text);
+      }
+    }
+    return serverEncrypt(inboxId, text);
+  };
+
   const msg: EmailMessage = {
     id: uuid(),
     inboxId,
     direction: "inbound",
     from,
     to,
-    subject: serverEncrypt(inboxId, subject),
-    body: serverEncrypt(inboxId, body),
+    subject: encrypt(subject),
+    body: encrypt(body),
     html: html ? serverEncrypt(inboxId, html) : undefined,
     encrypted: true,
     timestamp: new Date().toISOString(),
@@ -256,16 +273,27 @@ export async function sendEmail(
 
   await sendViaMailChannels(inbox.address, to, subject, body, html);
 
-  // Encrypt sent content at rest
+  // Encrypt sent content at rest (same mode as inbound)
+  const useE2E = inbox.publicKey && inbox.e2eEnabled;
+  const encryptOut = (text: string) => {
+    if (useE2E && inbox.publicKey) {
+      try {
+        const x25519Pub = decodeBase64(inbox.publicKey);
+        return "w:" + encryptForWallet(text, x25519Pub);
+      } catch { return serverEncrypt(inboxId, text); }
+    }
+    return serverEncrypt(inboxId, text);
+  };
+
   const msg: EmailMessage = {
     id: uuid(),
     inboxId,
     direction: "outbound",
     from: inbox.address,
     to,
-    subject: serverEncrypt(inboxId, subject),
-    body: serverEncrypt(inboxId, body),
-    html: html ? serverEncrypt(inboxId, html) : undefined,
+    subject: encryptOut(subject),
+    body: encryptOut(body),
+    html: html ? encryptOut(html) : undefined,
     encrypted: true,
     timestamp: new Date().toISOString(),
   };
