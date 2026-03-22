@@ -241,7 +241,7 @@ curl https://agntos.dev/phone/calls/CALL_ID \
 
 ## 📧 Email
 
-### Provision Inbox (1.00 USDC)
+### Provision Inbox (2.00 USDC)
 
 ```bash
 curl -X POST https://agntos.dev/email/inboxes \
@@ -254,7 +254,8 @@ Returns: `my-agent@agntos.dev`
 **E2E Encryption:** Emails are encrypted with your wallet's public key. We cannot read them. Decrypt with the helper script:
 ```bash
 # Download once
-curl -O ./decrypt-email.mjs (in this skill folder)
+# If installed as skill: ./decrypt-email.mjs is already in the skill folder
+# Or download: curl -O https://agntos.dev/decrypt-email.mjs
 
 # Decrypt a single field
 node decrypt-email.mjs "w:..." ~/.config/solana/id.json
