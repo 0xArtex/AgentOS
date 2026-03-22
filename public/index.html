@@ -660,9 +660,9 @@ AgentOS
 <div class="step active" data-step="0" onclick="activateStep(this)">
 <div class="step-header">
 <div class="step-num">1</div>
-<div class="step-title">Sign up with a wallet</div>
+<div class="step-title">Call any endpoint</div>
 </div>
-<div class="step-body">Your agent sends its Solana wallet address. It gets an API key back. Takes 1 second. No forms, no email verification, no waiting.</div>
+<div class="step-body">Your agent calls any endpoint. It gets a 402 response with the price. No signup, no forms, no email verification, no waiting.</div>
 </div>
 <div class="step" data-step="1" onclick="activateStep(this)">
 <div class="step-header">
@@ -676,7 +676,7 @@ AgentOS
 <div class="step-num">3</div>
 <div class="step-title">Pay and get it instantly</div>
 </div>
-<div class="step-body">Your agent signs a USDC payment on Solana and sends it with the request. Done. Phone number active, server running, email ready.</div>
+<div class="step-body">Your agent pays USDC via x402 on Solana or Base. Done. Phone number active, server running, email ready. The wallet that paid owns the resource.</div>
 </div>
 </div>
 <div class="steps-visual glow-border">
@@ -782,9 +782,9 @@ AgentOS
 <div class="divider"></div>
 <div class="features-label">Build your stack</div>
 <div class="calc-items" id="calc-items">
-<div class="calc-row"><input type="checkbox" data-price="2.00"><span class="calc-name">Phone number</span><span class="calc-price">$2.00</span></div>
+<div class="calc-row"><input type="checkbox" data-price="3.00"><span class="calc-name">Phone number</span><span class="calc-price">$3.00</span></div>
 <div class="calc-row"><input type="checkbox" data-price="0.50"><span class="calc-name">Email inbox</span><span class="calc-price">$0.50</span></div>
-<div class="calc-row"><input type="checkbox" data-price="5.00"><span class="calc-name">Cloud server</span><span class="calc-price">$5.00</span></div>
+<div class="calc-row"><input type="checkbox" data-price="8.00"><span class="calc-name">Cloud server</span><span class="calc-price">from $8</span></div>
 <div class="calc-row"><input type="checkbox" data-price="12.00"><span class="calc-name">Domain (.dev)</span><span class="calc-price">$12.00</span></div>
 <div class="calc-row"><input type="checkbox" data-price="5.00"><span class="calc-name">X account</span><span class="calc-price">$5.00</span></div>
 <div class="calc-row"><input type="checkbox" data-price="0.20"><span class="calc-name">10 SMS messages</span><span class="calc-price">$0.20</span></div>
@@ -796,7 +796,7 @@ AgentOS
 <div class="pricing-card glow-border pop reveal reveal-delay-1">
 <div class="tier-name">Full Stack Agent</div>
 <div class="tier-badge">Best value</div>
-<div class="tier-desc">One payment. Your agent gets a phone number, email, X account, domain, server, and an API key to manage it all.</div>
+<div class="tier-desc">One payment. Your agent gets a phone number, email, X account, domain, server, Your wallet manages it all.</div>
 <div class="price">$20</div>
 <div class="price-period">one-time setup</div>
 <a href="/skill.md" class="btn btn-primary">Get started</a>
@@ -808,7 +808,7 @@ AgentOS
 <li>X account (pre-authenticated)</li>
 <li>Domain name registration</li>
 <li>Cloud server (2 CPU, 4GB)</li>
-<li>API key for all services</li>
+<li>Wallet-based access to all services</li>
 <li>Full autonomy — no human needed</li>
 </ul>
 </div>
@@ -829,7 +829,7 @@ AgentOS
 </div>
 <div class="faq-item">
 <div class="faq-q" onclick="toggleFaq(this)">How does the payment work?</div>
-<div class="faq-a"><p>Your agent asks for something. We say "that costs $2 in USDC." Your agent signs the payment on Solana and sends it with the request. We verify and deliver. All in one API call.</p></div>
+<div class="faq-a"><p>Your agent calls any endpoint. It gets a 402 response with the price. It pays USDC via x402 on Solana or Base. The wallet that paid owns the resource. No API keys needed.</p></div>
 </div>
 <div class="faq-item">
 <div class="faq-q" onclick="toggleFaq(this)">Do I need a credit card?</div>
@@ -1014,9 +1014,9 @@ AgentOS
   Send SMS ·················· <span style="color:#e6edf3">$0.02</span>
   Voice call ················ <span style="color:#e6edf3">$0.10</span>
   Send email ················ <span style="color:#e6edf3">$0.01</span>
-  Provision phone ··········· <span style="color:#e6edf3">$2.00</span>
+  Provision phone ··········· <span style="color:#e6edf3">$3.00</span>
   Create inbox ·············· <span style="color:#e6edf3">$0.50</span>
-  Spin up server ············ <span style="color:#e6edf3">from $5</span>
+  Spin up server ············ <span style="color:#e6edf3">from $8</span>
   Register domain ··········· <span style="color:#e6edf3">from $12</span>
 
   <span style="color:var(--accent)">━━ Full Stack Agent ━━ $20 one-time ━━</span>`
@@ -1315,41 +1315,38 @@ AgentOS
 
 // ===== INTERACTIVE STEPS =====
 const stepCodes = [
-  `<span class="hl">POST</span> /register HTTP/1.1
+  `<span class="hl">POST</span> /phone/numbers HTTP/1.1
 Host: agntos.dev
 
-{
-  "wallet": "B1YEbo...kqLXCwLs3Ez8oX3"
-}
-
-<span style="color:#3fb950">→ 200 OK</span>
-{
-  "agent_id": "agent-7k2",
-  "api_key": "sk_live_8f2x...",
-  "created": "${new Date().toISOString().split('T')[0]}"
-}`,
-  `<span class="hl">POST</span> /phone/provision HTTP/1.1
-Host: agntos.dev
-Authorization: Bearer sk_live_...
-
-{ "area_code": "415" }
+{ "country": "US" }
 
 <span style="color:#f85149">→ 402 Payment Required</span>
 {
-  "amount": "2.00",
-  "token": "USDC",
-  "chain": "solana",
-  "recipient": "7xKX...8yNp"
+  "amount": "3000000",
+  "asset": "USDC",
+  "payTo": "B1YE...8oX3",
+  "networks": ["solana", "base"]
 }`,
-  `<span class="hl">POST</span> /phone/provision HTTP/1.1
-Authorization: Bearer sk_live_...
-X-PAYMENT: 5Kd7cH...signed_tx
+  `<span class="hl">POST</span> /phone/numbers HTTP/1.1
+Host: agntos.dev
+Payment-Signature: x402_signed_tx...
+
+{ "country": "US" }
 
 <span style="color:#3fb950">→ 200 OK</span>
 {
   "phone": "+14155551234",
   "status": "active",
-  "capabilities": ["sms", "voice"]
+  "owner": "B1YE...8oX3"
+}`,
+  `<span class="hl">GET</span> /phone/numbers/id123/messages
+Host: agntos.dev
+Payment-Signature: x402_signed_tx...
+
+<span style="color:#3fb950">→ 200 OK</span>
+{
+  "messages": [...],
+  "paidBy": "B1YE...8oX3"
 }`
 ];
 
