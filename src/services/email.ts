@@ -204,12 +204,53 @@ export function getMessages(inboxId: string): EmailMessage[] {
  * Handle inbound email — encrypt with server-managed key.
  * Uses AES-256-GCM with per-inbox derived key.
  */
+export function findOrCreateThread(
+  inboxId: string,
+  subject: string,
+  from: string,
+  to: string,
+  inReplyTo?: string
+): string {
+  // Try to find existing thread by inReplyTo or subject
+  if (inReplyTo) {
+    // Look for a message with this messageId and get its threadId
+    const msgs = storage.getEmailMessages(inboxId) || [];
+    const parent = msgs.find(m => m.messageId === inReplyTo);
+    if (parent?.threadId) return parent.threadId;
+  }
+
+  // Match by normalized subject (strip Re:/Fwd: prefixes)
+  const normalized = subject.replace(/^(Re|Fwd|Fw):\s*/gi, '').trim();
+  const threads = storage.getEmailThreads?.(inboxId) || [];
+  const existing = threads.find(t => {
+    const tNorm = (t.subject || '').replace(/^(Re|Fwd|Fw):\s*/gi, '').trim();
+    return tNorm === normalized;
+  });
+  if (existing) return existing.id;
+
+  // Create new thread
+  const threadId = uuid();
+  const thread = {
+    id: threadId,
+    inboxId,
+    subject: normalized,
+    participants: JSON.stringify([...new Set([from, to])]),
+    messageCount: 0,
+    lastMessageAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+  };
+  storage.setEmailThread?.(threadId, thread);
+  return threadId;
+}
+
 export function handleInboundEmail(
   to: string,
   from: string,
   subject: string,
   body: string,
-  html?: string
+  html?: string,
+  attachments?: Array<{filename: string; contentType: string; content: string}>,
+  headers?: {messageId?: string; inReplyTo?: string; cc?: string}
 ): EmailMessage | null {
   const match = to.match(/^([^@]+)@/);
   if (!match) return null;
@@ -242,21 +283,71 @@ export function handleInboundEmail(
     return serverEncrypt(inboxId, text);
   };
 
+  // Find or create thread
+  const threadId = findOrCreateThread(inboxId, subject, from, to, headers?.inReplyTo);
+
+  // Handle attachments
+  const msgAttachments = attachments?.map(att => ({
+    id: uuid(),
+    filename: att.filename,
+    contentType: att.contentType,
+    size: att.content.length,
+    content: encrypt(att.content), // E2E encrypt attachment content too
+  }));
+
   const msg: EmailMessage = {
     id: uuid(),
     inboxId,
+    threadId,
     direction: "inbound",
     from,
     to,
+    cc: headers?.cc,
+    messageId: headers?.messageId,
+    inReplyTo: headers?.inReplyTo,
     subject: encrypt(subject),
     body: encrypt(body),
-    html: html ? serverEncrypt(inboxId, html) : undefined,
+    html: html ? encrypt(html) : undefined,
+    attachments: msgAttachments,
     encrypted: true,
     timestamp: new Date().toISOString(),
   };
 
   storage.pushEmailMessage(inboxId, msg);
-  console.log(`[email] Inbound from ${from} to ${to} — encrypted at rest and stored`);
+
+  // Update thread
+  if (storage.updateEmailThread) {
+    storage.updateEmailThread(threadId, {
+      messageCount: (storage.getEmailMessages(inboxId) || []).filter(m => m.threadId === threadId).length,
+      lastMessageAt: msg.timestamp,
+      participants: JSON.stringify([...new Set([from, to, ...(headers?.cc?.split(',').map(s => s.trim()) || [])])]),
+    });
+  }
+
+  console.log(`[email] Inbound from ${from} to ${to} — thread:${threadId.slice(0,8)} — encrypted at rest`);
+
+  // Fire webhooks (async, non-blocking)
+  const webhooks = storage.getEmailWebhooks?.(inboxId) || [];
+  for (const wh of webhooks) {
+    const events = JSON.parse(wh.events || '[]');
+    if (events.includes('message.received') || events.length === 0) {
+      fetch(wh.url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          event: 'message.received',
+          inboxId,
+          threadId,
+          messageId: msg.id,
+          from,
+          to,
+          timestamp: msg.timestamp,
+          // Don't include encrypted content in webhook — agent reads via API
+        }),
+      }).catch(err => console.warn(`[email] Webhook ${wh.url} failed:`, err.message));
+    }
+  }
+
   return msg;
 }
 

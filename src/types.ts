@@ -72,17 +72,42 @@ export interface EmailInbox {
 export interface EmailMessage {
   id: string;
   inboxId: string;
+  threadId?: string;
   direction: "inbound" | "outbound";
   from: string;
   to: string;
+  cc?: string;
+  replyTo?: string;
+  messageId?: string;
+  inReplyTo?: string;
   /** Encrypted with inbox's X25519 public key (base64) */
   subject: string;
   /** Encrypted with inbox's X25519 public key (base64) */
   body: string;
   html?: string;
+  attachments?: EmailAttachment[];
   /** Whether content is E2E encrypted */
   encrypted: boolean;
   timestamp: string;
+}
+
+export interface EmailAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  /** base64-encoded content (E2E encrypted if inbox has e2eEnabled) */
+  content?: string;
+}
+
+export interface EmailThread {
+  id: string;
+  inboxId: string;
+  subject: string;
+  participants: string[];
+  messageCount: number;
+  lastMessageAt: string;
+  createdAt: string;
 }
 
 export interface CreateInboxRequest {

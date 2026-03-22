@@ -3,6 +3,7 @@ import { requireAuth } from "../middleware/auth";
 import { x402 } from "../middleware/x402";
 import { AuthenticatedRequest } from "../types";
 import * as emailService from "../services/email";
+import { storage } from "../services/storage";
 import { trackHackathonUsage } from "../middleware/hackathon";
 
 const router = Router();
@@ -218,8 +219,8 @@ router.post("/inbound", async (req, res: Response) => {
       return;
     }
 
-    const { to, from, subject, body, html } = req.body;
-    const msg = emailService.handleInboundEmail(to, from, subject, body, html);
+    const { to, from, subject, body, html, attachments, messageId, inReplyTo, cc } = req.body;
+    const msg = emailService.handleInboundEmail(to, from, subject, body, html, attachments, { messageId, inReplyTo, cc });
 
     if (msg) {
       res.json({ received: true, messageId: msg.id, encrypted: true });
@@ -228,6 +229,104 @@ router.post("/inbound", async (req, res: Response) => {
     }
   } catch (err: any) {
     console.error("[email] Inbound webhook error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /email/inboxes/:id/threads — List threads in an inbox
+ */
+router.get("/inboxes/:id/threads", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const inboxId = req.params.id as string;
+    const inbox = emailService.getInbox(inboxId);
+    if (!inbox) { res.status(404).json({ error: "Inbox not found" }); return; }
+
+    const payer = req.payment?.payer;
+    if (payer !== inbox.solanaPublicKey && payer !== inbox.owner) {
+      res.status(403).json({ error: "Wallet mismatch" }); return;
+    }
+
+    const threads = storage.getEmailThreads?.(inboxId) || [];
+    res.json({ threads, totalThreads: threads.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /email/threads/:threadId/messages — Get messages in a thread
+ */
+router.get("/threads/:threadId/messages", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const threadId = req.params.threadId as string;
+    const thread = storage.getEmailThread?.(threadId);
+    if (!thread) { res.status(404).json({ error: "Thread not found" }); return; }
+
+    const inbox = emailService.getInbox(thread.inbox_id);
+    if (!inbox) { res.status(404).json({ error: "Inbox not found" }); return; }
+
+    const payer = req.payment?.payer;
+    if (payer !== inbox.solanaPublicKey && payer !== inbox.owner) {
+      res.status(403).json({ error: "Wallet mismatch" }); return;
+    }
+
+    const allMsgs = emailService.getMessages(thread.inbox_id);
+    const threadMsgs = allMsgs.filter(m => m.threadId === threadId);
+    res.json({ thread, messages: threadMsgs, totalMessages: threadMsgs.length });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /email/attachments/:attachmentId — Download an attachment
+ */
+router.get("/attachments/:attachmentId", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const att = storage.getEmailAttachment?.(req.params.attachmentId as string);
+    if (!att) { res.status(404).json({ error: "Attachment not found" }); return; }
+
+    res.json({
+      id: att.id,
+      filename: att.filename,
+      contentType: att.content_type,
+      size: att.size,
+      content: att.content, // E2E encrypted if inbox has e2eEnabled
+      note: att.content?.startsWith('w:') ? 'E2E encrypted — decrypt with your private key' : undefined,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /email/webhooks — Register a webhook for inbox events
+ */
+router.post("/webhooks", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { inboxId, url, events } = req.body;
+    if (!inboxId || !url) { res.status(400).json({ error: "inboxId and url required" }); return; }
+
+    const inbox = emailService.getInbox(inboxId);
+    if (!inbox) { res.status(404).json({ error: "Inbox not found" }); return; }
+
+    const payer = req.payment?.payer;
+    if (payer !== inbox.solanaPublicKey && payer !== inbox.owner) {
+      res.status(403).json({ error: "Wallet mismatch" }); return;
+    }
+
+    const webhookId = require('uuid').v4();
+    storage.setEmailWebhook?.(webhookId, {
+      id: webhookId,
+      inboxId,
+      url,
+      events: events || ['message.received'],
+      createdAt: new Date().toISOString(),
+    });
+
+    res.json({ id: webhookId, url, events: events || ['message.received'], message: "Webhook registered. We'll POST to your URL when events occur." });
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });

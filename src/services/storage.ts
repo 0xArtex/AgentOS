@@ -184,10 +184,59 @@ class Storage {
 
   pushEmailMessage(inboxId: string, msg: EmailMessage): void {
     const stmt = db.prepare(`
-      INSERT INTO email_messages (id, inbox_id, direction, from_address, to_address, subject, body, html, encrypted, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO email_messages (id, inbox_id, thread_id, direction, from_address, to_address, cc, message_id_header, in_reply_to, subject, body, html, encrypted, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(msg.id, inboxId, msg.direction, msg.from, msg.to, msg.subject, msg.body, msg.html, msg.encrypted ? 1 : 0, msg.timestamp);
+    stmt.run(msg.id, inboxId, msg.threadId || null, msg.direction, msg.from, msg.to, msg.cc || null, msg.messageId || null, msg.inReplyTo || null, msg.subject, msg.body, msg.html, msg.encrypted ? 1 : 0, msg.timestamp);
+
+    // Store attachments
+    if (msg.attachments?.length) {
+      const attStmt = db.prepare(`INSERT INTO email_attachments (id, message_id, filename, content_type, size, content) VALUES (?, ?, ?, ?, ?, ?)`);
+      for (const att of msg.attachments) {
+        attStmt.run(att.id, msg.id, att.filename, att.contentType, att.size, att.content);
+      }
+    }
+  }
+
+  // ── Email Threads ──
+
+  setEmailThread(threadId: string, thread: any): void {
+    db.prepare(`INSERT OR REPLACE INTO email_threads (id, inbox_id, subject, participants, message_count, last_message_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(threadId, thread.inboxId, thread.subject, thread.participants, thread.messageCount, thread.lastMessageAt, thread.createdAt);
+  }
+
+  getEmailThreads(inboxId: string): any[] {
+    return db.prepare('SELECT * FROM email_threads WHERE inbox_id = ? ORDER BY last_message_at DESC').all(inboxId) as any[];
+  }
+
+  getEmailThread(threadId: string): any | undefined {
+    return db.prepare('SELECT * FROM email_threads WHERE id = ?').get(threadId) as any;
+  }
+
+  updateEmailThread(threadId: string, updates: any): void {
+    const thread = this.getEmailThread(threadId);
+    if (!thread) return;
+    db.prepare('UPDATE email_threads SET message_count = ?, last_message_at = ?, participants = ? WHERE id = ?')
+      .run(updates.messageCount ?? thread.message_count, updates.lastMessageAt ?? thread.last_message_at, updates.participants ?? thread.participants, threadId);
+  }
+
+  getEmailAttachments(messageId: string): any[] {
+    return db.prepare('SELECT id, filename, content_type, size FROM email_attachments WHERE message_id = ?').all(messageId) as any[];
+  }
+
+  getEmailAttachment(attachmentId: string): any | undefined {
+    return db.prepare('SELECT * FROM email_attachments WHERE id = ?').get(attachmentId) as any;
+  }
+
+  // ── Email Webhooks ──
+
+  setEmailWebhook(id: string, webhook: any): void {
+    db.prepare('INSERT OR REPLACE INTO email_webhooks (id, inbox_id, url, events, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, webhook.inboxId, webhook.url, JSON.stringify(webhook.events || []), webhook.createdAt);
+  }
+
+  getEmailWebhooks(inboxId: string): any[] {
+    return db.prepare('SELECT * FROM email_webhooks WHERE inbox_id = ?').all(inboxId) as any[];
   }
 
   // ── Domains ───────────────────────────────────────────────
