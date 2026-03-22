@@ -171,9 +171,13 @@ class Storage {
     return rows.map(row => ({
       id: row.id,
       inboxId: row.inbox_id,
+      threadId: row.thread_id,
       direction: row.direction as 'inbound' | 'outbound',
       from: row.from_address,
       to: row.to_address,
+      cc: row.cc,
+      messageId: row.message_id_header,
+      inReplyTo: row.in_reply_to,
       subject: row.subject,
       body: row.body,
       html: row.html,

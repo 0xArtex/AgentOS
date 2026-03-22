@@ -264,6 +264,38 @@ node decrypt-email.mjs "w:..." ~/.config/solana/id.json
 node decrypt-email.mjs --json '{"subject":"w:...","body":"w:..."}' ~/.config/solana/id.json
 ```
 
+### List Threads (0.02 USDC via x402)
+
+```bash
+curl https://agntos.dev/email/inboxes/INBOX_ID/threads
+```
+
+Returns all conversation threads — replies auto-grouped by subject and `In-Reply-To` header.
+
+### Get Thread Messages (0.02 USDC via x402)
+
+```bash
+curl https://agntos.dev/email/threads/THREAD_ID/messages
+```
+
+### Download Attachment (0.02 USDC via x402)
+
+```bash
+curl https://agntos.dev/email/attachments/ATTACHMENT_ID
+```
+
+Attachments are E2E encrypted — decrypt with your private key.
+
+### Register Webhook (0.02 USDC via x402)
+
+```bash
+curl -X POST https://agntos.dev/email/webhooks \
+  -H "Content-Type: application/json" \
+  -d '{"inboxId": "INBOX_ID", "url": "https://your-agent.com/hook", "events": ["message.received"]}'
+```
+
+We'll POST to your URL when a new email arrives. Payload includes event type, inbox/thread/message IDs — read the actual content via the API.
+
 ### Read Inbox (0.02 USDC via x402)
 
 ```bash

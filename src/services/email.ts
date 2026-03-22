@@ -315,10 +315,11 @@ export function handleInboundEmail(
 
   storage.pushEmailMessage(inboxId, msg);
 
-  // Update thread
+  // Update thread count
   if (storage.updateEmailThread) {
+    const thread = storage.getEmailThread?.(threadId);
     storage.updateEmailThread(threadId, {
-      messageCount: (storage.getEmailMessages(inboxId) || []).filter(m => m.threadId === threadId).length,
+      messageCount: (thread?.message_count || 0) + 1,
       lastMessageAt: msg.timestamp,
       participants: JSON.stringify([...new Set([from, to, ...(headers?.cc?.split(',').map(s => s.trim()) || [])])]),
     });
