@@ -48,7 +48,7 @@ router.post("/provision", requireAuth(2.0, "email"), async (req: AuthenticatedRe
         createdAt: result.createdAt,
       },
       encryption: {
-        algorithm: "AES-256-GCM (server-managed, encrypted at rest)",
+        algorithm: "NaCl box (E2E) or AES-256-GCM (legacy)",
         model: "Messages encrypted at rest with per-inbox server key. Decrypted on read after x402 payment proves wallet ownership.",
       },
     });
@@ -79,7 +79,7 @@ router.post("/inboxes", requireAuth(2.0, "email"), async (req: AuthenticatedRequ
 /**
  * GET /email/inboxes/:id/messages — Read inbox (decrypted)
  * 
- * x402 paywall: $0.01 USDC per read.
+ * x402 paywall: $0.02 USDC per read.
  * Payment from the inbox's wallet proves ownership.
  * Server decrypts messages and returns plaintext over TLS.
  * 
@@ -339,20 +339,24 @@ router.get("/info", (_req, res: Response) => {
     service: "AgentOS Email",
     domain: "agntos.dev",
     pricing: {
-      provision: "1.00 USDC",
-      read: "0.01 USDC (x402 paywall — payment proves wallet ownership)",
-      send: "0.05 USDC",
+      provision: "2.00 USDC",
+      read: "0.02 USDC",
+      send: "0.08 USDC",
+      threads: "0.02 USDC",
+      attachments: "0.02 USDC",
+      webhooks: "0.02 USDC",
     },
+    features: ["E2E encryption", "threads", "attachments", "webhooks", "custom domains (coming)"],
     security: {
-      encryption: "AES-256-GCM at rest, per-inbox server key",
-      authentication: "x402 USDC payment from inbox's wallet = proof of ownership",
+      encryption: "E2E — NaCl box (X25519 + XSalsa20-Poly1305). Server cannot read emails.",
+      authentication: "x402 USDC payment — your wallet address = your identity",
       transport: "TLS (HTTPS)",
-      model: "Encrypted at rest → decrypted in-flight after x402 auth → served over TLS",
+      model: "Encrypted with wallet public key → server stores ciphertext → agent decrypts with private key",
     },
     howItWorks: [
       "1. POST /email/inboxes — provision inbox (1 USDC)",
       "2. Receive emails at {name}@agntos.dev — stored encrypted",
-      "3. GET /email/inboxes/:id/messages — pay $0.01 via x402, get decrypted messages",
+      "3. GET /email/inboxes/:id/messages — pay $0.02 via x402, get decrypted messages",
       "4. POST /email/inboxes/:id/send — send email ($0.05 via x402)",
     ],
   });

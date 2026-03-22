@@ -16,8 +16,8 @@ Or, alternatively, use our visual node-based dashboard to deploy your own agent(
 |---------|--------|-------------|
 | **Phone** | ✅ Live | $2/number, $0.05/SMS, $0.10/call |
 | **Voice Calls** | ✅ Live | TTS, DTMF, record, transfer, gather |
-| **Email** | ✅ Live | $1/inbox, encrypted at rest (AES-256-GCM) |
-| **Compute** | ✅ Live | $5-95/mo VPS, SSH hardened, OpenClaw pre-installed |
+| **Email** | ✅ Live | $2/inbox, E2E encrypted (NaCl box) |
+| **Compute** | ✅ Live | $8-40/mo VPS, SSH hardened, OpenClaw pre-installed |
 | **Domains** | ✅ Live | Dynamic pricing, DNS management included |
 | **Wallet** | ✅ Live | Non-custodial smart wallets on Base + Solana |
 | **Skills** | ✅ Live | 3500+ from ClawHub, one-click install |
@@ -104,7 +104,7 @@ All nodes push config independently to the VPS. Delete a node → removes config
 - **Runtime:** Node.js + TypeScript + Express
 - **Payments:** x402 (USDC on Solana + Base)
 - **Phone/Voice:** Telnyx (150+ countries)
-- **Email:** Cloudflare Email Workers + AES-256-GCM encryption
+- **Email:** Cloudflare Email Workers + E2E encryption (NaCl box, wallet-key encrypted)
 - **Compute:** Hetzner Cloud + cloud-init hardening
 - **Domains:** Namecheap API
 - **Wallet:** Solidity (Base) + Anchor (Solana)

@@ -250,6 +250,11 @@ app.get("/pricing", (_req, res) => {
         create_inbox: "2.00",
         read_messages: "0.02",
         send_email: "0.08",
+        list_threads: "0.02",
+        thread_messages: "0.02",
+        download_attachment: "0.02",
+        register_webhook: "0.02",
+        encryption: "E2E (NaCl box — server cannot read)",
       },
       compute: {
         create_server: "8.00-40.00",

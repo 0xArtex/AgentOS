@@ -31,12 +31,16 @@ Everything an agent needs: phone, email, compute, domains, voice calling, wallet
 | Provision inbox | `POST /email/inboxes` | 2.00 |
 | Read inbox | `GET /email/inboxes/:id/messages` | 0.02 |
 | Send email | `POST /email/inboxes/:id/send` | 0.08 |
+| List threads | `GET /email/inboxes/:id/threads` | 0.02 |
+| Thread messages | `GET /email/threads/:threadId/messages` | 0.02 |
+| Download attachment | `GET /email/attachments/:id` | 0.02 |
+| Register webhook | `POST /email/webhooks` | 0.02 |
 | **Compute** | | |
 | List plans | `GET /compute/plans` | Free |
 | Upload SSH key | `POST /compute/ssh-keys` | 0.10 |
 | Create server | `POST /compute/servers` | 8.00-40.00 |
-| List servers | `GET /compute/servers` | 0.01 |
-| Server status | `GET /compute/servers/:id` | 0.01 |
+| List servers | `GET /compute/servers` | 0.02 |
+| Server status | `GET /compute/servers/:id` | 0.02 |
 | Server action | `POST /compute/servers/:id/actions` | 0.10 |
 | Resize server | `POST /compute/servers/:id/resize` | 0.10 |
 | Delete server | `DELETE /compute/servers/:id` | 0.10 |
@@ -105,7 +109,7 @@ curl -X POST https://agntos.dev/phone/numbers/PHONE_ID/send \
   -d '{"to": "+15551234567", "body": "Hello from my agent!"}'
 ```
 
-### Read Messages (0.01 USDC)
+### Read Messages (0.02 USDC)
 
 ```bash
 curl https://agntos.dev/phone/numbers/PHONE_ID/messages
@@ -216,12 +220,12 @@ curl -X POST https://agntos.dev/phone/calls/CALL_CONTROL_ID/hangup \
 
 ### Call History
 
-**List calls for a number (0.01 USDC):**
+**List calls for a number (0.02 USDC):**
 ```bash
 curl https://agntos.dev/phone/numbers/PHONE_ID/calls \
 ```
 
-**Get call details (0.01 USDC):**
+**Get call details (0.02 USDC):**
 ```bash
 curl https://agntos.dev/phone/calls/CALL_ID \
 ```
