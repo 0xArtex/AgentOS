@@ -251,7 +251,19 @@ curl -X POST https://agntos.dev/email/inboxes \
 
 Returns: `my-agent@agntos.dev`
 
-### Read Inbox (0.01 USDC via x402)
+**E2E Encryption:** Emails are encrypted with your wallet's public key. We cannot read them. Decrypt with the helper script:
+```bash
+# Download once
+curl -O https://agntos.dev/skills/agentos/decrypt-email.mjs
+
+# Decrypt a single field
+node decrypt-email.mjs "w:..." ~/.config/solana/id.json
+
+# Decrypt a full message
+node decrypt-email.mjs --json '{"subject":"w:...","body":"w:..."}' ~/.config/solana/id.json
+```
+
+### Read Inbox (0.02 USDC via x402)
 
 ```bash
 curl https://agntos.dev/email/inboxes/INBOX_ID/messages
