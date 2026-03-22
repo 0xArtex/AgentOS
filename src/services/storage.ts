@@ -84,10 +84,10 @@ class Storage {
 
   setEmailInbox(id: string, inbox: EmailInbox): void {
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO email_inboxes (id, address, local_part, owner, public_key, solana_public_key, created_at, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO email_inboxes (id, address, local_part, owner, public_key, solana_public_key, e2e_enabled, created_at, active)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, inbox.address, inbox.localPart, inbox.owner, inbox.publicKey, inbox.solanaPublicKey, inbox.createdAt, inbox.active ? 1 : 0);
+    stmt.run(id, inbox.address, inbox.localPart, inbox.owner, inbox.publicKey, inbox.solanaPublicKey, inbox.e2eEnabled ? 1 : 0, inbox.createdAt, inbox.active ? 1 : 0);
   }
 
   getEmailInbox(id: string): EmailInbox | undefined {
@@ -102,6 +102,7 @@ class Storage {
       owner: row.owner,
       publicKey: row.public_key,
       solanaPublicKey: row.solana_public_key,
+      e2eEnabled: Boolean(row.e2e_enabled),
       createdAt: row.created_at,
       active: Boolean(row.active)
     };
@@ -128,6 +129,7 @@ class Storage {
       owner: row.owner,
       publicKey: row.public_key,
       solanaPublicKey: row.solana_public_key,
+      e2eEnabled: Boolean(row.e2e_enabled),
       createdAt: row.created_at,
       active: Boolean(row.active),
     }));
