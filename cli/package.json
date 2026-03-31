@@ -1,0 +1,47 @@
+{
+  "name": "@agntos/agentos",
+  "version": "0.1.0",
+  "description": "CLI for AgentOS — everything your AI agent needs. Phone, email, compute, domains, wallets, and more.",
+  "type": "module",
+  "main": "./dist/sdk.js",
+  "types": "./dist/sdk.d.ts",
+  "bin": {
+    "agentos": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/sdk.js",
+      "types": "./dist/sdk.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "ai", "agent", "agentos", "infrastructure", "phone", "email",
+    "compute", "domain", "wallet", "crypto", "x402", "solana", "base"
+  ],
+  "author": "AgentOS <hello@agntos.dev>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/0xArtex/AgentOS.git",
+    "directory": "cli"
+  },
+  "homepage": "https://agntos.dev",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7"
+  },
+  "dependencies": {
+    "@noble/hashes": "^2.0.1"
+  }
+}
