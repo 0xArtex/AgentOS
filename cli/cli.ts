@@ -2,7 +2,7 @@
 
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
-import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box } from './ui.js'
+import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine } from './ui.js'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 
@@ -141,39 +141,44 @@ async function main() {
 
         const { addWalletToConfig, getConfiguredChains } = await import('./config.js')
         addWalletToConfig(chain, keyfile)
-
-        ok(`${chain} keyfile: ${keyfile}`)
-
         const chains = getConfiguredChains()
-        if (chains.length > 1) {
-          ok(`Configured chains: ${chains.join(', ')}`)
-        }
 
-        ok(`API: ${url}`)
-        ok(`Config saved to ~/.agentos/config.json`)
-        console.log(`\n  ${c.dim}You're ready. Run ${c.cyan}agentos phone search --country US${c.dim} to test.${c.reset}`)
+        initReport('Setup', [
+          { name: '~/.agentos/', status: 'created' },
+          { name: `${chain} wallet`, status: 'created' },
+          ...(chains.length > 1 ? [{ name: `${chains.filter(c => c !== chain)[0]} wallet`, status: 'exists' as const }] : []),
+          { name: 'config.json', status: 'updated' },
+        ])
+
+        kv('API', url)
+        kv('Chain', chains.join(', '))
+        kv('Keyfile', keyfile)
+        blank()
+        subtle(`Run ${t.info}agentos status${t.muted} to verify.`)
         if (chains.length === 1) {
-          console.log(`  ${c.dim}Add another chain: ${c.cyan}agentos setup --keyfile <path> --chain ${chain === 'solana' ? 'base' : 'solana'}${c.reset}\n`)
-        } else {
-          console.log()
+          subtle(`Add ${chain === 'solana' ? 'Base' : 'Solana'}: ${t.info}agentos setup --keyfile <path> --chain ${chain === 'solana' ? 'base' : 'solana'}${t.muted}`)
         }
+        blank()
         log(`setup: keyfile=${keyfile} chain=${chain}`)
         break
       }
 
       case 'status': {
-        header('AgentOS Status')
-        row('API', config.api)
-        row('Default chain', config.defaultChain || 'not set')
+        banner()
         const wallets = config.wallets || {}
-        if (wallets.solana) row('Solana keyfile', wallets.solana.keyfile || 'not set')
-        if (wallets.base) row('Base keyfile', wallets.base.keyfile || 'not set')
-        if (!wallets.solana && !wallets.base) row('Wallets', 'none — run agentos setup', c.yellow)
-        row('Setup', config.setupDone ? 'done' : 'run agentos setup')
-        try {
-          const h = await ao.health()
-          row('API Status', `${h.status} — v${h.version?.version || '?'}`, c.green)
-        } catch { row('API Status', 'unreachable', c.red) }
+        const hasSolana = !!wallets.solana
+        const hasBase = !!wallets.base
+        let apiOk = false
+        try { const h = await ao.health(); apiOk = h.status === 'healthy' } catch {}
+        
+        statusLine('API', config.api, apiOk)
+        statusLine('Solana', hasSolana ? wallets.solana!.keyfile : 'not configured', hasSolana)
+        statusLine('Base', hasBase ? wallets.base!.keyfile : 'not configured', hasBase)
+        statusLine('Default', config.defaultChain || 'solana', true)
+        blank()
+        if (!hasSolana && !hasBase) {
+          warn('No wallets configured. Run: agentos setup --keyfile <path> --chain solana')
+        }
         break
       }
 

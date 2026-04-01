@@ -151,3 +151,52 @@ export function progress(current: number, total: number, label?: string) {
   process.stdout.write(`\r  ${theme.info}${bar}${theme.reset} ${theme.muted}${pct}%${label ? ' ' + label : ''}${theme.reset}`)
   if (current >= total) console.log()
 }
+
+// ─── Init Report (Claude Code style) ───
+export function initReport(title: string, items: Array<{name: string, status: 'created' | 'updated' | 'skipped' | 'exists'}>) {
+  console.log()
+  console.log(`  ${theme.accent}${theme.bold}${title}${theme.reset}`)
+  console.log()
+  for (const item of items) {
+    const statusColor = item.status === 'created' ? theme.success 
+      : item.status === 'updated' ? theme.warn 
+      : theme.muted
+    const statusLabel = item.status === 'created' ? 'created'
+      : item.status === 'updated' ? 'updated'
+      : item.status === 'exists' ? 'already exists'
+      : 'skipped'
+    console.log(`  ${statusColor}${item.status === 'created' ? '✔' : item.status === 'updated' ? '↻' : '·'}${theme.reset} ${theme.text}${item.name.padEnd(24)}${theme.reset} ${theme.muted}${statusLabel}${theme.reset}`)
+  }
+  console.log()
+}
+
+// ─── Greeting / Banner ───
+export function banner() {
+  console.log()
+  console.log(`  ${theme.accent}${theme.bold}▲ AgentOS${theme.reset} ${theme.muted}v${process.env.AGENTOS_VERSION || '0.2.0'}${theme.reset}`)
+  console.log(`  ${theme.dim}Everything your AI agent needs${theme.reset}`)
+  console.log()
+}
+
+// ─── Key-Value Pair (compact) ───
+export function kv(label: string, value: string) {
+  console.log(`  ${theme.muted}${label}${theme.reset} ${theme.text}${value}${theme.reset}`)
+}
+
+// ─── Section ───
+export function section(title: string) {
+  console.log()
+  console.log(`  ${theme.bold}${title}${theme.reset}`)
+}
+
+// ─── List Item ───
+export function listItem(text: string, indent = 0) {
+  const pad = '  '.repeat(indent + 1)
+  console.log(`${pad}${icon.bullet} ${theme.muted}${text}${theme.reset}`)
+}
+
+// ─── Compact Status Line ───
+export function statusLine(label: string, value: string, good: boolean) {
+  const dot = good ? `${theme.success}●${theme.reset}` : `${theme.error}●${theme.reset}`
+  console.log(`  ${dot} ${theme.muted}${label.padEnd(16)}${theme.reset} ${theme.text}${value}${theme.reset}`)
+}
