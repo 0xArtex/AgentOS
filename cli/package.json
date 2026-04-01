@@ -1,7 +1,7 @@
 {
   "name": "@agntos/agentos",
   "version": "0.1.1",
-  "description": "CLI for AgentOS \u2014 everything your AI agent needs. Phone, email, compute, domains, wallets, and more.",
+  "description": "CLI for AgentOS — everything your AI agent needs. Phone, email, compute, domains, wallets, and more.",
   "type": "module",
   "main": "./dist/sdk.js",
   "types": "./dist/sdk.d.ts",
@@ -53,7 +53,9 @@
     "typescript": "^5.7"
   },
   "dependencies": {
-    "@noble/hashes": "^2.0.1"
+    "@noble/hashes": "^2.0.1",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4"
   },
   "bugs": {
     "url": "https://github.com/0xArtex/AgentOS/issues"

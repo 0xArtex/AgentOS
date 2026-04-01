@@ -5,10 +5,12 @@
 const DEFAULT_API = 'https://agntos.dev'
 
 export class AgentOS {
-  private api: string
+  public api: string
+  private autoPay: boolean
 
-  constructor(apiUrl?: string) {
+  constructor(apiUrl?: string, autoPay?: boolean) {
     this.api = apiUrl || process.env.AGENTOS_API || DEFAULT_API
+    this.autoPay = autoPay ?? true
   }
 
   private async request(method: string, path: string, body?: Record<string, unknown>): Promise<any> {
@@ -19,6 +21,18 @@ export class AgentOS {
     if (body) opts.body = JSON.stringify(body)
     const res = await fetch(this.api + path, opts)
     const data = await res.json() as any
+
+    // If 402 and autoPay enabled, try to pay
+    if (res.status === 402 && this.autoPay) {
+      try {
+        const { paidRequest } = await import('./pay.js')
+        const result = await paidRequest(this.api, method, path, body)
+        return result.data
+      } catch (e: any) {
+        throw new Error(e.message)
+      }
+    }
+
     if (data.error) throw new Error(data.error)
     return data
   }
