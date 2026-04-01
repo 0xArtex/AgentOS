@@ -27,23 +27,43 @@ export function ensureDirs() {
 
 // ── Config ──
 
+export interface WalletConfig {
+  keyfile: string
+}
+
 export interface AgentOSConfig {
   api: string
-  chain: 'solana' | 'base' | 'both'
-  keyfile?: string
+  wallets: {
+    solana?: WalletConfig
+    base?: WalletConfig
+  }
+  defaultChain: 'solana' | 'base'
   setupDone?: boolean
+  // Legacy compat
+  chain?: string
+  keyfile?: string
 }
 
 const CONFIG_PATH = join(HOME, 'config.json')
 const DEFAULT_CONFIG: AgentOSConfig = {
   api: 'https://agntos.dev',
-  chain: 'solana',
+  wallets: {},
+  defaultChain: 'solana',
 }
 
 export function loadConfig(): AgentOSConfig {
   if (!existsSync(CONFIG_PATH)) return DEFAULT_CONFIG
   try {
-    return { ...DEFAULT_CONFIG, ...JSON.parse(readFileSync(CONFIG_PATH, 'utf8')) }
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'))
+    // Migrate legacy single-keyfile config
+    if (raw.keyfile && !raw.wallets) {
+      const chain = raw.chain || 'solana'
+      raw.wallets = { [chain]: { keyfile: raw.keyfile } }
+      raw.defaultChain = chain
+      delete raw.keyfile
+      delete raw.chain
+    }
+    return { ...DEFAULT_CONFIG, ...raw }
   } catch { return DEFAULT_CONFIG }
 }
 
@@ -52,28 +72,51 @@ export function saveConfig(config: AgentOSConfig) {
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2))
 }
 
+export function addWalletToConfig(chain: 'solana' | 'base', keyfile: string) {
+  const config = loadConfig()
+  if (!config.wallets) config.wallets = {}
+  config.wallets[chain] = { keyfile: keyfile.replace(homedir(), '~') }
+  if (!config.setupDone) config.defaultChain = chain
+  config.setupDone = true
+  saveConfig(config)
+}
+
 // ── Credentials ──
 
-export function getKeyfile(): string | null {
+export function getKeyfile(chain?: 'solana' | 'base'): string | null {
   const config = loadConfig()
-  // Priority: env var > config keyfile > default locations
+  const targetChain = chain || config.defaultChain || 'solana'
+
+  // Priority: env var > config wallet > default locations
   if (process.env.AGENTOS_KEYFILE) return process.env.AGENTOS_KEYFILE
-  if (config.keyfile && existsSync(config.keyfile.replace('~', homedir()))) {
-    return config.keyfile.replace('~', homedir())
+
+  const walletConfig = config.wallets?.[targetChain]
+  if (walletConfig?.keyfile) {
+    const resolved = walletConfig.keyfile.replace('~', homedir())
+    if (existsSync(resolved)) return resolved
   }
+
   // Default Solana location
-  const defaultSol = join(homedir(), '.config', 'solana', 'id.json')
-  if (existsSync(defaultSol)) return defaultSol
+  if (targetChain === 'solana') {
+    const defaultSol = join(homedir(), '.config', 'solana', 'id.json')
+    if (existsSync(defaultSol)) return defaultSol
+  }
+
   return null
 }
 
-export function loadKeypair(): Uint8Array | null {
-  const path = getKeyfile()
+export function loadKeypair(chain?: 'solana' | 'base'): Uint8Array | null {
+  const path = getKeyfile(chain)
   if (!path) return null
   try {
     const data = JSON.parse(readFileSync(path, 'utf8'))
     return Uint8Array.from(data)
   } catch { return null }
+}
+
+export function getConfiguredChains(): string[] {
+  const config = loadConfig()
+  return Object.keys(config.wallets || {})
 }
 
 // ── Data Store (small JSON files) ──

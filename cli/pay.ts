@@ -137,8 +137,10 @@ export async function paidRequest(
   const payment = parsePaymentRequired(data)
   if (!payment) throw new Error('Cannot parse payment requirements from 402 response')
 
-  const keypair = loadKeypair()
-  if (!keypair) throw new Error('No keyfile configured. Run: agentos setup --keyfile /path/to/keypair.json')
+  // Determine which chain to pay on and load the right keypair
+  const payChain = payment.network.startsWith('solana') ? 'solana' : 'base'
+  const keypair = loadKeypair(payChain as any)
+  if (!keypair) throw new Error(`No ${payChain} keyfile configured. Run: agentos setup --keyfile /path/to/keypair.json --chain ${payChain}`)
 
   console.log(`  Paying ${Number(payment.amount) / 1e6} USDC on Solana...`)
 

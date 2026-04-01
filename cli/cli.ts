@@ -131,11 +131,13 @@ async function main() {
             return ''
           })()
 
-        const chain = flags.chain as string || 'solana'
+        const chain = (flags.chain as string || 'solana') as 'solana' | 'base'
 
         if (!keyfile) {
           console.log(`  ${c.yellow}No keyfile found.${c.reset}`)
-          console.log(`  ${c.dim}Provide one with: agentos setup --keyfile /path/to/keypair.json${c.reset}`)
+          console.log(`  ${c.dim}Provide one with: agentos setup --keyfile /path/to/keypair.json --chain solana${c.reset}`)
+          console.log(`  ${c.dim}Add both chains:  agentos setup --keyfile sol.json --chain solana${c.reset}`)
+          console.log(`  ${c.dim}                  agentos setup --keyfile base.json --chain base${c.reset}`)
           console.log(`  ${c.dim}Or generate one:  agentos wallet keygen${c.reset}`)
           process.exit(1)
         }
@@ -144,22 +146,36 @@ async function main() {
           err(`Keyfile not found: ${keyfile}`)
         }
 
-        saveConfig({ api: url, chain: chain as any, keyfile, setupDone: true })
-        ok(`Keyfile: ${keyfile}`)
-        ok(`Chain: ${chain}`)
+        const { addWalletToConfig, getConfiguredChains } = await import('./config.js')
+        addWalletToConfig(chain, keyfile)
+
+        ok(`${chain} keyfile: ${keyfile}`)
+
+        const chains = getConfiguredChains()
+        if (chains.length > 1) {
+          ok(`Configured chains: ${chains.join(', ')}`)
+        }
+
         ok(`API: ${url}`)
         ok(`Config saved to ~/.agentos/config.json`)
-        console.log(`\n  ${c.dim}You're ready. Run ${c.cyan}agentos phone search --country US${c.dim} to test.${c.reset}\n`)
+        console.log(`\n  ${c.dim}You're ready. Run ${c.cyan}agentos phone search --country US${c.dim} to test.${c.reset}`)
+        if (chains.length === 1) {
+          console.log(`  ${c.dim}Add another chain: ${c.cyan}agentos setup --keyfile <path> --chain ${chain === 'solana' ? 'base' : 'solana'}${c.reset}\n`)
+        } else {
+          console.log()
+        }
         log(`setup: keyfile=${keyfile} chain=${chain}`)
         break
       }
 
       case 'status': {
         header('AgentOS Status')
-        const kf = getKeyfile()
         row('API', config.api)
-        row('Chain', config.chain || 'not set')
-        row('Keyfile', kf || 'not configured')
+        row('Default chain', config.defaultChain || 'not set')
+        const wallets = config.wallets || {}
+        if (wallets.solana) row('Solana keyfile', wallets.solana.keyfile || 'not set')
+        if (wallets.base) row('Base keyfile', wallets.base.keyfile || 'not set')
+        if (!wallets.solana && !wallets.base) row('Wallets', 'none — run agentos setup', c.yellow)
         row('Setup', config.setupDone ? 'done' : 'run agentos setup')
         try {
           const h = await ao.health()
