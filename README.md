@@ -1,16 +1,22 @@
 <div align="center">
 
-# AgentOS ⚡
+<img src="assets/logo.png" alt="AgentOS" width="200">
+
+# AgentOS
 
 **Everything your AI agent needs — one CLI.**
 
 Phone, email, compute, domains, wallets, and more. Pay with USDC. Your wallet is your identity.
 
-[![CLI](https://img.shields.io/npm/v/@agntos/agentos?style=flat-square&logo=npm&logoColor=white&label=CLI&color=f54900)](https://www.npmjs.com/package/@agntos/agentos)
-[![Wallet](https://img.shields.io/npm/v/@agntos/agentwallet?style=flat-square&logo=npm&logoColor=white&label=Wallet&color=f54900)](https://www.npmjs.com/package/@agntos/agentwallet)
-[![License](https://img.shields.io/github/license/0xArtex/AgentOS?style=flat-square&color=333)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
+[![npm](https://img.shields.io/npm/v/@agntos/agentos?color=f54900)](https://www.npmjs.com/package/@agntos/agentos)
+[![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
+[![typescript](https://img.shields.io/badge/typescript-5.7-blue)](https://www.typescriptlang.org)
+[![license](https://img.shields.io/badge/license-MIT-green)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
+[![services](https://img.shields.io/badge/services-7+-f54900)](https://agntos.dev/skill.md)
+[![Solana](https://img.shields.io/badge/Solana-mainnet-9945FF)](https://solana.com)
+[![Base](https://img.shields.io/badge/Base-mainnet-0052FF)](https://base.org)
 
-[Quick Start](#quick-start) • [Services](#services) • [CLI](#cli) • [Dashboard](https://agntos.dev/dashboard.html) • [Skill File](https://agntos.dev/skill.md) • [Docs](https://agntos.dev/docs)
+[Quick Start](#quick-start) • [Services](#services) • [Dashboard](https://agntos.dev/dashboard.html) • [Skill File](https://agntos.dev/skill.md) • [Docs](https://agntos.dev/docs)
 
 </div>
 
