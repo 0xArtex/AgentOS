@@ -2,16 +2,12 @@
 
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
+import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box } from './ui.js'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 
-// ─── Colors ───
-const c = {
-  reset: '\x1b[0m', bold: '\x1b[1m', dim: '\x1b[2m',
-  red: '\x1b[31m', green: '\x1b[32m', yellow: '\x1b[33m',
-  cyan: '\x1b[36m', white: '\x1b[37m', gray: '\x1b[90m',
-  orange: '\x1b[38;5;208m',
-}
+// Alias for backwards compat in help text
+const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, white: t.text, gray: t.muted, orange: t.accent }
 
 const VERSION = '0.2.0'
 
@@ -36,10 +32,7 @@ function parse(argv: string[]) {
   return { command, subcommand, positional, flags }
 }
 
-function header(title: string) { console.log(`\n  ${c.orange}${c.bold}${title}${c.reset}\n`) }
-function row(label: string, value: string, color = c.white) { console.log(`  ${c.dim}${label}:${c.reset} ${color}${value}${c.reset}`) }
-function ok(msg: string) { console.log(`  ${c.green}✓${c.reset} ${msg}`) }
-function err(msg: string) { console.error(`  ${c.red}✗${c.reset} ${msg}`); process.exit(1) }
+function err(msg: string) { fail(msg); process.exit(1) }
 function print(obj: any) { console.log(JSON.stringify(obj, null, 2)) }
 
 // ─── Help ───
