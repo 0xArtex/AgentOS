@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 
 import { AgentOS } from './sdk.js'
+import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
+import { existsSync } from 'fs'
+import { homedir } from 'os'
 
 // ─── Colors ───
 const c = {
@@ -75,6 +78,9 @@ ${c.bold}Commands${c.reset}
     ${c.dim}status${c.reset}     Check wallet status         ${c.dim}WALLET_ADDRESS${c.reset}
     ${c.dim}keygen${c.reset}     Generate keypair            ${c.dim}--chain both${c.reset}
 
+  ${c.cyan}setup${c.reset}       Configure keyfile + chain    ${c.dim}--keyfile PATH --chain solana${c.reset}
+  ${c.cyan}status${c.reset}      Show config + API status
+  ${c.cyan}note${c.reset}        Save a note to memory        ${c.dim}"your note here"${c.reset}
   ${c.cyan}pricing${c.reset}     Show all service prices
   ${c.cyan}health${c.reset}      Check API status
 
@@ -103,12 +109,70 @@ async function main() {
   if (flags.version) { console.log(VERSION); return }
   if (!command || flags.help) { help(); return }
 
-  const url = flags.url as string | undefined
+  const config = loadConfig()
+  const url = flags.url as string || config.api
   const ao = new AgentOS(url)
   const json = !!flags.json
 
   try {
     switch (command) {
+      case 'setup': {
+        ensureDirs()
+        header('AgentOS Setup')
+
+        const keyfile = flags.keyfile as string
+          || process.env.AGENTOS_KEYFILE
+          || (() => {
+            const defaultPath = homedir() + '/.config/solana/id.json'
+            if (existsSync(defaultPath)) return defaultPath
+            return ''
+          })()
+
+        const chain = flags.chain as string || 'solana'
+
+        if (!keyfile) {
+          console.log(`  ${c.yellow}No keyfile found.${c.reset}`)
+          console.log(`  ${c.dim}Provide one with: agentos setup --keyfile /path/to/keypair.json${c.reset}`)
+          console.log(`  ${c.dim}Or generate one:  agentos wallet keygen${c.reset}`)
+          process.exit(1)
+        }
+
+        if (!existsSync(keyfile.replace('~', homedir()))) {
+          err(`Keyfile not found: ${keyfile}`)
+        }
+
+        saveConfig({ api: url, chain: chain as any, keyfile, setupDone: true })
+        ok(`Keyfile: ${keyfile}`)
+        ok(`Chain: ${chain}`)
+        ok(`API: ${url}`)
+        ok(`Config saved to ~/.agentos/config.json`)
+        console.log(`\n  ${c.dim}You're ready. Run ${c.cyan}agentos phone search --country US${c.dim} to test.${c.reset}\n`)
+        log(`setup: keyfile=${keyfile} chain=${chain}`)
+        break
+      }
+
+      case 'status': {
+        header('AgentOS Status')
+        const kf = getKeyfile()
+        row('API', config.api)
+        row('Chain', config.chain || 'not set')
+        row('Keyfile', kf || 'not configured')
+        row('Setup', config.setupDone ? 'done' : 'run agentos setup')
+        try {
+          const h = await ao.health()
+          row('API Status', `${h.status} — v${h.version?.version || '?'}`, c.green)
+        } catch { row('API Status', 'unreachable', c.red) }
+        break
+      }
+
+      case 'note': {
+        const text = positional.join(' ') || subcommand || ''
+        if (!text) err('Usage: agentos note "your note here"')
+        addNote(text)
+        ok(`Note saved to ~/.agentos/memory/notes.md`)
+        break
+      }
+
       case 'phone': {
         switch (subcommand) {
           case 'search': {
@@ -130,6 +194,8 @@ async function main() {
             ok(data.phoneNumber || data.phone_number || 'provisioned')
             row('ID', data.id || '')
             row('Country', country)
+            addPhone({ id: data.id, number: data.phoneNumber || data.phone_number, country, createdAt: new Date().toISOString() })
+            log(`phone buy: ${data.phoneNumber || data.phone_number || 'unknown'} (${country})`)
             break
           }
           case 'sms': {
@@ -165,6 +231,8 @@ async function main() {
             ok(data.address || `${name}@agntos.dev`)
             row('ID', data.id || '')
             row('E2E', data.e2eEnabled ? 'enabled' : 'disabled')
+            addInbox({ id: data.id, address: data.address || `${name}@agntos.dev`, createdAt: new Date().toISOString() })
+            log(`email create: ${data.address || name}`)
             break
           }
           case 'read': {
@@ -226,6 +294,8 @@ async function main() {
             row('ID', data.id || '')
             row('Type', type)
             row('SSH', `root@${data.ipv4 || data.ip}`)
+            addServer({ id: data.id, ip: data.ipv4 || data.ip, type, name, createdAt: new Date().toISOString() })
+            log(`compute deploy: ${data.ipv4 || data.ip} (${type})`)
             break
           }
           case 'list': {
@@ -279,6 +349,8 @@ async function main() {
             if (json) return print(data)
             header('Domain Registered')
             ok(data.domain || name)
+            addDomain({ domain: data.domain || name, createdAt: new Date().toISOString() })
+            log(`domain buy: ${data.domain || name}`)
             break
           }
           case 'dns': {
@@ -309,6 +381,8 @@ async function main() {
             ok(data.wallet?.address || 'created')
             row('Chain', chain)
             if (data.setupUrl) row('Setup', data.setupUrl)
+            addWallet({ address: data.wallet?.address, chain, createdAt: new Date().toISOString() })
+            log(`wallet create: ${data.wallet?.address || 'unknown'} (${chain})`)
             break
           }
           case 'status': {
