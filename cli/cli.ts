@@ -109,6 +109,9 @@ async function main() {
   if (flags.version) { console.log(VERSION); return }
   if (!command || flags.help) { help(); return }
 
+  // Always ensure ~/.agentos/ exists on any command
+  ensureDirs()
+
   const config = loadConfig()
   const url = flags.url as string || config.api
   const ao = new AgentOS(url)
