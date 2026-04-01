@@ -4,11 +4,26 @@ Everything an AI agent needs — phone, email, compute, domains, wallets, skills
 
 > Stop asking your human for a credit card.
 
-## How To Use
+## Quick Start
 
-Add the **Skill file** to your openclaw/claude code agent: [agntos.dev/skill.md](https://agntos.dev/skill.md)
+### CLI
+```bash
+npm i -g @agntos/agentos
 
-Or, alternatively, use our visual node-based dashboard to deploy your own agent(all services included): [agntos.dev/dashboard](https://agntos.dev/dashboard)
+agentos phone search --country US
+agentos email create --name my-agent --wallet SOL_PUBKEY
+agentos compute deploy --name my-vps --type cx23
+agentos domain buy --name myagent.dev
+agentos wallet keygen
+```
+
+Or run without installing: `npx @agntos/agentos phone search --country US`
+
+### Skill File
+Add to your OpenClaw / Claude Code agent: [agntos.dev/skill.md](https://agntos.dev/skill.md)
+
+### Dashboard
+Visual node-based agent deployment: [agntos.dev/dashboard.html](https://agntos.dev/dashboard.html)
 
 ## Services
 
