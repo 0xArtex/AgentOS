@@ -1,5 +1,9 @@
 # @agntos/agentos
 
+[![npm version](https://img.shields.io/npm/v/@agntos/agentos.svg)](https://www.npmjs.com/package/@agntos/agentos)
+[![license](https://img.shields.io/npm/l/@agntos/agentos.svg)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
+[![node](https://img.shields.io/node/v/@agntos/agentos.svg)](https://nodejs.org)
+
 Everything your AI agent needs — one CLI.
 
 Phone numbers, encrypted email, VPS, domains, crypto wallets. Pay with USDC. Your wallet is your identity.

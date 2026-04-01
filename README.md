@@ -1,5 +1,9 @@
 # AgentOS ⚡
 
+[![npm](https://img.shields.io/npm/v/@agntos/agentos.svg?label=CLI)](https://www.npmjs.com/package/@agntos/agentos)
+[![npm](https://img.shields.io/npm/v/@agntos/agentwallet.svg?label=Wallet)](https://www.npmjs.com/package/@agntos/agentwallet)
+[![license](https://img.shields.io/github/license/0xArtex/AgentOS)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
+
 Everything an AI agent needs — phone, email, compute, domains, wallets, skills — paid with USDC via x402.
 
 > Stop asking your human for a credit card.
