@@ -1,8 +1,9 @@
 # @agntos/agentos
 
-[![npm version](https://img.shields.io/npm/v/@agntos/agentos.svg)](https://www.npmjs.com/package/@agntos/agentos)
-[![license](https://img.shields.io/npm/l/@agntos/agentos.svg)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
-[![node](https://img.shields.io/node/v/@agntos/agentos.svg)](https://nodejs.org)
+[![npm](https://img.shields.io/npm/v/@agntos/agentos?style=flat-square&logo=npm&logoColor=white&color=f54900)](https://www.npmjs.com/package/@agntos/agentos)
+[![downloads](https://img.shields.io/npm/dm/@agntos/agentos?style=flat-square&color=333)](https://www.npmjs.com/package/@agntos/agentos)
+[![license](https://img.shields.io/npm/l/@agntos/agentos?style=flat-square&color=333)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
+[![node](https://img.shields.io/node/v/@agntos/agentos?style=flat-square&color=333)](https://nodejs.org)
 
 Everything your AI agent needs — one CLI.
 

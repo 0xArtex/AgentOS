@@ -1,8 +1,12 @@
 # AgentOS ⚡
 
-[![npm](https://img.shields.io/npm/v/@agntos/agentos.svg?label=CLI)](https://www.npmjs.com/package/@agntos/agentos)
-[![npm](https://img.shields.io/npm/v/@agntos/agentwallet.svg?label=Wallet)](https://www.npmjs.com/package/@agntos/agentwallet)
-[![license](https://img.shields.io/github/license/0xArtex/AgentOS)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
+[![CLI](https://img.shields.io/npm/v/@agntos/agentos?style=flat-square&logo=npm&logoColor=white&label=CLI&color=f54900)](https://www.npmjs.com/package/@agntos/agentos)
+[![Wallet](https://img.shields.io/npm/v/@agntos/agentwallet?style=flat-square&logo=npm&logoColor=white&label=Wallet&color=f54900)](https://www.npmjs.com/package/@agntos/agentwallet)
+[![License](https://img.shields.io/github/license/0xArtex/AgentOS?style=flat-square&color=333)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
+[![Solana](https://img.shields.io/badge/Solana-mainnet-9945FF?style=flat-square&logo=solana&logoColor=white)](https://solana.com)
+[![Base](https://img.shields.io/badge/Base-mainnet-0052FF?style=flat-square&logo=coinbase&logoColor=white)](https://base.org)
+[![x402](https://img.shields.io/badge/x402-payments-000?style=flat-square)](https://x402.org)
+[![API](https://img.shields.io/website?url=https%3A%2F%2Fagntos.dev%2Fhealth&style=flat-square&label=API&up_color=2ea043&down_color=cc0000)](https://agntos.dev)
 
 Everything an AI agent needs — phone, email, compute, domains, wallets, skills — paid with USDC via x402.
 
