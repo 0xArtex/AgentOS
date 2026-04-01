@@ -19,7 +19,7 @@ export class AgentOS {
     if (body) opts.body = JSON.stringify(body)
     const res = await fetch(this.api + path, opts)
     const data = await res.json() as any
-    if (data.error && res.status !== 402) throw new Error(data.error)
+    if (data.error) throw new Error(data.error)
     return data
   }
 

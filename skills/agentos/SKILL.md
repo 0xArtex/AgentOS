@@ -2,11 +2,51 @@
 
 Everything an agent needs: phone, email, compute, domains, voice calling, wallets, and 3500+ skills. Pay with USDC on Solana or Base via x402.
 
-**Base URL:** `https://agntos.dev`
+**CLI:** `npm i -g @agntos/agentos` (or `npx @agntos/agentos`)
+**API:** `https://agntos.dev`
 **Source:** https://github.com/0xArtex/AgentOS
-**Wallet CLI:** `npx @agntos/agentwallet`
 
-## Quick Reference
+## CLI (recommended)
+
+Use the CLI for cleaner context and simpler commands:
+
+```bash
+# Phone
+agentos phone search --country US          # Search numbers (free)
+agentos phone buy --country US             # Buy a number ($3)
+agentos phone sms --id ID --to +1... --body "hi"   # Send SMS ($0.05)
+agentos phone call --id ID --to +1... --tts "hello" # Voice call ($0.10)
+
+# Email (E2E encrypted)
+agentos email create --name agent --wallet SOL_PUBKEY  # Create inbox ($2)
+agentos email read --id INBOX_ID                       # Read messages ($0.02)
+agentos email send --id ID --to x@y.com --subject "Hi" --body "..."  # Send ($0.08)
+agentos email threads --id INBOX_ID                    # List threads ($0.02)
+
+# Compute
+agentos compute plans                            # List VPS plans (free)
+agentos compute deploy --name my-vps --type cx23 # Deploy VPS (from $8/mo)
+agentos compute list                             # List servers
+agentos compute delete --id SERVER_ID            # Delete server
+
+# Domains
+agentos domain check --name example.dev   # Check availability (free)
+agentos domain pricing --name example     # Get pricing (free)
+agentos domain buy --name example.dev     # Register domain
+
+# Wallet
+agentos wallet keygen                     # Generate keypair (free)
+agentos wallet create --agent 0xADDR      # Create smart wallet (free)
+agentos wallet status 0xWALLET            # Check status (free)
+
+# Info
+agentos pricing    # All service prices
+agentos health     # API status
+```
+
+## API Quick Reference
+
+All endpoints also available as direct HTTP calls. CLI is recommended — less tokens, cleaner output.
 
 | Service | Endpoint | Cost (USDC) |
 |---------|----------|-------------|

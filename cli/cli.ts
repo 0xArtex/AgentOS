@@ -212,7 +212,7 @@ async function main() {
             if (json) return print(data)
             header('VPS Plans')
             for (const p of (data.plans || data || [])) {
-              console.log(`  ${c.cyan}${p.id || p.name}${c.reset}  ${c.dim}${p.cpu || p.vcpus} vCPU · ${p.ram || p.memory}GB RAM · $${p.price || p.monthly_cost}/mo${c.reset}`)
+              console.log(`  ${c.cyan}${p.type || p.id || p.name}${c.reset}  ${c.dim}${p.vcpu || p.cpu || p.vcpus} vCPU · ${p.ramGb || p.ram || p.memory}GB RAM · $${p.priceUsdcMonthly || p.priceUsdc || p.price || p.monthly_cost}/mo${c.reset}`)
             }
             break
           }
