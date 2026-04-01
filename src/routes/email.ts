@@ -214,7 +214,9 @@ router.post("/inbound", async (req, res: Response) => {
     const webhookSecret = Array.isArray(req.headers["x-webhook-secret"])
       ? req.headers["x-webhook-secret"][0]
       : req.headers["x-webhook-secret"];
-    if (webhookSecret !== (process.env.EMAIL_WEBHOOK_SECRET || "agentos-inbound-2026")) {
+    const expectedSecret = process.env.EMAIL_WEBHOOK_SECRET;
+    if (!expectedSecret) { res.status(500).json({ error: "Inbound email not configured" }); return; }
+    if (webhookSecret !== expectedSecret) {
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
@@ -306,7 +308,9 @@ router.get("/attachments/:attachmentId", x402(0.02), async (req: AuthenticatedRe
 router.post("/webhooks", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { inboxId, url, events } = req.body;
+    if (!emailService.isSsrfSafe(url)) { res.status(400).json({ error: "Invalid webhook URL. Must be HTTPS and not target internal networks." }); return; }
     if (!inboxId || !url) { res.status(400).json({ error: "inboxId and url required" }); return; }
+    if (!emailService.isSsrfSafe(url)) { res.status(400).json({ error: "Invalid webhook URL. Must be HTTPS and not target private/internal networks." }); return; }
 
     const inbox = emailService.getInbox(inboxId);
     if (!inbox) { res.status(404).json({ error: "Inbox not found" }); return; }

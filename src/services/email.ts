@@ -330,8 +330,10 @@ export function handleInboundEmail(
   // Fire webhooks (async, non-blocking)
   const webhooks = storage.getEmailWebhooks?.(inboxId) || [];
   for (const wh of webhooks) {
+    if (!isSsrfSafe(wh.url)) { console.warn(`[email] Blocked SSRF webhook: ${wh.url}`); continue; }
     const events = JSON.parse(wh.events || '[]');
     if (events.includes('message.received') || events.length === 0) {
+      if (!isSsrfSafe(wh.url)) { console.warn(`[email] Webhook blocked (SSRF): ${wh.url}`); continue; }
       fetch(wh.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -474,3 +476,20 @@ export function verifyWalletAuth(
 }
 
 export { encryptForWallet };
+
+// ── SSRF Protection ──
+export function isSsrfSafe(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname;
+    if (/^127\./.test(hostname)) return false;
+    if (/^10\./.test(hostname)) return false;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(hostname)) return false;
+    if (/^192\.168\./.test(hostname)) return false;
+    if (/^169\.254\./.test(hostname)) return false;
+    if (/^0\./.test(hostname)) return false;
+    if (hostname === 'localhost' || hostname === '::1' || hostname === '0.0.0.0') return false;
+    if (parsed.protocol !== 'https:') return false; // require HTTPS
+    return true;
+  } catch { return false; }
+}

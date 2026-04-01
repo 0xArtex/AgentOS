@@ -89,16 +89,25 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
     if (dashboardUser) {
       // Validate session token matches the claimed user
       const sessionToken = (req.headers["authorization"] || "").toString().replace("Bearer ", "");
-      if (sessionToken) {
-        const session = db.prepare(
-          "SELECT user_id FROM dashboard_sessions WHERE token = ? AND expires_at > datetime('now')"
-        ).get(sessionToken) as any;
-        if (!session || session.user_id !== dashboardUser) {
-          res.status(401).json({ error: "Invalid session for dashboard user" });
+      if (!sessionToken) {
+        res.status(401).json({ error: "Authorization token required" });
+        return;
+      }
+      const session = db.prepare(
+        "SELECT user_id FROM dashboard_sessions WHERE token = ? AND expires_at > datetime('now')"
+      ).get(sessionToken) as any;
+      if (!session || session.user_id !== dashboardUser) {
+        res.status(401).json({ error: "Invalid session for dashboard user" });
+        return;
+      }
+      // Dashboard users must have sufficient balance for paid services
+      if (serviceType !== 'general' && minUsdc > 0) {
+        const bal = balanceService.getBalance(dashboardUser);
+        if (bal.balance_usdc < minUsdc) {
+          res.status(402).json({ error: "Insufficient balance", required: minUsdc, balance: bal.balance_usdc });
           return;
         }
       }
-      // Dashboard handles its own balance check + debit via /balance/debit — just authorize here
       req.agentId = `dashboard:${dashboardUser}`;
       next();
       return;
