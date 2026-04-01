@@ -15,11 +15,22 @@ Phone numbers, encrypted email, VPS, domains, crypto wallets. Pay with USDC. You
 npm i -g @agntos/agentos
 ```
 
-Or run directly:
+## Setup
 
 ```bash
-npx @agntos/agentos phone search --country US
+# Configure your Solana wallet (for x402 payments)
+agentos setup --keyfile ~/.config/solana/id.json --chain solana
+
+# Optionally add Base (EVM) wallet too
+agentos setup --keyfile ./base-key.json --chain base
+
+# Check config + API status
+agentos status
 ```
+
+Creates `~/.agentos/` with config, credentials, data, logs, and memory. Keyfile referenced by path — never copied.
+
+Or run without installing: `npx @agntos/agentos phone search --country US`
 
 ## Commands
 

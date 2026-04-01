@@ -6,7 +6,24 @@ Everything an agent needs: phone, email, compute, domains, voice calling, wallet
 **API:** `https://agntos.dev`
 **Source:** https://github.com/0xArtex/AgentOS
 
-## CLI (recommended)
+## Setup
+
+```bash
+npm i -g @agntos/agentos
+
+# Configure your Solana wallet (for x402 payments)
+agentos setup --keyfile ~/.config/solana/id.json --chain solana
+
+# Optionally add Base (EVM) wallet too
+agentos setup --keyfile ./base-key.json --chain base
+
+# Check everything works
+agentos status
+```
+
+The CLI creates `~/.agentos/` to store config, credentials, data, logs, and memory. Your keyfile is referenced by path — never copied.
+
+## CLI Commands
 
 Use the CLI for cleaner context and simpler commands:
 

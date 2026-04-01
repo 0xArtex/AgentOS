@@ -29,6 +29,7 @@ Phone, email, compute, domains, wallets, and more. Pay with USDC. Your wallet is
 ### CLI
 ```bash
 npm i -g @agntos/agentos
+agentos setup --keyfile ~/.config/solana/id.json --chain solana
 
 agentos phone search --country US
 agentos email create --name my-agent --wallet SOL_PUBKEY
