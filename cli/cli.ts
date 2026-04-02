@@ -37,51 +37,39 @@ function print(obj: any) { console.log(JSON.stringify(obj, null, 2)) }
 
 // ─── Help ───
 function help() {
-  console.log()
-  console.log(`  ${t.accent}${t.bold}▲ AgentOS${t.reset} ${t.muted}v${VERSION}${t.reset}`)
-  console.log(`  ${t.dim}Everything your AI agent needs — one CLI.${t.reset}`)
-  console.log()
-  console.log(`  ${t.bold}Getting Started${t.reset}`)
-  console.log(`  ${t.muted}$ ${t.text}agentos setup --keyfile ~/.config/solana/id.json --chain solana${t.reset}`)
-  console.log(`  ${t.muted}$ ${t.text}agentos status${t.reset}`)
-  console.log()
-  console.log(`  ${t.bold}Services${t.reset}`)
-  console.log()
+  banner()
+  divider()
+  blank()
+
+  section('Services')
+  blank()
   console.log(`  ${t.info}phone${t.reset}     ${t.muted}search · buy · sms · call${t.reset}`)
   console.log(`  ${t.info}email${t.reset}     ${t.muted}create · read · send · threads${t.reset}`)
   console.log(`  ${t.info}compute${t.reset}   ${t.muted}plans · deploy · list · delete${t.reset}`)
   console.log(`  ${t.info}domain${t.reset}    ${t.muted}check · pricing · buy · dns${t.reset}`)
   console.log(`  ${t.info}wallet${t.reset}    ${t.muted}create · status · keygen${t.reset}`)
-  console.log()
-  console.log(`  ${t.bold}Tools${t.reset}`)
-  console.log()
+
+  blank()
+  section('Tools')
+  blank()
   console.log(`  ${t.info}setup${t.reset}     ${t.muted}Configure wallets + chain preference${t.reset}`)
   console.log(`  ${t.info}status${t.reset}    ${t.muted}Show config, wallets, and API health${t.reset}`)
   console.log(`  ${t.info}note${t.reset}      ${t.muted}Save a note to ~/.agentos/memory/${t.reset}`)
-  console.log(`  ${t.info}pricing${t.reset}   ${t.muted}Show all service prices${t.reset}`)
-  console.log(`  ${t.info}health${t.reset}    ${t.muted}Check API status${t.reset}`)
-  console.log()
-  console.log(`  ${t.bold}Options${t.reset}`)
-  console.log()
-  console.log(`  ${t.warn}--url${t.reset} ${t.dim}<url>${t.reset}     ${t.muted}API base URL${t.reset}`)
-  console.log(`  ${t.warn}--json${t.reset}          ${t.muted}Output raw JSON${t.reset}`)
-  console.log(`  ${t.warn}--version${t.reset}       ${t.muted}Show version${t.reset}`)
-  console.log(`  ${t.warn}--help${t.reset}          ${t.muted}Show this help${t.reset}`)
-  console.log()
-  console.log(`  ${t.bold}Examples${t.reset}`)
-  console.log()
-  console.log(`  ${t.muted}$ ${t.text}agentos phone search --country US${t.reset}`)
-  console.log(`  ${t.muted}$ ${t.text}agentos email create --name my-agent --wallet SOL_PUBKEY${t.reset}`)
-  console.log(`  ${t.muted}$ ${t.text}agentos compute deploy --name my-vps --type cx23${t.reset}`)
-  console.log(`  ${t.muted}$ ${t.text}agentos domain buy --name myagent.dev${t.reset}`)
-  console.log(`  ${t.muted}$ ${t.text}agentos wallet keygen${t.reset}`)
-  console.log()
-  console.log(`  ${t.dim}Docs  ${t.reset}${t.muted}https://agntos.dev/skill.md${t.reset}`)
-  console.log(`  ${t.dim}API   ${t.reset}${t.muted}https://agntos.dev${t.reset}`)
-  console.log(`  ${t.dim}Code  ${t.reset}${t.muted}https://github.com/0xArtex/AgentOS${t.reset}`)
-  console.log()
-}
+  console.log(`  ${t.info}pricing${t.reset}   ${t.muted}All service prices${t.reset}`)
+  console.log(`  ${t.info}health${t.reset}    ${t.muted}API status${t.reset}`)
 
+  blank()
+  divider()
+  blank()
+  console.log(`  ${t.muted}$${t.reset} ${t.text}agentos phone search --country US${t.reset}`)
+  console.log(`  ${t.muted}$${t.reset} ${t.text}agentos compute deploy --name my-vps --type cx23${t.reset}`)
+  console.log(`  ${t.muted}$${t.reset} ${t.text}agentos domain buy --name myagent.dev${t.reset}`)
+  blank()
+  console.log(`  ${t.dim}--json${t.reset}  ${t.muted}Raw JSON output${t.reset}       ${t.dim}--url${t.reset}  ${t.muted}Custom API URL${t.reset}`)
+  blank()
+  console.log(`  ${t.dim}Docs${t.reset}  ${t.muted}agntos.dev/skill.md${t.reset}     ${t.dim}Code${t.reset}  ${t.muted}github.com/0xArtex/AgentOS${t.reset}`)
+  blank()
+}
 
 // ─── Commands ───
 async function main() {
@@ -201,7 +189,10 @@ async function main() {
           case 'buy': {
             const country = flags.country as string
             if (!country) err('--country required')
-            const data = await ao.phoneBuy(country, flags.area as string)
+            const spinner = new Spinner()
+            spinner.start('Provisioning phone number...')
+            const spin = new Spinner(); spin.start('Provisioning phone number...'); const data = await ao.phoneBuy(country, flags.area as string); spin.stop('Phone number provisioned', true)
+            spinner.stop('Phone number provisioned', true)
             if (json) return print(data)
             header('Phone Number Provisioned')
             ok(data.phoneNumber || data.phone_number || 'provisioned')
@@ -238,7 +229,7 @@ async function main() {
           case 'create': {
             const name = flags.name as string; const wallet = flags.wallet as string
             if (!name || !wallet) err('--name, --wallet required')
-            const data = await ao.emailCreate(name, wallet)
+            const spin = new Spinner(); spin.start('Creating inbox...'); const data = await ao.emailCreate(name, wallet); spin.stop('Inbox created', true)
             if (json) return print(data)
             header('Email Inbox Created')
             ok(data.address || `${name}@agntos.dev`)
@@ -300,7 +291,7 @@ async function main() {
           case 'deploy': {
             const name = flags.name as string || 'agent-' + Date.now()
             const type = flags.type as string || 'cx23'
-            const data = await ao.computeDeploy(name, type)
+            const spin = new Spinner(); spin.start('Deploying VPS...'); const data = await ao.computeDeploy(name, type); spin.stop('VPS deployed', true)
             if (json) return print(data)
             header('VPS Deployed')
             ok(data.ipv4 || data.ip || 'deploying...')
@@ -358,7 +349,7 @@ async function main() {
           case 'buy': {
             const name = flags.name as string || positional[0]
             if (!name) err('--name domain.dev required')
-            const data = await ao.domainBuy(name)
+            const spin = new Spinner(); spin.start('Registering domain...'); const data = await ao.domainBuy(name); spin.stop('Domain registered', true)
             if (json) return print(data)
             header('Domain Registered')
             ok(data.domain || name)
