@@ -37,63 +37,51 @@ function print(obj: any) { console.log(JSON.stringify(obj, null, 2)) }
 
 // ─── Help ───
 function help() {
-  console.log(`
-${c.orange}${c.bold}agentos${c.reset} ${c.dim}v${VERSION}${c.reset}
-Everything your AI agent needs — one CLI.
-
-${c.bold}Commands${c.reset}
-  ${c.cyan}phone${c.reset}
-    ${c.dim}search${c.reset}     Search available numbers    ${c.dim}--country US${c.reset}
-    ${c.dim}buy${c.reset}        Buy a phone number          ${c.dim}--country US${c.reset}
-    ${c.dim}sms${c.reset}        Send SMS                    ${c.dim}--id ID --to +1... --body "hi"${c.reset}
-    ${c.dim}call${c.reset}       Place a voice call          ${c.dim}--id ID --to +1... --tts "hello"${c.reset}
-
-  ${c.cyan}email${c.reset}
-    ${c.dim}create${c.reset}     Create an inbox             ${c.dim}--name agent --wallet SOL_PUBKEY${c.reset}
-    ${c.dim}read${c.reset}       Read inbox messages          ${c.dim}--id INBOX_ID${c.reset}
-    ${c.dim}send${c.reset}       Send an email               ${c.dim}--id INBOX_ID --to x@y.com --subject "Hi" --body "..."${c.reset}
-    ${c.dim}threads${c.reset}    List threads                ${c.dim}--id INBOX_ID${c.reset}
-
-  ${c.cyan}compute${c.reset}
-    ${c.dim}plans${c.reset}      List VPS plans
-    ${c.dim}deploy${c.reset}     Deploy a VPS                ${c.dim}--name my-server --type cx23${c.reset}
-    ${c.dim}list${c.reset}       List servers
-    ${c.dim}delete${c.reset}     Delete a server             ${c.dim}--id SERVER_ID${c.reset}
-
-  ${c.cyan}domain${c.reset}
-    ${c.dim}check${c.reset}      Check availability          ${c.dim}--name example.com${c.reset}
-    ${c.dim}pricing${c.reset}    Get TLD pricing             ${c.dim}--name example${c.reset}
-    ${c.dim}buy${c.reset}        Register a domain           ${c.dim}--name example.dev${c.reset}
-    ${c.dim}dns${c.reset}        Get DNS records             ${c.dim}--name example.dev${c.reset}
-
-  ${c.cyan}wallet${c.reset}
-    ${c.dim}create${c.reset}     Create a wallet             ${c.dim}--agent 0xADDR --chain base${c.reset}
-    ${c.dim}status${c.reset}     Check wallet status         ${c.dim}WALLET_ADDRESS${c.reset}
-    ${c.dim}keygen${c.reset}     Generate keypair            ${c.dim}--chain both${c.reset}
-
-  ${c.cyan}setup${c.reset}       Configure keyfile + chain    ${c.dim}--keyfile PATH --chain solana${c.reset}
-  ${c.cyan}status${c.reset}      Show config + API status
-  ${c.cyan}note${c.reset}        Save a note to memory        ${c.dim}"your note here"${c.reset}
-  ${c.cyan}pricing${c.reset}     Show all service prices
-  ${c.cyan}health${c.reset}      Check API status
-
-${c.bold}Options${c.reset}
-  ${c.yellow}--url${c.reset} ${c.dim}<url>${c.reset}     API base URL (default: https://agntos.dev)
-  ${c.yellow}--json${c.reset}          Output raw JSON
-  ${c.yellow}--version${c.reset}       Show version
-  ${c.yellow}--help${c.reset}          Show this help
-
-${c.bold}Examples${c.reset}
-  ${c.green}$${c.reset} agentos phone search --country US
-  ${c.green}$${c.reset} agentos phone buy --country US
-  ${c.green}$${c.reset} agentos email create --name my-agent --wallet SOL_PUBKEY
-  ${c.green}$${c.reset} agentos compute deploy --name my-vps --type cx23
-  ${c.green}$${c.reset} agentos domain buy --name myagent.dev
-  ${c.green}$${c.reset} agentos wallet keygen
-
-${c.dim}Docs: https://agntos.dev/skill.md${c.reset}
-`)
+  console.log()
+  console.log(`  ${t.accent}${t.bold}▲ AgentOS${t.reset} ${t.muted}v${VERSION}${t.reset}`)
+  console.log(`  ${t.dim}Everything your AI agent needs — one CLI.${t.reset}`)
+  console.log()
+  console.log(`  ${t.bold}Getting Started${t.reset}`)
+  console.log(`  ${t.muted}$ ${t.text}agentos setup --keyfile ~/.config/solana/id.json --chain solana${t.reset}`)
+  console.log(`  ${t.muted}$ ${t.text}agentos status${t.reset}`)
+  console.log()
+  console.log(`  ${t.bold}Services${t.reset}`)
+  console.log()
+  console.log(`  ${t.info}phone${t.reset}     ${t.muted}search · buy · sms · call${t.reset}`)
+  console.log(`  ${t.info}email${t.reset}     ${t.muted}create · read · send · threads${t.reset}`)
+  console.log(`  ${t.info}compute${t.reset}   ${t.muted}plans · deploy · list · delete${t.reset}`)
+  console.log(`  ${t.info}domain${t.reset}    ${t.muted}check · pricing · buy · dns${t.reset}`)
+  console.log(`  ${t.info}wallet${t.reset}    ${t.muted}create · status · keygen${t.reset}`)
+  console.log()
+  console.log(`  ${t.bold}Tools${t.reset}`)
+  console.log()
+  console.log(`  ${t.info}setup${t.reset}     ${t.muted}Configure wallets + chain preference${t.reset}`)
+  console.log(`  ${t.info}status${t.reset}    ${t.muted}Show config, wallets, and API health${t.reset}`)
+  console.log(`  ${t.info}note${t.reset}      ${t.muted}Save a note to ~/.agentos/memory/${t.reset}`)
+  console.log(`  ${t.info}pricing${t.reset}   ${t.muted}Show all service prices${t.reset}`)
+  console.log(`  ${t.info}health${t.reset}    ${t.muted}Check API status${t.reset}`)
+  console.log()
+  console.log(`  ${t.bold}Options${t.reset}`)
+  console.log()
+  console.log(`  ${t.warn}--url${t.reset} ${t.dim}<url>${t.reset}     ${t.muted}API base URL${t.reset}`)
+  console.log(`  ${t.warn}--json${t.reset}          ${t.muted}Output raw JSON${t.reset}`)
+  console.log(`  ${t.warn}--version${t.reset}       ${t.muted}Show version${t.reset}`)
+  console.log(`  ${t.warn}--help${t.reset}          ${t.muted}Show this help${t.reset}`)
+  console.log()
+  console.log(`  ${t.bold}Examples${t.reset}`)
+  console.log()
+  console.log(`  ${t.muted}$ ${t.text}agentos phone search --country US${t.reset}`)
+  console.log(`  ${t.muted}$ ${t.text}agentos email create --name my-agent --wallet SOL_PUBKEY${t.reset}`)
+  console.log(`  ${t.muted}$ ${t.text}agentos compute deploy --name my-vps --type cx23${t.reset}`)
+  console.log(`  ${t.muted}$ ${t.text}agentos domain buy --name myagent.dev${t.reset}`)
+  console.log(`  ${t.muted}$ ${t.text}agentos wallet keygen${t.reset}`)
+  console.log()
+  console.log(`  ${t.dim}Docs  ${t.reset}${t.muted}https://agntos.dev/skill.md${t.reset}`)
+  console.log(`  ${t.dim}API   ${t.reset}${t.muted}https://agntos.dev${t.reset}`)
+  console.log(`  ${t.dim}Code  ${t.reset}${t.muted}https://github.com/0xArtex/AgentOS${t.reset}`)
+  console.log()
 }
+
 
 // ─── Commands ───
 async function main() {
@@ -106,6 +94,15 @@ async function main() {
   ensureDirs()
 
   const config = loadConfig()
+  const startTime = Date.now()
+
+  // First-time welcome
+  if (!config.setupDone && command !== 'setup' && !['help','--help'].includes(command) && !flags.help && !flags.version) {
+    banner()
+    subtle('First time? Run:')
+    console.log(`  ${t.info}agentos setup --keyfile ~/.config/solana/id.json --chain solana${t.reset}`)
+    blank()
+  }
   const url = flags.url as string || config.api
   const ao = new AgentOS(url)
   const json = !!flags.json
@@ -114,7 +111,6 @@ async function main() {
     switch (command) {
       case 'setup': {
         ensureDirs()
-        header('AgentOS Setup')
 
         const keyfile = flags.keyfile as string
           || process.env.AGENTOS_KEYFILE
@@ -464,12 +460,33 @@ async function main() {
     }
   } catch (e: any) {
     if (e.message === 'Payment Required') {
-      console.error(`\n  ${c.yellow}Payment required.${c.reset} This endpoint costs USDC via x402.`)
-      console.error(`  ${c.dim}Your wallet is your identity — pay to provision.${c.reset}\n`)
+      blank()
+      warn('Payment required — this endpoint costs USDC via x402.')
+      subtle('Your wallet is your identity — pay to provision.')
+      if (!config.setupDone) {
+        subtle(`Setup first: ${t.info}agentos setup --keyfile <path> --chain solana${t.muted}`)
+      }
+      blank()
     } else {
-      console.error(`\n  ${c.red}Error:${c.reset} ${e.message}\n`)
+      blank()
+      fail(e.message)
+      // Suggest fixes for common errors
+      if (e.message?.includes('keyfile') || e.message?.includes('key')) {
+        subtle(`Configure wallet: ${t.info}agentos setup --keyfile <path> --chain solana${t.muted}`)
+      }
+      if (e.message?.includes('fetch') || e.message?.includes('ECONNREFUSED')) {
+        subtle('Is the API running? Check: agentos health')
+      }
+      blank()
     }
     process.exit(1)
+  }
+
+  // Show duration for non-instant commands
+  const elapsed = Date.now() - startTime
+  if (elapsed > 500 && !['help','--help'].includes(command) && !flags.help) {
+    subtle(`Done in ${(elapsed / 1000).toFixed(1)}s`)
+    blank()
   }
 }
 
