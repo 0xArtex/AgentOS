@@ -9,7 +9,7 @@ import { homedir } from 'os'
 // Alias for backwards compat in help text
 const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, white: t.text, gray: t.muted, orange: t.accent }
 
-const VERSION = '0.2.0'
+const VERSION = '0.3.0'
 
 // ─── Parse args ───
 function parse(argv: string[]) {
@@ -33,7 +33,17 @@ function parse(argv: string[]) {
 }
 
 function err(msg: string) { fail(msg); process.exit(1) }
-function print(obj: any) { console.log(JSON.stringify(obj, null, 2)) }
+function print(obj: any) {
+  const json = JSON.stringify(obj, null, 2)
+  // Syntax highlight JSON
+  const colored = json
+    .replace(/"([^"]+)":/g, `${t.info}"$1"${t.reset}:`)
+    .replace(/: "([^"]+)"/g, `: ${t.success}"$1"${t.reset}`)
+    .replace(/: (\d+)/g, `: ${t.warn}$1${t.reset}`)
+    .replace(/: (true|false)/g, `: ${t.accent}$1${t.reset}`)
+    .replace(/: (null)/g, `: ${t.muted}$1${t.reset}`)
+  console.log(colored)
+}
 
 // ─── Help ───
 function help() {
@@ -175,6 +185,15 @@ async function main() {
       }
 
       case 'phone': {
+        if (!subcommand || flags.help) {
+          header('phone')
+          console.log(`  ${t.info}search${t.reset}    ${t.muted}Search available numbers${t.reset}       ${t.dim}--country US${t.reset}`)
+          console.log(`  ${t.info}buy${t.reset}       ${t.muted}Buy a phone number${t.reset}            ${t.dim}--country US${t.reset}`)
+          console.log(`  ${t.info}sms${t.reset}       ${t.muted}Send an SMS${t.reset}                   ${t.dim}--id ID --to +1... --body "hi"${t.reset}`)
+          console.log(`  ${t.info}call${t.reset}      ${t.muted}Place a voice call${t.reset}            ${t.dim}--id ID --to +1... --tts "hello"${t.reset}`)
+          blank()
+          break
+        }
         switch (subcommand) {
           case 'search': {
             const country = flags.country as string || 'US'
@@ -225,6 +244,15 @@ async function main() {
       }
 
       case 'email': {
+        if (!subcommand || flags.help) {
+          header('email')
+          console.log(`  ${t.info}create${t.reset}    ${t.muted}Create an inbox${t.reset}               ${t.dim}--name agent --wallet SOL_PUB${t.reset}`)
+          console.log(`  ${t.info}read${t.reset}      ${t.muted}Read inbox messages${t.reset}           ${t.dim}--id INBOX_ID${t.reset}`)
+          console.log(`  ${t.info}send${t.reset}      ${t.muted}Send an email${t.reset}                 ${t.dim}--id ID --to x@y.com --subject ... --body ...${t.reset}`)
+          console.log(`  ${t.info}threads${t.reset}   ${t.muted}List threads${t.reset}                  ${t.dim}--id INBOX_ID${t.reset}`)
+          blank()
+          break
+        }
         switch (subcommand) {
           case 'create': {
             const name = flags.name as string; const wallet = flags.wallet as string
@@ -278,6 +306,15 @@ async function main() {
       }
 
       case 'compute': {
+        if (!subcommand || flags.help) {
+          header('compute')
+          console.log(`  ${t.info}plans${t.reset}     ${t.muted}List VPS plans${t.reset}`)
+          console.log(`  ${t.info}deploy${t.reset}    ${t.muted}Deploy a VPS${t.reset}                  ${t.dim}--name my-vps --type cx23${t.reset}`)
+          console.log(`  ${t.info}list${t.reset}      ${t.muted}List servers${t.reset}`)
+          console.log(`  ${t.info}delete${t.reset}    ${t.muted}Delete a server${t.reset}               ${t.dim}--id SERVER_ID${t.reset}`)
+          blank()
+          break
+        }
         switch (subcommand) {
           case 'plans': {
             const data = await ao.computePlans()
@@ -325,6 +362,15 @@ async function main() {
       }
 
       case 'domain': {
+        if (!subcommand || flags.help) {
+          header('domain')
+          console.log(`  ${t.info}check${t.reset}     ${t.muted}Check availability${t.reset}            ${t.dim}--name example.dev${t.reset}`)
+          console.log(`  ${t.info}pricing${t.reset}   ${t.muted}Get TLD pricing${t.reset}               ${t.dim}--name example${t.reset}`)
+          console.log(`  ${t.info}buy${t.reset}       ${t.muted}Register a domain${t.reset}             ${t.dim}--name example.dev${t.reset}`)
+          console.log(`  ${t.info}dns${t.reset}       ${t.muted}Get DNS records${t.reset}               ${t.dim}--name example.dev${t.reset}`)
+          blank()
+          break
+        }
         switch (subcommand) {
           case 'check': {
             const name = flags.name as string || positional[0]
@@ -374,6 +420,14 @@ async function main() {
       }
 
       case 'wallet': {
+        if (!subcommand || flags.help) {
+          header('wallet')
+          console.log(`  ${t.info}keygen${t.reset}    ${t.muted}Generate a keypair${t.reset}            ${t.dim}--chain both${t.reset}`)
+          console.log(`  ${t.info}create${t.reset}    ${t.muted}Create a smart wallet${t.reset}         ${t.dim}--agent 0xADDR --chain base${t.reset}`)
+          console.log(`  ${t.info}status${t.reset}    ${t.muted}Check wallet status${t.reset}           ${t.dim}WALLET_ADDRESS${t.reset}`)
+          blank()
+          break
+        }
         switch (subcommand) {
           case 'create': {
             const agent = flags.agent as string
