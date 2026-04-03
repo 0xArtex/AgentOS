@@ -136,15 +136,14 @@ function AutoExit() {
 function Mascot() {
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color={palette.shadow}>      ░░░░░░░░</Text>
-      <Text color={palette.soft}>     ╭────────╮</Text>
-      <Text color={palette.soft}>     │ ●    ● │</Text>
-      <Text color={palette.soft}>     │   ▄▄   │</Text>
-      <Text color={palette.soft}>     │  ╰──╯  │</Text>
-      <Text color={palette.soft}>     ╰─╮    ╭─╯</Text>
-      <Text color={palette.muted}>       │    │</Text>
-      <Text color={palette.soft}>     ╭─╯    ╰─╮</Text>
-      <Text color={palette.soft}>     ╰────────╯</Text>
+      <Text color={palette.shadow}>        ░░░░░░</Text>
+      <Text color={palette.soft}>      ╭────────╮</Text>
+      <Text color={palette.soft}>    ╭─│  ●  ●  │─╮</Text>
+      <Text color={palette.soft}>    │ │   ▄▄   │ │</Text>
+      <Text color={palette.soft}>    │ │  ╰──╯  │ │</Text>
+      <Text color={palette.soft}>    │ ╰────────╯ │</Text>
+      <Text color={palette.muted}>    │    ╭──╮    │</Text>
+      <Text color={palette.soft}>    ╰────╯  ╰────╯</Text>
     </Box>
   )
 }
@@ -172,7 +171,7 @@ function Card(props: PropsWithChildren<{ title?: string; width: number }>) {
 
 function StatDot(props: { ok: boolean; label: string; value: string }) {
   return (
-    <Box>
+    <Box marginBottom={1}>
       <Text color={props.ok ? palette.success : palette.error}>●</Text>
       <Text> </Text>
       <Text color={palette.muted}>{props.label}: </Text>
@@ -189,7 +188,7 @@ function truncateMiddle(value: string, max = 34) {
 
 function KeyValue(props: { label: string; value: string }) {
   return (
-    <Box>
+    <Box marginBottom={1}>
       <Box width={16}>
         <Text color={palette.muted}>{props.label}</Text>
       </Box>
@@ -540,9 +539,9 @@ export function PricingScreen(props: PricingScreenProps) {
         <Card title="services" width={rightWidth}>
           {props.services.map((service, i) => (
             <Box key={`${service.name}-${i}`} flexDirection="column" marginBottom={1}>
-              <Text color={palette.text}>{service.name}</Text>
+              <Text color={palette.text}>› {service.name}</Text>
               {service.items.map((item, j) => (
-                <Box key={`${service.name}-${item.label}-${j}`} justifyContent="space-between">
+                <Box key={`${service.name}-${item.label}-${j}`} justifyContent="space-between" marginBottom={0}>
                   <Text color={palette.muted}>{item.label}</Text>
                   <Text color={palette.muted}>${item.value}</Text>
                 </Box>
@@ -595,7 +594,7 @@ export function MenuScreen(props: MenuScreenProps) {
         <Card title="commands" width={rightWidth}>
           {props.commands.map((cmd, i) => (
             <Box key={`${cmd.name}-${i}`} flexDirection="column" marginBottom={1}>
-              <Text color={palette.text}>{cmd.name}</Text>
+              <Text color={palette.text}>› {cmd.name}</Text>
               <Text color={palette.muted}>{cmd.description}{cmd.hint ? ` · ${cmd.hint}` : ''}</Text>
             </Box>
           ))}
@@ -621,9 +620,9 @@ export function RecordsScreen(props: RecordsScreenProps) {
         <Card title="records" width={rightWidth}>
           {props.records.map((record, i) => (
             <Box key={`${record.primary}-${i}`} flexDirection="column" marginBottom={1}>
-              <Text color={palette.text}>{record.primary}</Text>
+              <Text color={palette.text}>› {record.primary}</Text>
               {record.secondary ? <Text color={palette.muted}>{record.secondary}</Text> : null}
-              {record.status ? <Text color={palette.muted}>{record.status}</Text> : null}
+              {record.status ? <Text color={palette.dim}>{record.status}</Text> : null}
             </Box>
           ))}
         </Card>
