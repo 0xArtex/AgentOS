@@ -249,10 +249,10 @@ async function main() {
           case 'buy': {
             const country = flags.country as string
             if (!country) err('--country required')
-            const spinner = new Spinner()
-            spinner.start('Provisioning phone number...')
-            const spin = new Spinner(); spin.start('Provisioning phone number...'); const data = await ao.phoneBuy(country, flags.area as string); spin.stop('Phone number provisioned', true)
-            spinner.stop('Phone number provisioned', true)
+            const spin = new Spinner()
+            spin.start('Provisioning phone number...')
+            const data = await ao.phoneBuy(country, flags.area as string)
+            spin.stop('Phone number provisioned', true)
             if (json) return print(data)
             const number = data.phoneNumber || data.phone_number || 'provisioned'
             render(React.createElement(SuccessScreen, {
@@ -311,7 +311,10 @@ async function main() {
           case 'create': {
             const name = flags.name as string; const wallet = flags.wallet as string
             if (!name || !wallet) err('--name, --wallet required')
-            const spin = new Spinner(); spin.start('Creating inbox...'); const data = await ao.emailCreate(name, wallet); spin.stop('Inbox created', true)
+            const spin = new Spinner()
+            spin.start('Creating inbox...')
+            const data = await ao.emailCreate(name, wallet)
+            spin.stop('Inbox created', true)
             if (json) return print(data)
             const address = data.address || `${name}@agntos.dev`
             render(React.createElement(SuccessScreen, {
@@ -430,7 +433,10 @@ async function main() {
           case 'deploy': {
             const name = flags.name as string || 'agent-' + Date.now()
             const type = flags.type as string || 'cx23'
-            const spin = new Spinner(); spin.start('Deploying VPS...'); const data = await ao.computeDeploy(name, type); spin.stop('VPS deployed', true)
+            const spin = new Spinner()
+            spin.start('Deploying VPS...')
+            const data = await ao.computeDeploy(name, type)
+            spin.stop('VPS deployed', true)
             if (json) return print(data)
             const ip = data.ipv4 || data.ip || 'deploying...'
             render(React.createElement(ComputeDeployScreen, {
@@ -534,7 +540,10 @@ async function main() {
           case 'buy': {
             const name = flags.name as string || positional[0]
             if (!name) err('--name domain.dev required')
-            const spin = new Spinner(); spin.start('Registering domain...'); const data = await ao.domainBuy(name); spin.stop('Domain registered', true)
+            const spin = new Spinner()
+            spin.start('Registering domain...')
+            const data = await ao.domainBuy(name)
+            spin.stop('Domain registered', true)
             if (json) return print(data)
             const domain = data.domain || name
             render(React.createElement(SuccessScreen, {

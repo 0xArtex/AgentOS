@@ -42,14 +42,21 @@ const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', 
 export class Spinner {
   private interval: ReturnType<typeof setInterval> | null = null
   private frame = 0
+  private label = ''
 
   start(label: string) {
+    this.label = label
     this.frame = 0
+    process.stdout.write('\n')
     this.interval = setInterval(() => {
       const f = SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length]
-      process.stdout.write(`\r  ${theme.info}${f}${theme.reset} ${theme.muted}${label}${theme.reset}`)
+      process.stdout.write(`\r  ${theme.info}${f}${theme.reset} ${theme.text}${this.label}${theme.reset}`)
       this.frame++
     }, 80)
+  }
+
+  update(label: string) {
+    this.label = label
   }
 
   stop(label: string, success = true) {
