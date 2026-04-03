@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { render } from 'ink'
-import { ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, SetupScreen, StatusScreen } from './app.js'
+import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, SetupScreen, StatusScreen, WalletCreateScreen, WalletStatusScreen } from './app.js'
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
@@ -337,22 +337,27 @@ async function main() {
             const type = flags.type as string || 'cx23'
             const spin = new Spinner(); spin.start('Deploying VPS...'); const data = await ao.computeDeploy(name, type); spin.stop('VPS deployed', true)
             if (json) return print(data)
-            header('VPS Deployed')
-            ok(data.ipv4 || data.ip || 'deploying...')
-            row('ID', data.id || '')
-            row('Type', type)
-            row('SSH', `root@${data.ipv4 || data.ip}`)
-            addServer({ id: data.id, ip: data.ipv4 || data.ip, type, name, createdAt: new Date().toISOString() })
-            log(`compute deploy: ${data.ipv4 || data.ip} (${type})`)
+            const ip = data.ipv4 || data.ip || 'deploying...'
+            render(React.createElement(ComputeDeployScreen, {
+              version: VERSION,
+              ip,
+              id: data.id || '',
+              type,
+              name,
+            }))
+            addServer({ id: data.id, ip, type, name, createdAt: new Date().toISOString() })
+            log(`compute deploy: ${ip} (${type})`)
             break
           }
           case 'list': {
             const data = await ao.computeList()
             if (json) return print(data)
-            header('Servers')
-            for (const s of (data.servers || [])) {
-              console.log(`  ${c.green}●${c.reset} ${s.ipv4 || s.ip} ${c.dim}${s.serverType || s.type} · ${s.status}${c.reset}`)
-            }
+            const servers = (data.servers || []).map((s: any) => ({
+              ip: String(s.ipv4 || s.ip || 'unknown'),
+              type: String(s.serverType || s.type || 'unknown'),
+              status: String(s.status || 'unknown'),
+            }))
+            render(React.createElement(ComputeListScreen, { version: VERSION, servers }))
             break
           }
           case 'delete': {
@@ -450,10 +455,13 @@ async function main() {
             const chain = flags.chain as string || 'base'
             const data = await ao.walletCreate(agent, chain)
             if (json) return print(data)
-            header('Wallet Created')
-            ok(data.wallet?.address || 'created')
-            row('Chain', chain)
-            if (data.setupUrl) row('Setup', data.setupUrl)
+            const address = data.wallet?.address || 'created'
+            render(React.createElement(WalletCreateScreen, {
+              version: VERSION,
+              address,
+              chain,
+              setupUrl: data.setupUrl,
+            }))
             addWallet({ address: data.wallet?.address, chain, createdAt: new Date().toISOString() })
             log(`wallet create: ${data.wallet?.address || 'unknown'} (${chain})`)
             break
@@ -463,14 +471,14 @@ async function main() {
             if (!addr) err('Wallet address required')
             const data = await ao.walletStatus(addr)
             if (json) return print(data)
-            header('Wallet Status')
             const w = data.wallet || data
-            row('Address', w.address || addr)
-            row('Owner', w.owner || 'unknown')
-            if (w.policy) {
-              row('Daily limit', `$${(parseInt(w.policy.dailyLimit || 0) / 1e6).toFixed(0)}`)
-              row('Per-tx limit', `$${(parseInt(w.policy.perTxLimit || 0) / 1e6).toFixed(0)}`)
-            }
+            render(React.createElement(WalletStatusScreen, {
+              version: VERSION,
+              address: w.address || addr,
+              owner: w.owner || 'unknown',
+              dailyLimit: w.policy ? `$${(parseInt(w.policy.dailyLimit || 0) / 1e6).toFixed(0)}` : undefined,
+              perTxLimit: w.policy ? `$${(parseInt(w.policy.perTxLimit || 0) / 1e6).toFixed(0)}` : undefined,
+            }))
             break
           }
           case 'keygen': {

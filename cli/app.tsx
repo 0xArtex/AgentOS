@@ -41,6 +41,34 @@ export type DomainPricingScreenProps = {
   items: Array<{ tld: string; price: string }>
 }
 
+export type WalletCreateScreenProps = {
+  version: string
+  address: string
+  chain: string
+  setupUrl?: string
+}
+
+export type WalletStatusScreenProps = {
+  version: string
+  address: string
+  owner: string
+  dailyLimit?: string
+  perTxLimit?: string
+}
+
+export type ComputeDeployScreenProps = {
+  version: string
+  ip: string
+  id: string
+  type: string
+  name: string
+}
+
+export type ComputeListScreenProps = {
+  version: string
+  servers: Array<{ ip: string; type: string; status: string }>
+}
+
 const palette = {
   text: 'white',
   muted: 'gray',
@@ -152,13 +180,18 @@ function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string;
   )
 }
 
+function twoColWidths(termWidth: number, leftRatio = 0.4, maxLeft = 36) {
+  const contentWidth = Math.max(72, termWidth - 6)
+  const gap = 2
+  const leftWidth = Math.min(maxLeft, Math.floor((contentWidth - gap) * leftRatio))
+  const rightWidth = contentWidth - leftWidth - gap
+  return { gap, leftWidth, rightWidth }
+}
+
 export function Dashboard(props: DashboardProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const contentWidth = Math.max(72, termWidth - 6)
-  const gap = 2
-  const leftWidth = Math.min(36, Math.floor((contentWidth - gap) * 0.4))
-  const rightWidth = contentWidth - leftWidth - gap
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.4, 36)
   const hasWallets = !!props.wallets && Object.keys(props.wallets).length > 0
   const walletNames = hasWallets ? Object.keys(props.wallets!).join(', ') : 'not configured'
 
@@ -171,18 +204,14 @@ export function Dashboard(props: DashboardProps) {
     >
       <Box>
         <Card title="agent shell" width={leftWidth}>
-          <Text color={palette.text} bold>
-            Calm infrastructure for autonomous agents.
-          </Text>
+          <Text color={palette.text} bold>Calm infrastructure for autonomous agents.</Text>
           <Mascot />
           <Box marginTop={1} flexDirection="column">
             <Text color={palette.muted}>Default chain</Text>
             <Text color={palette.text}>{props.chain || 'solana'}</Text>
           </Box>
         </Card>
-
         <Box width={gap} />
-
         <Card title="quick actions" width={rightWidth}>
           <Box flexDirection="column" marginBottom={1}>
             <Text color={palette.text}>agentos setup --keyfile ~/.config/solana/id.json --chain solana</Text>
@@ -190,10 +219,7 @@ export function Dashboard(props: DashboardProps) {
             <Text color={palette.text}>agentos compute plans</Text>
             <Text color={palette.text}>agentos domain check --name myagent.dev</Text>
           </Box>
-
-          <Box marginTop={1} marginBottom={1}>
-            <Text color={palette.muted}>status</Text>
-          </Box>
+          <Box marginTop={1} marginBottom={1}><Text color={palette.muted}>status</Text></Box>
           <Box flexDirection="column">
             <StatDot ok={hasWallets} label="Wallets" value={walletNames} />
             <StatDot ok={!!props.apiOk} label="API" value={props.apiOk ? 'connected' : 'unreachable'} />
@@ -208,46 +234,30 @@ export function Dashboard(props: DashboardProps) {
 export function StatusScreen(props: StatusScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const contentWidth = Math.max(72, termWidth - 6)
-  const gap = 2
-  const leftWidth = Math.min(38, Math.floor((contentWidth - gap) * 0.42))
-  const rightWidth = contentWidth - leftWidth - gap
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.42, 38)
   const wallets = props.wallets || {}
   const hasSolana = !!wallets.solana
   const hasBase = !!wallets.base
 
   return (
-    <Shell
-      titleLeft={`AgentOS status · v${props.version}`}
-      titleRight="System overview"
-      footerLeft={props.apiOk ? 'API reachable' : 'API offline'}
-      footerRight="phase 1.5"
-    >
+    <Shell titleLeft={`AgentOS status · v${props.version}`} titleRight="System overview" footerLeft={props.apiOk ? 'API reachable' : 'API offline'} footerRight="phase 1.5">
       <Box>
         <Card title="overview" width={leftWidth}>
-          <Text color={palette.text} bold>
-            Runtime posture
-          </Text>
+          <Text color={palette.text} bold>Runtime posture</Text>
           <Box marginTop={1} flexDirection="column">
             <StatDot ok={props.apiOk} label="API" value={props.apiOk ? 'healthy' : 'offline'} />
             <StatDot ok={hasSolana} label="Solana" value={hasSolana ? 'configured' : 'missing'} />
             <StatDot ok={hasBase} label="Base" value={hasBase ? 'configured' : 'missing'} />
           </Box>
-          <Box marginTop={1}>
-            <Mascot />
-          </Box>
+          <Box marginTop={1}><Mascot /></Box>
         </Card>
-
         <Box width={gap} />
-
         <Card title="configuration" width={rightWidth}>
           <KeyValue label="API" value={props.api} />
           <KeyValue label="Solana" value={hasSolana ? wallets.solana!.keyfile : 'not configured'} />
           <KeyValue label="Base" value={hasBase ? wallets.base!.keyfile : 'not configured'} />
           <KeyValue label="Default" value={props.defaultChain || 'solana'} />
-          <Box marginTop={1}>
-            <Text color={palette.muted}>next</Text>
-          </Box>
+          <Box marginTop={1}><Text color={palette.muted}>next</Text></Box>
           <Text color={palette.text}>agentos setup --keyfile ~/.config/solana/id.json --chain solana</Text>
         </Card>
       </Box>
@@ -258,19 +268,11 @@ export function StatusScreen(props: StatusScreenProps) {
 export function ComputePlansScreen(props: ComputePlansScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const contentWidth = Math.max(72, termWidth - 6)
-  const gap = 2
-  const leftWidth = Math.min(28, Math.floor((contentWidth - gap) * 0.3))
-  const rightWidth = contentWidth - leftWidth - gap
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.3, 28)
   const featured = props.plans[0]
 
   return (
-    <Shell
-      titleLeft={`AgentOS compute plans · v${props.version}`}
-      titleRight="VPS catalog"
-      footerLeft="Use agentos compute deploy --name <name> --type <plan>"
-      footerRight="phase 2"
-    >
+    <Shell titleLeft={`AgentOS compute plans · v${props.version}`} titleRight="VPS catalog" footerLeft="Use agentos compute deploy --name <name> --type <plan>" footerRight="phase 2">
       <Box>
         <Card title="featured" width={leftWidth}>
           <Text color={palette.text} bold>{featured?.name || 'No plans'}</Text>
@@ -297,18 +299,10 @@ export function ComputePlansScreen(props: ComputePlansScreenProps) {
 export function DomainCheckScreen(props: DomainCheckScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const contentWidth = Math.max(72, termWidth - 6)
-  const gap = 2
-  const leftWidth = Math.min(30, Math.floor((contentWidth - gap) * 0.34))
-  const rightWidth = contentWidth - leftWidth - gap
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
 
   return (
-    <Shell
-      titleLeft={`AgentOS domain check · v${props.version}`}
-      titleRight="Naming"
-      footerLeft={props.available ? 'Ready to buy' : 'Try another domain'}
-      footerRight="phase 2"
-    >
+    <Shell titleLeft={`AgentOS domain check · v${props.version}`} titleRight="Naming" footerLeft={props.available ? 'Ready to buy' : 'Try another domain'} footerRight="phase 2">
       <Box>
         <Card title="result" width={leftWidth}>
           <Text color={props.available ? palette.success : palette.error}>{props.available ? '● available' : '● taken'}</Text>
@@ -330,19 +324,11 @@ export function DomainCheckScreen(props: DomainCheckScreenProps) {
 export function DomainPricingScreen(props: DomainPricingScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const contentWidth = Math.max(72, termWidth - 6)
-  const gap = 2
-  const leftWidth = Math.min(28, Math.floor((contentWidth - gap) * 0.3))
-  const rightWidth = contentWidth - leftWidth - gap
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.3, 28)
   const cheapest = [...props.items].sort((a, b) => Number(a.price) - Number(b.price))[0]
 
   return (
-    <Shell
-      titleLeft={`AgentOS domain pricing · v${props.version}`}
-      titleRight="TLD pricing"
-      footerLeft="Use agentos domain check --name <domain.tld>"
-      footerRight="phase 2"
-    >
+    <Shell titleLeft={`AgentOS domain pricing · v${props.version}`} titleRight="TLD pricing" footerLeft="Use agentos domain check --name <domain.tld>" footerRight="phase 2">
       <Box>
         <Card title="cheapest" width={leftWidth}>
           <Text color={palette.text} bold>{cheapest ? `.${cheapest.tld}` : 'No results'}</Text>
@@ -363,47 +349,131 @@ export function DomainPricingScreen(props: DomainPricingScreenProps) {
   )
 }
 
+export function WalletCreateScreen(props: WalletCreateScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  return (
+    <Shell titleLeft={`AgentOS wallet create · v${props.version}`} titleRight="Smart wallet" footerLeft="Wallet created" footerRight="phase 2.5">
+      <Box>
+        <Card title="created" width={leftWidth}>
+          <Text color={palette.success}>● ready</Text>
+          <Box marginTop={1}><Text color={palette.text} bold>{truncateMiddle(props.address, 24)}</Text></Box>
+          <Box marginTop={1}><Text color={palette.muted}>{props.chain}</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="details" width={rightWidth}>
+          <KeyValue label="Address" value={props.address} />
+          <KeyValue label="Chain" value={props.chain} />
+          {props.setupUrl ? <KeyValue label="Setup" value={props.setupUrl} /> : null}
+          <Box marginTop={1}><Text color={palette.muted}>next</Text></Box>
+          <Text color={palette.text}>agentos wallet status {props.address}</Text>
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function WalletStatusScreen(props: WalletStatusScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  return (
+    <Shell titleLeft={`AgentOS wallet status · v${props.version}`} titleRight="Policy" footerLeft="Wallet posture" footerRight="phase 2.5">
+      <Box>
+        <Card title="wallet" width={leftWidth}>
+          <Text color={palette.text} bold>{truncateMiddle(props.address, 24)}</Text>
+          <Box marginTop={1}><Text color={palette.muted}>owner</Text></Box>
+          <Text color={palette.text}>{truncateMiddle(props.owner, 24)}</Text>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="limits" width={rightWidth}>
+          <KeyValue label="Address" value={props.address} />
+          <KeyValue label="Owner" value={props.owner} />
+          {props.dailyLimit ? <KeyValue label="Daily limit" value={props.dailyLimit} /> : null}
+          {props.perTxLimit ? <KeyValue label="Per-tx" value={props.perTxLimit} /> : null}
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function ComputeDeployScreen(props: ComputeDeployScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  return (
+    <Shell titleLeft={`AgentOS compute deploy · v${props.version}`} titleRight="Server provisioned" footerLeft="Use SSH to connect" footerRight="phase 2.5">
+      <Box>
+        <Card title="live" width={leftWidth}>
+          <Text color={palette.success}>● online</Text>
+          <Box marginTop={1}><Text color={palette.text} bold>{props.ip}</Text></Box>
+          <Box marginTop={1}><Text color={palette.muted}>{props.type}</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="details" width={rightWidth}>
+          <KeyValue label="Name" value={props.name} />
+          <KeyValue label="ID" value={props.id} />
+          <KeyValue label="Type" value={props.type} />
+          <KeyValue label="SSH" value={`root@${props.ip}`} />
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function ComputeListScreen(props: ComputeListScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.28, 26)
+  return (
+    <Shell titleLeft={`AgentOS compute list · v${props.version}`} titleRight="Fleet" footerLeft={`${props.servers.length} server${props.servers.length === 1 ? '' : 's'}`} footerRight="phase 2.5">
+      <Box>
+        <Card title="fleet" width={leftWidth}>
+          <Text color={palette.text} bold>{String(props.servers.length)}</Text>
+          <Box marginTop={1}><Text color={palette.muted}>tracked servers</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="servers" width={rightWidth}>
+          {props.servers.map((server, i) => (
+            <Box key={`${server.ip}-${i}`} justifyContent="space-between">
+              <Text color={palette.text}>{server.ip}</Text>
+              <Text color={palette.muted}>{`${server.type} · ${server.status}`}</Text>
+            </Box>
+          ))}
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
 export function SetupScreen(props: SetupScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const contentWidth = Math.max(72, termWidth - 6)
-  const gap = 2
-  const leftWidth = Math.min(36, Math.floor((contentWidth - gap) * 0.4))
-  const rightWidth = contentWidth - leftWidth - gap
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.4, 36)
   const secondary = props.chains.filter(c => c !== props.addedChain)[0]
 
   return (
-    <Shell
-      titleLeft={`AgentOS setup · v${props.version}`}
-      titleRight="Wallet configured"
-      footerLeft="Run agentos status to verify"
-      footerRight="phase 1.5"
-    >
+    <Shell titleLeft={`AgentOS setup · v${props.version}`} titleRight="Wallet configured" footerLeft="Run agentos status to verify" footerRight="phase 1.5">
       <Box>
         <Card title="setup complete" width={leftWidth}>
           <Text color={palette.success}>● configured</Text>
-          <Box marginTop={1}>
-            <Text color={palette.text} bold>
-              {props.addedChain} wallet added.
-            </Text>
-          </Box>
+          <Box marginTop={1}><Text color={palette.text} bold>{props.addedChain} wallet added.</Text></Box>
           <Mascot />
         </Card>
-
         <Box width={gap} />
-
         <Card title="details" width={rightWidth}>
           <KeyValue label="API" value={props.api} />
           <KeyValue label="Chain" value={props.chains.join(', ')} />
           <KeyValue label="Keyfile" value={props.keyfile} />
-          <Box marginTop={1}>
-            <Text color={palette.muted}>next</Text>
-          </Box>
+          <Box marginTop={1}><Text color={palette.muted}>next</Text></Box>
           <Text color={palette.text}>agentos status</Text>
           {props.chains.length === 1 ? (
-            <Text color={palette.text}>
-              {`agentos setup --keyfile <path> --chain ${props.addedChain === 'solana' ? 'base' : 'solana'}`}
-            </Text>
+            <Text color={palette.text}>{`agentos setup --keyfile <path> --chain ${props.addedChain === 'solana' ? 'base' : 'solana'}`}</Text>
           ) : secondary ? (
             <Text color={palette.muted}>{secondary} wallet already present</Text>
           ) : null}
