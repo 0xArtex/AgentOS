@@ -9,8 +9,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "declaration": true,
-    "sourceMap": true
+    "sourceMap": true,
+    "jsx": "react",
+    "lib": ["ES2022"]
   },
-  "include": ["*.ts"],
+  "include": ["*.ts", "*.tsx"],
   "exclude": ["node_modules", "dist"]
 }

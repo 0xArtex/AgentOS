@@ -1,0 +1,147 @@
+import React, { PropsWithChildren, useEffect } from 'react'
+import { Box, Text, useApp, useStdout } from 'ink'
+
+export type DashboardProps = {
+  version: string
+  chain?: string
+  wallets?: Record<string, { keyfile: string }> | undefined
+  apiOk?: boolean
+}
+
+const palette = {
+  text: 'white',
+  muted: 'gray',
+  dim: 'blackBright',
+  accent: 'white',
+  success: 'greenBright',
+  error: 'redBright',
+  soft: 'whiteBright',
+} as const
+
+function Mascot() {
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color={palette.soft}>       ╭────────╮</Text>
+      <Text color={palette.soft}>       │  ◕  ◕ │</Text>
+      <Text color={palette.soft}>       │   ▔▔  │</Text>
+      <Text color={palette.soft}>       ╰─╮  ╭─╯</Text>
+      <Text color={palette.soft}>         │  │</Text>
+      <Text color={palette.soft}>       ╭─╯  ╰─╮</Text>
+      <Text color={palette.soft}>       ╰──────╯</Text>
+    </Box>
+  )
+}
+
+function Card(props: PropsWithChildren<{ title?: string; width: number }>) {
+  return (
+    <Box
+      flexDirection="column"
+      width={props.width}
+      borderStyle="round"
+      borderColor={palette.dim}
+      paddingX={2}
+      paddingY={1}
+    >
+      {props.title ? (
+        <Box marginBottom={1}>
+          <Text color={palette.muted}>{props.title}</Text>
+        </Box>
+      ) : null}
+      {props.children}
+    </Box>
+  )
+}
+
+function StatDot(props: { ok: boolean; label: string; value: string }) {
+  return (
+    <Box>
+      <Text color={props.ok ? palette.success : palette.error}>{props.ok ? '●' : '●'}</Text>
+      <Text> </Text>
+      <Text color={palette.muted}>{props.label}: </Text>
+      <Text color={palette.text}>{props.value}</Text>
+    </Box>
+  )
+}
+
+function Rule() {
+  const { stdout } = useStdout()
+  const columns = stdout?.columns ?? 100
+  const width = Math.max(32, Math.min(columns - 16, 72))
+  return <Text color={palette.dim}>{'─'.repeat(width)}</Text>
+}
+
+export function Dashboard(props: DashboardProps) {
+  const { exit } = useApp()
+  const { stdout } = useStdout()
+
+  useEffect(() => {
+    const t = setTimeout(() => exit(), 10)
+    return () => clearTimeout(t)
+  }, [exit])
+
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const contentWidth = Math.max(72, termWidth - 6)
+  const gap = 2
+  const leftWidth = Math.min(36, Math.floor((contentWidth - gap) * 0.4))
+  const rightWidth = contentWidth - leftWidth - gap
+  const hasWallets = !!props.wallets && Object.keys(props.wallets).length > 0
+  const walletNames = hasWallets ? Object.keys(props.wallets!).join(', ') : 'not configured'
+
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Box>
+          <Text color={palette.accent}>AgentOS</Text>
+          <Text color={palette.muted}> v{props.version}</Text>
+        </Box>
+        <Box>
+          <Text color={palette.muted}>Everything your agent needs</Text>
+        </Box>
+      </Box>
+
+      <Rule />
+
+      <Box marginTop={1}>
+        <Card title="agent shell" width={leftWidth}>
+          <Text color={palette.text} bold>
+            Calm infrastructure for autonomous agents.
+          </Text>
+          <Mascot />
+          <Box marginTop={1} flexDirection="column">
+            <Text color={palette.muted}>Default chain</Text>
+            <Text color={palette.text}>{props.chain || 'solana'}</Text>
+          </Box>
+        </Card>
+
+        <Box width={gap} />
+
+        <Card title="quick actions" width={rightWidth}>
+          <Box flexDirection="column" marginBottom={1}>
+            <Text color={palette.text}>agentos setup --keyfile ~/.config/solana/id.json --chain solana</Text>
+            <Text color={palette.text}>agentos phone search --country US</Text>
+            <Text color={palette.text}>agentos compute plans</Text>
+            <Text color={palette.text}>agentos domain check --name myagent.dev</Text>
+          </Box>
+
+          <Box marginTop={1} marginBottom={1}>
+            <Text color={palette.muted}>status</Text>
+          </Box>
+          <Box flexDirection="column">
+            <StatDot ok={hasWallets} label="Wallets" value={walletNames} />
+            <StatDot ok={!!props.apiOk} label="API" value={props.apiOk ? 'connected' : 'unreachable'} />
+            <StatDot ok={true} label="Mode" value="CLI" />
+          </Box>
+        </Card>
+      </Box>
+
+      <Box marginTop={1}>
+        <Rule />
+      </Box>
+
+      <Box justifyContent="space-between" marginTop={1}>
+        <Text color={palette.muted}>Run agentos --help for commands</Text>
+        <Text color={palette.dim}>monochrome shell · phase 1</Text>
+      </Box>
+    </Box>
+  )
+}

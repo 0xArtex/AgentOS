@@ -50,12 +50,18 @@
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
+    "@types/react": "^17.0.91",
     "typescript": "^5.7"
   },
   "dependencies": {
     "@noble/hashes": "^2.0.1",
     "@solana/spl-token": "^0.4.14",
-    "@solana/web3.js": "^1.98.4"
+    "@solana/web3.js": "^1.98.4",
+    "ink": "^3.2.0",
+    "ink-select-input": "^4.2.2",
+    "ink-spinner": "^4.0.3",
+    "ink-text-input": "^4.0.3",
+    "react": "^17.0.2"
   },
   "bugs": {
     "url": "https://github.com/0xArtex/AgentOS/issues"

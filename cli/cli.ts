@@ -1,5 +1,8 @@
 #!/usr/bin/env node
 
+import React from 'react'
+import { render } from 'ink'
+import { Dashboard } from './app.js'
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
@@ -93,15 +96,12 @@ async function main() {
     const cfg = loadConfig()
     let apiOk = false
     try { const h = await new AgentOS(cfg.api).health(); apiOk = h.status === 'healthy' } catch {}
-    welcomeScreen({
+    render(React.createElement(Dashboard, {
       version: VERSION,
       chain: cfg.defaultChain,
       wallets: cfg.wallets,
       apiOk,
-    })
-    divider()
-    statusBar(`${t.muted}? for help${t.reset}`, `${apiOk ? `${t.success}●${t.reset} ${t.muted}API online${t.reset}` : `${t.error}●${t.reset} ${t.muted}API offline${t.reset}`}`)
-    blank()
+    }))
     return
   }
 
