@@ -89,12 +89,24 @@ async function main() {
     const cfg = loadConfig()
     let apiOk = false
     try { const h = await new AgentOS(cfg.api).health(); apiOk = h.status === 'healthy' } catch {}
-    render(React.createElement(Dashboard, {
+    let selectedCommand: unknown = null
+    const app = render(React.createElement(Dashboard, {
       version: VERSION,
       chain: cfg.defaultChain,
       wallets: cfg.wallets,
       apiOk,
+      onSelectAction: (cmd: string) => {
+        selectedCommand = cmd
+        app.unmount()
+      },
     }))
+    await app.waitUntilExit()
+    if (typeof selectedCommand === 'string') {
+      const chosen = selectedCommand as string
+      const next = chosen.trim().split(/\s+/)
+      process.argv = [process.argv[0], process.argv[1], ...next.slice(1)]
+      return main()
+    }
     return
   }
 

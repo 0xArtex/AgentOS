@@ -6,6 +6,7 @@ export type DashboardProps = {
   chain?: string
   wallets?: Record<string, { keyfile: string }> | undefined
   apiOk?: boolean
+  onSelectAction?: (command: string) => void
 }
 
 export type StatusScreenProps = {
@@ -265,7 +266,10 @@ export function Dashboard(props: DashboardProps) {
   useInput((input, key) => {
     if (key.upArrow) setSelected((current) => (current - 1 + actions.length) % actions.length)
     else if (key.downArrow) setSelected((current) => (current + 1) % actions.length)
-    else if (key.return) exit()
+    else if (key.return) {
+      if (props.onSelectAction) props.onSelectAction(actions[selected].command)
+      else exit()
+    }
     else if (input === 'q') exit()
   })
 
