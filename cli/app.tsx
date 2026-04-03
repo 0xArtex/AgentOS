@@ -408,7 +408,7 @@ export function StatusScreen(props: StatusScreenProps & ScreenControls) {
   return (
     <Shell titleLeft={`AgentOS status · v${props.version}`} titleRight="System overview" footerLeft={props.interactive ? 'b / esc back' : (props.apiOk ? 'API reachable' : 'API offline')} footerRight="phase 1.5" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="overview" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.text} bold>Runtime posture</Text>
           <Box marginTop={1} flexDirection="column">
             <StatDot ok={props.apiOk} label="API" value={props.apiOk ? 'healthy' : 'offline'} />
@@ -418,7 +418,7 @@ export function StatusScreen(props: StatusScreenProps & ScreenControls) {
           {!compact ? <Box marginTop={1}>{!compact ? <Mascot /> : null}</Box> : null}
         </Card>
         {compact ? <Box height={1} /> : <Box width={gap} />}
-        <Card title="configuration" width={rightWidth}>
+        <Card title="details" width={rightWidth}>
           <KeyValue label="API" value={props.api} />
           <KeyValue label="Solana" value={hasSolana ? wallets.solana!.keyfile : 'not configured'} />
           <KeyValue label="Base" value={hasBase ? wallets.base!.keyfile : 'not configured'} />
@@ -440,7 +440,7 @@ export function ComputePlansScreen(props: ComputePlansScreenProps) {
   return (
     <Shell titleLeft={`AgentOS compute plans · v${props.version}`} titleRight="VPS catalog" footerLeft="Use agentos compute deploy --name <name> --type <plan>" footerRight="phase 2">
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="featured" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.text} bold>{featured?.name || 'No plans'}</Text>
           <Box marginTop={1} flexDirection="column">
             <Text color={palette.muted}>{featured ? `${featured.cpu} · ${featured.ram}` : 'No compute plans returned'}</Text>
@@ -449,7 +449,7 @@ export function ComputePlansScreen(props: ComputePlansScreenProps) {
           {!compact ? <Mascot /> : null}
         </Card>
         {compact ? <Box height={1} /> : <Box width={gap} />}
-        <Card title="plans" width={rightWidth}>
+        <Card title="available plans" width={rightWidth}>
           {props.plans.map((plan) => (
             <Box key={plan.name} justifyContent="space-between">
               <Text color={palette.text}>{plan.name}</Text>
@@ -470,13 +470,13 @@ export function DomainCheckScreen(props: DomainCheckScreenProps) {
   return (
     <Shell titleLeft={`AgentOS domain check · v${props.version}`} titleRight="Naming" footerLeft={props.available ? 'Ready to buy' : 'Try another domain'} footerRight="phase 2">
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="result" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={props.available ? palette.success : palette.error}>{props.available ? '● available' : '● taken'}</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.domain}</Text></Box>
           {!compact ? <Mascot /> : null}
         </Card>
         {compact ? <Box height={1} /> : <Box width={gap} />}
-        <Card title="next" width={rightWidth}>
+        <Card title="recommended next step" width={rightWidth}>
           <Text color={palette.text}>{props.available ? `agentos domain buy --name ${props.domain}` : `agentos domain pricing --name ${props.domain.split('.')[0] || props.domain}`}</Text>
           <Box marginTop={1}><Text color={palette.muted}>status</Text></Box>
           <StatDot ok={props.available} label="Availability" value={props.available ? 'open' : 'unavailable'} />
@@ -502,7 +502,7 @@ export function DomainPricingScreen(props: DomainPricingScreenProps) {
           {!compact ? <Mascot /> : null}
         </Card>
         {compact ? <Box height={1} /> : <Box width={gap} />}
-        <Card title={`pricing for ${props.query}`} width={rightWidth}>
+        <Card title={`matching prices for ${props.query}`} width={rightWidth}>
           {props.items.map((item) => (
             <Box key={item.tld} justifyContent="space-between">
               <Text color={palette.text}>.{item.tld}</Text>
@@ -522,7 +522,7 @@ export function WalletCreateScreen(props: WalletCreateScreenProps) {
   return (
     <Shell titleLeft={`AgentOS wallet create · v${props.version}`} titleRight="Smart wallet" footerLeft="Wallet created" footerRight="phase 2.5">
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="created" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.success}>● ready</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{truncateMiddle(props.address, 24)}</Text></Box>
           <Box marginTop={1}><Text color={palette.muted}>{props.chain}</Text></Box>
@@ -548,7 +548,7 @@ export function WalletStatusScreen(props: WalletStatusScreenProps) {
   return (
     <Shell titleLeft={`AgentOS wallet status · v${props.version}`} titleRight="Policy" footerLeft="Wallet posture" footerRight="phase 2.5">
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="wallet" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.text} bold>{truncateMiddle(props.address, 24)}</Text>
           <Box marginTop={1}><Text color={palette.muted}>owner</Text></Box>
           <Text color={palette.text}>{truncateMiddle(props.owner, 24)}</Text>
@@ -573,7 +573,7 @@ export function ComputeDeployScreen(props: ComputeDeployScreenProps) {
   return (
     <Shell titleLeft={`AgentOS compute deploy · v${props.version}`} titleRight="Server provisioned" footerLeft="Use SSH to connect" footerRight="phase 2.5">
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="live" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.success}>● online</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.ip}</Text></Box>
           <Box marginTop={1}><Text color={palette.muted}>{props.type}</Text></Box>
@@ -598,7 +598,7 @@ export function ComputeListScreen(props: ComputeListScreenProps) {
   return (
     <Shell titleLeft={`AgentOS compute list · v${props.version}`} titleRight="Fleet" footerLeft={`${props.servers.length} server${props.servers.length === 1 ? '' : 's'}`} footerRight="phase 2.5">
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="fleet" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.text} bold>{String(props.servers.length)}</Text>
           <Box marginTop={1}><Text color={palette.muted}>tracked servers</Text></Box>
           {!compact ? <Mascot /> : null}
@@ -624,7 +624,7 @@ export function SuccessScreen(props: SuccessScreenProps) {
   return (
     <Shell titleLeft={`AgentOS · v${props.version}`} titleRight={props.title} footerLeft={props.footerLeft} footerRight="phase 3">
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="done" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.success}>● success</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.subtitle}</Text></Box>
           {!compact ? <Mascot /> : null}
@@ -645,7 +645,7 @@ export function PricingScreen(props: PricingScreenProps & ScreenControls) {
   return (
     <Shell titleLeft={`AgentOS pricing · v${props.version}`} titleRight="Service rates" footerLeft={props.interactive ? 'b / esc back' : 'All prices in USD/USDC'} footerRight="phase 3" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="catalog" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.text} bold>{String(props.services.length)}</Text>
           <Box marginTop={1}><Text color={palette.muted}>service groups</Text></Box>
           {!compact ? <Mascot /> : null}
@@ -677,7 +677,7 @@ export function HealthScreen(props: HealthScreenProps & ScreenControls) {
   return (
     <Shell titleLeft={`AgentOS health · v${props.version}`} titleRight="API status" footerLeft={props.interactive ? 'b / esc back' : (ok ? 'Service healthy' : 'Service degraded')} footerRight="phase 3" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="health" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={ok ? palette.success : palette.error}>{ok ? '● healthy' : `● ${props.status}`}</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.apiVersion}</Text></Box>
           {!compact ? <Mascot /> : null}
@@ -700,7 +700,7 @@ export function MenuScreen(props: MenuScreenProps & ScreenControls) {
   return (
     <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.interactive ? 'b / esc back' : props.footerLeft} footerRight="phase 4" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="menu" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.text} bold>{props.title}</Text>
           <Box marginTop={1}><Text color={palette.muted}>{props.subtitle}</Text></Box>
           {!compact ? <Mascot /> : null}
@@ -726,7 +726,7 @@ export function RecordsScreen(props: RecordsScreenProps & ScreenControls) {
   return (
     <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.interactive ? 'b / esc back' : props.footerLeft} footerRight="phase 4" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="summary" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.text} bold>{String(props.records.length)}</Text>
           <Box marginTop={1}><Text color={palette.muted}>items</Text></Box>
           {!compact ? <Mascot /> : null}
@@ -753,7 +753,7 @@ export function ErrorScreen(props: ErrorScreenProps & ScreenControls) {
   return (
     <Shell titleLeft={`AgentOS · v${props.version}`} titleRight={props.title} footerLeft={props.interactive ? 'b / esc back' : props.footerLeft} footerRight="phase 4" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="problem" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.error} titleColor={palette.error}>
           <Text color={palette.error}>● blocked</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.title}</Text></Box>
           {!compact ? <Mascot /> : null}
@@ -777,7 +777,7 @@ export function SetupScreen(props: SetupScreenProps) {
   return (
     <Shell titleLeft={`AgentOS setup · v${props.version}`} titleRight="Wallet configured" footerLeft="Run agentos status to verify" footerRight="phase 1.5">
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="setup complete" width={leftWidth}>
+        <Card title="summary" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Text color={palette.success}>● configured</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.addedChain} wallet added.</Text></Box>
           {!compact ? <Mascot /> : null}
