@@ -349,38 +349,49 @@ export function Dashboard(props: DashboardProps) {
         <CommandPalette value={query} onChange={setQuery} results={filteredActions} selected={selected} width={compact ? leftWidth : 72} />
       ) : null}
       <Box flexDirection={compact ? 'column' : 'row'}>
-        <Card title="agent shell" width={leftWidth} borderColor={selected >= 0 ? palette.accent : palette.dim} titleColor={palette.accent}>
-          <Text color={palette.text} bold>Calm infrastructure for autonomous agents.</Text>
-          <Box marginTop={1}><Text color={palette.muted}>Clean terminal surfaces. Quiet confidence. No clown makeup.</Text></Box>
+        <Card title="identity" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           {!compact ? <Mascot /> : null}
+          <Box marginTop={1} flexDirection="column">
+            <Text color={palette.text} bold>Infrastructure for autonomous agents.</Text>
+            <Text color={palette.muted}>Phones, inboxes, domains, compute, wallets.</Text>
+          </Box>
           <Box marginTop={1} flexDirection="column">
             <Text color={palette.muted}>Default chain</Text>
             <Text color={palette.text}>{props.chain || 'solana'}</Text>
           </Box>
           <Box marginTop={1} flexDirection="column">
-            <Text color={palette.muted}>Focused action</Text>
+            <Text color={palette.muted}>Current focus</Text>
             <Text color={palette.text}>{(filteredActions[selected] || actions[selected])?.label}</Text>
           </Box>
         </Card>
         {compact ? <Box height={1} /> : <Box width={gap} />}
-        <Card title="quick actions" width={rightWidth} borderColor={palette.accent} titleColor={palette.accent}>
-          <Box flexDirection="column" marginBottom={1}>
-            {(paletteOpen ? filteredActions : actions).map((action, index) => (
-              <ActionItem
-                key={action.command}
-                label={action.label}
-                command={action.command}
-                selected={selected === index}
-              />
-            ))}
-          </Box>
-          <Box marginTop={1} marginBottom={1}><Text color={palette.muted}>system status</Text></Box>
-          <Box flexDirection="column">
-            <StatDot ok={hasWallets} label="Wallets" value={walletNames} />
-            <StatDot ok={!!props.apiOk} label="API" value={props.apiOk ? 'connected' : 'unreachable'} />
-            <StatDot ok={true} label="Mode" value="interactive home" />
-          </Box>
-        </Card>
+        <Box flexDirection="column" width={rightWidth}>
+          <Card title="quick actions" width={rightWidth} borderColor={palette.accent} titleColor={palette.accent}>
+            <Box flexDirection="column">
+              {(paletteOpen ? filteredActions : actions).slice(0, compact ? 4 : 5).map((action, index) => (
+                <ActionItem
+                  key={action.command}
+                  label={action.label}
+                  command={action.command}
+                  selected={selected === index}
+                />
+              ))}
+            </Box>
+          </Card>
+          <Card title="status" width={rightWidth}>
+            <Box flexDirection="column">
+              <StatDot ok={hasWallets} label="Wallets" value={walletNames} />
+              <StatDot ok={!!props.apiOk} label="API" value={props.apiOk ? 'connected' : 'unreachable'} />
+              <StatDot ok={true} label="Mode" value="interactive home" />
+            </Box>
+          </Card>
+          {!compact ? (
+            <Card title="tips" width={rightWidth}>
+              <Text color={palette.text}>/ opens command palette</Text>
+              <Text color={palette.muted}>Use arrows to move. Enter opens the selected action.</Text>
+            </Card>
+          ) : null}
+        </Box>
       </Box>
     </Shell>
   )
