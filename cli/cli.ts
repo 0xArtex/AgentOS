@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { render } from 'ink'
-import { Dashboard, SetupScreen, StatusScreen } from './app.js'
+import { ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, SetupScreen, StatusScreen } from './app.js'
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
@@ -323,10 +323,13 @@ async function main() {
           case 'plans': {
             const data = await ao.computePlans()
             if (json) return print(data)
-            header('VPS Plans')
-            for (const p of (data.plans || data || [])) {
-              console.log(`  ${c.cyan}${p.type || p.id || p.name}${c.reset}  ${c.dim}${p.vcpu || p.cpu || p.vcpus} vCPU · ${p.ramGb || p.ram || p.memory}GB RAM · $${p.priceUsdcMonthly || p.priceUsdc || p.price || p.monthly_cost}/mo${c.reset}`)
-            }
+            const plans = (data.plans || data || []).map((p: any) => ({
+              name: String(p.type || p.id || p.name || 'unknown'),
+              cpu: `${p.vcpu || p.cpu || p.vcpus || '?'} vCPU`,
+              ram: `${p.ramGb || p.ram || p.memory || '?'}GB RAM`,
+              price: String(p.priceUsdcMonthly || p.priceUsdc || p.price || p.monthly_cost || '?'),
+            }))
+            render(React.createElement(ComputePlansScreen, { version: VERSION, plans }))
             break
           }
           case 'deploy': {
@@ -381,8 +384,11 @@ async function main() {
             if (!name) err('--name domain.com required')
             const data = await ao.domainCheck(name)
             if (json) return print(data)
-            header('Domain Check')
-            console.log(`  ${data.available ? c.green + '✓ Available' : c.red + '✗ Taken'}${c.reset}  ${c.white}${name}${c.reset}`)
+            render(React.createElement(DomainCheckScreen, {
+              version: VERSION,
+              domain: name,
+              available: !!data.available,
+            }))
             break
           }
           case 'pricing': {
@@ -390,10 +396,15 @@ async function main() {
             if (!name) err('--name domain required')
             const data = await ao.domainPricing(name)
             if (json) return print(data)
-            header('Domain Pricing')
-            for (const [tld, price] of Object.entries(data.tlds || data.pricing || data)) {
-              console.log(`  ${c.cyan}.${tld}${c.reset}  ${c.white}$${price}${c.reset}`)
-            }
+            const items = Object.entries(data.tlds || data.pricing || data).map(([tld, price]) => ({
+              tld,
+              price: String(price),
+            }))
+            render(React.createElement(DomainPricingScreen, {
+              version: VERSION,
+              query: name,
+              items,
+            }))
             break
           }
           case 'buy': {

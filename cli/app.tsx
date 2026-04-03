@@ -24,6 +24,23 @@ export type SetupScreenProps = {
   addedChain: string
 }
 
+export type ComputePlansScreenProps = {
+  version: string
+  plans: Array<{ name: string; cpu: string; ram: string; price: string }>
+}
+
+export type DomainCheckScreenProps = {
+  version: string
+  domain: string
+  available: boolean
+}
+
+export type DomainPricingScreenProps = {
+  version: string
+  query: string
+  items: Array<{ tld: string; price: string }>
+}
+
 const palette = {
   text: 'white',
   muted: 'gray',
@@ -232,6 +249,114 @@ export function StatusScreen(props: StatusScreenProps) {
             <Text color={palette.muted}>next</Text>
           </Box>
           <Text color={palette.text}>agentos setup --keyfile ~/.config/solana/id.json --chain solana</Text>
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function ComputePlansScreen(props: ComputePlansScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const contentWidth = Math.max(72, termWidth - 6)
+  const gap = 2
+  const leftWidth = Math.min(28, Math.floor((contentWidth - gap) * 0.3))
+  const rightWidth = contentWidth - leftWidth - gap
+  const featured = props.plans[0]
+
+  return (
+    <Shell
+      titleLeft={`AgentOS compute plans · v${props.version}`}
+      titleRight="VPS catalog"
+      footerLeft="Use agentos compute deploy --name <name> --type <plan>"
+      footerRight="phase 2"
+    >
+      <Box>
+        <Card title="featured" width={leftWidth}>
+          <Text color={palette.text} bold>{featured?.name || 'No plans'}</Text>
+          <Box marginTop={1} flexDirection="column">
+            <Text color={palette.muted}>{featured ? `${featured.cpu} · ${featured.ram}` : 'No compute plans returned'}</Text>
+            <Text color={palette.text}>{featured ? `$${featured.price}/mo` : ''}</Text>
+          </Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="plans" width={rightWidth}>
+          {props.plans.map((plan) => (
+            <Box key={plan.name} justifyContent="space-between">
+              <Text color={palette.text}>{plan.name}</Text>
+              <Text color={palette.muted}>{`${plan.cpu} · ${plan.ram} · $${plan.price}/mo`}</Text>
+            </Box>
+          ))}
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function DomainCheckScreen(props: DomainCheckScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const contentWidth = Math.max(72, termWidth - 6)
+  const gap = 2
+  const leftWidth = Math.min(30, Math.floor((contentWidth - gap) * 0.34))
+  const rightWidth = contentWidth - leftWidth - gap
+
+  return (
+    <Shell
+      titleLeft={`AgentOS domain check · v${props.version}`}
+      titleRight="Naming"
+      footerLeft={props.available ? 'Ready to buy' : 'Try another domain'}
+      footerRight="phase 2"
+    >
+      <Box>
+        <Card title="result" width={leftWidth}>
+          <Text color={props.available ? palette.success : palette.error}>{props.available ? '● available' : '● taken'}</Text>
+          <Box marginTop={1}><Text color={palette.text} bold>{props.domain}</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="next" width={rightWidth}>
+          <Text color={palette.text}>{props.available ? `agentos domain buy --name ${props.domain}` : `agentos domain pricing --name ${props.domain.split('.')[0] || props.domain}`}</Text>
+          <Box marginTop={1}><Text color={palette.muted}>status</Text></Box>
+          <StatDot ok={props.available} label="Availability" value={props.available ? 'open' : 'unavailable'} />
+          <Text color={palette.muted}>{props.available ? 'Nice. This one is clean.' : 'Taken. Don’t marry the first name.'}</Text>
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function DomainPricingScreen(props: DomainPricingScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const contentWidth = Math.max(72, termWidth - 6)
+  const gap = 2
+  const leftWidth = Math.min(28, Math.floor((contentWidth - gap) * 0.3))
+  const rightWidth = contentWidth - leftWidth - gap
+  const cheapest = [...props.items].sort((a, b) => Number(a.price) - Number(b.price))[0]
+
+  return (
+    <Shell
+      titleLeft={`AgentOS domain pricing · v${props.version}`}
+      titleRight="TLD pricing"
+      footerLeft="Use agentos domain check --name <domain.tld>"
+      footerRight="phase 2"
+    >
+      <Box>
+        <Card title="cheapest" width={leftWidth}>
+          <Text color={palette.text} bold>{cheapest ? `.${cheapest.tld}` : 'No results'}</Text>
+          <Box marginTop={1}><Text color={palette.text}>{cheapest ? `$${cheapest.price}` : ''}</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title={`pricing for ${props.query}`} width={rightWidth}>
+          {props.items.map((item) => (
+            <Box key={item.tld} justifyContent="space-between">
+              <Text color={palette.text}>.{item.tld}</Text>
+              <Text color={palette.muted}>${item.price}</Text>
+            </Box>
+          ))}
         </Card>
       </Box>
     </Shell>
