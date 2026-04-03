@@ -143,14 +143,12 @@ function AutoExit() {
 function Mascot() {
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color={palette.shadow}>        ░░░░░░</Text>
-      <Text color={palette.soft}>      ╭────────╮</Text>
-      <Text color={palette.soft}>    ╭─│  ●  ●  │─╮</Text>
-      <Text color={palette.soft}>    │ │   ▄▄   │ │</Text>
-      <Text color={palette.soft}>    │ │  ╰──╯  │ │</Text>
-      <Text color={palette.soft}>    │ ╰────────╯ │</Text>
-      <Text color={palette.muted}>    │    ╭──╮    │</Text>
-      <Text color={palette.soft}>    ╰────╯  ╰────╯</Text>
+      <Text color={palette.accent}>      AgentOS</Text>
+      <Text color={palette.shadow}>       ░░░░░░</Text>
+      <Text color={palette.soft}>      ╭──────╮</Text>
+      <Text color={palette.soft}>      │ ●  ● │</Text>
+      <Text color={palette.soft}>      │  ──  │</Text>
+      <Text color={palette.soft}>      ╰──────╯</Text>
     </Box>
   )
 }
