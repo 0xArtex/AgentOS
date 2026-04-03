@@ -382,14 +382,14 @@ export function Dashboard(props: DashboardProps) {
 export function StatusScreen(props: StatusScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.42, 38)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.42, 38)
   const wallets = props.wallets || {}
   const hasSolana = !!wallets.solana
   const hasBase = !!wallets.base
 
   return (
     <Shell titleLeft={`AgentOS status · v${props.version}`} titleRight="System overview" footerLeft={props.apiOk ? 'API reachable' : 'API offline'} footerRight="phase 1.5">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="overview" width={leftWidth}>
           <Text color={palette.text} bold>Runtime posture</Text>
           <Box marginTop={1} flexDirection="column">
@@ -397,9 +397,9 @@ export function StatusScreen(props: StatusScreenProps) {
             <StatDot ok={hasSolana} label="Solana" value={hasSolana ? 'configured' : 'missing'} />
             <StatDot ok={hasBase} label="Base" value={hasBase ? 'configured' : 'missing'} />
           </Box>
-          <Box marginTop={1}><Mascot /></Box>
+          {!compact ? <Box marginTop={1}>{!compact ? <Mascot /> : null}</Box> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="configuration" width={rightWidth}>
           <KeyValue label="API" value={props.api} />
           <KeyValue label="Solana" value={hasSolana ? wallets.solana!.keyfile : 'not configured'} />
@@ -416,21 +416,21 @@ export function StatusScreen(props: StatusScreenProps) {
 export function ComputePlansScreen(props: ComputePlansScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.3, 28)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.3, 28)
   const featured = props.plans[0]
 
   return (
     <Shell titleLeft={`AgentOS compute plans · v${props.version}`} titleRight="VPS catalog" footerLeft="Use agentos compute deploy --name <name> --type <plan>" footerRight="phase 2">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="featured" width={leftWidth}>
           <Text color={palette.text} bold>{featured?.name || 'No plans'}</Text>
           <Box marginTop={1} flexDirection="column">
             <Text color={palette.muted}>{featured ? `${featured.cpu} · ${featured.ram}` : 'No compute plans returned'}</Text>
             <Text color={palette.text}>{featured ? `$${featured.price}/mo` : ''}</Text>
           </Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="plans" width={rightWidth}>
           {props.plans.map((plan) => (
             <Box key={plan.name} justifyContent="space-between">
@@ -447,17 +447,17 @@ export function ComputePlansScreen(props: ComputePlansScreenProps) {
 export function DomainCheckScreen(props: DomainCheckScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.34, 30)
 
   return (
     <Shell titleLeft={`AgentOS domain check · v${props.version}`} titleRight="Naming" footerLeft={props.available ? 'Ready to buy' : 'Try another domain'} footerRight="phase 2">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="result" width={leftWidth}>
           <Text color={props.available ? palette.success : palette.error}>{props.available ? '● available' : '● taken'}</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.domain}</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="next" width={rightWidth}>
           <Text color={palette.text}>{props.available ? `agentos domain buy --name ${props.domain}` : `agentos domain pricing --name ${props.domain.split('.')[0] || props.domain}`}</Text>
           <Box marginTop={1}><Text color={palette.muted}>status</Text></Box>
@@ -472,18 +472,18 @@ export function DomainCheckScreen(props: DomainCheckScreenProps) {
 export function DomainPricingScreen(props: DomainPricingScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.3, 28)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.3, 28)
   const cheapest = [...props.items].sort((a, b) => Number(a.price) - Number(b.price))[0]
 
   return (
     <Shell titleLeft={`AgentOS domain pricing · v${props.version}`} titleRight="TLD pricing" footerLeft="Use agentos domain check --name <domain.tld>" footerRight="phase 2">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="cheapest" width={leftWidth}>
           <Text color={palette.text} bold>{cheapest ? `.${cheapest.tld}` : 'No results'}</Text>
           <Box marginTop={1}><Text color={palette.text}>{cheapest ? `$${cheapest.price}` : ''}</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title={`pricing for ${props.query}`} width={rightWidth}>
           {props.items.map((item) => (
             <Box key={item.tld} justifyContent="space-between">
@@ -500,17 +500,17 @@ export function DomainPricingScreen(props: DomainPricingScreenProps) {
 export function WalletCreateScreen(props: WalletCreateScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.34, 30)
   return (
     <Shell titleLeft={`AgentOS wallet create · v${props.version}`} titleRight="Smart wallet" footerLeft="Wallet created" footerRight="phase 2.5">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="created" width={leftWidth}>
           <Text color={palette.success}>● ready</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{truncateMiddle(props.address, 24)}</Text></Box>
           <Box marginTop={1}><Text color={palette.muted}>{props.chain}</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="details" width={rightWidth}>
           <KeyValue label="Address" value={props.address} />
           <KeyValue label="Chain" value={props.chain} />
@@ -526,17 +526,17 @@ export function WalletCreateScreen(props: WalletCreateScreenProps) {
 export function WalletStatusScreen(props: WalletStatusScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.34, 30)
   return (
     <Shell titleLeft={`AgentOS wallet status · v${props.version}`} titleRight="Policy" footerLeft="Wallet posture" footerRight="phase 2.5">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="wallet" width={leftWidth}>
           <Text color={palette.text} bold>{truncateMiddle(props.address, 24)}</Text>
           <Box marginTop={1}><Text color={palette.muted}>owner</Text></Box>
           <Text color={palette.text}>{truncateMiddle(props.owner, 24)}</Text>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="limits" width={rightWidth}>
           <KeyValue label="Address" value={props.address} />
           <KeyValue label="Owner" value={props.owner} />
@@ -551,17 +551,17 @@ export function WalletStatusScreen(props: WalletStatusScreenProps) {
 export function ComputeDeployScreen(props: ComputeDeployScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.34, 30)
   return (
     <Shell titleLeft={`AgentOS compute deploy · v${props.version}`} titleRight="Server provisioned" footerLeft="Use SSH to connect" footerRight="phase 2.5">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="live" width={leftWidth}>
           <Text color={palette.success}>● online</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.ip}</Text></Box>
           <Box marginTop={1}><Text color={palette.muted}>{props.type}</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="details" width={rightWidth}>
           <KeyValue label="Name" value={props.name} />
           <KeyValue label="ID" value={props.id} />
@@ -576,16 +576,16 @@ export function ComputeDeployScreen(props: ComputeDeployScreenProps) {
 export function ComputeListScreen(props: ComputeListScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.28, 26)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.28, 26)
   return (
     <Shell titleLeft={`AgentOS compute list · v${props.version}`} titleRight="Fleet" footerLeft={`${props.servers.length} server${props.servers.length === 1 ? '' : 's'}`} footerRight="phase 2.5">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="fleet" width={leftWidth}>
           <Text color={palette.text} bold>{String(props.servers.length)}</Text>
           <Box marginTop={1}><Text color={palette.muted}>tracked servers</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="servers" width={rightWidth}>
           {props.servers.map((server, i) => (
             <Box key={`${server.ip}-${i}`} justifyContent="space-between">
@@ -602,16 +602,16 @@ export function ComputeListScreen(props: ComputeListScreenProps) {
 export function SuccessScreen(props: SuccessScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.34, 30)
   return (
     <Shell titleLeft={`AgentOS · v${props.version}`} titleRight={props.title} footerLeft={props.footerLeft} footerRight="phase 3">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="done" width={leftWidth}>
           <Text color={palette.success}>● success</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.subtitle}</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="details" width={rightWidth}>
           {props.details.map((detail, i) => <KeyValue key={`${detail.label}-${i}`} label={detail.label} value={detail.value} />)}
         </Card>
@@ -623,16 +623,16 @@ export function SuccessScreen(props: SuccessScreenProps) {
 export function PricingScreen(props: PricingScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.28, 26)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.28, 26)
   return (
     <Shell titleLeft={`AgentOS pricing · v${props.version}`} titleRight="Service rates" footerLeft="All prices in USD/USDC" footerRight="phase 3">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="catalog" width={leftWidth}>
           <Text color={palette.text} bold>{String(props.services.length)}</Text>
           <Box marginTop={1}><Text color={palette.muted}>service groups</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="services" width={rightWidth}>
           {props.services.map((service, i) => (
             <Box key={`${service.name}-${i}`} flexDirection="column" marginBottom={1}>
@@ -654,17 +654,17 @@ export function PricingScreen(props: PricingScreenProps) {
 export function HealthScreen(props: HealthScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.34, 30)
   const ok = props.status === 'healthy'
   return (
     <Shell titleLeft={`AgentOS health · v${props.version}`} titleRight="API status" footerLeft={ok ? 'Service healthy' : 'Service degraded'} footerRight="phase 3">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="health" width={leftWidth}>
           <Text color={ok ? palette.success : palette.error}>{ok ? '● healthy' : `● ${props.status}`}</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.apiVersion}</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="details" width={rightWidth}>
           <KeyValue label="Status" value={props.status} />
           <KeyValue label="Version" value={props.apiVersion} />
@@ -678,16 +678,16 @@ export function HealthScreen(props: HealthScreenProps) {
 export function MenuScreen(props: MenuScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.32, 28)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.32, 28)
   return (
     <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.footerLeft} footerRight="phase 4">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="menu" width={leftWidth}>
           <Text color={palette.text} bold>{props.title}</Text>
           <Box marginTop={1}><Text color={palette.muted}>{props.subtitle}</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="commands" width={rightWidth}>
           {props.commands.map((cmd, i) => (
             <Box key={`${cmd.name}-${i}`} flexDirection="column" marginBottom={1}>
@@ -704,16 +704,16 @@ export function MenuScreen(props: MenuScreenProps) {
 export function RecordsScreen(props: RecordsScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.28, 26)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.28, 26)
   return (
     <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.footerLeft} footerRight="phase 4">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="summary" width={leftWidth}>
           <Text color={palette.text} bold>{String(props.records.length)}</Text>
           <Box marginTop={1}><Text color={palette.muted}>items</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="records" width={rightWidth}>
           {props.records.map((record, i) => (
             <Box key={`${record.primary}-${i}`} flexDirection="column" marginBottom={1}>
@@ -731,16 +731,16 @@ export function RecordsScreen(props: RecordsScreenProps) {
 export function ErrorScreen(props: ErrorScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.3, 28)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.3, 28)
   return (
     <Shell titleLeft={`AgentOS · v${props.version}`} titleRight={props.title} footerLeft={props.footerLeft} footerRight="phase 4">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="problem" width={leftWidth}>
           <Text color={palette.error}>● blocked</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.title}</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="details" width={rightWidth}>
           <Text color={palette.text}>{props.message}</Text>
           {props.hint ? <Box marginTop={1}><Text color={palette.muted}>{props.hint}</Text></Box> : null}
@@ -753,18 +753,18 @@ export function ErrorScreen(props: ErrorScreenProps) {
 export function SetupScreen(props: SetupScreenProps) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.4, 36)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.4, 36)
   const secondary = props.chains.filter(c => c !== props.addedChain)[0]
 
   return (
     <Shell titleLeft={`AgentOS setup · v${props.version}`} titleRight="Wallet configured" footerLeft="Run agentos status to verify" footerRight="phase 1.5">
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="setup complete" width={leftWidth}>
           <Text color={palette.success}>● configured</Text>
           <Box marginTop={1}><Text color={palette.text} bold>{props.addedChain} wallet added.</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="details" width={rightWidth}>
           <KeyValue label="API" value={props.api} />
           <KeyValue label="Chain" value={props.chains.join(', ')} />
