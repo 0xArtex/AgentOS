@@ -1,5 +1,5 @@
-import React, { PropsWithChildren, useEffect } from 'react'
-import { Box, Text, useApp, useStdout } from 'ink'
+import React, { PropsWithChildren, useEffect, useMemo, useState } from 'react'
+import { Box, Text, useApp, useInput, useStdout } from 'ink'
 
 export type DashboardProps = {
   version: string
@@ -148,20 +148,20 @@ function Mascot() {
   )
 }
 
-function Card(props: PropsWithChildren<{ title?: string; width: number }>) {
+function Card(props: PropsWithChildren<{ title?: string; width: number; borderColor?: string; titleColor?: string }>) {
   return (
     <Box
       flexDirection="column"
       width={props.width}
       borderStyle="round"
-      borderColor={palette.dim}
+      borderColor={props.borderColor || palette.dim}
       paddingX={2}
       paddingY={1}
       marginBottom={1}
     >
       {props.title ? (
         <Box marginBottom={1}>
-          <Text color={palette.accent}>{props.title}</Text>
+          <Text color={props.titleColor || palette.accent}>{props.title}</Text>
         </Box>
       ) : null}
       {props.children}
@@ -204,10 +204,10 @@ function Rule() {
   return <Text color={palette.dim}>{'·'.repeat(width)}</Text>
 }
 
-function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string; footerLeft: string; footerRight: string }>) {
+function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string; footerLeft: string; footerRight: string; autoExit?: boolean }>) {
   return (
     <Box flexDirection="column" paddingX={1}>
-      <AutoExit />
+      {props.autoExit === false ? null : <AutoExit />}
       <Box justifyContent="space-between" marginBottom={1}>
         <Box>
           <Text color={palette.accent}>◼ </Text>
@@ -230,6 +230,15 @@ function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string;
   )
 }
 
+function ActionItem(props: { label: string; command: string; selected: boolean }) {
+  return (
+    <Box flexDirection="column" marginBottom={1}>
+      <Text color={props.selected ? palette.soft : palette.text}>{props.selected ? '▸ ' : '› '}{props.label}</Text>
+      <Text color={props.selected ? palette.soft : palette.muted}>{props.command}</Text>
+    </Box>
+  )
+}
+
 function twoColWidths(termWidth: number, leftRatio = 0.4, maxLeft = 36) {
   const contentWidth = Math.max(72, termWidth - 6)
   const gap = 2
@@ -240,20 +249,36 @@ function twoColWidths(termWidth: number, leftRatio = 0.4, maxLeft = 36) {
 
 export function Dashboard(props: DashboardProps) {
   const { stdout } = useStdout()
+  const { exit } = useApp()
   const termWidth = Math.max(80, stdout?.columns || 100)
   const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.4, 36)
   const hasWallets = !!props.wallets && Object.keys(props.wallets).length > 0
   const walletNames = hasWallets ? Object.keys(props.wallets!).join(', ') : 'not configured'
+  const actions = useMemo(() => ([
+    { label: 'Setup wallet', command: 'agentos setup --keyfile ~/.config/solana/id.json --chain solana' },
+    { label: 'Search phone numbers', command: 'agentos phone search --country US' },
+    { label: 'Browse compute plans', command: 'agentos compute plans' },
+    { label: 'Check a domain', command: 'agentos domain check --name myagent.dev' },
+  ]), [])
+  const [selected, setSelected] = useState(0)
+
+  useInput((input, key) => {
+    if (key.upArrow) setSelected((current) => (current - 1 + actions.length) % actions.length)
+    else if (key.downArrow) setSelected((current) => (current + 1) % actions.length)
+    else if (key.return) exit()
+    else if (input === 'q') exit()
+  })
 
   return (
     <Shell
       titleLeft={`AgentOS v${props.version}`}
       titleRight="Everything your agent needs"
-      footerLeft="Run agentos --help for commands"
-      footerRight="monochrome shell · phase 1"
+      footerLeft={`↑↓ navigate · enter to keep current action · q to quit · focus ${selected + 1}/${actions.length}`}
+      footerRight="premium shell · interactive home"
+      autoExit={false}
     >
       <Box>
-        <Card title="agent shell" width={leftWidth}>
+        <Card title="agent shell" width={leftWidth} borderColor={selected >= 0 ? palette.accent : palette.dim} titleColor={palette.accent}>
           <Text color={palette.text} bold>Calm infrastructure for autonomous agents.</Text>
           <Box marginTop={1}><Text color={palette.muted}>Clean terminal surfaces. Quiet confidence. No clown makeup.</Text></Box>
           <Mascot />
@@ -261,20 +286,28 @@ export function Dashboard(props: DashboardProps) {
             <Text color={palette.muted}>Default chain</Text>
             <Text color={palette.text}>{props.chain || 'solana'}</Text>
           </Box>
+          <Box marginTop={1} flexDirection="column">
+            <Text color={palette.muted}>Focused action</Text>
+            <Text color={palette.text}>{actions[selected]?.label}</Text>
+          </Box>
         </Card>
         <Box width={gap} />
-        <Card title="quick actions" width={rightWidth}>
+        <Card title="quick actions" width={rightWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Box flexDirection="column" marginBottom={1}>
-            <Text color={palette.text}>› agentos setup --keyfile ~/.config/solana/id.json --chain solana</Text>
-            <Text color={palette.text}>› agentos phone search --country US</Text>
-            <Text color={palette.text}>› agentos compute plans</Text>
-            <Text color={palette.text}>› agentos domain check --name myagent.dev</Text>
+            {actions.map((action, index) => (
+              <ActionItem
+                key={action.command}
+                label={action.label}
+                command={action.command}
+                selected={selected === index}
+              />
+            ))}
           </Box>
           <Box marginTop={1} marginBottom={1}><Text color={palette.muted}>system status</Text></Box>
           <Box flexDirection="column">
             <StatDot ok={hasWallets} label="Wallets" value={walletNames} />
             <StatDot ok={!!props.apiOk} label="API" value={props.apiOk ? 'connected' : 'unreachable'} />
-            <StatDot ok={true} label="Mode" value="CLI" />
+            <StatDot ok={true} label="Mode" value="interactive home" />
           </Box>
         </Card>
       </Box>
