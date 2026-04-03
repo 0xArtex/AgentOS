@@ -1,5 +1,6 @@
 import React, { PropsWithChildren, useEffect, useMemo, useState } from 'react'
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
+import TextInput from 'ink-text-input'
 
 export type DashboardProps = {
   version: string
@@ -240,6 +241,33 @@ function ActionItem(props: { label: string; command: string; selected: boolean }
   )
 }
 
+function CommandPalette(props: {
+  value: string
+  onChange: (value: string) => void
+  results: Array<{ label: string; command: string }>
+  selected: number
+}) {
+  return (
+    <Card title="command palette" width={72} borderColor={palette.accent} titleColor={palette.accent}>
+      <Box marginBottom={1}>
+        <Text color={palette.muted}>type to filter commands</Text>
+      </Box>
+      <Box marginBottom={1}>
+        <Text color={palette.soft}>› </Text>
+        <TextInput value={props.value} onChange={props.onChange} />
+      </Box>
+      <Box flexDirection="column">
+        {props.results.slice(0, 6).map((item, index) => (
+          <Box key={item.command} flexDirection="column" marginBottom={1}>
+            <Text color={props.selected === index ? palette.soft : palette.text}>{props.selected === index ? '▸ ' : '› '}{item.label}</Text>
+            <Text color={props.selected === index ? palette.soft : palette.muted}>{item.command}</Text>
+          </Box>
+        ))}
+      </Box>
+    </Card>
+  )
+}
+
 function twoColWidths(termWidth: number, leftRatio = 0.4, maxLeft = 36) {
   const contentWidth = Math.max(72, termWidth - 6)
   const gap = 2
@@ -260,27 +288,57 @@ export function Dashboard(props: DashboardProps) {
     { label: 'Search phone numbers', command: 'agentos phone search --country US' },
     { label: 'Browse compute plans', command: 'agentos compute plans' },
     { label: 'Check a domain', command: 'agentos domain check --name myagent.dev' },
+    { label: 'Show status', command: 'agentos status' },
+    { label: 'Open pricing', command: 'agentos pricing' },
+    { label: 'Check API health', command: 'agentos health' },
   ]), [])
   const [selected, setSelected] = useState(0)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const filteredActions = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return actions
+    return actions.filter((action) => `${action.label} ${action.command}`.toLowerCase().includes(q))
+  }, [actions, query])
+
+  useEffect(() => {
+    if (selected >= filteredActions.length) setSelected(0)
+  }, [filteredActions.length, selected])
 
   useInput((input, key) => {
-    if (key.upArrow) setSelected((current) => (current - 1 + actions.length) % actions.length)
-    else if (key.downArrow) setSelected((current) => (current + 1) % actions.length)
+    if (paletteOpen && key.escape) {
+      setPaletteOpen(false)
+      setQuery('')
+      setSelected(0)
+      return
+    }
+    if (!paletteOpen && input === '/') {
+      setPaletteOpen(true)
+      setQuery('')
+      setSelected(0)
+      return
+    }
+    if (key.upArrow) setSelected((current) => (current - 1 + Math.max(filteredActions.length, 1)) % Math.max(filteredActions.length, 1))
+    else if (key.downArrow) setSelected((current) => (current + 1) % Math.max(filteredActions.length, 1))
     else if (key.return) {
-      if (props.onSelectAction) props.onSelectAction(actions[selected].command)
+      const active = filteredActions[selected] || actions[selected]
+      if (active && props.onSelectAction) props.onSelectAction(active.command)
       else exit()
     }
-    else if (input === 'q') exit()
+    else if (input === 'q' && !paletteOpen) exit()
   })
 
   return (
     <Shell
       titleLeft={`AgentOS v${props.version}`}
       titleRight="Everything your agent needs"
-      footerLeft={`↑↓ navigate · enter to keep current action · q to quit · focus ${selected + 1}/${actions.length}`}
+      footerLeft={`${paletteOpen ? 'esc close palette · enter open command' : '↑↓ navigate · enter open · / palette · q quit'} · focus ${Math.min(selected + 1, Math.max(filteredActions.length, 1))}/${Math.max(filteredActions.length, 1)}`}
       footerRight="premium shell · interactive home"
       autoExit={false}
     >
+      {paletteOpen ? (
+        <CommandPalette value={query} onChange={setQuery} results={filteredActions} selected={selected} />
+      ) : null}
       <Box>
         <Card title="agent shell" width={leftWidth} borderColor={selected >= 0 ? palette.accent : palette.dim} titleColor={palette.accent}>
           <Text color={palette.text} bold>Calm infrastructure for autonomous agents.</Text>
@@ -292,13 +350,13 @@ export function Dashboard(props: DashboardProps) {
           </Box>
           <Box marginTop={1} flexDirection="column">
             <Text color={palette.muted}>Focused action</Text>
-            <Text color={palette.text}>{actions[selected]?.label}</Text>
+            <Text color={palette.text}>{(filteredActions[selected] || actions[selected])?.label}</Text>
           </Box>
         </Card>
         <Box width={gap} />
         <Card title="quick actions" width={rightWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Box flexDirection="column" marginBottom={1}>
-            {actions.map((action, index) => (
+            {(paletteOpen ? filteredActions : actions).map((action, index) => (
               <ActionItem
                 key={action.command}
                 label={action.label}
