@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { render } from 'ink'
-import { Dashboard } from './app.js'
+import { Dashboard, SetupScreen, StatusScreen } from './app.js'
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
@@ -154,42 +154,29 @@ async function main() {
         addWalletToConfig(chain, keyfile)
         const chains = getConfiguredChains()
 
-        initReport('Setup', [
-          { name: '~/.agentos/', status: 'created' },
-          { name: `${chain} wallet`, status: 'created' },
-          ...(chains.length > 1 ? [{ name: `${chains.filter(c => c !== chain)[0]} wallet`, status: 'exists' as const }] : []),
-          { name: 'config.json', status: 'updated' },
-        ])
-
-        kv('API', url)
-        kv('Chain', chains.join(', '))
-        kv('Keyfile', keyfile)
-        blank()
-        subtle(`Run ${t.info}agentos status${t.muted} to verify.`)
-        if (chains.length === 1) {
-          subtle(`Add ${chain === 'solana' ? 'Base' : 'Solana'}: ${t.info}agentos setup --keyfile <path> --chain ${chain === 'solana' ? 'base' : 'solana'}${t.muted}`)
-        }
-        blank()
+        render(React.createElement(SetupScreen, {
+          version: VERSION,
+          api: url,
+          keyfile,
+          chains,
+          addedChain: chain,
+        }))
         log(`setup: keyfile=${keyfile} chain=${chain}`)
         break
       }
 
       case 'status': {
-        banner()
         const wallets = config.wallets || {}
-        const hasSolana = !!wallets.solana
-        const hasBase = !!wallets.base
         let apiOk = false
         try { const h = await ao.health(); apiOk = h.status === 'healthy' } catch {}
-        
-        statusLine('API', config.api, apiOk)
-        statusLine('Solana', hasSolana ? wallets.solana!.keyfile : 'not configured', hasSolana)
-        statusLine('Base', hasBase ? wallets.base!.keyfile : 'not configured', hasBase)
-        statusLine('Default', config.defaultChain || 'solana', true)
-        blank()
-        if (!hasSolana && !hasBase) {
-          warn('No wallets configured. Run: agentos setup --keyfile <path> --chain solana')
-        }
+
+        render(React.createElement(StatusScreen, {
+          version: VERSION,
+          api: config.api,
+          apiOk,
+          wallets,
+          defaultChain: config.defaultChain || 'solana',
+        }))
         break
       }
 

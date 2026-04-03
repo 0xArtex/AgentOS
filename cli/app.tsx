@@ -8,6 +8,22 @@ export type DashboardProps = {
   apiOk?: boolean
 }
 
+export type StatusScreenProps = {
+  version: string
+  api: string
+  apiOk: boolean
+  wallets?: Record<string, { keyfile: string }> | undefined
+  defaultChain?: string
+}
+
+export type SetupScreenProps = {
+  version: string
+  api: string
+  keyfile: string
+  chains: string[]
+  addedChain: string
+}
+
 const palette = {
   text: 'white',
   muted: 'gray',
@@ -17,6 +33,15 @@ const palette = {
   error: 'redBright',
   soft: 'whiteBright',
 } as const
+
+function AutoExit() {
+  const { exit } = useApp()
+  useEffect(() => {
+    const t = setTimeout(() => exit(), 10)
+    return () => clearTimeout(t)
+  }, [exit])
+  return null
+}
 
 function Mascot() {
   return (
@@ -55,10 +80,27 @@ function Card(props: PropsWithChildren<{ title?: string; width: number }>) {
 function StatDot(props: { ok: boolean; label: string; value: string }) {
   return (
     <Box>
-      <Text color={props.ok ? palette.success : palette.error}>{props.ok ? '●' : '●'}</Text>
+      <Text color={props.ok ? palette.success : palette.error}>●</Text>
       <Text> </Text>
       <Text color={palette.muted}>{props.label}: </Text>
       <Text color={palette.text}>{props.value}</Text>
+    </Box>
+  )
+}
+
+function truncateMiddle(value: string, max = 34) {
+  if (value.length <= max) return value
+  const keep = Math.max(8, Math.floor((max - 1) / 2))
+  return `${value.slice(0, keep)}…${value.slice(-keep)}`
+}
+
+function KeyValue(props: { label: string; value: string }) {
+  return (
+    <Box>
+      <Box width={16}>
+        <Text color={palette.muted}>{props.label}</Text>
+      </Box>
+      <Text color={palette.text}>{truncateMiddle(props.value)}</Text>
     </Box>
   )
 }
@@ -70,15 +112,31 @@ function Rule() {
   return <Text color={palette.dim}>{'─'.repeat(width)}</Text>
 }
 
+function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string; footerLeft: string; footerRight: string }>) {
+  return (
+    <Box flexDirection="column" paddingX={1}>
+      <AutoExit />
+      <Box justifyContent="space-between" marginBottom={1}>
+        <Text color={palette.text}>{props.titleLeft}</Text>
+        <Text color={palette.muted}>{props.titleRight}</Text>
+      </Box>
+      <Rule />
+      <Box marginTop={1} flexDirection="column">
+        {props.children}
+      </Box>
+      <Box marginTop={1}>
+        <Rule />
+      </Box>
+      <Box justifyContent="space-between" marginTop={1}>
+        <Text color={palette.muted}>{props.footerLeft}</Text>
+        <Text color={palette.dim}>{props.footerRight}</Text>
+      </Box>
+    </Box>
+  )
+}
+
 export function Dashboard(props: DashboardProps) {
-  const { exit } = useApp()
   const { stdout } = useStdout()
-
-  useEffect(() => {
-    const t = setTimeout(() => exit(), 10)
-    return () => clearTimeout(t)
-  }, [exit])
-
   const termWidth = Math.max(80, stdout?.columns || 100)
   const contentWidth = Math.max(72, termWidth - 6)
   const gap = 2
@@ -88,20 +146,13 @@ export function Dashboard(props: DashboardProps) {
   const walletNames = hasWallets ? Object.keys(props.wallets!).join(', ') : 'not configured'
 
   return (
-    <Box flexDirection="column" paddingX={1}>
-      <Box justifyContent="space-between" marginBottom={1}>
-        <Box>
-          <Text color={palette.accent}>AgentOS</Text>
-          <Text color={palette.muted}> v{props.version}</Text>
-        </Box>
-        <Box>
-          <Text color={palette.muted}>Everything your agent needs</Text>
-        </Box>
-      </Box>
-
-      <Rule />
-
-      <Box marginTop={1}>
+    <Shell
+      titleLeft={`AgentOS v${props.version}`}
+      titleRight="Everything your agent needs"
+      footerLeft="Run agentos --help for commands"
+      footerRight="monochrome shell · phase 1"
+    >
+      <Box>
         <Card title="agent shell" width={leftWidth}>
           <Text color={palette.text} bold>
             Calm infrastructure for autonomous agents.
@@ -133,15 +184,106 @@ export function Dashboard(props: DashboardProps) {
           </Box>
         </Card>
       </Box>
+    </Shell>
+  )
+}
 
-      <Box marginTop={1}>
-        <Rule />
-      </Box>
+export function StatusScreen(props: StatusScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const contentWidth = Math.max(72, termWidth - 6)
+  const gap = 2
+  const leftWidth = Math.min(38, Math.floor((contentWidth - gap) * 0.42))
+  const rightWidth = contentWidth - leftWidth - gap
+  const wallets = props.wallets || {}
+  const hasSolana = !!wallets.solana
+  const hasBase = !!wallets.base
 
-      <Box justifyContent="space-between" marginTop={1}>
-        <Text color={palette.muted}>Run agentos --help for commands</Text>
-        <Text color={palette.dim}>monochrome shell · phase 1</Text>
+  return (
+    <Shell
+      titleLeft={`AgentOS status · v${props.version}`}
+      titleRight="System overview"
+      footerLeft={props.apiOk ? 'API reachable' : 'API offline'}
+      footerRight="phase 1.5"
+    >
+      <Box>
+        <Card title="overview" width={leftWidth}>
+          <Text color={palette.text} bold>
+            Runtime posture
+          </Text>
+          <Box marginTop={1} flexDirection="column">
+            <StatDot ok={props.apiOk} label="API" value={props.apiOk ? 'healthy' : 'offline'} />
+            <StatDot ok={hasSolana} label="Solana" value={hasSolana ? 'configured' : 'missing'} />
+            <StatDot ok={hasBase} label="Base" value={hasBase ? 'configured' : 'missing'} />
+          </Box>
+          <Box marginTop={1}>
+            <Mascot />
+          </Box>
+        </Card>
+
+        <Box width={gap} />
+
+        <Card title="configuration" width={rightWidth}>
+          <KeyValue label="API" value={props.api} />
+          <KeyValue label="Solana" value={hasSolana ? wallets.solana!.keyfile : 'not configured'} />
+          <KeyValue label="Base" value={hasBase ? wallets.base!.keyfile : 'not configured'} />
+          <KeyValue label="Default" value={props.defaultChain || 'solana'} />
+          <Box marginTop={1}>
+            <Text color={palette.muted}>next</Text>
+          </Box>
+          <Text color={palette.text}>agentos setup --keyfile ~/.config/solana/id.json --chain solana</Text>
+        </Card>
       </Box>
-    </Box>
+    </Shell>
+  )
+}
+
+export function SetupScreen(props: SetupScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const contentWidth = Math.max(72, termWidth - 6)
+  const gap = 2
+  const leftWidth = Math.min(36, Math.floor((contentWidth - gap) * 0.4))
+  const rightWidth = contentWidth - leftWidth - gap
+  const secondary = props.chains.filter(c => c !== props.addedChain)[0]
+
+  return (
+    <Shell
+      titleLeft={`AgentOS setup · v${props.version}`}
+      titleRight="Wallet configured"
+      footerLeft="Run agentos status to verify"
+      footerRight="phase 1.5"
+    >
+      <Box>
+        <Card title="setup complete" width={leftWidth}>
+          <Text color={palette.success}>● configured</Text>
+          <Box marginTop={1}>
+            <Text color={palette.text} bold>
+              {props.addedChain} wallet added.
+            </Text>
+          </Box>
+          <Mascot />
+        </Card>
+
+        <Box width={gap} />
+
+        <Card title="details" width={rightWidth}>
+          <KeyValue label="API" value={props.api} />
+          <KeyValue label="Chain" value={props.chains.join(', ')} />
+          <KeyValue label="Keyfile" value={props.keyfile} />
+          <Box marginTop={1}>
+            <Text color={palette.muted}>next</Text>
+          </Box>
+          <Text color={palette.text}>agentos status</Text>
+          {props.chains.length === 1 ? (
+            <Text color={palette.text}>
+              {`agentos setup --keyfile <path> --chain ${props.addedChain === 'solana' ? 'base' : 'solana'}`}
+            </Text>
+          ) : secondary ? (
+            <Text color={palette.muted}>{secondary} wallet already present</Text>
+          ) : null}
+        </Card>
+      </Box>
+    </Shell>
   )
 }
