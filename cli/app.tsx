@@ -69,6 +69,26 @@ export type ComputeListScreenProps = {
   servers: Array<{ ip: string; type: string; status: string }>
 }
 
+export type SuccessScreenProps = {
+  version: string
+  title: string
+  subtitle: string
+  details: Array<{ label: string; value: string }>
+  footerLeft: string
+}
+
+export type PricingScreenProps = {
+  version: string
+  services: Array<{ name: string; items: Array<{ label: string; value: string }> }>
+}
+
+export type HealthScreenProps = {
+  version: string
+  status: string
+  uptime: string
+  apiVersion: string
+}
+
 const palette = {
   text: 'white',
   muted: 'gray',
@@ -445,6 +465,82 @@ export function ComputeListScreen(props: ComputeListScreenProps) {
               <Text color={palette.muted}>{`${server.type} · ${server.status}`}</Text>
             </Box>
           ))}
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function SuccessScreen(props: SuccessScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  return (
+    <Shell titleLeft={`AgentOS · v${props.version}`} titleRight={props.title} footerLeft={props.footerLeft} footerRight="phase 3">
+      <Box>
+        <Card title="done" width={leftWidth}>
+          <Text color={palette.success}>● success</Text>
+          <Box marginTop={1}><Text color={palette.text} bold>{props.subtitle}</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="details" width={rightWidth}>
+          {props.details.map((detail, i) => <KeyValue key={`${detail.label}-${i}`} label={detail.label} value={detail.value} />)}
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function PricingScreen(props: PricingScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.28, 26)
+  return (
+    <Shell titleLeft={`AgentOS pricing · v${props.version}`} titleRight="Service rates" footerLeft="All prices in USD/USDC" footerRight="phase 3">
+      <Box>
+        <Card title="catalog" width={leftWidth}>
+          <Text color={palette.text} bold>{String(props.services.length)}</Text>
+          <Box marginTop={1}><Text color={palette.muted}>service groups</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="services" width={rightWidth}>
+          {props.services.map((service, i) => (
+            <Box key={`${service.name}-${i}`} flexDirection="column" marginBottom={1}>
+              <Text color={palette.text}>{service.name}</Text>
+              {service.items.map((item, j) => (
+                <Box key={`${service.name}-${item.label}-${j}`} justifyContent="space-between">
+                  <Text color={palette.muted}>{item.label}</Text>
+                  <Text color={palette.muted}>${item.value}</Text>
+                </Box>
+              ))}
+            </Box>
+          ))}
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function HealthScreen(props: HealthScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.34, 30)
+  const ok = props.status === 'healthy'
+  return (
+    <Shell titleLeft={`AgentOS health · v${props.version}`} titleRight="API status" footerLeft={ok ? 'Service healthy' : 'Service degraded'} footerRight="phase 3">
+      <Box>
+        <Card title="health" width={leftWidth}>
+          <Text color={ok ? palette.success : palette.error}>{ok ? '● healthy' : `● ${props.status}`}</Text>
+          <Box marginTop={1}><Text color={palette.text} bold>{props.apiVersion}</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="details" width={rightWidth}>
+          <KeyValue label="Status" value={props.status} />
+          <KeyValue label="Version" value={props.apiVersion} />
+          <KeyValue label="Uptime" value={props.uptime} />
         </Card>
       </Box>
     </Shell>

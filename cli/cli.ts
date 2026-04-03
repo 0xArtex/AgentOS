@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { render } from 'ink'
-import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, SetupScreen, StatusScreen, WalletCreateScreen, WalletStatusScreen } from './app.js'
+import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, HealthScreen, PricingScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen } from './app.js'
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
@@ -217,11 +217,18 @@ async function main() {
             const spin = new Spinner(); spin.start('Provisioning phone number...'); const data = await ao.phoneBuy(country, flags.area as string); spin.stop('Phone number provisioned', true)
             spinner.stop('Phone number provisioned', true)
             if (json) return print(data)
-            header('Phone Number Provisioned')
-            ok(data.phoneNumber || data.phone_number || 'provisioned')
-            row('ID', data.id || '')
-            row('Country', country)
-            addPhone({ id: data.id, number: data.phoneNumber || data.phone_number, country, createdAt: new Date().toISOString() })
+            const number = data.phoneNumber || data.phone_number || 'provisioned'
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'Phone provisioned',
+              subtitle: number,
+              footerLeft: 'Number ready to use',
+              details: [
+                { label: 'ID', value: String(data.id || '') },
+                { label: 'Country', value: country },
+              ],
+            }))
+            addPhone({ id: data.id, number, country, createdAt: new Date().toISOString() })
             log(`phone buy: ${data.phoneNumber || data.phone_number || 'unknown'} (${country})`)
             break
           }
@@ -263,11 +270,18 @@ async function main() {
             if (!name || !wallet) err('--name, --wallet required')
             const spin = new Spinner(); spin.start('Creating inbox...'); const data = await ao.emailCreate(name, wallet); spin.stop('Inbox created', true)
             if (json) return print(data)
-            header('Email Inbox Created')
-            ok(data.address || `${name}@agntos.dev`)
-            row('ID', data.id || '')
-            row('E2E', data.e2eEnabled ? 'enabled' : 'disabled')
-            addInbox({ id: data.id, address: data.address || `${name}@agntos.dev`, createdAt: new Date().toISOString() })
+            const address = data.address || `${name}@agntos.dev`
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'Inbox created',
+              subtitle: address,
+              footerLeft: 'Inbox ready',
+              details: [
+                { label: 'ID', value: String(data.id || '') },
+                { label: 'E2E', value: data.e2eEnabled ? 'enabled' : 'disabled' },
+              ],
+            }))
+            addInbox({ id: data.id, address, createdAt: new Date().toISOString() })
             log(`email create: ${data.address || name}`)
             break
           }
@@ -417,9 +431,17 @@ async function main() {
             if (!name) err('--name domain.dev required')
             const spin = new Spinner(); spin.start('Registering domain...'); const data = await ao.domainBuy(name); spin.stop('Domain registered', true)
             if (json) return print(data)
-            header('Domain Registered')
-            ok(data.domain || name)
-            addDomain({ domain: data.domain || name, createdAt: new Date().toISOString() })
+            const domain = data.domain || name
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'Domain registered',
+              subtitle: domain,
+              footerLeft: 'Domain secured',
+              details: [
+                { label: 'Domain', value: domain },
+              ],
+            }))
+            addDomain({ domain, createdAt: new Date().toISOString() })
             log(`domain buy: ${data.domain || name}`)
             break
           }
@@ -500,24 +522,25 @@ async function main() {
       case 'pricing': {
         const data = await ao.pricing()
         if (json) return print(data)
-        header('Pricing')
-        for (const [svc, prices] of Object.entries(data.services || {})) {
-          console.log(`\n  ${c.cyan}${c.bold}${svc}${c.reset}`)
-          if (typeof prices === 'object') {
-            for (const [k, v] of Object.entries(prices as Record<string, string>)) {
-              console.log(`    ${c.dim}${k}:${c.reset} ${c.white}$${v}${c.reset}`)
-            }
-          }
-        }
+        const services = Object.entries(data.services || {}).map(([name, prices]) => ({
+          name,
+          items: typeof prices === 'object'
+            ? Object.entries(prices as Record<string, string>).map(([label, value]) => ({ label, value: String(value) }))
+            : [],
+        }))
+        render(React.createElement(PricingScreen, { version: VERSION, services }))
         break
       }
 
       case 'health': {
         const data = await ao.health()
         if (json) return print(data)
-        header('API Status')
-        ok(`${data.status} — v${data.version?.version || '?'}`)
-        row('Uptime', data.uptime?.human || '?')
+        render(React.createElement(HealthScreen, {
+          version: VERSION,
+          status: data.status || 'unknown',
+          uptime: data.uptime?.human || '?',
+          apiVersion: data.version?.version || '?',
+        }))
         break
       }
 
