@@ -80,6 +80,7 @@ function help() {
 // ─── Commands ───
 async function main() {
   const { command, subcommand, positional, flags } = parse(process.argv)
+  const fromHome = process.env.AGENTOS_FROM_HOME === '1'
 
   if (flags.version) { console.log(VERSION); return }
   if (flags.help) { help(); return }
@@ -104,6 +105,7 @@ async function main() {
     if (typeof selectedCommand === 'string') {
       const chosen = selectedCommand as string
       const next = chosen.trim().split(/\s+/)
+      process.env.AGENTOS_FROM_HOME = '1'
       process.argv = [process.argv[0], process.argv[1], ...next.slice(1)]
       return main()
     }
@@ -181,6 +183,12 @@ async function main() {
           apiOk,
           wallets,
           defaultChain: config.defaultChain || 'solana',
+          interactive: fromHome,
+          onBack: fromHome ? () => {
+            process.env.AGENTOS_FROM_HOME = '0'
+            process.argv = [process.argv[0], process.argv[1]]
+            void main()
+          } : undefined,
         }))
         break
       }
@@ -592,7 +600,16 @@ async function main() {
             ? Object.entries(prices as Record<string, string>).map(([label, value]) => ({ label, value: String(value) }))
             : [],
         }))
-        render(React.createElement(PricingScreen, { version: VERSION, services }))
+        render(React.createElement(PricingScreen, {
+          version: VERSION,
+          services,
+          interactive: fromHome,
+          onBack: fromHome ? () => {
+            process.env.AGENTOS_FROM_HOME = '0'
+            process.argv = [process.argv[0], process.argv[1]]
+            void main()
+          } : undefined,
+        }))
         break
       }
 
@@ -604,6 +621,12 @@ async function main() {
           status: data.status || 'unknown',
           uptime: data.uptime?.human || '?',
           apiVersion: data.version?.version || '?',
+          interactive: fromHome,
+          onBack: fromHome ? () => {
+            process.env.AGENTOS_FROM_HOME = '0'
+            process.argv = [process.argv[0], process.argv[1]]
+            void main()
+          } : undefined,
         }))
         break
       }

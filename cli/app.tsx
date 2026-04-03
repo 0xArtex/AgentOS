@@ -10,6 +10,11 @@ export type DashboardProps = {
   onSelectAction?: (command: string) => void
 }
 
+export type ScreenControls = {
+  interactive?: boolean
+  onBack?: () => void
+}
+
 export type StatusScreenProps = {
   version: string
   api: string
@@ -206,7 +211,11 @@ function Rule() {
   return <Text color={palette.dim}>{'·'.repeat(width)}</Text>
 }
 
-function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string; footerLeft: string; footerRight: string; autoExit?: boolean }>) {
+function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string; footerLeft: string; footerRight: string; autoExit?: boolean; onBack?: () => void }>) {
+  useInput((input, key) => {
+    if (props.onBack && (input === 'b' || key.escape)) props.onBack()
+  })
+
   return (
     <Box flexDirection="column" paddingX={1}>
       {props.autoExit === false ? null : <AutoExit />}
@@ -379,7 +388,7 @@ export function Dashboard(props: DashboardProps) {
   )
 }
 
-export function StatusScreen(props: StatusScreenProps) {
+export function StatusScreen(props: StatusScreenProps & ScreenControls) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
   const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.42, 38)
@@ -388,7 +397,7 @@ export function StatusScreen(props: StatusScreenProps) {
   const hasBase = !!wallets.base
 
   return (
-    <Shell titleLeft={`AgentOS status · v${props.version}`} titleRight="System overview" footerLeft={props.apiOk ? 'API reachable' : 'API offline'} footerRight="phase 1.5">
+    <Shell titleLeft={`AgentOS status · v${props.version}`} titleRight="System overview" footerLeft={props.interactive ? 'b / esc back' : (props.apiOk ? 'API reachable' : 'API offline')} footerRight="phase 1.5" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="overview" width={leftWidth}>
           <Text color={palette.text} bold>Runtime posture</Text>
@@ -620,12 +629,12 @@ export function SuccessScreen(props: SuccessScreenProps) {
   )
 }
 
-export function PricingScreen(props: PricingScreenProps) {
+export function PricingScreen(props: PricingScreenProps & ScreenControls) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
   const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.28, 26)
   return (
-    <Shell titleLeft={`AgentOS pricing · v${props.version}`} titleRight="Service rates" footerLeft="All prices in USD/USDC" footerRight="phase 3">
+    <Shell titleLeft={`AgentOS pricing · v${props.version}`} titleRight="Service rates" footerLeft={props.interactive ? 'b / esc back' : 'All prices in USD/USDC'} footerRight="phase 3" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="catalog" width={leftWidth}>
           <Text color={palette.text} bold>{String(props.services.length)}</Text>
@@ -651,13 +660,13 @@ export function PricingScreen(props: PricingScreenProps) {
   )
 }
 
-export function HealthScreen(props: HealthScreenProps) {
+export function HealthScreen(props: HealthScreenProps & ScreenControls) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
   const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.34, 30)
   const ok = props.status === 'healthy'
   return (
-    <Shell titleLeft={`AgentOS health · v${props.version}`} titleRight="API status" footerLeft={ok ? 'Service healthy' : 'Service degraded'} footerRight="phase 3">
+    <Shell titleLeft={`AgentOS health · v${props.version}`} titleRight="API status" footerLeft={props.interactive ? 'b / esc back' : (ok ? 'Service healthy' : 'Service degraded')} footerRight="phase 3" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="health" width={leftWidth}>
           <Text color={ok ? palette.success : palette.error}>{ok ? '● healthy' : `● ${props.status}`}</Text>
@@ -675,12 +684,12 @@ export function HealthScreen(props: HealthScreenProps) {
   )
 }
 
-export function MenuScreen(props: MenuScreenProps) {
+export function MenuScreen(props: MenuScreenProps & ScreenControls) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
   const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.32, 28)
   return (
-    <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.footerLeft} footerRight="phase 4">
+    <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.interactive ? 'b / esc back' : props.footerLeft} footerRight="phase 4" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="menu" width={leftWidth}>
           <Text color={palette.text} bold>{props.title}</Text>
@@ -701,12 +710,12 @@ export function MenuScreen(props: MenuScreenProps) {
   )
 }
 
-export function RecordsScreen(props: RecordsScreenProps) {
+export function RecordsScreen(props: RecordsScreenProps & ScreenControls) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
   const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.28, 26)
   return (
-    <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.footerLeft} footerRight="phase 4">
+    <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.interactive ? 'b / esc back' : props.footerLeft} footerRight="phase 4" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="summary" width={leftWidth}>
           <Text color={palette.text} bold>{String(props.records.length)}</Text>
@@ -728,12 +737,12 @@ export function RecordsScreen(props: RecordsScreenProps) {
   )
 }
 
-export function ErrorScreen(props: ErrorScreenProps) {
+export function ErrorScreen(props: ErrorScreenProps & ScreenControls) {
   const { stdout } = useStdout()
   const termWidth = Math.max(80, stdout?.columns || 100)
   const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.3, 28)
   return (
-    <Shell titleLeft={`AgentOS · v${props.version}`} titleRight={props.title} footerLeft={props.footerLeft} footerRight="phase 4">
+    <Shell titleLeft={`AgentOS · v${props.version}`} titleRight={props.title} footerLeft={props.interactive ? 'b / esc back' : props.footerLeft} footerRight="phase 4" autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
       <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="problem" width={leftWidth}>
           <Text color={palette.error}>● blocked</Text>
