@@ -246,9 +246,10 @@ function CommandPalette(props: {
   onChange: (value: string) => void
   results: Array<{ label: string; command: string }>
   selected: number
+  width?: number
 }) {
   return (
-    <Card title="command palette" width={72} borderColor={palette.accent} titleColor={palette.accent}>
+    <Card title="command palette" width={props.width || 72} borderColor={palette.accent} titleColor={palette.accent}>
       <Box marginBottom={1}>
         <Text color={palette.muted}>type to filter commands</Text>
       </Box>
@@ -269,18 +270,19 @@ function CommandPalette(props: {
 }
 
 function twoColWidths(termWidth: number, leftRatio = 0.4, maxLeft = 36) {
-  const contentWidth = Math.max(72, termWidth - 6)
-  const gap = 2
-  const leftWidth = Math.min(maxLeft, Math.floor((contentWidth - gap) * leftRatio))
-  const rightWidth = contentWidth - leftWidth - gap
-  return { gap, leftWidth, rightWidth }
+  const compact = termWidth < 96
+  const contentWidth = Math.max(compact ? 56 : 72, termWidth - 6)
+  const gap = compact ? 0 : 2
+  const leftWidth = compact ? contentWidth : Math.min(maxLeft, Math.floor((contentWidth - gap) * leftRatio))
+  const rightWidth = compact ? contentWidth : contentWidth - leftWidth - gap
+  return { gap, leftWidth, rightWidth, compact }
 }
 
 export function Dashboard(props: DashboardProps) {
   const { stdout } = useStdout()
   const { exit } = useApp()
   const termWidth = Math.max(80, stdout?.columns || 100)
-  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.4, 36)
+  const { gap, leftWidth, rightWidth, compact } = twoColWidths(termWidth, 0.4, 36)
   const hasWallets = !!props.wallets && Object.keys(props.wallets).length > 0
   const walletNames = hasWallets ? Object.keys(props.wallets!).join(', ') : 'not configured'
   const actions = useMemo(() => ([
@@ -337,13 +339,13 @@ export function Dashboard(props: DashboardProps) {
       autoExit={false}
     >
       {paletteOpen ? (
-        <CommandPalette value={query} onChange={setQuery} results={filteredActions} selected={selected} />
+        <CommandPalette value={query} onChange={setQuery} results={filteredActions} selected={selected} width={compact ? leftWidth : 72} />
       ) : null}
-      <Box>
+      <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="agent shell" width={leftWidth} borderColor={selected >= 0 ? palette.accent : palette.dim} titleColor={palette.accent}>
           <Text color={palette.text} bold>Calm infrastructure for autonomous agents.</Text>
           <Box marginTop={1}><Text color={palette.muted}>Clean terminal surfaces. Quiet confidence. No clown makeup.</Text></Box>
-          <Mascot />
+          {!compact ? <Mascot /> : null}
           <Box marginTop={1} flexDirection="column">
             <Text color={palette.muted}>Default chain</Text>
             <Text color={palette.text}>{props.chain || 'solana'}</Text>
@@ -353,7 +355,7 @@ export function Dashboard(props: DashboardProps) {
             <Text color={palette.text}>{(filteredActions[selected] || actions[selected])?.label}</Text>
           </Box>
         </Card>
-        <Box width={gap} />
+        {compact ? <Box height={1} /> : <Box width={gap} />}
         <Card title="quick actions" width={rightWidth} borderColor={palette.accent} titleColor={palette.accent}>
           <Box flexDirection="column" marginBottom={1}>
             {(paletteOpen ? filteredActions : actions).map((action, index) => (
