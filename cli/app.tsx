@@ -117,10 +117,11 @@ const palette = {
   text: 'white',
   muted: 'gray',
   dim: 'blackBright',
-  accent: 'white',
+  accent: 'whiteBright',
   success: 'greenBright',
   error: 'redBright',
   soft: 'whiteBright',
+  shadow: 'gray',
 } as const
 
 function AutoExit() {
@@ -135,13 +136,15 @@ function AutoExit() {
 function Mascot() {
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text color={palette.soft}>       ╭────────╮</Text>
-      <Text color={palette.soft}>       │  ◕  ◕ │</Text>
-      <Text color={palette.soft}>       │   ▔▔  │</Text>
-      <Text color={palette.soft}>       ╰─╮  ╭─╯</Text>
-      <Text color={palette.soft}>         │  │</Text>
-      <Text color={palette.soft}>       ╭─╯  ╰─╮</Text>
-      <Text color={palette.soft}>       ╰──────╯</Text>
+      <Text color={palette.shadow}>      ░░░░░░░░</Text>
+      <Text color={palette.soft}>     ╭────────╮</Text>
+      <Text color={palette.soft}>     │ ●    ● │</Text>
+      <Text color={palette.soft}>     │   ▄▄   │</Text>
+      <Text color={palette.soft}>     │  ╰──╯  │</Text>
+      <Text color={palette.soft}>     ╰─╮    ╭─╯</Text>
+      <Text color={palette.muted}>       │    │</Text>
+      <Text color={palette.soft}>     ╭─╯    ╰─╮</Text>
+      <Text color={palette.soft}>     ╰────────╯</Text>
     </Box>
   )
 }
@@ -155,10 +158,11 @@ function Card(props: PropsWithChildren<{ title?: string; width: number }>) {
       borderColor={palette.dim}
       paddingX={2}
       paddingY={1}
+      marginBottom={1}
     >
       {props.title ? (
         <Box marginBottom={1}>
-          <Text color={palette.muted}>{props.title}</Text>
+          <Text color={palette.accent}>{props.title}</Text>
         </Box>
       ) : null}
       {props.children}
@@ -198,7 +202,7 @@ function Rule() {
   const { stdout } = useStdout()
   const columns = stdout?.columns ?? 100
   const width = Math.max(32, Math.min(columns - 16, 72))
-  return <Text color={palette.dim}>{'─'.repeat(width)}</Text>
+  return <Text color={palette.dim}>{'·'.repeat(width)}</Text>
 }
 
 function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string; footerLeft: string; footerRight: string }>) {
@@ -206,7 +210,10 @@ function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string;
     <Box flexDirection="column" paddingX={1}>
       <AutoExit />
       <Box justifyContent="space-between" marginBottom={1}>
-        <Text color={palette.text}>{props.titleLeft}</Text>
+        <Box>
+          <Text color={palette.accent}>◼ </Text>
+          <Text color={palette.text}>{props.titleLeft}</Text>
+        </Box>
         <Text color={palette.muted}>{props.titleRight}</Text>
       </Box>
       <Rule />
@@ -249,6 +256,7 @@ export function Dashboard(props: DashboardProps) {
       <Box>
         <Card title="agent shell" width={leftWidth}>
           <Text color={palette.text} bold>Calm infrastructure for autonomous agents.</Text>
+          <Box marginTop={1}><Text color={palette.muted}>Clean terminal surfaces. Quiet confidence. No clown makeup.</Text></Box>
           <Mascot />
           <Box marginTop={1} flexDirection="column">
             <Text color={palette.muted}>Default chain</Text>
@@ -258,12 +266,12 @@ export function Dashboard(props: DashboardProps) {
         <Box width={gap} />
         <Card title="quick actions" width={rightWidth}>
           <Box flexDirection="column" marginBottom={1}>
-            <Text color={palette.text}>agentos setup --keyfile ~/.config/solana/id.json --chain solana</Text>
-            <Text color={palette.text}>agentos phone search --country US</Text>
-            <Text color={palette.text}>agentos compute plans</Text>
-            <Text color={palette.text}>agentos domain check --name myagent.dev</Text>
+            <Text color={palette.text}>› agentos setup --keyfile ~/.config/solana/id.json --chain solana</Text>
+            <Text color={palette.text}>› agentos phone search --country US</Text>
+            <Text color={palette.text}>› agentos compute plans</Text>
+            <Text color={palette.text}>› agentos domain check --name myagent.dev</Text>
           </Box>
-          <Box marginTop={1} marginBottom={1}><Text color={palette.muted}>status</Text></Box>
+          <Box marginTop={1} marginBottom={1}><Text color={palette.muted}>system status</Text></Box>
           <Box flexDirection="column">
             <StatDot ok={hasWallets} label="Wallets" value={walletNames} />
             <StatDot ok={!!props.apiOk} label="API" value={props.apiOk ? 'connected' : 'unreachable'} />
