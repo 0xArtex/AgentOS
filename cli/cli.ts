@@ -214,6 +214,12 @@ async function main() {
               { name: 'sms', description: 'Send an SMS', hint: '--id ID --to +1... --body "hi"' },
               { name: 'call', description: 'Place a voice call', hint: '--id ID --to +1... --tts "hello"' },
             ],
+            interactive: fromHome,
+            onBack: fromHome ? () => {
+              process.env.AGENTOS_FROM_HOME = '0'
+              process.argv = [process.argv[0], process.argv[1]]
+              void main()
+            } : undefined,
           }))
           break
         }
@@ -231,6 +237,12 @@ async function main() {
                 primary: String(n.phoneNumber || 'unknown'),
                 secondary: [n.region, n.type].filter(Boolean).join(' · '),
               })),
+              interactive: fromHome,
+              onBack: fromHome ? () => {
+                process.env.AGENTOS_FROM_HOME = '0'
+                process.argv = [process.argv[0], process.argv[1]]
+                void main()
+              } : undefined,
             }))
             break
           }
@@ -331,6 +343,12 @@ async function main() {
                 secondary: `${m.direction === 'inbound' ? '←' : '→'} ${m.from || ''}`.trim(),
                 status: String(m.timestamp || ''),
               })),
+              interactive: fromHome,
+              onBack: fromHome ? () => {
+                process.env.AGENTOS_FROM_HOME = '0'
+                process.argv = [process.argv[0], process.argv[1]]
+                void main()
+              } : undefined,
             }))
             break
           }
@@ -378,6 +396,12 @@ async function main() {
               { name: 'list', description: 'List servers' },
               { name: 'delete', description: 'Delete a server', hint: '--id SERVER_ID' },
             ],
+            interactive: fromHome,
+            onBack: fromHome ? () => {
+              process.env.AGENTOS_FROM_HOME = '0'
+              process.argv = [process.argv[0], process.argv[1]]
+              void main()
+            } : undefined,
           }))
           break
         }
@@ -391,7 +415,16 @@ async function main() {
               ram: `${p.ramGb || p.ram || p.memory || '?'}GB RAM`,
               price: String(p.priceUsdcMonthly || p.priceUsdc || p.price || p.monthly_cost || '?'),
             }))
-            render(React.createElement(ComputePlansScreen, { version: VERSION, plans }))
+            render(React.createElement(ComputePlansScreen, {
+              version: VERSION,
+              plans,
+              interactive: fromHome,
+              onBack: fromHome ? () => {
+                process.env.AGENTOS_FROM_HOME = '0'
+                process.argv = [process.argv[0], process.argv[1]]
+                void main()
+              } : undefined,
+            }))
             break
           }
           case 'deploy': {
@@ -448,6 +481,12 @@ async function main() {
               { name: 'buy', description: 'Register a domain', hint: '--name example.dev' },
               { name: 'dns', description: 'Get DNS records', hint: '--name example.dev' },
             ],
+            interactive: fromHome,
+            onBack: fromHome ? () => {
+              process.env.AGENTOS_FROM_HOME = '0'
+              process.argv = [process.argv[0], process.argv[1]]
+              void main()
+            } : undefined,
           }))
           break
         }
@@ -461,6 +500,12 @@ async function main() {
               version: VERSION,
               domain: name,
               available: !!data.available,
+              interactive: fromHome,
+              onBack: fromHome ? () => {
+                process.env.AGENTOS_FROM_HOME = '0'
+                process.argv = [process.argv[0], process.argv[1]]
+                void main()
+              } : undefined,
             }))
             break
           }
@@ -477,6 +522,12 @@ async function main() {
               version: VERSION,
               query: name,
               items,
+              interactive: fromHome,
+              onBack: fromHome ? () => {
+                process.env.AGENTOS_FROM_HOME = '0'
+                process.argv = [process.argv[0], process.argv[1]]
+                void main()
+              } : undefined,
             }))
             break
           }
