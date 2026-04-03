@@ -258,7 +258,7 @@ function CommandPalette(props: {
   return (
     <Card title="command palette" width={props.width || 72} borderColor={palette.accent} titleColor={palette.accent}>
       <Box marginBottom={1}>
-        <Text color={palette.muted}>type to filter commands</Text>
+        <Text color={palette.muted}>filter commands</Text>
       </Box>
       <Box marginBottom={1}>
         <Text color={palette.soft}>› </Text>
@@ -341,8 +341,8 @@ export function Dashboard(props: DashboardProps) {
     <Shell
       titleLeft={`AgentOS v${props.version}`}
       titleRight="Everything your agent needs"
-      footerLeft={`${paletteOpen ? 'esc close palette · enter open command' : '↑↓ navigate · enter open · / palette · q quit'} · focus ${Math.min(selected + 1, Math.max(filteredActions.length, 1))}/${Math.max(filteredActions.length, 1)}`}
-      footerRight="premium shell · interactive home"
+      footerLeft={`${paletteOpen ? 'esc close · enter open' : '↑↓ move · enter open · / palette · q quit'} · ${Math.min(selected + 1, Math.max(filteredActions.length, 1))}/${Math.max(filteredActions.length, 1)}`}
+      footerRight="premium home"
       autoExit={false}
     >
       {paletteOpen ? (
@@ -353,14 +353,14 @@ export function Dashboard(props: DashboardProps) {
           {!compact ? <Mascot /> : null}
           <Box marginTop={1} flexDirection="column">
             <Text color={palette.text} bold>Infrastructure for autonomous agents.</Text>
-            <Text color={palette.muted}>Phones, inboxes, domains, compute, wallets.</Text>
+            <Text color={palette.muted}>Phones · inboxes · domains · compute · wallets</Text>
           </Box>
           <Box marginTop={1} flexDirection="column">
             <Text color={palette.muted}>Default chain</Text>
             <Text color={palette.text}>{props.chain || 'solana'}</Text>
           </Box>
           <Box marginTop={1} flexDirection="column">
-            <Text color={palette.muted}>Current focus</Text>
+            <Text color={palette.muted}>Focus</Text>
             <Text color={palette.text}>{(filteredActions[selected] || actions[selected])?.label}</Text>
           </Box>
         </Card>
@@ -382,7 +382,7 @@ export function Dashboard(props: DashboardProps) {
             <Box flexDirection="column">
               <StatDot ok={hasWallets} label="Wallets" value={walletNames} />
               <StatDot ok={!!props.apiOk} label="API" value={props.apiOk ? 'connected' : 'unreachable'} />
-              <StatDot ok={true} label="Mode" value="interactive home" />
+              <StatDot ok={true} label="Mode" value="home" />
             </Box>
           </Card>
           {!compact ? (
@@ -423,7 +423,7 @@ export function StatusScreen(props: StatusScreenProps & ScreenControls) {
           <KeyValue label="Solana" value={hasSolana ? wallets.solana!.keyfile : 'not configured'} />
           <KeyValue label="Base" value={hasBase ? wallets.base!.keyfile : 'not configured'} />
           <KeyValue label="Default" value={props.defaultChain || 'solana'} />
-          <Box marginTop={1}><Text color={palette.muted}>next</Text></Box>
+          <Box marginTop={1}><Text color={palette.muted}>next step</Text></Box>
           <Text color={palette.text}>agentos setup --keyfile ~/.config/solana/id.json --chain solana</Text>
         </Card>
       </Box>
@@ -476,9 +476,9 @@ export function DomainCheckScreen(props: DomainCheckScreenProps) {
           {!compact ? <Mascot /> : null}
         </Card>
         {compact ? <Box height={1} /> : <Box width={gap} />}
-        <Card title="recommended next step" width={rightWidth}>
+        <Card title="next step" width={rightWidth}>
           <Text color={palette.text}>{props.available ? `agentos domain buy --name ${props.domain}` : `agentos domain pricing --name ${props.domain.split('.')[0] || props.domain}`}</Text>
-          <Box marginTop={1}><Text color={palette.muted}>status</Text></Box>
+          <Box marginTop={1}><Text color={palette.muted}>availability</Text></Box>
           <StatDot ok={props.available} label="Availability" value={props.available ? 'open' : 'unavailable'} />
           <Text color={palette.muted}>{props.available ? 'Nice. This one is clean.' : 'Taken. Don’t marry the first name.'}</Text>
         </Card>
@@ -502,7 +502,7 @@ export function DomainPricingScreen(props: DomainPricingScreenProps) {
           {!compact ? <Mascot /> : null}
         </Card>
         {compact ? <Box height={1} /> : <Box width={gap} />}
-        <Card title={`matching prices for ${props.query}`} width={rightWidth}>
+        <Card title={`prices for ${props.query}`} width={rightWidth}>
           {props.items.map((item) => (
             <Box key={item.tld} justifyContent="space-between">
               <Text color={palette.text}>.{item.tld}</Text>
@@ -533,7 +533,7 @@ export function WalletCreateScreen(props: WalletCreateScreenProps) {
           <KeyValue label="Address" value={props.address} />
           <KeyValue label="Chain" value={props.chain} />
           {props.setupUrl ? <KeyValue label="Setup" value={props.setupUrl} /> : null}
-          <Box marginTop={1}><Text color={palette.muted}>next</Text></Box>
+          <Box marginTop={1}><Text color={palette.muted}>next step</Text></Box>
           <Text color={palette.text}>agentos wallet status {props.address}</Text>
         </Card>
       </Box>
@@ -787,7 +787,7 @@ export function SetupScreen(props: SetupScreenProps) {
           <KeyValue label="API" value={props.api} />
           <KeyValue label="Chain" value={props.chains.join(', ')} />
           <KeyValue label="Keyfile" value={props.keyfile} />
-          <Box marginTop={1}><Text color={palette.muted}>next</Text></Box>
+          <Box marginTop={1}><Text color={palette.muted}>next step</Text></Box>
           <Text color={palette.text}>agentos status</Text>
           {props.chains.length === 1 ? (
             <Text color={palette.text}>{`agentos setup --keyfile <path> --chain ${props.addedChain === 'solana' ? 'base' : 'solana'}`}</Text>
