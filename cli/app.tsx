@@ -352,16 +352,12 @@ export function Dashboard(props: DashboardProps) {
         <Card title="identity" width={leftWidth} borderColor={palette.accent} titleColor={palette.accent}>
           {!compact ? <Mascot /> : null}
           <Box marginTop={1} flexDirection="column">
-            <Text color={palette.text} bold>Infrastructure for autonomous agents.</Text>
-            <Text color={palette.muted}>Phones · inboxes · domains · compute · wallets</Text>
+            <Text color={palette.text} bold>Run your agent stack.</Text>
+            <Text color={palette.muted}>Phone · inbox · domain · compute · wallet</Text>
           </Box>
           <Box marginTop={1} flexDirection="column">
-            <Text color={palette.muted}>Default chain</Text>
-            <Text color={palette.text}>{props.chain || 'solana'}</Text>
-          </Box>
-          <Box marginTop={1} flexDirection="column">
-            <Text color={palette.muted}>Focus</Text>
-            <Text color={palette.text}>{(filteredActions[selected] || actions[selected])?.label}</Text>
+            <Text color={palette.muted}>Chain · Focus</Text>
+            <Text color={palette.text}>{props.chain || 'solana'} · {(filteredActions[selected] || actions[selected])?.label}</Text>
           </Box>
         </Card>
         {compact ? <Box height={1} /> : <Box width={gap} />}
@@ -387,8 +383,7 @@ export function Dashboard(props: DashboardProps) {
           </Card>
           {!compact ? (
             <Card title="tips" width={rightWidth}>
-              <Text color={palette.text}>/ opens command palette</Text>
-              <Text color={palette.muted}>Use arrows to move. Enter opens the selected action.</Text>
+              <Text color={palette.text}>/ palette · ↑↓ move · enter open</Text>
             </Card>
           ) : null}
         </Box>

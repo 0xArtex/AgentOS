@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import React from 'react'
-import { render } from 'ink'
+import { render as inkRender } from 'ink'
 import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, ErrorScreen, HealthScreen, MenuScreen, PricingScreen, RecordsScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen } from './app.js'
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
@@ -13,6 +13,13 @@ import { homedir } from 'os'
 const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, white: t.text, gray: t.muted, orange: t.accent }
 
 const VERSION = '0.4.0'
+
+function render(node: React.ReactElement) {
+  if (process.stdout.isTTY) {
+    process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
+  }
+  return inkRender(node)
+}
 
 // ─── Parse args ───
 function parse(argv: string[]) {
