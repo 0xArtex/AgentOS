@@ -89,6 +89,30 @@ export type HealthScreenProps = {
   apiVersion: string
 }
 
+export type MenuScreenProps = {
+  version: string
+  title: string
+  subtitle: string
+  commands: Array<{ name: string; description: string; hint?: string }>
+  footerLeft: string
+}
+
+export type RecordsScreenProps = {
+  version: string
+  title: string
+  subtitle: string
+  records: Array<{ primary: string; secondary?: string; status?: string }>
+  footerLeft: string
+}
+
+export type ErrorScreenProps = {
+  version: string
+  title: string
+  message: string
+  hint?: string
+  footerLeft: string
+}
+
 const palette = {
   text: 'white',
   muted: 'gray',
@@ -541,6 +565,81 @@ export function HealthScreen(props: HealthScreenProps) {
           <KeyValue label="Status" value={props.status} />
           <KeyValue label="Version" value={props.apiVersion} />
           <KeyValue label="Uptime" value={props.uptime} />
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function MenuScreen(props: MenuScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.32, 28)
+  return (
+    <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.footerLeft} footerRight="phase 4">
+      <Box>
+        <Card title="menu" width={leftWidth}>
+          <Text color={palette.text} bold>{props.title}</Text>
+          <Box marginTop={1}><Text color={palette.muted}>{props.subtitle}</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="commands" width={rightWidth}>
+          {props.commands.map((cmd, i) => (
+            <Box key={`${cmd.name}-${i}`} flexDirection="column" marginBottom={1}>
+              <Text color={palette.text}>{cmd.name}</Text>
+              <Text color={palette.muted}>{cmd.description}{cmd.hint ? ` · ${cmd.hint}` : ''}</Text>
+            </Box>
+          ))}
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function RecordsScreen(props: RecordsScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.28, 26)
+  return (
+    <Shell titleLeft={`AgentOS ${props.title} · v${props.version}`} titleRight={props.subtitle} footerLeft={props.footerLeft} footerRight="phase 4">
+      <Box>
+        <Card title="summary" width={leftWidth}>
+          <Text color={palette.text} bold>{String(props.records.length)}</Text>
+          <Box marginTop={1}><Text color={palette.muted}>items</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="records" width={rightWidth}>
+          {props.records.map((record, i) => (
+            <Box key={`${record.primary}-${i}`} flexDirection="column" marginBottom={1}>
+              <Text color={palette.text}>{record.primary}</Text>
+              {record.secondary ? <Text color={palette.muted}>{record.secondary}</Text> : null}
+              {record.status ? <Text color={palette.muted}>{record.status}</Text> : null}
+            </Box>
+          ))}
+        </Card>
+      </Box>
+    </Shell>
+  )
+}
+
+export function ErrorScreen(props: ErrorScreenProps) {
+  const { stdout } = useStdout()
+  const termWidth = Math.max(80, stdout?.columns || 100)
+  const { gap, leftWidth, rightWidth } = twoColWidths(termWidth, 0.3, 28)
+  return (
+    <Shell titleLeft={`AgentOS · v${props.version}`} titleRight={props.title} footerLeft={props.footerLeft} footerRight="phase 4">
+      <Box>
+        <Card title="problem" width={leftWidth}>
+          <Text color={palette.error}>● blocked</Text>
+          <Box marginTop={1}><Text color={palette.text} bold>{props.title}</Text></Box>
+          <Mascot />
+        </Card>
+        <Box width={gap} />
+        <Card title="details" width={rightWidth}>
+          <Text color={palette.text}>{props.message}</Text>
+          {props.hint ? <Box marginTop={1}><Text color={palette.muted}>{props.hint}</Text></Box> : null}
         </Card>
       </Box>
     </Shell>

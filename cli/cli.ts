@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { render } from 'ink'
-import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, HealthScreen, PricingScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen } from './app.js'
+import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, ErrorScreen, HealthScreen, MenuScreen, PricingScreen, RecordsScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen } from './app.js'
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
@@ -35,7 +35,15 @@ function parse(argv: string[]) {
   return { command, subcommand, positional, flags }
 }
 
-function err(msg: string) { fail(msg); process.exit(1) }
+function err(msg: string) {
+  render(React.createElement(ErrorScreen, {
+    version: VERSION,
+    title: 'Command error',
+    message: msg,
+    footerLeft: 'Fix the command and retry',
+  }))
+  process.exit(1)
+}
 function print(obj: any) {
   const json = JSON.stringify(obj, null, 2)
   // Syntax highlight JSON
@@ -50,38 +58,23 @@ function print(obj: any) {
 
 // ─── Help ───
 function help() {
-  banner()
-  divider()
-  blank()
-
-  section('Services')
-  blank()
-  console.log(`  ${t.info}phone${t.reset}     ${t.muted}search · buy · sms · call${t.reset}`)
-  console.log(`  ${t.info}email${t.reset}     ${t.muted}create · read · send · threads${t.reset}`)
-  console.log(`  ${t.info}compute${t.reset}   ${t.muted}plans · deploy · list · delete${t.reset}`)
-  console.log(`  ${t.info}domain${t.reset}    ${t.muted}check · pricing · buy · dns${t.reset}`)
-  console.log(`  ${t.info}wallet${t.reset}    ${t.muted}create · status · keygen${t.reset}`)
-
-  blank()
-  section('Tools')
-  blank()
-  console.log(`  ${t.info}setup${t.reset}     ${t.muted}Configure wallets + chain preference${t.reset}`)
-  console.log(`  ${t.info}status${t.reset}    ${t.muted}Show config, wallets, and API health${t.reset}`)
-  console.log(`  ${t.info}note${t.reset}      ${t.muted}Save a note to ~/.agentos/memory/${t.reset}`)
-  console.log(`  ${t.info}pricing${t.reset}   ${t.muted}All service prices${t.reset}`)
-  console.log(`  ${t.info}health${t.reset}    ${t.muted}API status${t.reset}`)
-
-  blank()
-  divider()
-  blank()
-  console.log(`  ${t.muted}$${t.reset} ${t.text}agentos phone search --country US${t.reset}`)
-  console.log(`  ${t.muted}$${t.reset} ${t.text}agentos compute deploy --name my-vps --type cx23${t.reset}`)
-  console.log(`  ${t.muted}$${t.reset} ${t.text}agentos domain buy --name myagent.dev${t.reset}`)
-  blank()
-  console.log(`  ${t.dim}--json${t.reset}  ${t.muted}Raw JSON output${t.reset}       ${t.dim}--url${t.reset}  ${t.muted}Custom API URL${t.reset}`)
-  blank()
-  console.log(`  ${t.dim}Docs${t.reset}  ${t.muted}agntos.dev/skill.md${t.reset}     ${t.dim}Code${t.reset}  ${t.muted}github.com/0xArtex/AgentOS${t.reset}`)
-  blank()
+  render(React.createElement(MenuScreen, {
+    version: VERSION,
+    title: 'help',
+    subtitle: 'Command surface',
+    footerLeft: 'Use --json for raw output',
+    commands: [
+      { name: 'phone', description: 'search · buy · sms · call' },
+      { name: 'email', description: 'create · read · send · threads' },
+      { name: 'compute', description: 'plans · deploy · list · delete' },
+      { name: 'domain', description: 'check · pricing · buy · dns' },
+      { name: 'wallet', description: 'create · status · keygen' },
+      { name: 'setup', description: 'Configure wallets + chain preference' },
+      { name: 'status', description: 'Show config, wallets, and API health' },
+      { name: 'pricing', description: 'All service prices' },
+      { name: 'health', description: 'API status' },
+    ],
+  }))
 }
 
 // ─── Commands ───
@@ -190,12 +183,18 @@ async function main() {
 
       case 'phone': {
         if (!subcommand || flags.help) {
-          header('phone')
-          console.log(`  ${t.info}search${t.reset}    ${t.muted}Search available numbers${t.reset}       ${t.dim}--country US${t.reset}`)
-          console.log(`  ${t.info}buy${t.reset}       ${t.muted}Buy a phone number${t.reset}            ${t.dim}--country US${t.reset}`)
-          console.log(`  ${t.info}sms${t.reset}       ${t.muted}Send an SMS${t.reset}                   ${t.dim}--id ID --to +1... --body "hi"${t.reset}`)
-          console.log(`  ${t.info}call${t.reset}      ${t.muted}Place a voice call${t.reset}            ${t.dim}--id ID --to +1... --tts "hello"${t.reset}`)
-          blank()
+          render(React.createElement(MenuScreen, {
+            version: VERSION,
+            title: 'phone',
+            subtitle: 'Voice and messaging',
+            footerLeft: 'Phone operations',
+            commands: [
+              { name: 'search', description: 'Search available numbers', hint: '--country US' },
+              { name: 'buy', description: 'Buy a phone number', hint: '--country US' },
+              { name: 'sms', description: 'Send an SMS', hint: '--id ID --to +1... --body "hi"' },
+              { name: 'call', description: 'Place a voice call', hint: '--id ID --to +1... --tts "hello"' },
+            ],
+          }))
           break
         }
         switch (subcommand) {
@@ -203,10 +202,16 @@ async function main() {
             const country = flags.country as string || 'US'
             const data = await ao.phoneSearch(country, flags.limit ? parseInt(flags.limit as string) : undefined)
             if (json) return print(data)
-            header('Available Numbers')
-            for (const n of (data.numbers || [])) {
-              console.log(`  ${c.green}${n.phoneNumber}${c.reset}  ${c.dim}${n.region || ''} · ${n.type || ''}${c.reset}`)
-            }
+            render(React.createElement(RecordsScreen, {
+              version: VERSION,
+              title: 'phone search',
+              subtitle: `Available numbers · ${country}`,
+              footerLeft: `${(data.numbers || []).length} result(s)`,
+              records: (data.numbers || []).map((n: any) => ({
+                primary: String(n.phoneNumber || 'unknown'),
+                secondary: [n.region, n.type].filter(Boolean).join(' · '),
+              })),
+            }))
             break
           }
           case 'buy': {
@@ -256,12 +261,18 @@ async function main() {
 
       case 'email': {
         if (!subcommand || flags.help) {
-          header('email')
-          console.log(`  ${t.info}create${t.reset}    ${t.muted}Create an inbox${t.reset}               ${t.dim}--name agent --wallet SOL_PUB${t.reset}`)
-          console.log(`  ${t.info}read${t.reset}      ${t.muted}Read inbox messages${t.reset}           ${t.dim}--id INBOX_ID${t.reset}`)
-          console.log(`  ${t.info}send${t.reset}      ${t.muted}Send an email${t.reset}                 ${t.dim}--id ID --to x@y.com --subject ... --body ...${t.reset}`)
-          console.log(`  ${t.info}threads${t.reset}   ${t.muted}List threads${t.reset}                  ${t.dim}--id INBOX_ID${t.reset}`)
-          blank()
+          render(React.createElement(MenuScreen, {
+            version: VERSION,
+            title: 'email',
+            subtitle: 'Inbox operations',
+            footerLeft: 'Email operations',
+            commands: [
+              { name: 'create', description: 'Create an inbox', hint: '--name agent --wallet SOL_PUB' },
+              { name: 'read', description: 'Read inbox messages', hint: '--id INBOX_ID' },
+              { name: 'send', description: 'Send an email', hint: '--id ID --to x@y.com --subject ... --body ...' },
+              { name: 'threads', description: 'List threads', hint: '--id INBOX_ID' },
+            ],
+          }))
           break
         }
         switch (subcommand) {
@@ -290,12 +301,17 @@ async function main() {
             if (!id) err('--id INBOX_ID required')
             const data = await ao.emailRead(id)
             if (json) return print(data)
-            header(`Inbox: ${data.inbox || id}`)
-            for (const m of (data.messages || [])) {
-              console.log(`  ${m.direction === 'inbound' ? c.cyan + '←' : c.green + '→'} ${c.reset}${m.from} ${c.dim}${m.timestamp}${c.reset}`)
-              console.log(`    ${c.white}${m.subject}${c.reset}`)
-            }
-            console.log(`\n  ${c.dim}${(data.messages || []).length} messages${c.reset}`)
+            render(React.createElement(RecordsScreen, {
+              version: VERSION,
+              title: 'email read',
+              subtitle: `Inbox ${data.inbox || id}`,
+              footerLeft: `${(data.messages || []).length} message(s)`,
+              records: (data.messages || []).map((m: any) => ({
+                primary: String(m.subject || '(no subject)'),
+                secondary: `${m.direction === 'inbound' ? '←' : '→'} ${m.from || ''}`.trim(),
+                status: String(m.timestamp || ''),
+              })),
+            }))
             break
           }
           case 'send': {
@@ -312,10 +328,16 @@ async function main() {
             if (!id) err('--id INBOX_ID required')
             const data = await ao.emailThreads(id)
             if (json) return print(data)
-            header('Threads')
-            for (const t of (data.threads || [])) {
-              console.log(`  ${c.cyan}${t.subject}${c.reset} ${c.dim}(${t.message_count} msgs)${c.reset}`)
-            }
+            render(React.createElement(RecordsScreen, {
+              version: VERSION,
+              title: 'email threads',
+              subtitle: 'Conversation threads',
+              footerLeft: `${(data.threads || []).length} thread(s)`,
+              records: (data.threads || []).map((t: any) => ({
+                primary: String(t.subject || '(no subject)'),
+                secondary: `${t.message_count || 0} msg(s)`,
+              })),
+            }))
             break
           }
           default: err(`Unknown email command: ${subcommand}. Try: create, read, send, threads`)
@@ -325,12 +347,18 @@ async function main() {
 
       case 'compute': {
         if (!subcommand || flags.help) {
-          header('compute')
-          console.log(`  ${t.info}plans${t.reset}     ${t.muted}List VPS plans${t.reset}`)
-          console.log(`  ${t.info}deploy${t.reset}    ${t.muted}Deploy a VPS${t.reset}                  ${t.dim}--name my-vps --type cx23${t.reset}`)
-          console.log(`  ${t.info}list${t.reset}      ${t.muted}List servers${t.reset}`)
-          console.log(`  ${t.info}delete${t.reset}    ${t.muted}Delete a server${t.reset}               ${t.dim}--id SERVER_ID${t.reset}`)
-          blank()
+          render(React.createElement(MenuScreen, {
+            version: VERSION,
+            title: 'compute',
+            subtitle: 'Server operations',
+            footerLeft: 'Compute operations',
+            commands: [
+              { name: 'plans', description: 'List VPS plans' },
+              { name: 'deploy', description: 'Deploy a VPS', hint: '--name my-vps --type cx23' },
+              { name: 'list', description: 'List servers' },
+              { name: 'delete', description: 'Delete a server', hint: '--id SERVER_ID' },
+            ],
+          }))
           break
         }
         switch (subcommand) {
@@ -389,12 +417,18 @@ async function main() {
 
       case 'domain': {
         if (!subcommand || flags.help) {
-          header('domain')
-          console.log(`  ${t.info}check${t.reset}     ${t.muted}Check availability${t.reset}            ${t.dim}--name example.dev${t.reset}`)
-          console.log(`  ${t.info}pricing${t.reset}   ${t.muted}Get TLD pricing${t.reset}               ${t.dim}--name example${t.reset}`)
-          console.log(`  ${t.info}buy${t.reset}       ${t.muted}Register a domain${t.reset}             ${t.dim}--name example.dev${t.reset}`)
-          console.log(`  ${t.info}dns${t.reset}       ${t.muted}Get DNS records${t.reset}               ${t.dim}--name example.dev${t.reset}`)
-          blank()
+          render(React.createElement(MenuScreen, {
+            version: VERSION,
+            title: 'domain',
+            subtitle: 'Naming and DNS',
+            footerLeft: 'Domain operations',
+            commands: [
+              { name: 'check', description: 'Check availability', hint: '--name example.dev' },
+              { name: 'pricing', description: 'Get TLD pricing', hint: '--name example' },
+              { name: 'buy', description: 'Register a domain', hint: '--name example.dev' },
+              { name: 'dns', description: 'Get DNS records', hint: '--name example.dev' },
+            ],
+          }))
           break
         }
         switch (subcommand) {
@@ -450,10 +484,16 @@ async function main() {
             if (!name) err('--name domain.dev required')
             const data = await ao.domainDns(name)
             if (json) return print(data)
-            header(`DNS: ${name}`)
-            for (const r of (data.records || [])) {
-              console.log(`  ${c.cyan}${r.type}${c.reset}  ${r.name || '@'}  →  ${c.white}${r.value}${c.reset}`)
-            }
+            render(React.createElement(RecordsScreen, {
+              version: VERSION,
+              title: 'domain dns',
+              subtitle: name,
+              footerLeft: `${(data.records || []).length} record(s)`,
+              records: (data.records || []).map((r: any) => ({
+                primary: String(r.type || 'record'),
+                secondary: `${r.name || '@'} → ${r.value || ''}`,
+              })),
+            }))
             break
           }
           default: err(`Unknown domain command: ${subcommand}. Try: check, pricing, buy, dns`)
@@ -463,11 +503,17 @@ async function main() {
 
       case 'wallet': {
         if (!subcommand || flags.help) {
-          header('wallet')
-          console.log(`  ${t.info}keygen${t.reset}    ${t.muted}Generate a keypair${t.reset}            ${t.dim}--chain both${t.reset}`)
-          console.log(`  ${t.info}create${t.reset}    ${t.muted}Create a smart wallet${t.reset}         ${t.dim}--agent 0xADDR --chain base${t.reset}`)
-          console.log(`  ${t.info}status${t.reset}    ${t.muted}Check wallet status${t.reset}           ${t.dim}WALLET_ADDRESS${t.reset}`)
-          blank()
+          render(React.createElement(MenuScreen, {
+            version: VERSION,
+            title: 'wallet',
+            subtitle: 'Identity and policy',
+            footerLeft: 'Wallet operations',
+            commands: [
+              { name: 'keygen', description: 'Generate a keypair', hint: '--chain both' },
+              { name: 'create', description: 'Create a smart wallet', hint: '--agent 0xADDR --chain base' },
+              { name: 'status', description: 'Check wallet status', hint: 'WALLET_ADDRESS' },
+            ],
+          }))
           break
         }
         switch (subcommand) {
@@ -507,11 +553,17 @@ async function main() {
             const chain = flags.chain as string || 'both'
             const data = await ao.walletKeygen(chain)
             if (json) return print(data)
-            header('Keypair Generated')
-            row('Address', data.address || '')
-            row('Private Key', data.privateKey || '')
-            row('Chain', data.chain || chain)
-            console.log(`\n  ${c.yellow}Save the private key securely.${c.reset}`)
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'Keypair generated',
+              subtitle: data.address || 'generated',
+              footerLeft: 'Save the private key securely',
+              details: [
+                { label: 'Address', value: String(data.address || '') },
+                { label: 'Private Key', value: String(data.privateKey || '') },
+                { label: 'Chain', value: String(data.chain || chain) },
+              ],
+            }))
             break
           }
           default: err(`Unknown wallet command: ${subcommand}. Try: create, status, keygen`)
@@ -551,24 +603,27 @@ async function main() {
     }
   } catch (e: any) {
     if (e.message === 'Payment Required') {
-      blank()
-      warn('Payment required — this endpoint costs USDC via x402.')
-      subtle('Your wallet is your identity — pay to provision.')
-      if (!config.setupDone) {
-        subtle(`Setup first: ${t.info}agentos setup --keyfile <path> --chain solana${t.muted}`)
-      }
-      blank()
+      render(React.createElement(ErrorScreen, {
+        version: VERSION,
+        title: 'Payment required',
+        message: 'This endpoint costs USDC via x402.',
+        hint: !config.setupDone ? 'Setup first: agentos setup --keyfile <path> --chain solana' : 'Your wallet is your identity — pay to provision.',
+        footerLeft: 'Provisioning blocked until payment',
+      }))
     } else {
-      blank()
-      fail(e.message)
-      // Suggest fixes for common errors
+      let hint: string | undefined
       if (e.message?.includes('keyfile') || e.message?.includes('key')) {
-        subtle(`Configure wallet: ${t.info}agentos setup --keyfile <path> --chain solana${t.muted}`)
+        hint = 'Configure wallet: agentos setup --keyfile <path> --chain solana'
+      } else if (e.message?.includes('fetch') || e.message?.includes('ECONNREFUSED')) {
+        hint = 'Is the API running? Check: agentos health'
       }
-      if (e.message?.includes('fetch') || e.message?.includes('ECONNREFUSED')) {
-        subtle('Is the API running? Check: agentos health')
-      }
-      blank()
+      render(React.createElement(ErrorScreen, {
+        version: VERSION,
+        title: 'Request failed',
+        message: e.message,
+        hint,
+        footerLeft: 'Command failed',
+      }))
     }
     process.exit(1)
   }
