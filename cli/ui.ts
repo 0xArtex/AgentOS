@@ -200,3 +200,98 @@ export function statusLine(label: string, value: string, good: boolean) {
   const dot = good ? `${theme.success}●${theme.reset}` : `${theme.error}●${theme.reset}`
   console.log(`  ${dot} ${theme.muted}${label.padEnd(16)}${theme.reset} ${theme.text}${value}${theme.reset}`)
 }
+
+// ─── TUI Panels ───
+
+function pad(str: string, width: number): string {
+  const stripped = str.replace(/\x1b\[[0-9;]*m/g, '')
+  const len = stripped.length
+  return str + ' '.repeat(Math.max(0, width - len))
+}
+
+function visibleLength(str: string): number {
+  return str.replace(/\x1b\[[0-9;]*m/g, '').length
+}
+
+export function panel(title: string, lines: string[], width: number, borderColor = theme.dim): string[] {
+  const out: string[] = []
+  const inner = width - 4
+  const titleStr = title ? ` ${title} ` : ''
+  const topPad = width - 2 - visibleLength(titleStr)
+  out.push(`${borderColor}╭─${theme.muted}${titleStr}${borderColor}${'─'.repeat(Math.max(0, topPad))}╮${theme.reset}`)
+  for (const line of lines) {
+    out.push(`${borderColor}│${theme.reset} ${pad(line, inner)} ${borderColor}│${theme.reset}`)
+  }
+  out.push(`${borderColor}╰${'─'.repeat(width - 2)}╯${theme.reset}`)
+  return out
+}
+
+export function sideBySide(left: string[], right: string[], gap = 1): string[] {
+  const maxLen = Math.max(left.length, right.length)
+  const out: string[] = []
+  // Find width of left panel
+  const leftWidth = Math.max(...left.map(l => visibleLength(l)))
+  for (let i = 0; i < maxLen; i++) {
+    const l = i < left.length ? left[i] : ''
+    const r = i < right.length ? right[i] : ''
+    out.push(pad(l, leftWidth) + ' '.repeat(gap) + r)
+  }
+  return out
+}
+
+export function welcomeScreen(config: { version: string, name?: string, model?: string, chain?: string, wallets?: any, apiOk?: boolean }) {
+  const termWidth = process.stdout.columns || 100
+  const leftWidth = Math.min(Math.floor(termWidth * 0.45), 48)
+  const rightWidth = Math.min(Math.floor(termWidth * 0.45), 48)
+
+  // ASCII art logo
+  const logo = [
+    `${theme.accent}    ╔═══╗${theme.reset}`,
+    `${theme.accent}    ║ ▲ ║${theme.reset}`,
+    `${theme.accent}    ╚═══╝${theme.reset}`,
+  ]
+
+  // Left panel content
+  const leftLines = [
+    '',
+    `${theme.bold}    Welcome${config.name ? ' back ' + config.name : ''}!${theme.reset}`,
+    '',
+    ...logo,
+    '',
+    `${theme.muted}  ${config.chain || 'solana'} · ${config.apiOk ? `${theme.success}connected${theme.reset}` : `${theme.error}offline${theme.reset}`}${theme.reset}`,
+    `${theme.dim}  ~/.agentos/${theme.reset}`,
+    '',
+  ]
+
+  // Right panel content
+  const hasWallets = config.wallets && (config.wallets.solana || config.wallets.base)
+  const rightLines = [
+    `${theme.accent}Quick start${theme.reset}`,
+    `${theme.muted}agentos phone search --country US${theme.reset}`,
+    `${theme.muted}agentos compute plans${theme.reset}`,
+    `${theme.muted}agentos domain check --name my.dev${theme.reset}`,
+    '',
+    `${theme.accent}Status${theme.reset}`,
+    `${hasWallets ? `${theme.success}●${theme.reset}` : `${theme.error}●${theme.reset}`} ${theme.muted}Wallets: ${hasWallets ? Object.keys(config.wallets).join(', ') : 'not configured'}${theme.reset}`,
+    `${config.apiOk ? `${theme.success}●${theme.reset}` : `${theme.error}●${theme.reset}`} ${theme.muted}API: ${config.apiOk ? 'connected' : 'unreachable'}${theme.reset}`,
+    '',
+  ]
+
+  const leftPanel = panel(`AgentOS v${config.version}`, leftLines, leftWidth, theme.dim)
+  const rightPanel = panel('', rightLines, rightWidth, theme.dim)
+  const combined = sideBySide(leftPanel, rightPanel, 1)
+
+  for (const line of combined) {
+    console.log(`  ${line}`)
+  }
+}
+
+// ─── Status Bar ───
+export function statusBar(left: string, right: string) {
+  const termWidth = process.stdout.columns || 100
+  const usable = termWidth - 4
+  const leftLen = visibleLength(left)
+  const rightLen = visibleLength(right)
+  const gap = Math.max(1, usable - leftLen - rightLen)
+  console.log(`  ${left}${' '.repeat(gap)}${right}`)
+}

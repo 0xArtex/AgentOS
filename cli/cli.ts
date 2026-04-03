@@ -2,14 +2,14 @@
 
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
-import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine } from './ui.js'
+import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
 import { existsSync } from 'fs'
 import { homedir } from 'os'
 
 // Alias for backwards compat in help text
 const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, white: t.text, gray: t.muted, orange: t.accent }
 
-const VERSION = '0.3.0'
+const VERSION = '0.4.0'
 
 // ─── Parse args ───
 function parse(argv: string[]) {
@@ -86,7 +86,24 @@ async function main() {
   const { command, subcommand, positional, flags } = parse(process.argv)
 
   if (flags.version) { console.log(VERSION); return }
-  if (!command || flags.help) { help(); return }
+  if (flags.help) { help(); return }
+
+  // No command — show welcome dashboard
+  if (!command) {
+    const cfg = loadConfig()
+    let apiOk = false
+    try { const h = await new AgentOS(cfg.api).health(); apiOk = h.status === 'healthy' } catch {}
+    welcomeScreen({
+      version: VERSION,
+      chain: cfg.defaultChain,
+      wallets: cfg.wallets,
+      apiOk,
+    })
+    divider()
+    statusBar(`${t.muted}? for help${t.reset}`, `${apiOk ? `${t.success}●${t.reset} ${t.muted}API online${t.reset}` : `${t.error}●${t.reset} ${t.muted}API offline${t.reset}`}`)
+    blank()
+    return
+  }
 
   // Always ensure ~/.agentos/ exists on any command
   ensureDirs()
