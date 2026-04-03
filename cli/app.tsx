@@ -124,10 +124,10 @@ const palette = {
   text: 'white',
   muted: 'gray',
   dim: 'blackBright',
-  accent: 'whiteBright',
+  accent: 'hex:#f54900',
   success: 'greenBright',
   error: 'redBright',
-  soft: 'whiteBright',
+  soft: 'hex:#ff8a4c',
   shadow: 'gray',
 } as const
 
@@ -145,10 +145,10 @@ function Mascot() {
     <Box flexDirection="column" marginTop={1}>
       <Text color={palette.accent}>      AgentOS</Text>
       <Text color={palette.shadow}>       ░░░░░░</Text>
-      <Text color={palette.soft}>      ╭──────╮</Text>
+      <Text color={palette.accent}>      ╭──────╮</Text>
       <Text color={palette.soft}>      │ ●  ● │</Text>
       <Text color={palette.soft}>      │  ──  │</Text>
-      <Text color={palette.soft}>      ╰──────╯</Text>
+      <Text color={palette.accent}>      ╰──────╯</Text>
     </Box>
   )
 }
@@ -242,7 +242,7 @@ function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight: string;
 function ActionItem(props: { label: string; command: string; selected: boolean }) {
   return (
     <Box flexDirection="column" marginBottom={1}>
-      <Text color={props.selected ? palette.soft : palette.text}>{props.selected ? '▸ ' : '› '}{props.label}</Text>
+      <Text color={props.selected ? palette.accent : palette.text}>{props.selected ? '▸ ' : '› '}{props.label}</Text>
       <Text color={props.selected ? palette.soft : palette.muted}>{props.command}</Text>
     </Box>
   )
@@ -261,13 +261,13 @@ function CommandPalette(props: {
         <Text color={palette.muted}>filter commands</Text>
       </Box>
       <Box marginBottom={1}>
-        <Text color={palette.soft}>› </Text>
+        <Text color={palette.accent}>› </Text>
         <TextInput value={props.value} onChange={props.onChange} />
       </Box>
       <Box flexDirection="column">
         {props.results.slice(0, 6).map((item, index) => (
           <Box key={item.command} flexDirection="column" marginBottom={1}>
-            <Text color={props.selected === index ? palette.soft : palette.text}>{props.selected === index ? '▸ ' : '› '}{item.label}</Text>
+            <Text color={props.selected === index ? palette.accent : palette.text}>{props.selected === index ? '▸ ' : '› '}{item.label}</Text>
             <Text color={props.selected === index ? palette.soft : palette.muted}>{item.command}</Text>
           </Box>
         ))}
