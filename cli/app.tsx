@@ -44,11 +44,11 @@ const C = {
 
 // ─── Stipple Mascot ───
 
-function StippleMascot({ small }: { small?: boolean }) {
-  const lines = small ? MASCOT_STIPPLE.filter((_, i) => i % 2 === 0).slice(0, 8) : MASCOT_STIPPLE
+function StippleMascot({ hide }: { hide?: boolean }) {
+  if (hide) return null
   return (
     <Box flexDirection="column">
-      {lines.map((line, i) => <Text key={i} color={C.accent}>{line}</Text>)}
+      {MASCOT_STIPPLE.map((line, i) => <Text key={i} color={C.accent}>{line}</Text>)}
     </Box>
   )
 }
@@ -128,19 +128,13 @@ function Screen(props: {
   footer?: string
   interactive?: boolean
   onBack?: () => void
-  showMascot?: boolean
 }) {
+  const { stdout } = useStdout()
+  const narrow = (stdout?.columns || 80) < 60
   return (
     <Shell title={props.title} version={props.version} footer={props.interactive ? 'b/esc back' : props.footer} autoExit={props.interactive ? false : undefined} onBack={props.onBack}>
-      <Box flexDirection="row">
-        {props.showMascot !== false && (
-          <Box marginRight={2}>
-            <StippleMascot small />
-          </Box>
-        )}
-        <Box flexDirection="column">
-          {props.rows.map((r, i) => <Row key={i} label={r.label} value={r.value} />)}
-        </Box>
+      <Box flexDirection="column">
+        {props.rows.map((r, i) => <Row key={i} label={r.label} value={r.value} />)}
       </Box>
     </Shell>
   )
@@ -150,6 +144,9 @@ function Screen(props: {
 
 export function Dashboard(props: DashboardProps) {
   const { exit } = useApp()
+  const { stdout } = useStdout()
+  const cols = stdout?.columns || 80
+  const narrow = cols < 70
   const hasWallets = !!props.wallets && Object.keys(props.wallets).length > 0
 
   const services = [
@@ -184,21 +181,22 @@ export function Dashboard(props: DashboardProps) {
 
   return (
     <Shell title="home" version={props.version} footer="↑↓ select · enter open · q quit" autoExit={false}>
-      <Box flexDirection="row">
+      <Box flexDirection={narrow ? 'column' : 'row'}>
         {/* Left: mascot + status */}
-        <Box flexDirection="column" marginRight={3}>
-          <StippleMascot />
-          <Box marginTop={1} flexDirection="column">
+        <Box flexDirection="column" marginRight={narrow ? 0 : 3} marginBottom={narrow ? 1 : 0}>
+          <StippleMascot hide={narrow} />
+          <Box marginTop={narrow ? 0 : 1} flexDirection="row">
             <Dot ok={!!props.apiOk} label="API" />
+            <Text> </Text>
             <Dot ok={hasWallets} label="Wallets" />
+            <Text> </Text>
             <Row label="Chain:" value={props.chain || 'solana'} />
           </Box>
         </Box>
 
         {/* Right: services + actions */}
         <Box flexDirection="column">
-          <Text color={C.accent} bold>Services</Text>
-          <Box flexDirection="column" marginTop={1} marginBottom={1}>
+          <Box flexDirection="column" marginBottom={1}>
             {services.map(s => (
               <Box key={s.name}>
                 <Text color={C.text}>{s.name.padEnd(10)}</Text>
@@ -207,8 +205,7 @@ export function Dashboard(props: DashboardProps) {
             ))}
           </Box>
 
-          <Text color={C.accent} bold>Quick Actions</Text>
-          <Box flexDirection="column" marginTop={1}>
+          <Box flexDirection="column">
             {actions.map((a, i) => (
               <Text key={a.cmd} color={i === sel ? C.accent : C.muted}>
                 {i === sel ? '▸ ' : '  '}{a.label}

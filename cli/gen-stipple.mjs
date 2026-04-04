@@ -4,9 +4,9 @@
 
 import sharp from 'sharp'
 
-const WIDTH = 28
-const HEIGHT = 28  // terminal rows (each row = 1 char height)
-const CROP = { left: 100, top: 100, width: 1080, height: 1080 }
+const WIDTH = 16
+const HEIGHT = 16
+const CROP = { left: 160, top: 160, width: 960, height: 960 }
 const CHARS = ' .·:;+*#@'  // light → dark
 
 async function main() {
