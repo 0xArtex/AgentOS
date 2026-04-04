@@ -1,17 +1,19 @@
-// Hand-crafted braille art matching the cube character
-// Traits: rounded square, two round dot eyes, small curved smile
+// Hand-crafted ASCII mascot matching the cube character
+// Uses only basic ASCII: . : + * # @ and box-drawing
+// Works in every terminal font
 export const MASCOT_STIPPLE: string[] = [
-  "⠀⣠⣴⣶⣶⣶⣶⣶⣶⣶⣶⣶⣶⣦⣄⠀",
-  "⣰⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣆",
-  "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-  "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-  "⣿⣿⣿⣠⣶⣦⣿⣿⣿⣿⣴⣶⣄⣿⣿⣿",
-  "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-  "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-  "⣿⣿⣿⣿⣿⡀⠀⠀⠀⠀⢀⣿⣿⣿⣿⣿",
-  "⣿⣿⣿⣿⣿⣿⣦⣀⣀⣴⣿⣿⣿⣿⣿⣿",
-  "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-  "⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿",
-  "⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠟",
-  "⠀⠈⠛⠿⣿⣿⣿⣿⣿⣿⣿⣿⠿⠛⠁⠀",
+  "    .+#######+.    ",
+  "  +##############+  ",
+  " ##              ## ",
+  " ##              ## ",
+  " ##   .##. .##.  ## ",
+  " ##   #### ####  ## ",
+  " ##   '##' '##'  ## ",
+  " ##              ## ",
+  " ##              ## ",
+  " ##    ':::::    ## ",
+  " ##     ':::'    ## ",
+  " ##              ## ",
+  "  +##############+  ",
+  "    '+########+'    ",
 ];
