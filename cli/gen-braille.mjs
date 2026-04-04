@@ -6,9 +6,9 @@ import sharp from 'sharp'
 
 const WIDTH = 20  // chars wide (each char = 2 pixels wide)
 const PX_W = WIDTH * 2
-const PX_H = Math.round(PX_W * 1.2)  // taller to capture body
-const CROP = { left: 150, top: 100, width: 980, height: 1100 }
-const THRESHOLD = 60  // orange pixels on dark bg
+const PX_H = Math.round(PX_W * 1.0)
+const CROP = { left: 180, top: 160, width: 920, height: 920 }
+const THRESHOLD = 45  // face is bright cream, bg is black
 
 // Braille dot positions: dots are numbered
 // 1 4
