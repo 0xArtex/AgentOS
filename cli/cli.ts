@@ -12,7 +12,7 @@ import { homedir } from 'os'
 // Alias for backwards compat in help text
 const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, white: t.text, gray: t.muted, orange: t.accent }
 
-const VERSION = '0.4.0'
+const VERSION = '0.5.0'
 
 function render(node: React.ReactElement) {
   return inkRender(node)
@@ -139,11 +139,13 @@ async function main() {
         const chain = (flags.chain as string || 'solana') as 'solana' | 'base'
 
         if (!keyfile) {
-          console.log(`  ${c.yellow}No keyfile found.${c.reset}`)
-          console.log(`  ${c.dim}Provide one with: agentos setup --keyfile /path/to/keypair.json --chain solana${c.reset}`)
-          console.log(`  ${c.dim}Add both chains:  agentos setup --keyfile sol.json --chain solana${c.reset}`)
-          console.log(`  ${c.dim}                  agentos setup --keyfile base.json --chain base${c.reset}`)
-          console.log(`  ${c.dim}Or generate one:  agentos wallet keygen${c.reset}`)
+          render(React.createElement(ErrorScreen, {
+            version: VERSION,
+            title: 'No keyfile',
+            message: 'No keyfile found.',
+            hint: 'agentos setup --keyfile /path/to/keypair.json --chain solana',
+            footerLeft: 'Provide a keyfile to continue',
+          }))
           process.exit(1)
         }
 
@@ -685,8 +687,13 @@ async function main() {
       }
 
       default:
-        console.error(`${c.red}Unknown command: ${command}${c.reset}`)
-        console.error(`${c.dim}Run 'agentos --help' for usage${c.reset}`)
+        render(React.createElement(ErrorScreen, {
+          version: VERSION,
+          title: 'Unknown command',
+          message: `Unknown command: ${command}`,
+          hint: 'Run agentos --help for usage',
+          footerLeft: 'Command not found',
+        }))
         process.exit(1)
     }
   } catch (e: any) {

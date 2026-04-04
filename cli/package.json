@@ -1,6 +1,6 @@
 {
   "name": "@agntos/agentos",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "CLI for AgentOS — everything your AI agent needs. Phone, email, compute, domains, wallets, and more.",
   "type": "module",
   "main": "./dist/sdk.js",
@@ -51,6 +51,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/react": "^17.0.91",
+    "sharp": "^0.34.5",
     "typescript": "^5.7"
   },
   "dependencies": {
@@ -61,8 +62,8 @@
     "ink-select-input": "^4.2.2",
     "ink-spinner": "^4.0.3",
     "ink-text-input": "^4.0.3",
-    "string-width": "^7.2.0",
-    "react": "^17.0.2"
+    "react": "^17.0.2",
+    "string-width": "^7.2.0"
   },
   "bugs": {
     "url": "https://github.com/0xArtex/AgentOS/issues"
