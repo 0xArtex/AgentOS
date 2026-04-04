@@ -33,13 +33,14 @@ export type ErrorScreenProps = { version: string; title: string; message: string
 // ─── Theme ───
 
 const C = {
-  accent: 'yellow',       // orange-ish in most terminals
-  text: 'white',
-  muted: 'gray',
-  dim: 'blackBright',
+  accent: 'yellow',        // section headers, mascot, selected items
+  bright: 'whiteBright',   // service names, primary values
+  text: 'white',           // regular text
+  label: 'yellowBright',   // key labels in key:value pairs
+  muted: 'gray',           // descriptions, secondary info
+  dim: 'blackBright',      // dividers, footer
   ok: 'green',
   err: 'red',
-  border: 'gray',
 } as const
 
 // ─── Stipple Mascot ───
@@ -58,8 +59,8 @@ function StippleMascot({ hide }: { hide?: boolean }) {
 function Row(props: { label: string; value: string; valueColor?: string }) {
   return (
     <Box>
-      <Text color={C.muted}>{props.label} </Text>
-      <Text color={props.valueColor || C.text}>{props.value}</Text>
+      <Text color={C.label}>{props.label} </Text>
+      <Text color={props.valueColor || C.bright}>{props.value}</Text>
     </Box>
   )
 }
@@ -193,8 +194,8 @@ export function Dashboard(props: DashboardProps) {
           <Text color={C.accent} bold>Services</Text>
           {services.map(s => (
             <Box key={s.name}>
-              <Text color={C.text}>{s.name.padEnd(10)}</Text>
-              <Text color={C.dim}>{s.actions}</Text>
+              <Text color={C.label}>{s.name.padEnd(10)}</Text>
+              <Text color={C.muted}>{s.actions}</Text>
             </Box>
           ))}
 
