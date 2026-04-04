@@ -4,11 +4,11 @@
 
 import sharp from 'sharp'
 
-const WIDTH = 22  // chars wide (each char = 2 pixels wide)
+const WIDTH = 24  // chars wide (each char = 2 pixels wide)
 const PX_W = WIDTH * 2
-const PX_H = Math.round(PX_W * 1.0)  // square-ish source
-const CROP = { left: 80, top: 80, width: 1120, height: 1120 }
-const THRESHOLD = 160  // brightness threshold (higher = more detail)
+const PX_H = Math.round(PX_W * 1.0)
+const CROP = { left: 50, top: 50, width: 950, height: 950 }
+const THRESHOLD = 50  // orange dots are ~brightness 60-120 on greyscale
 
 // Braille dot positions: dots are numbered
 // 1 4
@@ -49,8 +49,8 @@ async function main() {
       for (let dy = 0; dy < 4; dy++) {
         for (let dx = 0; dx < 2; dx++) {
           const brightness = px(cx + dx, cy + dy)
-          // Invert: dark = dot, light = empty
-          if (brightness < THRESHOLD) {
+          // Bright pixels = dots (orange on black)
+          if (brightness > THRESHOLD) {
             code |= DOT_MAP[dy][dx]
           }
         }
