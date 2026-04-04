@@ -16,9 +16,21 @@ const VERSION = '0.4.0'
 
 function render(node: React.ReactElement) {
   if (process.stdout.isTTY) {
-    process.stdout.write('\x1b[2J\x1b[3J\x1b[H')
+    // Enter alt screen + clear + hide cursor
+    process.stdout.write('\x1b[?1049h\x1b[2J\x1b[H')
   }
-  return inkRender(node)
+  const instance = inkRender(node)
+  // Wrap waitUntilExit to restore main screen on exit
+  const origWait = instance.waitUntilExit.bind(instance)
+  instance.waitUntilExit = async () => {
+    try { return await origWait() }
+    finally {
+      if (process.stdout.isTTY) {
+        process.stdout.write('\x1b[?1049l')
+      }
+    }
+  }
+  return instance
 }
 
 // ─── Parse args ───

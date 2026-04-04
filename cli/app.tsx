@@ -2,6 +2,13 @@ import React, { PropsWithChildren, useEffect, useMemo, useState } from 'react'
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
 
+// ANSI 256-color orange (#f54900 ≈ color 202)
+const ORANGE = '\x1b[38;5;202m'
+const SOFT_ORANGE = '\x1b[38;5;208m'
+const WHITE = '\x1b[37m'
+const GRAY = '\x1b[90m'
+const RESET = '\x1b[0m'
+
 export type DashboardProps = {
   version: string
   chain?: string
@@ -124,8 +131,8 @@ const palette = {
   text: 'white',
   muted: 'gray',
   dim: 'blackBright',
-  accent: 'hex:#f54900',
-  soft: 'hex:#ff8a4c',
+  accent: 'yellow',
+  soft: 'yellowBright',
   success: 'greenBright',
   error: 'redBright',
 } as const
@@ -139,14 +146,44 @@ function AutoExit() {
   return null
 }
 
-function Mascot() {
+function MascotHero() {
+  const o = ORANGE
+  const s = SOFT_ORANGE
+  const w = WHITE
+  const g = GRAY
+  const r = RESET
+  const lines = [
+    `${g}        ░░░░░░░░░░░░░░░░${r}`,
+    `${o}      ╔════════════════════╗${r}`,
+    `${o}      ║${s}                    ${o}║${r}`,
+    `${o}      ║${s}    ${w}██${s}        ${w}██${s}    ${o}║${r}`,
+    `${o}      ║${s}                    ${o}║${r}`,
+    `${o}      ║${s}       ${w}╭────╮${s}       ${o}║${r}`,
+    `${o}      ║${s}       ${w}╰────╯${s}       ${o}║${r}`,
+    `${o}      ║${s}                    ${o}║${r}`,
+    `${o}      ╚════════════════════╝${r}`,
+  ]
   return (
     <Box flexDirection="column">
-      <Text color={palette.accent}>AgentOS</Text>
-      <Text color={palette.accent}>╭──────╮</Text>
-      <Text color={palette.soft}>│ ●  ● │</Text>
-      <Text color={palette.soft}>│  ──  │</Text>
-      <Text color={palette.accent}>╰──────╯</Text>
+      {lines.map((line, i) => <Text key={i}>{line}</Text>)}
+    </Box>
+  )
+}
+
+function Mascot() {
+  const o = ORANGE
+  const w = WHITE
+  const r = RESET
+  const lines = [
+    `${o}╔══════════╗${r}`,
+    `${o}║ ${w}██${o}    ${w}██${o} ║${r}`,
+    `${o}║  ${w}╭──╮${o}   ║${r}`,
+    `${o}║  ${w}╰──╯${o}   ║${r}`,
+    `${o}╚══════════╝${r}`,
+  ]
+  return (
+    <Box flexDirection="column">
+      {lines.map((line, i) => <Text key={i}>{line}</Text>)}
     </Box>
   )
 }
@@ -164,7 +201,7 @@ function Card(props: PropsWithChildren<{ title?: string; width: number; borderCo
   )
 }
 
-function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight?: string; footerLeft?: string; autoExit?: boolean; onBack?: () => void }>) {
+function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight?: string; footerLeft?: string; autoExit?: boolean; onBack?: () => void; footerRight?: string }>) {
   useInput((input, key) => {
     if (props.onBack && (input === 'b' || key.escape)) props.onBack()
   })
@@ -173,23 +210,24 @@ function Shell(props: PropsWithChildren<{ titleLeft: string; titleRight?: string
     <Box flexDirection="column" paddingX={1}>
       {props.autoExit === false ? null : <AutoExit />}
       <Box justifyContent="space-between" marginBottom={1}>
-        <Text color={palette.text}>{props.titleLeft}</Text>
+        <Text color={palette.accent}>{props.titleLeft}</Text>
         <Text color={palette.dim}>{props.titleRight || ''}</Text>
       </Box>
       {props.children}
-      {props.footerLeft ? (
-        <Box marginTop={1}>
-          <Text color={palette.dim}>{props.footerLeft}</Text>
+      {(props.footerLeft || props.footerRight) ? (
+        <Box marginTop={1} justifyContent="space-between" borderStyle="round" borderColor={palette.dim} paddingX={1}>
+          <Text color={palette.dim}>{props.footerLeft || ''}</Text>
+          <Text color={palette.accent}>{props.footerRight || 'command bar'}</Text>
         </Box>
       ) : null}
     </Box>
   )
 }
 
-function twoCol(termWidth: number) {
+function twoCol(termWidth: number, leftSize = 24) {
   const compact = termWidth < 100
   const total = Math.max(60, termWidth - 4)
-  const left = compact ? total : 24
+  const left = compact ? total : leftSize
   const right = compact ? total : total - left - 2
   return { compact, left, right }
 }
@@ -223,6 +261,19 @@ function ActionList(props: { items: Array<{ label: string; command: string }>; s
         <Box key={item.command} flexDirection="column" marginBottom={1}>
           <Text color={props.selected === i ? palette.accent : palette.text}>{props.selected === i ? '▸ ' : '› '}{item.label}</Text>
           <Text color={palette.dim}>{item.command}</Text>
+        </Box>
+      ))}
+    </Box>
+  )
+}
+
+function ServiceList(props: { items: Array<{ name: string; summary: string }> }) {
+  return (
+    <Box flexDirection="column">
+      {props.items.map((item, i) => (
+        <Box key={`${item.name}-${i}`} marginBottom={1}>
+          <Text color={palette.text}>{item.name}</Text>
+          <Text color={palette.dim}> — {item.summary}</Text>
         </Box>
       ))}
     </Box>
@@ -272,7 +323,7 @@ function SimpleScreen(props: {
 export function Dashboard(props: DashboardProps) {
   const { stdout } = useStdout()
   const { exit } = useApp()
-  const { compact, left, right } = twoCol(Math.max(80, stdout?.columns || 100))
+  const { compact, left, right } = twoCol(Math.max(80, stdout?.columns || 100), 42)
   const hasWallets = !!props.wallets && Object.keys(props.wallets).length > 0
   const walletNames = hasWallets ? Object.keys(props.wallets!).join(', ') : 'none'
   const actions = useMemo(() => ([
@@ -281,6 +332,14 @@ export function Dashboard(props: DashboardProps) {
     { label: 'Compute plans', command: 'agentos compute plans' },
     { label: 'Domain check', command: 'agentos domain check --name myagent.dev' },
     { label: 'Pricing', command: 'agentos pricing' },
+  ]), [])
+  const services = useMemo(() => ([
+    { name: 'Phone', summary: 'search · buy · sms · call' },
+    { name: 'Email', summary: 'create · read · send' },
+    { name: 'Domains', summary: 'check · pricing · buy · dns' },
+    { name: 'Compute', summary: 'plans · deploy · list' },
+    { name: 'Wallet', summary: 'create · status · keygen' },
+    { name: 'Accounts', summary: 'X · TikTok · Reddit' },
   ]), [])
   const [selected, setSelected] = useState(0)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -318,20 +377,23 @@ export function Dashboard(props: DashboardProps) {
   })
 
   return (
-    <Shell titleLeft={`AgentOS v${props.version}`} footerLeft={`${paletteOpen ? 'esc close · enter open' : '↑↓ move · enter open · / palette · q quit'}`} autoExit={false}>
+    <Shell titleLeft={`AgentOS v${props.version}`} footerLeft={`${paletteOpen ? 'esc close · enter open' : '↑↓ move · enter open · / palette · q quit'}`} footerRight={paletteOpen ? 'palette' : 'home'} autoExit={false}>
       {paletteOpen ? <CommandPalette value={query} onChange={setQuery} results={filtered} selected={selected} width={compact ? left : 48} /> : null}
       <Box flexDirection={compact ? 'column' : 'row'}>
         <Card title="home" width={left} borderColor={palette.accent}>
-          <Mascot />
+          {compact ? <Mascot /> : <MascotHero />}
           <Box marginTop={1} flexDirection="column">
             <MetaLine label="Chain" value={props.chain || 'solana'} />
             <MetaLine label="API" value={props.apiOk ? 'online' : 'offline'} />
-            <MetaLine label="Wallets" value={walletNames} />
           </Box>
         </Card>
         {compact ? <Box height={1} /> : <Box width={2} />}
-        <Card title="actions" width={right}>
-          <ActionList items={paletteOpen ? filtered.slice(0, 5) : actions} selected={selected} />
+        <Card title="services" width={right}>
+          {paletteOpen ? (
+            <ActionList items={filtered.slice(0, 5)} selected={selected} />
+          ) : (
+            <ServiceList items={services} />
+          )}
         </Card>
       </Box>
     </Shell>
