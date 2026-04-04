@@ -1,10 +1,11 @@
-// Braille mascot: clean round eyes (no dots), original cheeky smile kept
+// Braille mascot: round circle eyes, original cheeky smile
 export const MASCOT_STIPPLE: string[] = [
   "⠀⠀⠀⢀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⣀⡀⠀⠀⠀",
   "⠀⠀⣼⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣧⠀⠀",
   "⠀⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⠀",
   "⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀",
-  "⠀⣿⣿⣿⣿⠀⠀⠀⣿⣿⣿⣿⠀⠀⠀⣿⣿⣿⣿⠀",
+  "⠀⣿⣿⣿⣿⡟⠛⢿⣿⣿⣿⣿⡿⠛⢻⣿⣿⣿⣿⠀",
+  "⠀⣿⣿⣿⣿⣷⣤⣾⣿⣿⣿⣿⣷⣤⣾⣿⣿⣿⣿⠀",
   "⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀",
   "⠀⣿⣿⣿⣿⣿⡿⢻⣿⣿⣿⣿⡟⢿⣿⣿⣿⣿⣿⠀",
   "⠀⣿⣿⣿⣿⣿⣿⣧⣍⣛⣛⣩⣼⣿⣿⣿⣿⣿⣿⠀",
