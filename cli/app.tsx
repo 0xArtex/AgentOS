@@ -185,11 +185,7 @@ export function Dashboard(props: DashboardProps) {
         {/* Left: mascot + branding */}
         <Box flexDirection="column" marginRight={narrow ? 0 : 3} marginBottom={narrow ? 1 : 0}>
           <StippleMascot hide={narrow} />
-          <Box marginTop={narrow ? 0 : 1} flexDirection="column">
-            <Text color={C.accent} bold>AgentOS</Text>
-            <Text color={C.dim}>v{props.version}</Text>
-            <Text color={C.muted}>Everything agents need.</Text>
-          </Box>
+          <Text color={C.muted}>Everything agents need.</Text>
         </Box>
 
         {/* Right: unified services list */}
