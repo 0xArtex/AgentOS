@@ -4,11 +4,11 @@
 
 import sharp from 'sharp'
 
-const WIDTH = 20  // chars wide (each char = 2 pixels wide)
+const WIDTH = 22  // chars wide (each char = 2 pixels wide)
 const PX_W = WIDTH * 2
 const PX_H = Math.round(PX_W * 1.0)  // square-ish source
-const CROP = { left: 120, top: 120, width: 1040, height: 1040 }
-const THRESHOLD = 140  // brightness threshold
+const CROP = { left: 80, top: 80, width: 1120, height: 1120 }
+const THRESHOLD = 160  // brightness threshold (higher = more detail)
 
 // Braille dot positions: dots are numbered
 // 1 4
