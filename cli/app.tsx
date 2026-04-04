@@ -182,36 +182,34 @@ export function Dashboard(props: DashboardProps) {
   return (
     <Shell title="home" version={props.version} footer="↑↓ select · enter open · q quit" autoExit={false}>
       <Box flexDirection={narrow ? 'column' : 'row'}>
-        {/* Left: mascot + status */}
+        {/* Left: mascot + branding */}
         <Box flexDirection="column" marginRight={narrow ? 0 : 3} marginBottom={narrow ? 1 : 0}>
           <StippleMascot hide={narrow} />
-          <Box marginTop={narrow ? 0 : 1} flexDirection="row">
-            <Dot ok={!!props.apiOk} label="API" />
-            <Text> </Text>
-            <Dot ok={hasWallets} label="Wallets" />
-            <Text> </Text>
-            <Row label="Chain:" value={props.chain || 'solana'} />
+          <Box marginTop={narrow ? 0 : 1} flexDirection="column">
+            <Text color={C.accent} bold>AgentOS</Text>
+            <Text color={C.dim}>v{props.version}</Text>
+            <Text color={C.muted}>Everything agents need.</Text>
           </Box>
         </Box>
 
-        {/* Right: services + actions */}
+        {/* Right: unified services list */}
         <Box flexDirection="column">
-          <Box flexDirection="column" marginBottom={1}>
-            {services.map(s => (
-              <Box key={s.name}>
-                <Text color={C.text}>{s.name.padEnd(10)}</Text>
-                <Text color={C.dim}>{s.actions}</Text>
-              </Box>
-            ))}
-          </Box>
+          <Text color={C.accent} bold>Services</Text>
+          {services.map(s => (
+            <Box key={s.name}>
+              <Text color={C.text}>{s.name.padEnd(10)}</Text>
+              <Text color={C.dim}>{s.actions}</Text>
+            </Box>
+          ))}
 
-          <Box flexDirection="column">
-            {actions.map((a, i) => (
-              <Text key={a.cmd} color={i === sel ? C.accent : C.muted}>
-                {i === sel ? '▸ ' : '  '}{a.label}
-              </Text>
-            ))}
+          <Box marginTop={1}>
+            <Text color={C.accent} bold>Quick Start</Text>
           </Box>
+          {actions.map((a, i) => (
+            <Text key={a.cmd} color={i === sel ? C.accent : C.muted}>
+              {i === sel ? '▸ ' : '  '}{a.label}
+            </Text>
+          ))}
         </Box>
       </Box>
     </Shell>
