@@ -144,11 +144,9 @@ function Screen(props: {
 // ─── Dashboard ───
 
 export function Dashboard(props: DashboardProps) {
-  const { exit } = useApp()
   const { stdout } = useStdout()
   const cols = stdout?.columns || 80
   const narrow = cols < 70
-  const hasWallets = !!props.wallets && Object.keys(props.wallets).length > 0
 
   const services = [
     { name: 'Phone', actions: 'search · buy · sms · call' },
@@ -159,29 +157,8 @@ export function Dashboard(props: DashboardProps) {
     { name: 'Accounts', actions: 'X · TikTok · Reddit' },
   ]
 
-  const actions = useMemo(() => [
-    { label: 'Setup', cmd: 'agentos setup --keyfile ~/.config/solana/id.json --chain solana' },
-    { label: 'Status', cmd: 'agentos status' },
-    { label: 'Plans', cmd: 'agentos compute plans' },
-    { label: 'Domain', cmd: 'agentos domain check --name myagent.dev' },
-    { label: 'Pricing', cmd: 'agentos pricing' },
-  ], [])
-
-  const [sel, setSel] = useState(0)
-
-  useInput((input, key) => {
-    if (key.upArrow) setSel(s => (s - 1 + actions.length) % actions.length)
-    else if (key.downArrow) setSel(s => (s + 1) % actions.length)
-    else if (key.return) {
-      const a = actions[sel]
-      if (a && props.onSelectAction) props.onSelectAction(a.cmd)
-      else exit()
-    }
-    else if (input === 'q') exit()
-  })
-
   return (
-    <Shell title="home" version={props.version} footer="↑↓ select · enter open · q quit" autoExit={false}>
+    <Shell title="home" version={props.version} footer="Run agentos <service> <command> to get started">
       <Box flexDirection={narrow ? 'column' : 'row'}>
         {/* Left: mascot + branding */}
         <Box flexDirection="column" marginRight={narrow ? 0 : 3} marginBottom={narrow ? 1 : 0}>
@@ -189,7 +166,7 @@ export function Dashboard(props: DashboardProps) {
           <Text color={C.muted}>Everything agents need.</Text>
         </Box>
 
-        {/* Right: unified services list */}
+        {/* Right: services */}
         <Box flexDirection="column">
           <Text color={C.accent} bold>Services</Text>
           {services.map(s => (
@@ -200,13 +177,12 @@ export function Dashboard(props: DashboardProps) {
           ))}
 
           <Box marginTop={1}>
-            <Text color={C.accent} bold>Quick Start</Text>
+            <Text color={C.accent} bold>Examples</Text>
           </Box>
-          {actions.map((a, i) => (
-            <Text key={a.cmd} color={i === sel ? C.accent : C.muted}>
-              {i === sel ? '▸ ' : '  '}{a.label}
-            </Text>
-          ))}
+          <Text color={C.muted}>  agentos phone search --country US</Text>
+          <Text color={C.muted}>  agentos compute plans</Text>
+          <Text color={C.muted}>  agentos domain check --name my.dev</Text>
+          <Text color={C.muted}>  agentos --help</Text>
         </Box>
       </Box>
     </Shell>

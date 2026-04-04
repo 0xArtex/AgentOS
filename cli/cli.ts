@@ -15,22 +15,7 @@ const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, 
 const VERSION = '0.4.0'
 
 function render(node: React.ReactElement) {
-  if (process.stdout.isTTY) {
-    // Enter alt screen + clear + hide cursor
-    process.stdout.write('\x1b[?1049h\x1b[2J\x1b[H')
-  }
-  const instance = inkRender(node)
-  // Wrap waitUntilExit to restore main screen on exit
-  const origWait = instance.waitUntilExit.bind(instance)
-  instance.waitUntilExit = async () => {
-    try { return await origWait() }
-    finally {
-      if (process.stdout.isTTY) {
-        process.stdout.write('\x1b[?1049l')
-      }
-    }
-  }
-  return instance
+  return inkRender(node)
 }
 
 // ─── Parse args ───
@@ -109,25 +94,12 @@ async function main() {
     const cfg = loadConfig()
     let apiOk = false
     try { const h = await new AgentOS(cfg.api).health(); apiOk = h.status === 'healthy' } catch {}
-    let selectedCommand: unknown = null
-    const app = render(React.createElement(Dashboard, {
+    render(React.createElement(Dashboard, {
       version: VERSION,
       chain: cfg.defaultChain,
       wallets: cfg.wallets,
       apiOk,
-      onSelectAction: (cmd: string) => {
-        selectedCommand = cmd
-        app.unmount()
-      },
     }))
-    await app.waitUntilExit()
-    if (typeof selectedCommand === 'string') {
-      const chosen = selectedCommand as string
-      const next = chosen.trim().split(/\s+/)
-      process.env.AGENTOS_FROM_HOME = '1'
-      process.argv = [process.argv[0], process.argv[1], ...next.slice(1)]
-      return main()
-    }
     return
   }
 
