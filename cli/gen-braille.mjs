@@ -4,11 +4,11 @@
 
 import sharp from 'sharp'
 
-const WIDTH = 24  // chars wide (each char = 2 pixels wide)
+const WIDTH = 20  // chars wide (each char = 2 pixels wide)
 const PX_W = WIDTH * 2
-const PX_H = Math.round(PX_W * 1.0)
-const CROP = { left: 50, top: 50, width: 950, height: 950 }
-const THRESHOLD = 50  // orange dots are ~brightness 60-120 on greyscale
+const PX_H = Math.round(PX_W * 1.2)  // taller to capture body
+const CROP = { left: 150, top: 100, width: 980, height: 1100 }
+const THRESHOLD = 60  // orange pixels on dark bg
 
 // Braille dot positions: dots are numbered
 // 1 4
