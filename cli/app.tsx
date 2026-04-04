@@ -2,12 +2,7 @@ import React, { PropsWithChildren, useEffect, useMemo, useState } from 'react'
 import { Box, Text, useApp, useInput, useStdout } from 'ink'
 import TextInput from 'ink-text-input'
 
-// ANSI 256-color orange (#f54900 ≈ color 202)
-const ORANGE = '\x1b[38;5;202m'
-const SOFT_ORANGE = '\x1b[38;5;208m'
-const WHITE = '\x1b[37m'
-const GRAY = '\x1b[90m'
-const RESET = '\x1b[0m'
+import { MASCOT_HERO } from './mascot-data.js'
 
 export type DashboardProps = {
   version: string
@@ -147,45 +142,15 @@ function AutoExit() {
 }
 
 function MascotHero() {
-  const o = ORANGE
-  const s = SOFT_ORANGE
-  const w = WHITE
-  const g = GRAY
-  const r = RESET
-  const lines = [
-    `${g}        ░░░░░░░░░░░░░░░░${r}`,
-    `${o}      ╔════════════════════╗${r}`,
-    `${o}      ║${s}                    ${o}║${r}`,
-    `${o}      ║${s}    ${w}██${s}        ${w}██${s}    ${o}║${r}`,
-    `${o}      ║${s}                    ${o}║${r}`,
-    `${o}      ║${s}       ${w}╭────╮${s}       ${o}║${r}`,
-    `${o}      ║${s}       ${w}╰────╯${s}       ${o}║${r}`,
-    `${o}      ║${s}                    ${o}║${r}`,
-    `${o}      ╚════════════════════╝${r}`,
-  ]
   return (
     <Box flexDirection="column">
-      {lines.map((line, i) => <Text key={i}>{line}</Text>)}
+      {MASCOT_HERO.map((line, i) => <Text key={i}>{line}</Text>)}
     </Box>
   )
 }
 
 function Mascot() {
-  const o = ORANGE
-  const w = WHITE
-  const r = RESET
-  const lines = [
-    `${o}╔══════════╗${r}`,
-    `${o}║ ${w}██${o}    ${w}██${o} ║${r}`,
-    `${o}║  ${w}╭──╮${o}   ║${r}`,
-    `${o}║  ${w}╰──╯${o}   ║${r}`,
-    `${o}╚══════════╝${r}`,
-  ]
-  return (
-    <Box flexDirection="column">
-      {lines.map((line, i) => <Text key={i}>{line}</Text>)}
-    </Box>
-  )
+  return <MascotHero />
 }
 
 function Card(props: PropsWithChildren<{ title?: string; width: number; borderColor?: string }>) {
