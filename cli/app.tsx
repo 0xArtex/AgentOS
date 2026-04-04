@@ -142,11 +142,19 @@ function AutoExit() {
 }
 
 function MascotHero() {
-  return (
-    <Box flexDirection="column">
-      {MASCOT_HERO.map((line, i) => <Text key={i}>{line}</Text>)}
-    </Box>
-  )
+  // Write mascot directly to stdout before Ink renders, bypassing Ink's width calc
+  useEffect(() => {
+    const lines = MASCOT_HERO.filter(line => {
+      const stripped = line.replace(/\x1b\[[0-9;]*m/g, '').replace(/ /g, '')
+      return stripped.length > 0
+    })
+    // Position at top-left of the card area and draw
+    for (let i = 0; i < lines.length; i++) {
+      process.stdout.write(`\x1b[${4 + i};3H${lines[i]}\x1b[0m`)
+    }
+  }, [])
+  // Reserve vertical space in Ink layout
+  return <Box height={16} width={32} />
 }
 
 function Mascot() {
