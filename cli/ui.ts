@@ -180,7 +180,7 @@ export function initReport(title: string, items: Array<{name: string, status: 'c
 // ─── Greeting / Banner ───
 export function banner() {
   console.log()
-  console.log(`  ${theme.accent}${theme.bold}▲ AgentOS${theme.reset} ${theme.muted}v${process.env.AGENTOS_VERSION || '0.2.0'}${theme.reset}`)
+  console.log(`  ${theme.accent}${theme.bold}▲ AgentOS${theme.reset} ${theme.muted}v${process.env.AGENTOS_VERSION || '0.4.0'}${theme.reset}`)
   console.log(`  ${theme.dim}Everything your AI agent needs${theme.reset}`)
   console.log()
 }

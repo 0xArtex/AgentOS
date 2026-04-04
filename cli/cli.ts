@@ -111,10 +111,13 @@ async function main() {
 
   // First-time welcome
   if (!config.setupDone && command !== 'setup' && !['help','--help'].includes(command) && !flags.help && !flags.version) {
-    banner()
-    subtle('First time? Run:')
-    console.log(`  ${t.info}agentos setup --keyfile ~/.config/solana/id.json --chain solana${t.reset}`)
-    blank()
+    render(React.createElement(MenuScreen, {
+      version: VERSION,
+      title: 'setup needed',
+      subtitle: 'First time?',
+      footerLeft: 'Run setup to get started',
+      commands: [{ name: 'setup', description: 'agentos setup --keyfile ~/.config/solana/id.json --chain solana' }],
+    }))
   }
   const url = flags.url as string || config.api
   const ao = new AgentOS(url)
@@ -188,7 +191,7 @@ async function main() {
         const text = positional.join(' ') || subcommand || ''
         if (!text) err('Usage: agentos note "your note here"')
         addNote(text)
-        ok(`Note saved to ~/.agentos/memory/notes.md`)
+        render(React.createElement(SuccessScreen, { version: VERSION, title: 'note saved', subtitle: text, details: [{ label: 'Path', value: '~/.agentos/memory/notes.md' }], footerLeft: 'Note saved' }))
         break
       }
 
@@ -265,7 +268,7 @@ async function main() {
             if (!id || !to || !body) err('--id, --to, --body required')
             const data = await ao.phoneSms(id, to, body)
             if (json) return print(data)
-            ok(`SMS sent to ${to}`)
+            render(React.createElement(SuccessScreen, { version: VERSION, title: 'SMS sent', subtitle: to, details: [{ label: 'To', value: to }], footerLeft: 'Message delivered' }))
             break
           }
           case 'call': {
@@ -273,8 +276,7 @@ async function main() {
             if (!id || !to) err('--id, --to required')
             const data = await ao.phoneCall(id, to, flags.tts as string)
             if (json) return print(data)
-            ok(`Calling ${to}`)
-            row('Call ID', data.callControlId || data.id || '')
+            render(React.createElement(SuccessScreen, { version: VERSION, title: 'calling', subtitle: to, details: [{ label: 'To', value: to }, { label: 'Call ID', value: data.callControlId || data.id || '' }], footerLeft: 'Call initiated' }))
             break
           }
           default: err(`Unknown phone command: ${subcommand}. Try: search, buy, sms, call`)
@@ -352,7 +354,7 @@ async function main() {
             if (!id || !to || !subject || !body) err('--id, --to, --subject, --body required')
             const data = await ao.emailSend(id, to, subject, body)
             if (json) return print(data)
-            ok(`Email sent to ${to}`)
+            render(React.createElement(SuccessScreen, { version: VERSION, title: 'email sent', subtitle: to, details: [{ label: 'To', value: to }], footerLeft: 'Email delivered' }))
             break
           }
           case 'threads': {
@@ -457,7 +459,7 @@ async function main() {
             if (!id) err('--id SERVER_ID required')
             const data = await ao.computeDelete(id)
             if (json) return print(data)
-            ok('Server deleted')
+            render(React.createElement(SuccessScreen, { version: VERSION, title: 'server deleted', subtitle: id, details: [{ label: 'ID', value: id }], footerLeft: 'Server removed' }))
             break
           }
           default: err(`Unknown compute command: ${subcommand}. Try: plans, deploy, list, delete`)
@@ -717,8 +719,7 @@ async function main() {
   // Show duration for non-instant commands
   const elapsed = Date.now() - startTime
   if (elapsed > 500 && !['help','--help'].includes(command) && !flags.help) {
-    subtle(`Done in ${(elapsed / 1000).toFixed(1)}s`)
-    blank()
+    console.log(`  \x1b[90mDone in ${(elapsed / 1000).toFixed(1)}s\x1b[0m`)
   }
 }
 
