@@ -1,1 +1,0 @@
-# x402 Payment Flow\n\n1. Client sends request\n2. Server returns 402 with payment details\n3. Client signs payment with wallet\n4. Client retries with payment header\n5. Server verifies and processes
