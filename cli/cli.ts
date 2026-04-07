@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { render as inkRender } from 'ink'
-import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, ErrorScreen, HealthScreen, MenuScreen, PricingScreen, RecordsScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen } from './app.js'
+import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, Dashboard, DomainCheckScreen, DomainPricingScreen, ErrorScreen, HealthScreen, MenuScreen, PricingScreen, RecordsScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen, WalletListScreen } from './app.js'
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addWallet, addNote } from './config.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
@@ -72,7 +72,7 @@ function help() {
       { name: 'email', description: 'create · read · send · threads' },
       { name: 'compute', description: 'plans · deploy · list · delete' },
       { name: 'domain', description: 'check · pricing · buy · dns' },
-      { name: 'wallet', description: 'create · status · keygen' },
+      { name: 'wallet', description: 'create · import · list · info · sign · api-key' },
       { name: 'setup', description: 'Configure wallets + chain preference' },
       { name: 'status', description: 'Show config, wallets, and API health' },
       { name: 'pricing', description: 'All service prices' },
@@ -120,7 +120,8 @@ async function main() {
     }))
   }
   const url = flags.url as string || config.api
-  const ao = new AgentOS(url)
+  const token = (flags.token as string) || config.apiKey || process.env.AGENTOS_TOKEN || process.env.AGENTOS_API_KEY
+  const ao = new AgentOS(url, true, token)
   const json = !!flags.json
 
   try {
@@ -581,67 +582,151 @@ async function main() {
           render(React.createElement(MenuScreen, {
             version: VERSION,
             title: 'wallet',
-            subtitle: 'Identity and policy',
-            footerLeft: 'Wallet operations',
+            subtitle: 'Open Wallet Standard',
+            footerLeft: 'Vault-backed wallet operations',
             commands: [
-              { name: 'keygen', description: 'Generate a keypair', hint: '--chain both' },
-              { name: 'create', description: 'Create a smart wallet', hint: '--agent 0xADDR --chain base' },
-              { name: 'status', description: 'Check wallet status', hint: 'WALLET_ADDRESS' },
+              { name: 'create', description: 'Create a new wallet', hint: '--chains solana,evm' },
+              { name: 'import', description: 'Import from mnemonic', hint: '--mnemonic "..."' },
+              { name: 'list', description: 'List all wallets' },
+              { name: 'info', description: 'Wallet details', hint: 'WALLET_ID' },
+              { name: 'addresses', description: 'Show all chain addresses', hint: 'WALLET_ID' },
+              { name: 'sign-message', description: 'Sign a message', hint: 'WALLET_ID --chain evm --msg "hello"' },
+              { name: 'api-key', description: 'Create agent API key', hint: 'WALLET_ID --name my-agent' },
+              { name: 'config', description: 'Get agent config', hint: 'WALLET_ID' },
             ],
           }))
           break
         }
         switch (subcommand) {
           case 'create': {
-            const agent = flags.agent as string
-            if (!agent) err('--agent ADDRESS required')
-            const chain = flags.chain as string || 'base'
-            const data = await ao.walletCreate(agent, chain)
+            const label = flags.label as string || undefined
+            const chainsStr = flags.chains as string || 'solana,evm'
+            const chains = chainsStr.split(',').map((c: string) => c.trim())
+            const data = await ao.walletCreate(label, chains)
             if (json) return print(data)
-            const address = data.wallet?.address || 'created'
+            const w = data.wallet
             render(React.createElement(WalletCreateScreen, {
               version: VERSION,
-              address,
-              chain,
-              setupUrl: data.setupUrl,
+              id: w.id,
+              solana: w.solana?.address,
+              base: w.base?.address,
+              chains: w.supportedChains || chains,
             }))
-            addWallet({ address: data.wallet?.address, chain, createdAt: new Date().toISOString() })
-            log(`wallet create: ${data.wallet?.address || 'unknown'} (${chain})`)
+            addWallet({ id: w.id, solana: w.solana?.address, base: w.base?.address, createdAt: new Date().toISOString() })
+            log(`wallet create: ${w.id}`)
             break
           }
-          case 'status': {
-            const addr = positional[0] || flags.address as string
-            if (!addr) err('Wallet address required')
-            const data = await ao.walletStatus(addr)
+          case 'import': {
+            const mnemonic = flags.mnemonic as string
+            if (!mnemonic) err('--mnemonic "your twelve words..." required')
+            const label = flags.label as string || undefined
+            const data = await ao.walletImport(mnemonic, label)
             if (json) return print(data)
-            const w = data.wallet || data
+            const w = data.wallet
+            render(React.createElement(WalletCreateScreen, {
+              version: VERSION,
+              id: w.id,
+              solana: w.solana?.address,
+              base: w.base?.address,
+              chains: w.supportedChains || ['solana', 'evm'],
+            }))
+            log(`wallet import: ${w.id}`)
+            break
+          }
+          case 'list': {
+            const data = await ao.walletList()
+            if (json) return print(data)
+            render(React.createElement(WalletListScreen, {
+              version: VERSION,
+              wallets: (data.wallets || []).map((w: any) => ({
+                id: w.id,
+                label: w.label,
+                solana: w.solana?.address,
+                base: w.base?.address,
+                chains: w.accounts?.length || w.supportedChains?.length || 2,
+              })),
+            }))
+            break
+          }
+          case 'info': {
+            const walletId = positional[0] || flags.id as string
+            if (!walletId) err('Wallet ID required')
+            const data = await ao.walletGet(walletId)
+            if (json) return print(data)
+            const w = data.wallet
             render(React.createElement(WalletStatusScreen, {
               version: VERSION,
-              address: w.address || addr,
-              owner: w.owner || 'unknown',
-              dailyLimit: w.policy ? `$${(parseInt(w.policy.dailyLimit || 0) / 1e6).toFixed(0)}` : undefined,
-              perTxLimit: w.policy ? `$${(parseInt(w.policy.perTxLimit || 0) / 1e6).toFixed(0)}` : undefined,
+              id: w.id,
+              label: w.label,
+              accounts: w.accounts || [],
             }))
             break
           }
-          case 'keygen': {
-            const chain = flags.chain as string || 'both'
-            const data = await ao.walletKeygen(chain)
+          case 'addresses': {
+            const walletId = positional[0] || flags.id as string
+            if (!walletId) err('Wallet ID required')
+            const data = await ao.walletAddresses(walletId)
             if (json) return print(data)
             render(React.createElement(SuccessScreen, {
               version: VERSION,
-              title: 'Keypair generated',
-              subtitle: data.address || 'generated',
-              footerLeft: 'Save the private key securely',
+              title: 'Wallet addresses',
+              subtitle: walletId,
+              footerLeft: `${(data.addresses || []).length} chains`,
+              details: (data.addresses || []).map((a: any) => ({
+                label: a.chainId,
+                value: a.address,
+              })),
+            }))
+            break
+          }
+          case 'sign-message': {
+            const walletId = positional[0] || flags.id as string
+            if (!walletId) err('Wallet ID required')
+            const chain = flags.chain as string
+            const msg = flags.msg as string || flags.message as string
+            if (!chain || !msg) err('--chain and --msg required')
+            const data = await ao.walletSignMessage(walletId, chain, msg)
+            if (json) return print(data)
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'Message signed',
+              subtitle: chain,
+              footerLeft: 'Signature ready',
               details: [
-                { label: 'Address', value: String(data.address || '') },
-                { label: 'Private Key', value: String(data.privateKey || '') },
-                { label: 'Chain', value: String(data.chain || chain) },
+                { label: 'Signature', value: String(data.signature || '') },
+                ...(data.recoveryId !== undefined ? [{ label: 'Recovery ID', value: String(data.recoveryId) }] : []),
               ],
             }))
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, status, keygen`)
+          case 'api-key': {
+            const walletId = positional[0] || flags.id as string
+            if (!walletId) err('Wallet ID required')
+            const name = flags.name as string || 'cli-agent'
+            const data = await ao.walletApiKey(walletId, name)
+            if (json) return print(data)
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'API key created',
+              subtitle: 'Save this token — it will not be shown again',
+              footerLeft: 'Agent API key',
+              details: [
+                { label: 'Token', value: String(data.apiKey?.token || '') },
+                { label: 'Key ID', value: String(data.apiKey?.id || '') },
+                { label: 'Name', value: String(data.apiKey?.name || name) },
+              ],
+            }))
+            break
+          }
+          case 'config': {
+            const walletId = positional[0] || flags.id as string
+            if (!walletId) err('Wallet ID required')
+            const data = await ao.walletConfig(walletId)
+            if (json) return print(data)
+            print(data.config || data)
+            break
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, addresses, sign-message, api-key, config`)
         }
         break
       }

@@ -1,6 +1,7 @@
 /**
  * x402 payment handler for AgentOS CLI
- * Builds, signs, and submits USDC payment transactions on Solana
+ * Builds, signs, and submits USDC payment transactions on Solana.
+ * Supports vault-backed signing when configured, falls back to raw keypair.
  */
 
 import { loadKeypair, loadConfig, log } from './config.js'
@@ -39,7 +40,8 @@ export function parsePaymentRequired(data: any): {
 }
 
 /**
- * Build and partially sign a USDC transfer transaction for x402 payment
+ * Build and partially sign a USDC transfer transaction for x402 payment.
+ * Uses raw keypair for transaction building (needed for multi-instruction Solana txs).
  */
 export async function buildPaymentTransaction(
   payTo: string,
@@ -47,7 +49,10 @@ export async function buildPaymentTransaction(
   feePayer: string,
 ): Promise<{ transaction: string; payer: string } | null> {
   const keypairBytes = loadKeypair()
-  if (!keypairBytes) return null
+  if (!keypairBytes) {
+    console.error('  No keypair configured. Run: agentos setup --keyfile /path/to/keypair.json')
+    return null
+  }
 
   // Dynamic import to keep CLI fast when payment isn't needed
   const { Connection, PublicKey, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } = await import('@solana/web3.js')

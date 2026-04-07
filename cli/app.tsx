@@ -7,20 +7,21 @@ import { MASCOT_STIPPLE } from './mascot-data.js'
 export type DashboardProps = {
   version: string
   chain?: string
-  wallets?: Record<string, { keyfile: string }> | undefined
+  wallets?: Record<string, { keyfile?: string; owsWalletId?: string }> | undefined
   apiOk?: boolean
   onSelectAction?: (command: string) => void
 }
 
 export type ScreenControls = { interactive?: boolean; onBack?: () => void }
 
-export type StatusScreenProps = { version: string; api: string; apiOk: boolean; wallets?: Record<string, { keyfile: string }>; defaultChain?: string }
+export type StatusScreenProps = { version: string; api: string; apiOk: boolean; wallets?: Record<string, { keyfile?: string; owsWalletId?: string }>; defaultChain?: string }
 export type SetupScreenProps = { version: string; api: string; keyfile: string; chains: string[]; addedChain: string }
 export type ComputePlansScreenProps = { version: string; plans: Array<{ name: string; cpu: string; ram: string; price: string }> }
 export type DomainCheckScreenProps = { version: string; domain: string; available: boolean }
 export type DomainPricingScreenProps = { version: string; query: string; items: Array<{ tld: string; price: string }> }
-export type WalletCreateScreenProps = { version: string; address: string; chain: string; setupUrl?: string }
-export type WalletStatusScreenProps = { version: string; address: string; owner: string; dailyLimit?: string; perTxLimit?: string }
+export type WalletCreateScreenProps = { version: string; id: string; solana: string | null; base: string | null; chains: string[] }
+export type WalletStatusScreenProps = { version: string; id: string; label: string; accounts: Array<{ chainId: string; address: string }> }
+export type WalletListScreenProps = { version: string; wallets: Array<{ id: string; label: string; solana: string | null; base: string | null; chains: number }> }
 export type ComputeDeployScreenProps = { version: string; ip: string; id: string; type: string; name: string }
 export type ComputeListScreenProps = { version: string; servers: Array<{ ip: string; type: string; status: string }> }
 export type SuccessScreenProps = { version: string; title: string; subtitle: string; details: Array<{ label: string; value: string }>; footerLeft: string }
@@ -232,19 +233,25 @@ export function DomainPricingScreen(props: DomainPricingScreenProps & ScreenCont
 
 export function WalletCreateScreen(props: WalletCreateScreenProps & ScreenControls) {
   return <Screen title="wallet created" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="Wallet ready" rows={[
-    { label: 'Address:', value: props.address },
-    { label: 'Chain:', value: props.chain },
-    ...(props.setupUrl ? [{ label: 'Setup:', value: props.setupUrl }] : []),
+    { label: 'ID:', value: props.id },
+    ...(props.solana ? [{ label: 'Solana:', value: props.solana }] : []),
+    ...(props.base ? [{ label: 'Base:', value: props.base }] : []),
+    { label: 'Chains:', value: props.chains.join(', ') },
   ]} />
 }
 
 export function WalletStatusScreen(props: WalletStatusScreenProps & ScreenControls) {
-  return <Screen title="wallet" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="Wallet policy" rows={[
-    { label: 'Address:', value: props.address },
-    { label: 'Owner:', value: props.owner },
-    ...(props.dailyLimit ? [{ label: 'Daily:', value: props.dailyLimit }] : []),
-    ...(props.perTxLimit ? [{ label: 'Per tx:', value: props.perTxLimit }] : []),
+  return <Screen title="wallet" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="Encrypted vault" rows={[
+    { label: 'ID:', value: props.id },
+    { label: 'Label:', value: props.label },
+    ...props.accounts.map(a => ({ label: a.chainId + ':', value: a.address })),
   ]} />
+}
+
+export function WalletListScreen(props: WalletListScreenProps & ScreenControls) {
+  return <Screen title="wallets" version={props.version} interactive={props.interactive} onBack={props.onBack} footer={`${props.wallets.length} wallet(s)`} rows={
+    props.wallets.map(w => ({ label: w.label, value: `${w.solana || w.base || 'no address'} (${w.chains} chains)` }))
+  } />
 }
 
 export function ComputeDeployScreen(props: ComputeDeployScreenProps & ScreenControls) {

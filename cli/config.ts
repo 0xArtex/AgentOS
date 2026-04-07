@@ -28,7 +28,8 @@ export function ensureDirs() {
 // ── Config ──
 
 export interface WalletConfig {
-  keyfile: string
+  keyfile?: string   // Legacy keyfile path
+  vaultWalletId?: string  // AgentOS vault wallet ID (preferred)
 }
 
 export interface AgentOSConfig {
@@ -39,6 +40,8 @@ export interface AgentOSConfig {
   }
   defaultChain: 'solana' | 'base'
   setupDone?: boolean
+  vaultEnabled?: boolean
+  apiKey?: string  // AgentOS API key for agent access
   // Legacy compat
   chain?: string
   keyfile?: string

@@ -6,18 +6,19 @@ const DEFAULT_API = 'https://agntos.dev'
 
 export class AgentOS {
   public api: string
+  public token?: string
   private autoPay: boolean
 
-  constructor(apiUrl?: string, autoPay?: boolean) {
+  constructor(apiUrl?: string, autoPay?: boolean, token?: string) {
     this.api = apiUrl || process.env.AGENTOS_API || DEFAULT_API
+    this.token = token || process.env.AGENTOS_TOKEN || process.env.AGENTOS_API_KEY
     this.autoPay = autoPay ?? true
   }
 
   private async request(method: string, path: string, body?: Record<string, unknown>): Promise<any> {
-    const opts: RequestInit = {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-    }
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+    const opts: RequestInit = { method, headers }
     if (body) opts.body = JSON.stringify(body)
     const res = await fetch(this.api + path, opts)
     const data = await res.json() as any
@@ -105,17 +106,61 @@ export class AgentOS {
     return this.request('GET', `/domains/${domain}/dns`)
   }
 
-  // ── Wallet (proxy to agentwallet API) ──
-  async walletCreate(agent: string, chain?: string): Promise<any> {
-    return this.request('POST', '/wallet', { agent, mode: 'managed', chain: chain || 'base' })
+  // ── Wallet (vault-backed) ──
+  async walletCreate(label?: string, chains?: string[]): Promise<any> {
+    return this.request('POST', '/wallet', { label, chains })
   }
 
-  async walletStatus(address: string): Promise<any> {
-    return this.request('GET', `/wallet/${address}`)
+  async walletImport(mnemonic: string, label?: string): Promise<any> {
+    return this.request('POST', '/wallet/import', { mnemonic, label })
   }
 
-  async walletKeygen(chain?: string): Promise<any> {
-    return this.request('POST', '/wallet/keygen', { chain: chain || 'both' })
+  async walletList(): Promise<any> {
+    return this.request('GET', '/wallet')
+  }
+
+  async walletGet(walletId: string): Promise<any> {
+    return this.request('GET', `/wallet/${walletId}`)
+  }
+
+  async walletDelete(walletId: string): Promise<any> {
+    return this.request('DELETE', `/wallet/${walletId}`)
+  }
+
+  async walletAddresses(walletId: string): Promise<any> {
+    return this.request('GET', `/wallet/${walletId}/addresses`)
+  }
+
+  async walletDerive(walletId: string, chain: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/derive`, { chain })
+  }
+
+  async walletSign(walletId: string, chain: string, transaction: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/sign`, { chain, transaction })
+  }
+
+  async walletSignMessage(walletId: string, chain: string, message: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/sign-message`, { chain, message })
+  }
+
+  async walletSignTyped(walletId: string, chain: string, typedData: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/sign-typed`, { chain, typedData })
+  }
+
+  async walletPolicy(walletId: string, policy: any): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/policy`, { policy })
+  }
+
+  async walletApiKey(walletId: string, name: string, policyIds?: string[], expiresAt?: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/api-key`, { name, policyIds, expiresAt })
+  }
+
+  async walletRevokeApiKey(walletId: string, keyId: string): Promise<any> {
+    return this.request('DELETE', `/wallet/${walletId}/api-key`, { keyId })
+  }
+
+  async walletConfig(walletId: string): Promise<any> {
+    return this.request('GET', `/wallet/${walletId}/config`)
   }
 
   // ── Info ──
