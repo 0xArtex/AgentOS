@@ -150,8 +150,16 @@ export class AgentOS {
     return this.request('POST', `/wallet/${walletId}/sign-typed`, { chain, typedData, passphrase })
   }
 
-  async walletPolicy(walletId: string, policy: any): Promise<any> {
+  async walletPolicy(walletId: string, policy: { per_tx_usdc?: number; daily_usdc?: number; allowed_chains?: string[] }): Promise<any> {
     return this.request('POST', `/wallet/${walletId}/policy`, { policy })
+  }
+
+  async walletGetPolicy(walletId: string): Promise<any> {
+    return this.request('GET', `/wallet/${walletId}/policy`)
+  }
+
+  async walletSpending(walletId: string): Promise<any> {
+    return this.request('GET', `/wallet/${walletId}/spending`)
   }
 
   async walletApiKey(walletId: string, name: string, passphrase: string, policyIds?: string[], expiresAt?: string): Promise<any> {
