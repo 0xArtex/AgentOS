@@ -184,30 +184,6 @@ function deriveAllAccounts(mnemonic: string): AccountInfo[] {
     });
   } catch {}
 
-  // Bitcoin (secp256k1, BIP-84) — placeholder address
-  try {
-    const { HDNodeWallet } = require("ethers");
-    const hd = HDNodeWallet.fromPhrase(mnemonic, undefined, "m/84'/0'/0'/0/0");
-    accounts.push({
-      chainId: "bip122:000000000019d6689c085ae165831e93",
-      address: hd.address,
-      derivationPath: "m/84'/0'/0'/0/0",
-    });
-  } catch {}
-
-  // Sui (Ed25519)
-  try {
-    const derived = derivePath("m/44'/784'/0'/0'/0'", seed.toString("hex"));
-    const hash = createHash("blake2b512")
-      .update(Buffer.concat([Buffer.from([0x00]), derived.key]))
-      .digest();
-    accounts.push({
-      chainId: "sui:mainnet",
-      address: "0x" + hash.subarray(0, 32).toString("hex"),
-      derivationPath: "m/44'/784'/0'/0'/0'",
-    });
-  } catch {}
-
   return accounts;
 }
 
