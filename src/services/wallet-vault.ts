@@ -88,12 +88,18 @@ const HKDF_INFO = "agentos-api-key-v1";
 
 function ensureVault(): string {
   if (!existsSync(VAULT_PATH)) mkdirSync(VAULT_PATH, { recursive: true });
-  for (const sub of ["wallets", "keys", "policies"]) {
+  for (const sub of ["wallets", "keys", "policies", "spends"]) {
     const p = join(VAULT_PATH, sub);
     if (!existsSync(p)) mkdirSync(p, { recursive: true });
   }
   return VAULT_PATH;
 }
+
+// ─── USDC mints (used for spending limit decoding) ───
+
+const USDC_SOLANA_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+const USDC_BASE_ADDRESS = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
+const USDC_DECIMALS = 6;
 
 // ─── Encryption primitives ───
 
@@ -218,6 +224,27 @@ function deriveEvmWallet(mnemonic: string): any {
 
 // ─── Wallet file I/O ───
 
+/**
+ * Spending policy enforced at sign time.
+ *   per_tx_usdc      — reject if a single tx transfers more than this
+ *   daily_usdc       — reject if 24h cumulative spend (including this tx) exceeds this
+ *   allowed_chains   — only sign for chains in this list (e.g. ["solana", "evm"])
+ *
+ * All fields optional; null/undefined = unlimited / unrestricted.
+ */
+export interface WalletPolicy {
+  per_tx_usdc?: number | null;
+  daily_usdc?: number | null;
+  allowed_chains?: string[] | null;
+}
+
+export interface SpendEntry {
+  amount_usdc: number;
+  chain: string;
+  destination: string;
+  timestamp: number;
+}
+
 interface WalletFile {
   agentos_version: number;
   id: string;
@@ -225,6 +252,7 @@ interface WalletFile {
   accounts: AccountInfo[];
   owner_crypto: EncryptedBlob;
   key_type: "mnemonic" | "private_key";
+  policy?: WalletPolicy;
   created_at: string;
 }
 
@@ -435,6 +463,214 @@ function resolveMnemonic(walletId: string, opts: { passphrase?: string; token?: 
   throw new Error("Either passphrase or API key token is required to sign");
 }
 
+// ─── Policy management ───
+
+export function setWalletPolicy(walletId: string, policy: WalletPolicy): void {
+  const { path, data } = loadWalletFile(walletId);
+  data.policy = policy;
+  writeFileSync(path, JSON.stringify(data, null, 2));
+}
+
+export function getWalletPolicy(walletId: string): WalletPolicy | null {
+  const { data } = loadWalletFile(walletId);
+  return data.policy || null;
+}
+
+// ─── Spend log ───
+
+function spendLogPath(vaultWalletId: string): string {
+  return join(VAULT_PATH, "spends", `${vaultWalletId}.json`);
+}
+
+function readSpendLog(vaultWalletId: string): SpendEntry[] {
+  const fpath = spendLogPath(vaultWalletId);
+  if (!existsSync(fpath)) return [];
+  try {
+    return JSON.parse(readFileSync(fpath, "utf8")) as SpendEntry[];
+  } catch {
+    return [];
+  }
+}
+
+function appendSpend(vaultWalletId: string, entry: SpendEntry): void {
+  ensureVault();
+  const log = readSpendLog(vaultWalletId);
+  log.push(entry);
+  writeFileSync(spendLogPath(vaultWalletId), JSON.stringify(log, null, 2));
+}
+
+export function getSpendLog(walletId: string): SpendEntry[] {
+  const { data } = loadWalletFile(walletId);
+  return readSpendLog(data.id);
+}
+
+export function getDailySpend(walletId: string): number {
+  const { data } = loadWalletFile(walletId);
+  const entries = readSpendLog(data.id);
+  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+  return entries.filter(e => e.timestamp >= cutoff).reduce((sum, e) => sum + e.amount_usdc, 0);
+}
+
+// ─── Transaction decoders ───
+
+interface DecodedSpend {
+  amount_usdc: number;
+  destination: string;
+  mint: string;
+}
+
+/**
+ * Decode a Solana VersionedTransaction (or legacy Transaction) and extract
+ * USDC SPL TransferChecked details. Returns null if the tx is not a USDC
+ * transfer that we can recognize.
+ */
+function decodeSolanaUsdcTransfer(txHex: string): DecodedSpend | null {
+  try {
+    const { VersionedTransaction, Transaction } = require("@solana/web3.js");
+    const txBytes = Buffer.from(txHex, "hex");
+
+    let message: any;
+    let accountKeys: any;
+    try {
+      const vtx = VersionedTransaction.deserialize(txBytes);
+      message = vtx.message;
+      accountKeys = message.staticAccountKeys || message.getAccountKeys?.();
+    } catch {
+      const tx = Transaction.from(txBytes);
+      message = tx.compileMessage();
+      accountKeys = message.accountKeys;
+    }
+
+    const compiled = message.compiledInstructions || message.instructions || [];
+    const SPL_TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+    const SPL_TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+
+    for (const ix of compiled) {
+      const programIdIdx = ix.programIdIndex;
+      const programId = (accountKeys.get ? accountKeys.get(programIdIdx) : accountKeys[programIdIdx])?.toString();
+      if (programId !== SPL_TOKEN && programId !== SPL_TOKEN_2022) continue;
+
+      // Get instruction data bytes (versioned uses Uint8Array, legacy uses Buffer)
+      const dataBytes: Uint8Array = ix.data instanceof Uint8Array ? ix.data : Buffer.from(ix.data, "base64");
+
+      // TransferChecked discriminator = 12, data: [12, amount(u64 LE), decimals(u8)]
+      if (dataBytes[0] !== 12 || dataBytes.length < 10) continue;
+
+      const amountRaw = Buffer.from(dataBytes.slice(1, 9)).readBigUInt64LE();
+      const decimals = dataBytes[9];
+      if (decimals !== USDC_DECIMALS) continue;
+
+      // accountKeyIndexes = [source, mint, destination, authority, ...]
+      const accIdxs: number[] = ix.accountKeyIndexes || ix.accounts || [];
+      if (accIdxs.length < 4) continue;
+      const mintKey = (accountKeys.get ? accountKeys.get(accIdxs[1]) : accountKeys[accIdxs[1]])?.toString();
+      const destKey = (accountKeys.get ? accountKeys.get(accIdxs[2]) : accountKeys[accIdxs[2]])?.toString();
+      if (mintKey !== USDC_SOLANA_MINT) continue;
+
+      return {
+        amount_usdc: Number(amountRaw) / 10 ** USDC_DECIMALS,
+        destination: destKey,
+        mint: mintKey,
+      };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Decode an unsigned EVM transaction (RLP serialized) and extract a USDC ERC-20
+ * transfer if it's calling Base USDC. Returns null otherwise.
+ *
+ * EVM ERC-20 transfer selector: 0xa9059cbb
+ * Calldata layout: [4-byte selector] [32-byte address] [32-byte uint256]
+ */
+function decodeEvmUsdcTransfer(txHex: string): DecodedSpend | null {
+  try {
+    const { ethers } = require("ethers");
+    const tx = ethers.Transaction.from(txHex.startsWith("0x") ? txHex : "0x" + txHex);
+    const to = (tx.to || "").toLowerCase();
+    if (to !== USDC_BASE_ADDRESS) return null;
+
+    const data = (tx.data || "").toLowerCase();
+    if (!data.startsWith("0xa9059cbb") || data.length < 138) return null;
+
+    const destHex = "0x" + data.substring(34, 74);  // 12 bytes pad + 20 bytes addr
+    const amountHex = "0x" + data.substring(74, 138);
+    const amount = BigInt(amountHex);
+
+    return {
+      amount_usdc: Number(amount) / 10 ** USDC_DECIMALS,
+      destination: ethers.getAddress(destHex),
+      mint: USDC_BASE_ADDRESS,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function decodeUsdcTransfer(chain: string, txHex: string): DecodedSpend | null {
+  const c = chain.toLowerCase();
+  if (c === "solana" || c.startsWith("solana:")) return decodeSolanaUsdcTransfer(txHex);
+  if (c === "evm" || c === "base" || c === "ethereum" || c.startsWith("eip155:")) return decodeEvmUsdcTransfer(txHex);
+  return null;
+}
+
+// ─── Policy enforcement ───
+
+function enforcePolicy(walletId: string, chain: string, txHex: string): DecodedSpend | null {
+  const { data } = loadWalletFile(walletId);
+  const policy = data.policy;
+  if (!policy) return null;
+
+  // Chain allowlist
+  if (policy.allowed_chains && policy.allowed_chains.length > 0) {
+    const c = chain.toLowerCase();
+    const allowed = policy.allowed_chains.some(a => {
+      const al = a.toLowerCase();
+      return c === al || c.startsWith(al + ":") || al.startsWith(c + ":");
+    });
+    if (!allowed) {
+      throw new Error(`Policy denied: chain "${chain}" not in allowed_chains [${policy.allowed_chains.join(", ")}]`);
+    }
+  }
+
+  // If neither limit set, no need to decode
+  if (policy.per_tx_usdc == null && policy.daily_usdc == null) return null;
+
+  // Decode the transaction
+  const decoded = decodeUsdcTransfer(chain, txHex);
+  if (!decoded) {
+    throw new Error(
+      `Policy denied: cannot decode transaction. The wallet has spending limits set but the transaction does not match a recognized USDC transfer pattern. Either remove the limits or use a supported transaction shape.`,
+    );
+  }
+
+  // Per-tx limit
+  if (policy.per_tx_usdc != null && decoded.amount_usdc > policy.per_tx_usdc) {
+    throw new Error(
+      `Policy denied: transaction amount $${decoded.amount_usdc} exceeds per-tx limit $${policy.per_tx_usdc}`,
+    );
+  }
+
+  // 24h daily limit
+  if (policy.daily_usdc != null) {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+    const spentLast24h = readSpendLog(data.id)
+      .filter(e => e.timestamp >= cutoff)
+      .reduce((sum, e) => sum + e.amount_usdc, 0);
+    const newTotal = spentLast24h + decoded.amount_usdc;
+    if (newTotal > policy.daily_usdc) {
+      throw new Error(
+        `Policy denied: this transaction ($${decoded.amount_usdc.toFixed(6)}) would bring 24h spend to $${newTotal.toFixed(6)}, exceeding daily limit of $${policy.daily_usdc}`,
+      );
+    }
+  }
+
+  return decoded;
+}
+
 // ─── Signing ───
 
 export function signMessage(
@@ -470,26 +706,42 @@ export function signTransaction(
   txHex: string,
   auth: { passphrase?: string; token?: string },
 ): SignResult {
+  // Enforce spending policy BEFORE decryption — fail-closed if decode fails
+  // and policy has limits set.
+  const decoded = enforcePolicy(walletId, chain, txHex);
+
   const mnemonic = resolveMnemonic(walletId, auth);
   const c = chain.toLowerCase();
 
+  let result: SignResult;
   if (c === "solana" || c.startsWith("solana:")) {
     const kp = deriveSolanaKeypair(mnemonic);
     const txBytes = Buffer.from(txHex, "hex");
     const { sign } = require("tweetnacl");
     const sig = sign.detached(txBytes, kp.secretKey);
-    return { signature: Buffer.from(sig).toString("hex") };
-  }
-
-  if (c === "evm" || c === "base" || c === "ethereum" || c.startsWith("eip155:")) {
+    result = { signature: Buffer.from(sig).toString("hex") };
+  } else if (c === "evm" || c === "base" || c === "ethereum" || c.startsWith("eip155:")) {
     const { ethers } = require("ethers");
     const hd = deriveEvmWallet(mnemonic);
     const signingKey = new ethers.SigningKey(hd.privateKey);
     const sig = signingKey.sign(Buffer.from(txHex, "hex"));
-    return { signature: sig.serialized.replace("0x", ""), recoveryId: sig.v };
+    result = { signature: sig.serialized.replace("0x", ""), recoveryId: sig.v };
+  } else {
+    throw new Error(`Chain "${chain}" not supported for transaction signing`);
   }
 
-  throw new Error(`Chain "${chain}" not supported for transaction signing`);
+  // Record the spend if we successfully decoded one
+  if (decoded) {
+    const { data } = loadWalletFile(walletId);
+    appendSpend(data.id, {
+      amount_usdc: decoded.amount_usdc,
+      chain,
+      destination: decoded.destination,
+      timestamp: Date.now(),
+    });
+  }
+
+  return result;
 }
 
 export function signTypedData(
