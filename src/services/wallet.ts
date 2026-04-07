@@ -1,278 +1,322 @@
+/**
+ * Wallet service — powered by AgentOS Wallet Vault.
+ *
+ * Key material is stored in the encrypted vault at ~/.agentos/wallet/.
+ * AgentOS stores metadata (user→wallet associations, labels, on-chain refs) in SQLite.
+ */
 import { db } from "../db";
-import { createHmac, randomBytes } from "crypto";
-import { Keypair } from "@solana/web3.js";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join } from "path";
-import bs58 from "bs58";
-
-const DATA_DIR = join(process.cwd(), "data");
-const SEED_PATH = join(DATA_DIR, "wallet-master.json");
+import { randomBytes } from "crypto";
+import * as vault from "./wallet-vault";
+import type { WalletInfo as VaultWalletInfo, SignResult, ApiKeyResult } from "./wallet-vault";
 
 // ─── Config ───
-// When AGENTWALLET_API is set, create on-chain wallets via agentwallet-aos
-// Otherwise fall back to HD-derived local wallets
+// When AGENTWALLET_API is set, also deploy on-chain smart wallets
 const AGENTWALLET_API = process.env.AGENTWALLET_API || "";
 
-// Separate master seed from deposit wallets for security
-let masterSeed: Buffer;
-
-function loadOrCreateSeed(): Buffer {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  if (existsSync(SEED_PATH)) {
-    const data = JSON.parse(readFileSync(SEED_PATH, "utf-8"));
-    return Buffer.from(data.seed, "hex");
-  }
-  const seed = randomBytes(32);
-  writeFileSync(SEED_PATH, JSON.stringify({ seed: seed.toString("hex"), created: new Date().toISOString() }));
-  console.log("🔑 Generated new wallet master seed");
-  return seed;
-}
-
-masterSeed = loadOrCreateSeed();
-
-function deriveKey(domain: string, userId: string): Buffer {
-  return createHmac("sha512", masterSeed)
-    .update(`${domain}:${userId}`)
-    .digest()
-    .subarray(0, 32);
-}
-
-// Init DB table
+// ─── DB schema ───
 db.exec(`
   CREATE TABLE IF NOT EXISTS agent_wallets (
     id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     label TEXT DEFAULT 'My Wallet',
-    sol_address TEXT NOT NULL,
-    sol_pubkey TEXT NOT NULL,
-    base_address TEXT NOT NULL,
+    vault_wallet_id TEXT NOT NULL,
+    sol_address TEXT,
+    base_address TEXT,
+    supported_chains TEXT DEFAULT 'solana,evm',
     onchain_base TEXT,
     onchain_sol TEXT,
-    policy_daily_limit INTEGER DEFAULT 50000000,
-    policy_per_tx_limit INTEGER DEFAULT 25000000,
-    policy_approval_threshold INTEGER DEFAULT 25000000,
     created_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(user_id, sol_address)
+    UNIQUE(user_id, vault_wallet_id)
   )
 `);
 
-// Add new columns if missing (migration)
-try { db.exec("ALTER TABLE agent_wallets ADD COLUMN onchain_base TEXT"); } catch {}
-try { db.exec("ALTER TABLE agent_wallets ADD COLUMN onchain_sol TEXT"); } catch {}
-try { db.exec("ALTER TABLE agent_wallets ADD COLUMN policy_daily_limit INTEGER DEFAULT 50000000"); } catch {}
-try { db.exec("ALTER TABLE agent_wallets ADD COLUMN policy_per_tx_limit INTEGER DEFAULT 25000000"); } catch {}
-try { db.exec("ALTER TABLE agent_wallets ADD COLUMN policy_approval_threshold INTEGER DEFAULT 25000000"); } catch {}
+// Migrations for existing DBs
+try { db.exec("ALTER TABLE agent_wallets ADD COLUMN vault_wallet_id TEXT"); } catch {}
+try { db.exec("ALTER TABLE agent_wallets ADD COLUMN supported_chains TEXT DEFAULT 'solana,evm'"); } catch {}
+// Backfill from old ows_wallet_id column if present
+try { db.exec("UPDATE agent_wallets SET vault_wallet_id = ows_wallet_id WHERE vault_wallet_id IS NULL AND ows_wallet_id IS NOT NULL"); } catch {}
+
+// ─── Types ───
 
 export interface WalletInfo {
   id: string;
   label: string;
-  solana: { address: string; pubkey: string };
-  base: { address: string };
+  vaultWalletId: string;
+  solana: { address: string | null };
+  base: { address: string | null };
+  accounts: Array<{ chainId: string; address: string }>;
+  supportedChains: string[];
   onchain: {
     base: string | null;
     solana: string | null;
   };
-  policy: {
-    dailyLimit: number;
-    perTxLimit: number;
-    approvalThreshold: number;
-  };
   created_at: string;
 }
 
+// ─── Wallet CRUD ───
+
 /**
- * Create a wallet pair (Solana + Base).
- * If agentwallet-aos API is available, deploys on-chain smart wallets.
- * Otherwise creates HD-derived local wallets.
+ * Create a new wallet backed by the AgentOS vault.
+ * Generates a BIP-39 mnemonic and derives addresses for all chains.
  */
-export async function createWallet(userId: string, label?: string): Promise<WalletInfo> {
-  // Count existing wallets for this user to derive unique keys
-  const count = (db.prepare("SELECT COUNT(*) as c FROM agent_wallets WHERE user_id = ?").get(userId) as any).c;
-  const idx = `${userId}:${count}`;
-
-  // Derive Solana keypair (agent always generates locally)
-  const solSecret = deriveKey("agent-sol", idx);
-  const solKeypair = Keypair.fromSeed(new Uint8Array(solSecret));
-  const solAddress = solKeypair.publicKey.toBase58();
-
-  // Derive EVM key
-  const evmSecret = deriveKey("agent-evm", idx);
-  const evmAddrRaw = createHmac("sha256", evmSecret).update("address").digest().subarray(0, 20);
-  const evmAddress = "0x" + evmAddrRaw.toString("hex");
-
+export async function createWallet(
+  userId: string,
+  label?: string,
+  chains?: string[],
+): Promise<WalletInfo> {
   const walletLabel = label || "My Wallet";
   const id = randomBytes(16).toString("hex");
 
-  // Try to deploy on-chain wallets via agentwallet-aos
+  const count = (db.prepare("SELECT COUNT(*) as c FROM agent_wallets WHERE user_id = ?").get(userId) as any).c;
+  const vaultName = `agent-${userId}-${count}`;
+
+  const vaultWallet = vault.createWallet(vaultName);
+  const { solana, evm } = vault.getDefaultAddresses(vaultWallet);
+
+  const supportedChains = chains || ["solana", "evm"];
+
   let onchainBase: string | null = null;
   let onchainSol: string | null = null;
 
-  if (AGENTWALLET_API) {
+  if (AGENTWALLET_API && evm) {
     try {
-      // For Base: the agent's EVM address is the session key
-      // Owner is the platform's admin wallet (human can transfer ownership later)
       const res = await fetch(`${AGENTWALLET_API}/wallet`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          owner: evmAddress, // agent's own address as owner for now
-          agent: evmAddress,
-        }),
+        body: JSON.stringify({ owner: evm, agent: evm }),
       });
       if (res.ok) {
-        const data = await res.json() as any;
+        const data = (await res.json()) as any;
         onchainBase = data.wallet?.address || null;
         console.log(`[wallet] On-chain Base wallet deployed: ${onchainBase}`);
       }
     } catch (err) {
-      console.warn("[wallet] Failed to create on-chain wallet, using HD fallback:", err);
+      console.warn("[wallet] Failed to create on-chain wallet:", err);
     }
   }
 
   db.prepare(`
-    INSERT INTO agent_wallets (id, user_id, label, sol_address, sol_pubkey, base_address, onchain_base, onchain_sol, policy_daily_limit, policy_per_tx_limit, policy_approval_threshold)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(id, userId, walletLabel, solAddress, solAddress, evmAddress, onchainBase, onchainSol, 50_000_000, 25_000_000, 25_000_000);
+    INSERT INTO agent_wallets (id, user_id, label, vault_wallet_id, sol_address, base_address, supported_chains, onchain_base, onchain_sol)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, userId, walletLabel, vaultWallet.id, solana, evm, supportedChains.join(","), onchainBase, onchainSol);
 
-  return {
-    id,
-    label: walletLabel,
-    solana: { address: solAddress, pubkey: solAddress },
-    base: { address: onchainBase || evmAddress },
-    onchain: { base: onchainBase, solana: onchainSol },
-    policy: {
-      dailyLimit: 50_000_000,
-      perTxLimit: 25_000_000,
-      approvalThreshold: 25_000_000,
-    },
-    created_at: new Date().toISOString(),
-  };
+  return toWalletInfo(
+    { id, user_id: userId, label: walletLabel, vault_wallet_id: vaultWallet.id, sol_address: solana, base_address: evm, supported_chains: supportedChains.join(","), onchain_base: onchainBase, onchain_sol: onchainSol, created_at: new Date().toISOString() },
+    vaultWallet,
+  );
+}
+
+/**
+ * Import a wallet from a mnemonic phrase.
+ */
+export async function importWallet(
+  userId: string,
+  mnemonic: string,
+  label?: string,
+): Promise<WalletInfo> {
+  const walletLabel = label || "Imported Wallet";
+  const id = randomBytes(16).toString("hex");
+  const count = (db.prepare("SELECT COUNT(*) as c FROM agent_wallets WHERE user_id = ?").get(userId) as any).c;
+  const vaultName = `agent-${userId}-${count}`;
+
+  const vaultWallet = vault.importWalletMnemonic(vaultName, mnemonic);
+  const { solana, evm } = vault.getDefaultAddresses(vaultWallet);
+
+  db.prepare(`
+    INSERT INTO agent_wallets (id, user_id, label, vault_wallet_id, sol_address, base_address, supported_chains, onchain_base, onchain_sol)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, userId, walletLabel, vaultWallet.id, solana, evm, "solana,evm", null, null);
+
+  return toWalletInfo(
+    { id, user_id: userId, label: walletLabel, vault_wallet_id: vaultWallet.id, sol_address: solana, base_address: evm, supported_chains: "solana,evm", onchain_base: null, onchain_sol: null, created_at: new Date().toISOString() },
+    vaultWallet,
+  );
 }
 
 export function getWallets(userId: string): WalletInfo[] {
   const rows = db.prepare("SELECT * FROM agent_wallets WHERE user_id = ? ORDER BY created_at").all(userId) as any[];
-  return rows.map(r => ({
-    id: r.id,
-    label: r.label,
-    solana: { address: r.sol_address, pubkey: r.sol_pubkey },
-    base: { address: r.onchain_base || r.base_address },
-    onchain: { base: r.onchain_base || null, solana: r.onchain_sol || null },
-    policy: {
-      dailyLimit: r.policy_daily_limit || 50_000_000,
-      perTxLimit: r.policy_per_tx_limit || 25_000_000,
-      approvalThreshold: r.policy_approval_threshold || 25_000_000,
-    },
-    created_at: r.created_at,
-  }));
+  return rows.map((r) => {
+    try {
+      const vaultWallet = vault.getWallet(r.vault_wallet_id);
+      return toWalletInfo(r, vaultWallet);
+    } catch {
+      return toWalletInfo(r, null);
+    }
+  });
 }
 
 export function getWallet(userId: string, walletId: string): WalletInfo | null {
   const r = db.prepare("SELECT * FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
   if (!r) return null;
-  return {
-    id: r.id,
-    label: r.label,
-    solana: { address: r.sol_address, pubkey: r.sol_pubkey },
-    base: { address: r.onchain_base || r.base_address },
-    onchain: { base: r.onchain_base || null, solana: r.onchain_sol || null },
-    policy: {
-      dailyLimit: r.policy_daily_limit || 50_000_000,
-      perTxLimit: r.policy_per_tx_limit || 25_000_000,
-      approvalThreshold: r.policy_approval_threshold || 25_000_000,
-    },
-    created_at: r.created_at,
-  };
+  try {
+    const vaultWallet = vault.getWallet(r.vault_wallet_id);
+    return toWalletInfo(r, vaultWallet);
+  } catch {
+    return toWalletInfo(r, null);
+  }
 }
 
 export function deleteWallet(userId: string, walletId: string): boolean {
+  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) return false;
+
+  try {
+    vault.deleteWallet(r.vault_wallet_id);
+  } catch {
+    // Vault entry may already be gone
+  }
+
   const result = db.prepare("DELETE FROM agent_wallets WHERE id = ? AND user_id = ?").run(walletId, userId);
   return result.changes > 0;
 }
 
-/**
- * Update wallet spending policy.
- */
-export function updatePolicy(userId: string, walletId: string, dailyLimit?: number, perTxLimit?: number, approvalThreshold?: number): boolean {
-  const wallet = getWallet(userId, walletId);
-  if (!wallet) return false;
+// ─── Signing ───
 
-  const dl = dailyLimit ?? wallet.policy.dailyLimit;
-  const pt = perTxLimit ?? wallet.policy.perTxLimit;
-  const at = approvalThreshold ?? wallet.policy.approvalThreshold;
-
-  db.prepare("UPDATE agent_wallets SET policy_daily_limit = ?, policy_per_tx_limit = ?, policy_approval_threshold = ? WHERE id = ? AND user_id = ?")
-    .run(dl, pt, at, walletId, userId);
-
-  // If on-chain wallet exists, sync policy on-chain too
-  if (wallet.onchain.base && AGENTWALLET_API) {
-    fetch(`${AGENTWALLET_API}/wallet/${wallet.onchain.base}/policy`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ dailyLimit: dl, perTxLimit: pt, approvalThreshold: at }),
-    }).catch(err => console.warn("[wallet] Failed to sync on-chain policy:", err));
-  }
-
-  return true;
+export function signTransaction(
+  userId: string,
+  walletId: string,
+  chain: string,
+  txHex: string,
+): SignResult {
+  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+  return vault.signTransaction(r.vault_wallet_id, chain, txHex);
 }
 
+export function signMessage(
+  userId: string,
+  walletId: string,
+  chain: string,
+  message: string,
+  encoding?: string,
+): SignResult {
+  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+  return vault.signMessage(r.vault_wallet_id, chain, message, (encoding as "utf8" | "hex") || "utf8");
+}
+
+export function signTypedData(
+  userId: string,
+  walletId: string,
+  chain: string,
+  typedDataJson: string,
+): SignResult {
+  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+  return vault.signTypedData(r.vault_wallet_id, chain, typedDataJson);
+}
+
+// ─── Derive additional chain ───
+
+export function deriveChainAddress(
+  userId: string,
+  walletId: string,
+  chain: string,
+): string {
+  const r = db.prepare("SELECT vault_wallet_id, supported_chains FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+
+  const vaultWallet = vault.getWallet(r.vault_wallet_id);
+  const address = vault.getAddressForChain(vaultWallet, chain);
+  if (!address) throw new Error(`Chain "${chain}" not supported or no address found`);
+
+  const chains = new Set((r.supported_chains || "").split(",").filter(Boolean));
+  chains.add(chain);
+  db.prepare("UPDATE agent_wallets SET supported_chains = ? WHERE id = ?").run([...chains].join(","), walletId);
+
+  return address;
+}
+
+// ─── Get all addresses ───
+
+export function getAddresses(
+  userId: string,
+  walletId: string,
+): Array<{ chainId: string; address: string }> {
+  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+  const vaultWallet = vault.getWallet(r.vault_wallet_id);
+  return vaultWallet.accounts.map((a) => ({ chainId: a.chainId, address: a.address }));
+}
+
+// ─── Policy management ───
+
+export function updatePolicy(
+  userId: string,
+  walletId: string,
+  policyJson: string,
+): void {
+  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+  vault.createPolicy(policyJson);
+}
+
+export function getPolicies(): any[] {
+  return vault.listPolicies();
+}
+
+// ─── API key management ───
+
+export function createApiKeyForWallet(
+  userId: string,
+  walletId: string,
+  name: string,
+  policyIds?: string[],
+  expiresAt?: string,
+): ApiKeyResult {
+  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+  return vault.createApiKey(name, [r.vault_wallet_id], policyIds || [], expiresAt);
+}
+
+export function revokeWalletApiKey(userId: string, walletId: string, keyId: string): void {
+  const r = db.prepare("SELECT id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+  vault.revokeApiKey(keyId);
+}
+
+// ─── Agent config export ───
+
 /**
- * Export wallet credentials for injecting into an agent's OpenClaw config.
+ * Generate the config an agent needs to use this wallet.
+ * Returns a scoped AgentOS API key (agos_key_...) instead of raw private keys.
  */
-export function exportWalletCredentials(userId: string, walletId: string): {
-  solana: { address: string; privateKey: string };
-  base: { address: string; privateKey: string };
-} | null {
+export function getAgentConfig(
+  userId: string,
+  walletId: string,
+): object | null {
   const wallet = getWallet(userId, walletId);
   if (!wallet) return null;
 
-  const rows = db.prepare("SELECT id FROM agent_wallets WHERE user_id = ? ORDER BY created_at").all(userId) as any[];
-  const idx = rows.findIndex(r => r.id === walletId);
-  if (idx === -1) return null;
-
-  const keyIdx = `${userId}:${idx}`;
-  const solSecret = deriveKey("agent-sol", keyIdx);
-  const solKeypair = Keypair.fromSeed(new Uint8Array(solSecret));
-  const evmSecret = deriveKey("agent-evm", keyIdx);
+  const apiKey = createApiKeyForWallet(userId, walletId, `agent-config-${walletId}`);
 
   return {
-    solana: {
-      address: solKeypair.publicKey.toBase58(),
-      privateKey: bs58.encode(solKeypair.secretKey),
+    apiKey: apiKey.token,
+    wallets: {
+      solana: wallet.solana.address
+        ? { chain: "solana", network: "mainnet-beta", address: wallet.solana.address, rpc: "https://api.mainnet-beta.solana.com" }
+        : null,
+      base: wallet.base.address
+        ? { chain: "base", network: "mainnet", address: wallet.base.address, smartWallet: wallet.onchain.base || null, rpc: "https://mainnet.base.org" }
+        : null,
     },
-    base: {
-      address: wallet.base.address,
-      privateKey: "0x" + evmSecret.toString("hex"),
-    },
+    accounts: wallet.accounts,
+    note: "Use the AgentOS API key for signing. Raw private keys are never exported.",
   };
 }
 
-/**
- * Generate the config snippet an agent needs to use these wallets.
- */
-export function getAgentConfig(userId: string, walletId: string): object | null {
-  const creds = exportWalletCredentials(userId, walletId);
-  const wallet = getWallet(userId, walletId);
-  if (!creds || !wallet) return null;
+// ─── Internal helpers ───
 
+function toWalletInfo(row: any, vaultWallet: VaultWalletInfo | null): WalletInfo {
   return {
-    wallets: {
-      solana: {
-        chain: "solana",
-        network: "mainnet-beta",
-        address: creds.solana.address,
-        rpc: "https://api.mainnet-beta.solana.com",
-      },
-      base: {
-        chain: "base",
-        network: "mainnet",
-        address: creds.base.address,
-        smartWallet: wallet.onchain.base || null,
-        rpc: "https://mainnet.base.org",
-      },
-    },
-    policy: wallet.policy,
-    note: wallet.onchain.base
-      ? "On-chain smart wallet deployed. Policies enforced by contract."
-      : "HD-derived wallet. On-chain deployment pending.",
+    id: row.id,
+    label: row.label,
+    vaultWalletId: row.vault_wallet_id,
+    solana: { address: row.sol_address || (vaultWallet ? vault.getAddressForChain(vaultWallet, "solana") : null) },
+    base: { address: row.onchain_base || row.base_address || (vaultWallet ? vault.getAddressForChain(vaultWallet, "evm") : null) },
+    accounts: vaultWallet ? vaultWallet.accounts.map((a) => ({ chainId: a.chainId, address: a.address })) : [],
+    supportedChains: (row.supported_chains || "solana,evm").split(",").filter(Boolean),
+    onchain: { base: row.onchain_base || null, solana: row.onchain_sol || null },
+    created_at: row.created_at,
   };
 }

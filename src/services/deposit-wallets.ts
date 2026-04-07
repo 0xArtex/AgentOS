@@ -1,51 +1,59 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "fs";
-import { join } from "path";
-import { createHmac, randomBytes } from "crypto";
-import { Keypair } from "@solana/web3.js";
+/**
+ * Deposit wallet service — powered by AgentOS Wallet Vault.
+ *
+ * Each user gets a unique deposit wallet (Solana + EVM) for receiving USDC.
+ * Keys live in the encrypted vault at ~/.agentos/wallet/.
+ */
 import { db } from "../db";
+import * as vault from "./wallet-vault";
+import { Keypair } from "@solana/web3.js";
 
-const DATA_DIR = join(process.cwd(), "data");
-const SEED_PATH = join(DATA_DIR, "deposit-master.json");
+// ─── DB schema ───
+db.exec(`
+  CREATE TABLE IF NOT EXISTS deposit_wallets (
+    id TEXT PRIMARY KEY,
+    user_id TEXT UNIQUE NOT NULL,
+    derivation_index INTEGER UNIQUE NOT NULL,
+    vault_wallet_id TEXT NOT NULL,
+    solana_address TEXT NOT NULL,
+    evm_address TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+  )
+`);
 
-let masterSeed: Buffer;
+// Migration for existing DBs
+try { db.exec("ALTER TABLE deposit_wallets ADD COLUMN vault_wallet_id TEXT"); } catch {}
+try { db.exec("UPDATE deposit_wallets SET vault_wallet_id = ows_wallet_id WHERE vault_wallet_id IS NULL AND ows_wallet_id IS NOT NULL"); } catch {}
 
-function loadOrCreateSeed(): Buffer {
-  if (!existsSync(DATA_DIR)) mkdirSync(DATA_DIR, { recursive: true });
-  
-  if (existsSync(SEED_PATH)) {
-    const data = JSON.parse(readFileSync(SEED_PATH, "utf-8"));
-    return Buffer.from(data.seed, "hex");
-  }
-  
-  const seed = randomBytes(32);
-  writeFileSync(SEED_PATH, JSON.stringify({ seed: seed.toString("hex"), created: new Date().toISOString() }));
-  console.log("🔑 Generated new deposit master seed");
-  return seed;
+/**
+ * Get the vault wallet ID for a deposit wallet by derivation index.
+ */
+export function getVaultWalletId(index: number): string | null {
+  const row = db.prepare("SELECT vault_wallet_id FROM deposit_wallets WHERE derivation_index = ?").get(index) as any;
+  return row?.vault_wallet_id || null;
 }
 
-masterSeed = loadOrCreateSeed();
-
-function deriveKey(domain: string, index: number): Buffer {
-  return createHmac("sha512", masterSeed).update(`${domain}:${index}`).digest().subarray(0, 32);
-}
-
+/**
+ * Get the raw Solana keypair for a deposit wallet (used by the deposit monitor for sweeps).
+ */
 export function getSolanaKeypair(index: number): Keypair {
-  const secret = deriveKey("solana", index);
-  return Keypair.fromSeed(new Uint8Array(secret));
+  const id = getVaultWalletId(index);
+  if (!id) throw new Error(`No deposit wallet for index ${index}`);
+  return vault.getSolanaKeypair(id);
 }
 
+/**
+ * Get the raw EVM private key for a deposit wallet (used by the deposit monitor for sweeps).
+ */
 export function getEvmPrivateKey(index: number): string {
-  const secret = deriveKey("evm", index);
-  return "0x" + secret.toString("hex");
+  const id = getVaultWalletId(index);
+  if (!id) throw new Error(`No deposit wallet for index ${index}`);
+  return vault.getEvmPrivateKey(id);
 }
 
-export function getEvmAddress(index: number): string {
-  const { ethers } = require("ethers");
-  const secret = deriveKey("evm", index);
-  const wallet = new ethers.Wallet("0x" + secret.toString("hex"));
-  return wallet.address;
-}
-
+/**
+ * Get or create a deposit wallet for a user.
+ */
 export function getOrCreateWallet(userId: string): { solanaAddress: string; evmAddress: string } {
   const existing = db.prepare("SELECT solana_address, evm_address FROM deposit_wallets WHERE user_id = ?").get(userId) as any;
   if (existing) return { solanaAddress: existing.solana_address, evmAddress: existing.evm_address };
@@ -53,15 +61,19 @@ export function getOrCreateWallet(userId: string): { solanaAddress: string; evmA
   const row = db.prepare("SELECT MAX(derivation_index) as mx FROM deposit_wallets").get() as any;
   const index = (row?.mx ?? -1) + 1;
 
-  const solKp = getSolanaKeypair(index);
-  const solAddr = solKp.publicKey.toBase58();
-  const evmAddr = getEvmAddress(index);
+  const vaultWallet = vault.createWallet(`deposit-${userId}-${index}`);
+  const solAddr = vault.getAddressForChain(vaultWallet, "solana");
+  const evmAddr = vault.getAddressForChain(vaultWallet, "evm");
+
+  if (!solAddr || !evmAddr) {
+    throw new Error("Vault wallet did not derive Solana or EVM address");
+  }
 
   const id = crypto.randomUUID();
   db.prepare(
-    "INSERT INTO deposit_wallets (id, user_id, derivation_index, solana_address, evm_address, created_at) VALUES (?, ?, ?, ?, ?, datetime('now'))"
-  ).run(id, userId, index, solAddr, evmAddr);
+    "INSERT INTO deposit_wallets (id, user_id, derivation_index, vault_wallet_id, solana_address, evm_address, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
+  ).run(id, userId, index, vaultWallet.id, solAddr, evmAddr);
 
-  console.log(`💳 Created deposit wallet #${index} for ${userId}: SOL=${solAddr} EVM=${evmAddr}`);
+  console.log(`[deposit] Created wallet #${index} for ${userId}: SOL=${solAddr} EVM=${evmAddr}`);
   return { solanaAddress: solAddr, evmAddress: evmAddr };
 }
