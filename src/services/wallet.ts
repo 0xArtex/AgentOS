@@ -57,20 +57,24 @@ export interface WalletInfo {
 
 /**
  * Create a new wallet backed by the AgentOS vault.
- * Generates a BIP-39 mnemonic and derives addresses for all chains.
+ * The owner passphrase is required and never stored. The mnemonic is
+ * encrypted with Scrypt(passphrase) and the server cannot decrypt it
+ * without the passphrase or a derived API key.
  */
 export async function createWallet(
   userId: string,
+  passphrase: string,
   label?: string,
   chains?: string[],
 ): Promise<WalletInfo> {
+  if (!passphrase) throw new Error("Owner passphrase is required");
   const walletLabel = label || "My Wallet";
   const id = randomBytes(16).toString("hex");
 
   const count = (db.prepare("SELECT COUNT(*) as c FROM agent_wallets WHERE user_id = ?").get(userId) as any).c;
   const vaultName = `agent-${userId}-${count}`;
 
-  const vaultWallet = vault.createWallet(vaultName);
+  const vaultWallet = vault.createWallet(vaultName, passphrase);
   const { solana, evm } = vault.getDefaultAddresses(vaultWallet);
 
   const supportedChains = chains || ["solana", "evm"];
@@ -107,19 +111,21 @@ export async function createWallet(
 }
 
 /**
- * Import a wallet from a mnemonic phrase.
+ * Import a wallet from a mnemonic phrase. The owner passphrase is required.
  */
 export async function importWallet(
   userId: string,
   mnemonic: string,
+  passphrase: string,
   label?: string,
 ): Promise<WalletInfo> {
+  if (!passphrase) throw new Error("Owner passphrase is required");
   const walletLabel = label || "Imported Wallet";
   const id = randomBytes(16).toString("hex");
   const count = (db.prepare("SELECT COUNT(*) as c FROM agent_wallets WHERE user_id = ?").get(userId) as any).c;
   const vaultName = `agent-${userId}-${count}`;
 
-  const vaultWallet = vault.importWalletMnemonic(vaultName, mnemonic);
+  const vaultWallet = vault.importWalletMnemonic(vaultName, mnemonic, passphrase);
   const { solana, evm } = vault.getDefaultAddresses(vaultWallet);
 
   db.prepare(`
@@ -172,38 +178,52 @@ export function deleteWallet(userId: string, walletId: string): boolean {
 
 // ─── Signing ───
 
+export interface AuthCreds {
+  passphrase?: string;  // owner mode
+  token?: string;       // agent API key mode
+}
+
 export function signTransaction(
-  userId: string,
+  userId: string | null,
   walletId: string,
   chain: string,
   txHex: string,
+  auth: AuthCreds,
 ): SignResult {
-  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  const r = userId
+    ? (db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any)
+    : (db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ?").get(walletId) as any);
   if (!r) throw new Error("Wallet not found");
-  return vault.signTransaction(r.vault_wallet_id, chain, txHex);
+  return vault.signTransaction(r.vault_wallet_id, chain, txHex, auth);
 }
 
 export function signMessage(
-  userId: string,
+  userId: string | null,
   walletId: string,
   chain: string,
   message: string,
+  auth: AuthCreds,
   encoding?: string,
 ): SignResult {
-  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  const r = userId
+    ? (db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any)
+    : (db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ?").get(walletId) as any);
   if (!r) throw new Error("Wallet not found");
-  return vault.signMessage(r.vault_wallet_id, chain, message, (encoding as "utf8" | "hex") || "utf8");
+  return vault.signMessage(r.vault_wallet_id, chain, message, auth, (encoding as "utf8" | "hex") || "utf8");
 }
 
 export function signTypedData(
-  userId: string,
+  userId: string | null,
   walletId: string,
   chain: string,
   typedDataJson: string,
+  auth: AuthCreds,
 ): SignResult {
-  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  const r = userId
+    ? (db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any)
+    : (db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ?").get(walletId) as any);
   if (!r) throw new Error("Wallet not found");
-  return vault.signTypedData(r.vault_wallet_id, chain, typedDataJson);
+  return vault.signTypedData(r.vault_wallet_id, chain, typedDataJson, auth);
 }
 
 // ─── Derive additional chain ───
@@ -261,12 +281,14 @@ export function createApiKeyForWallet(
   userId: string,
   walletId: string,
   name: string,
+  passphrase: string,
   policyIds?: string[],
   expiresAt?: string,
 ): ApiKeyResult {
+  if (!passphrase) throw new Error("Owner passphrase is required to create an API key");
   const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
   if (!r) throw new Error("Wallet not found");
-  return vault.createApiKey(name, [r.vault_wallet_id], policyIds || [], expiresAt);
+  return vault.createApiKey(name, [r.vault_wallet_id], passphrase, policyIds || [], expiresAt);
 }
 
 export function revokeWalletApiKey(userId: string, walletId: string, keyId: string): void {
@@ -279,16 +301,19 @@ export function revokeWalletApiKey(userId: string, walletId: string, keyId: stri
 
 /**
  * Generate the config an agent needs to use this wallet.
- * Returns a scoped AgentOS API key (agos_key_...) instead of raw private keys.
+ * Issues a scoped AgentOS API key (requires owner passphrase since
+ * the server cannot derive HKDF without it).
  */
 export function getAgentConfig(
   userId: string,
   walletId: string,
+  passphrase: string,
 ): object | null {
+  if (!passphrase) throw new Error("Owner passphrase is required");
   const wallet = getWallet(userId, walletId);
   if (!wallet) return null;
 
-  const apiKey = createApiKeyForWallet(userId, walletId, `agent-config-${walletId}`);
+  const apiKey = createApiKeyForWallet(userId, walletId, `agent-config-${walletId}`, passphrase);
 
   return {
     apiKey: apiKey.token,
@@ -301,7 +326,7 @@ export function getAgentConfig(
         : null,
     },
     accounts: wallet.accounts,
-    note: "Use the AgentOS API key for signing. Raw private keys are never exported.",
+    note: "Use the AgentOS API key for signing. The server cannot decrypt this wallet without the API key or owner passphrase.",
   };
 }
 
