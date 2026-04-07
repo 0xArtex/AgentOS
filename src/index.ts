@@ -123,28 +123,11 @@ app.use(sanitizeInputs);
 app.use(sqlInjectionGuard);
 app.use(bruteForceProtection);
 
-// Wallet proxy BEFORE timeout (on-chain txs can take 60s+)
-app.use("/wallet", async (req: any, res: any) => {
-  try {
-    // app.use strips /wallet prefix; req.url = remaining path
-    // Map: /wallet → /wallet, /wallet/keygen → /keygen, /wallet/setup → /setup
-    // /wallet/0xABC... → /wallet/0xABC... (address lookup)
-    // /wallet/<base58> → /wallet/<base58> (solana address lookup)
-    let path = req.url === "/" ? "/wallet" : req.url;
-    // If path looks like an address (starts with /0x or a base58 pubkey), prefix with /wallet
-    if (/^\/0x[0-9a-fA-F]{40}/.test(path) || /^\/[1-9A-HJ-NP-Za-km-z]{32,44}([/?]|$)/.test(path)) {
-      path = "/wallet" + path;
-    }
-    const url = `http://localhost:3002${path}`;
-    const opts: any = { method: req.method, headers: { "content-type": "application/json" } };
-    if (req.method !== "GET" && req.method !== "HEAD") opts.body = JSON.stringify(req.body);
-    const resp = await fetch(url, opts);
-    const data = await resp.text();
-    res.status(resp.status).set("content-type", resp.headers.get("content-type") || "application/json").send(data);
-  } catch (e: any) {
-    res.status(502).json({ error: "Wallet service unavailable", message: e.message });
-  }
-});
+// Wallet routes BEFORE timeout (on-chain signing can take 60s+)
+import walletRoutes from "./routes/wallet";
+import { initVault } from "./services/wallet-vault";
+initVault();
+app.use("/wallet", walletRoutes);
 
 app.use(requestTimeout(30_000));
 app.use(rateLimit(200, 60_000));
@@ -270,9 +253,12 @@ app.get("/pricing", (_req, res) => {
       },
       wallet: {
         create: "free",
-        status: "free",
-        keygen: "free",
-        note: "Non-custodial smart wallet on Base + Solana. CLI: npx @agntos/agentwallet",
+        import: "free",
+        sign: "free",
+        "sign-message": "free",
+        "sign-typed": "free",
+        "api-key": "free",
+        note: "OWS-backed non-custodial wallet. 10 chain families, policy engine, EIP-712.",
       },
     },
     treasury: {
@@ -467,20 +453,8 @@ app.use("/api/agent-workflows", agentWorkflowsRoutes);
 
 app.use("/api/health-summary", healthSummaryRoutes);
 app.use("/api/agent-score", agentScoreRoutes);
-// /api/wallet also proxied to AgentWallet service
-app.use("/api/wallet", async (req: any, res: any) => {
-  try {
-    const path = req.url === "/" ? "/wallet" : req.url;
-    const url = `http://localhost:3002${path}`;
-    const opts: any = { method: req.method, headers: { "content-type": "application/json" } };
-    if (req.method !== "GET" && req.method !== "HEAD") opts.body = JSON.stringify(req.body);
-    const resp = await fetch(url, opts);
-    const data = await resp.text();
-    res.status(resp.status).set("content-type", resp.headers.get("content-type") || "application/json").send(data);
-  } catch (e: any) {
-    res.status(502).json({ error: "Wallet service unavailable", message: e.message });
-  }
-});
+// /api/wallet → same OWS wallet routes
+app.use("/api/wallet", walletRoutes);
 import agentProfileRouter from "./routes/agent-profile";
 import judgeReadyRouter from "./routes/judge-ready";
 import judgeSummaryRouter from "./routes/judge-summary";

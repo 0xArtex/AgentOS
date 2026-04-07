@@ -353,41 +353,23 @@ async function provisionTemplate(
       logStep("compute", "done", `VPS ready: ${data.server?.ip}`);
     }
 
-    // Step 2: Create wallets
+    // Step 2: Create wallets via OWS
     const walletServices = services.filter((s: any) => s.type?.startsWith("wallet"));
     if (walletServices.length > 0) {
-      logStep("wallet", "running", "Creating agent wallets...");
+      logStep("wallet", "running", "Creating agent wallets via OWS...");
 
-      // Generate keypairs via agentwallet API
-      const keygenResp = await fetch("http://localhost:3002/keygen", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chain: "both" }),
-      });
-      const keys = await keygenResp.json() as any;
-
-      // Create wallets
-      const createResp = await fetch("http://localhost:3002/wallet", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          agent: keys.base?.address,
-          agentSol: keys.solana?.address,
-          chain: "both",
-        }),
-      });
-      const walletData = await createResp.json() as any;
+      const { createWallet, getAgentConfig } = require("../services/wallet");
+      const wallet = await createWallet(userId, "Template Wallet", ["solana", "evm"]);
+      const agentConfig = getAgentConfig(userId, wallet.id);
 
       resources.wallet = {
-        base: { address: walletData.base?.address, agentAddress: keys.base?.address },
-        solana: { address: walletData.solana?.address, agentAddress: keys.solana?.address },
-        // Private keys sent to user securely, NOT stored
-        _keys: {
-          base: keys.base?.privateKey,
-          solana: keys.solana?.privateKey,
-        },
+        id: wallet.id,
+        base: { address: wallet.base.address },
+        solana: { address: wallet.solana.address },
+        vaultWalletId: wallet.vaultWalletId,
+        agentConfig,
       };
-      logStep("wallet", "done", "Wallets created (both chains)");
+      logStep("wallet", "done", "OWS wallet created (Solana + EVM)");
     }
 
     // Step 3: Allocate phone number
