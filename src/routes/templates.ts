@@ -254,8 +254,15 @@ router.post("/:id/deploy", requireDashboardAuth, async (req: DashboardRequest, r
     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
   `).run(projectId, userId, `${template.name} (deployed)`, JSON.stringify(blueprint));
 
+  // Wallet passphrase (only required if the template needs wallet provisioning)
+  const walletPassphrase = (req.body as any)?.walletPassphrase as string | undefined;
+  const needsWallet = services.some((s: any) => s.type?.startsWith("wallet"));
+  if (needsWallet && !walletPassphrase) {
+    return res.status(400).json({ error: "walletPassphrase is required for templates that include wallet services" });
+  }
+
   // Start async provisioning
-  provisionTemplate(deployId, userId, projectId, blueprint, services).catch(err => {
+  provisionTemplate(deployId, userId, projectId, blueprint, services, walletPassphrase).catch(err => {
     console.error("[templates] provisioning error:", err);
     db.prepare("UPDATE template_deployments SET status = 'failed', provisioning_log = ? WHERE id = ?")
       .run(JSON.stringify([{ step: "error", error: err.message, ts: Date.now() }]), deployId);
@@ -313,7 +320,8 @@ async function provisionTemplate(
   userId: string,
   projectId: string,
   blueprint: any,
-  services: any[]
+  services: any[],
+  walletPassphrase?: string,
 ): Promise<void> {
   const log: ProvisionLog[] = [];
   const resources: Record<string, any> = {};
@@ -353,14 +361,18 @@ async function provisionTemplate(
       logStep("compute", "done", `VPS ready: ${data.server?.ip}`);
     }
 
-    // Step 2: Create wallets via OWS
+    // Step 2: Create wallets (non-custodial — passphrase plumbed from request body)
     const walletServices = services.filter((s: any) => s.type?.startsWith("wallet"));
     if (walletServices.length > 0) {
-      logStep("wallet", "running", "Creating agent wallets via OWS...");
+      if (!walletPassphrase) {
+        logStep("wallet", "error", "walletPassphrase is required");
+        throw new Error("walletPassphrase is required to provision template wallets");
+      }
+      logStep("wallet", "running", "Creating agent wallets...");
 
       const { createWallet, getAgentConfig } = require("../services/wallet");
-      const wallet = await createWallet(userId, "Template Wallet", ["solana", "evm"]);
-      const agentConfig = getAgentConfig(userId, wallet.id);
+      const wallet = await createWallet(userId, walletPassphrase, "Template Wallet", ["solana", "evm"]);
+      const agentConfig = getAgentConfig(userId, wallet.id, walletPassphrase);
 
       resources.wallet = {
         id: wallet.id,
@@ -369,7 +381,7 @@ async function provisionTemplate(
         vaultWalletId: wallet.vaultWalletId,
         agentConfig,
       };
-      logStep("wallet", "done", "OWS wallet created (Solana + EVM)");
+      logStep("wallet", "done", "Wallet created (Solana + EVM, non-custodial)");
     }
 
     // Step 3: Allocate phone number

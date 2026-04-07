@@ -9,20 +9,36 @@ import * as walletService from "../services/wallet";
 
 const router = Router();
 
+/**
+ * Resolve auth credentials for signing/sensitive ops:
+ *   - X-Wallet-Passphrase header (or body.passphrase) → owner mode
+ *   - Authorization: Bearer agos_key_... → agent mode (already on req.agentApiKey)
+ */
+function getAuthCreds(req: WalletAuthRequest): walletService.AuthCreds {
+  const passphrase = (req.headers["x-wallet-passphrase"] as string) || req.body?.passphrase;
+  if (passphrase) return { passphrase };
+  if (req.agentApiKey) {
+    const token = (req.headers.authorization || "").replace(/^Bearer\s+/i, "").trim();
+    return { token };
+  }
+  return {};
+}
+
 // ─── Management routes — dashboard auth only ───
 
 /**
- * POST /wallet — Create a new vault-backed wallet (dashboard users only)
- * Body: { label?, chains?: string[] }
+ * POST /wallet — Create a new wallet (owner passphrase required)
+ * Body: { label?, chains?, passphrase }
  */
 router.post("/", requireDashboardOnly, async (req: WalletAuthRequest, res: Response) => {
   try {
-    const { label, chains } = req.body || {};
-    const wallet = await walletService.createWallet(req.dashUserId!, label, chains);
+    const { label, chains, passphrase } = req.body || {};
+    if (!passphrase) return res.status(400).json({ error: "passphrase is required" });
+    const wallet = await walletService.createWallet(req.dashUserId!, passphrase, label, chains);
     res.json({
       success: true,
       wallet,
-      message: "Wallet created via Open Wallet Standard",
+      message: "Wallet created. The server cannot decrypt this wallet without your passphrase or an issued API key.",
     });
   } catch (err: any) {
     console.error("[wallet] Create error:", err);
@@ -31,13 +47,15 @@ router.post("/", requireDashboardOnly, async (req: WalletAuthRequest, res: Respo
 });
 
 /**
- * POST /wallet/import — Import wallet from mnemonic (dashboard only)
+ * POST /wallet/import — Import wallet from mnemonic (passphrase required)
+ * Body: { mnemonic, passphrase, label? }
  */
 router.post("/import", requireDashboardOnly, async (req: WalletAuthRequest, res: Response) => {
   try {
-    const { mnemonic, label } = req.body || {};
+    const { mnemonic, passphrase, label } = req.body || {};
     if (!mnemonic) return res.status(400).json({ error: "mnemonic is required" });
-    const wallet = await walletService.importWallet(req.dashUserId!, mnemonic, label);
+    if (!passphrase) return res.status(400).json({ error: "passphrase is required" });
+    const wallet = await walletService.importWallet(req.dashUserId!, mnemonic, passphrase, label);
     res.json({ success: true, wallet });
   } catch (err: any) {
     console.error("[wallet] Import error:", err);
@@ -63,16 +81,19 @@ router.delete("/:id", requireDashboardOnly, (req: WalletAuthRequest, res: Respon
 });
 
 /**
- * POST /wallet/:id/api-key — Create AgentOS API key (dashboard only — sensitive)
+ * POST /wallet/:id/api-key — Create scoped API key (requires owner passphrase)
+ * Body: { name, passphrase, policyIds?, expiresAt? }
  */
 router.post("/:id/api-key", requireDashboardOnly, (req: WalletAuthRequest, res: Response) => {
   try {
-    const { name, policyIds, expiresAt } = req.body || {};
+    const { name, passphrase, policyIds, expiresAt } = req.body || {};
     if (!name) return res.status(400).json({ error: "name is required" });
+    if (!passphrase) return res.status(400).json({ error: "passphrase is required" });
     const result = walletService.createApiKeyForWallet(
       req.dashUserId!,
       String(req.params.id),
       name,
+      passphrase,
       policyIds,
       expiresAt,
     );
@@ -97,12 +118,21 @@ router.delete("/:id/api-key", requireDashboardOnly, (req: WalletAuthRequest, res
 });
 
 /**
- * GET /wallet/:id/config — Get agent config (dashboard only — returns new API key)
+ * POST /wallet/:id/config — Get agent config + issue API key (requires passphrase)
+ * Body: { passphrase }
+ *
+ * NOTE: changed from GET → POST because the body must carry the passphrase.
  */
-router.get("/:id/config", requireDashboardOnly, (req: WalletAuthRequest, res: Response) => {
-  const config = walletService.getAgentConfig(req.dashUserId!, String(req.params.id));
-  if (!config) return res.status(404).json({ error: "Wallet not found" });
-  res.json({ config });
+router.post("/:id/config", requireDashboardOnly, (req: WalletAuthRequest, res: Response) => {
+  try {
+    const { passphrase } = req.body || {};
+    if (!passphrase) return res.status(400).json({ error: "passphrase is required" });
+    const config = walletService.getAgentConfig(req.dashUserId!, String(req.params.id), passphrase);
+    if (!config) return res.status(404).json({ error: "Wallet not found" });
+    res.json({ config });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 /**
@@ -120,16 +150,15 @@ router.post("/:id/policy", requireDashboardOnly, (req: WalletAuthRequest, res: R
   }
 });
 
-// ─── Read + signing routes — dashboard OR agent API key ───
+// ─── Read routes — dashboard OR agent API key (no decryption) ───
 
 /**
- * GET /wallet/:id — Get wallet details (dashboard OR agent with API key)
+ * GET /wallet/:id — Get wallet details (no decryption needed)
  */
 router.get("/:id", requireWalletAuth, (req: WalletAuthRequest, res: Response) => {
   const wallet = resolveWalletAccess(req, String(req.params.id));
   if (!wallet) return res.status(404).json({ error: "Wallet not found or no access" });
 
-  // Return the full wallet info (map from DB row to service format)
   const walletInfo = req.dashUserId
     ? walletService.getWallet(req.dashUserId, String(req.params.id))
     : walletService.getWallet(wallet.user_id, String(req.params.id));
@@ -137,7 +166,7 @@ router.get("/:id", requireWalletAuth, (req: WalletAuthRequest, res: Response) =>
 });
 
 /**
- * GET /wallet/:id/addresses — List all chain addresses
+ * GET /wallet/:id/addresses — List all chain addresses (no decryption)
  */
 router.get("/:id/addresses", requireWalletAuth, (req: WalletAuthRequest, res: Response) => {
   const wallet = resolveWalletAccess(req, String(req.params.id));
@@ -166,8 +195,11 @@ router.post("/:id/derive", requireWalletAuth, (req: WalletAuthRequest, res: Resp
   }
 });
 
+// ─── Signing routes — owner passphrase OR agent API key ───
+
 /**
- * POST /wallet/:id/sign — Sign a transaction (agent or dashboard)
+ * POST /wallet/:id/sign — Sign a transaction
+ * Body: { chain, transaction, passphrase? }   (passphrase only when not using agent token)
  */
 router.post("/:id/sign", requireWalletAuth, (req: WalletAuthRequest, res: Response) => {
   const wallet = resolveWalletAccess(req, String(req.params.id));
@@ -175,7 +207,8 @@ router.post("/:id/sign", requireWalletAuth, (req: WalletAuthRequest, res: Respon
   try {
     const { chain, transaction } = req.body || {};
     if (!chain || !transaction) return res.status(400).json({ error: "chain and transaction are required" });
-    const result = walletService.signTransaction(wallet.user_id, String(req.params.id), chain, transaction);
+    const auth = getAuthCreds(req);
+    const result = walletService.signTransaction(wallet.user_id, String(req.params.id), chain, transaction, auth);
     res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(400).json({ error: "Signing failed", message: err.message });
@@ -183,7 +216,7 @@ router.post("/:id/sign", requireWalletAuth, (req: WalletAuthRequest, res: Respon
 });
 
 /**
- * POST /wallet/:id/sign-message — Sign a message (agent or dashboard)
+ * POST /wallet/:id/sign-message — Sign a message
  */
 router.post("/:id/sign-message", requireWalletAuth, (req: WalletAuthRequest, res: Response) => {
   const wallet = resolveWalletAccess(req, String(req.params.id));
@@ -191,7 +224,8 @@ router.post("/:id/sign-message", requireWalletAuth, (req: WalletAuthRequest, res
   try {
     const { chain, message, encoding } = req.body || {};
     if (!chain || !message) return res.status(400).json({ error: "chain and message are required" });
-    const result = walletService.signMessage(wallet.user_id, String(req.params.id), chain, message, encoding);
+    const auth = getAuthCreds(req);
+    const result = walletService.signMessage(wallet.user_id, String(req.params.id), chain, message, auth, encoding);
     res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(400).json({ error: "Signing failed", message: err.message });
@@ -199,7 +233,7 @@ router.post("/:id/sign-message", requireWalletAuth, (req: WalletAuthRequest, res
 });
 
 /**
- * POST /wallet/:id/sign-typed — Sign EIP-712 typed data (agent or dashboard)
+ * POST /wallet/:id/sign-typed — Sign EIP-712 typed data
  */
 router.post("/:id/sign-typed", requireWalletAuth, (req: WalletAuthRequest, res: Response) => {
   const wallet = resolveWalletAccess(req, String(req.params.id));
@@ -208,7 +242,8 @@ router.post("/:id/sign-typed", requireWalletAuth, (req: WalletAuthRequest, res: 
     const { chain, typedData } = req.body || {};
     if (!chain || !typedData) return res.status(400).json({ error: "chain and typedData are required" });
     const json = typeof typedData === "string" ? typedData : JSON.stringify(typedData);
-    const result = walletService.signTypedData(wallet.user_id, String(req.params.id), chain, json);
+    const auth = getAuthCreds(req);
+    const result = walletService.signTypedData(wallet.user_id, String(req.params.id), chain, json, auth);
     res.json({ success: true, ...result });
   } catch (err: any) {
     res.status(400).json({ error: "Signing failed", message: err.message });
