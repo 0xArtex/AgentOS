@@ -1,18 +1,44 @@
 /**
- * AgentOS Wallet Vault — pure-JS HD wallet management.
+ * AgentOS Wallet Vault — non-custodial HD wallet management.
  *
- * Stores BIP-39 mnemonics encrypted with Scrypt + AES-256-GCM in
- * the AgentOS data directory. Derives BIP-44 keys for multiple chains.
+ * The server stores encrypted wallets but cannot decrypt them on its own.
+ * Decryption requires either:
+ *   1. The owner passphrase (Scrypt-derived key) — for human owner access
+ *   2. An agent API key (HKDF-derived key) — for scoped autonomous access
  *
  * Vault layout (default `~/.agentos/wallet/`):
- *   wallets/   — encrypted wallet files (one per wallet)
- *   keys/      — agent API keys (token hashes)
+ *   wallets/   — encrypted wallet files (mnemonic encrypted with owner passphrase)
+ *   keys/      — agent API keys (each holds an HKDF-encrypted copy of the mnemonic)
  *   policies/  — declarative policy rules
  *
- * Vault file format is OWS-compatible so wallets can be imported into
- * native @open-wallet-standard/core if desired.
+ * Wallet file format (v2):
+ *   {
+ *     agentos_version: 2,
+ *     id, name, accounts,
+ *     owner_crypto: { iv, salt, ciphertext, tag }   // Scrypt(passphrase) → AES-256-GCM
+ *     created_at
+ *   }
+ *
+ * API key file format:
+ *   {
+ *     id, name,
+ *     token_hash: SHA256(token),                    // for lookup only
+ *     wallet_ids: ["wid1", ...],
+ *     policy_ids: [...],
+ *     encrypted_mnemonics: {                         // HKDF(token) → AES-256-GCM
+ *       wid1: { iv, salt, ciphertext, tag }
+ *     },
+ *     expires_at, created_at
+ *   }
  */
-import { randomBytes, createCipheriv, createDecipheriv, scryptSync, createHash } from "crypto";
+import {
+  randomBytes,
+  createCipheriv,
+  createDecipheriv,
+  scryptSync,
+  createHash,
+  hkdfSync,
+} from "crypto";
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
@@ -57,7 +83,8 @@ export interface ApiKeyValidation {
 
 const DEFAULT_VAULT_PATH = join(homedir(), ".agentos", "wallet");
 const VAULT_PATH = process.env.AGENTOS_WALLET_PATH || DEFAULT_VAULT_PATH;
-const PASSPHRASE = process.env.AGENTOS_WALLET_PASSWORD || "";
+const VAULT_VERSION = 2;
+const HKDF_INFO = "agentos-api-key-v1";
 
 function ensureVault(): string {
   if (!existsSync(VAULT_PATH)) mkdirSync(VAULT_PATH, { recursive: true });
@@ -68,7 +95,7 @@ function ensureVault(): string {
   return VAULT_PATH;
 }
 
-// ─── Encryption ───
+// ─── Encryption primitives ───
 
 interface EncryptedBlob {
   iv: string;
@@ -77,9 +104,7 @@ interface EncryptedBlob {
   tag: string;
 }
 
-function encryptSecret(plaintext: string, passphrase: string): EncryptedBlob {
-  const salt = randomBytes(32);
-  const key = scryptSync(passphrase || "default", salt, 32);
+function encryptWithKey(plaintext: string, key: Buffer, salt: Buffer): EncryptedBlob {
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   let encrypted = cipher.update(plaintext, "utf8", "hex");
@@ -92,13 +117,37 @@ function encryptSecret(plaintext: string, passphrase: string): EncryptedBlob {
   };
 }
 
-function decryptSecret(blob: EncryptedBlob, passphrase: string): string {
-  const key = scryptSync(passphrase || "default", Buffer.from(blob.salt, "hex"), 32);
+function decryptWithKey(blob: EncryptedBlob, key: Buffer): string {
   const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(blob.iv, "hex"));
   decipher.setAuthTag(Buffer.from(blob.tag, "hex"));
   let decrypted = decipher.update(blob.ciphertext, "hex", "utf8");
   decrypted += decipher.final("utf8");
   return decrypted;
+}
+
+function encryptWithPassphrase(plaintext: string, passphrase: string): EncryptedBlob {
+  if (!passphrase) throw new Error("Passphrase is required");
+  const salt = randomBytes(32);
+  const key = scryptSync(passphrase, salt, 32);
+  return encryptWithKey(plaintext, key, salt);
+}
+
+function decryptWithPassphrase(blob: EncryptedBlob, passphrase: string): string {
+  if (!passphrase) throw new Error("Passphrase is required");
+  const key = scryptSync(passphrase, Buffer.from(blob.salt, "hex"), 32);
+  return decryptWithKey(blob, key);
+}
+
+function encryptWithToken(plaintext: string, token: string): EncryptedBlob {
+  const salt = randomBytes(32);
+  const key = Buffer.from(hkdfSync("sha256", token, salt, HKDF_INFO, 32));
+  return encryptWithKey(plaintext, key, salt);
+}
+
+function decryptWithToken(blob: EncryptedBlob, token: string): string {
+  const salt = Buffer.from(blob.salt, "hex");
+  const key = Buffer.from(hkdfSync("sha256", token, salt, HKDF_INFO, 32));
+  return decryptWithKey(blob, key);
 }
 
 // ─── HD derivation ───
@@ -129,7 +178,7 @@ function deriveAllAccounts(mnemonic: string): AccountInfo[] {
     });
   } catch {}
 
-  // Bitcoin (secp256k1, BIP-84) — placeholder address until bech32 lib added
+  // Bitcoin (secp256k1, BIP-84) — placeholder address
   try {
     const { HDNodeWallet } = require("ethers");
     const hd = HDNodeWallet.fromPhrase(mnemonic, undefined, "m/84'/0'/0'/0/0");
@@ -174,8 +223,19 @@ interface WalletFile {
   id: string;
   name: string;
   accounts: AccountInfo[];
-  crypto: EncryptedBlob;
+  owner_crypto: EncryptedBlob;
   key_type: "mnemonic" | "private_key";
+  created_at: string;
+}
+
+interface ApiKeyFile {
+  id: string;
+  name: string;
+  token_hash: string;
+  wallet_ids: string[];
+  policy_ids: string[];
+  encrypted_mnemonics: Record<string, EncryptedBlob>;
+  expires_at: string | null;
   created_at: string;
 }
 
@@ -186,18 +246,39 @@ function loadWalletFile(nameOrId: string): { path: string; data: WalletFile } {
     const fpath = join(dir, f);
     const data = JSON.parse(readFileSync(fpath, "utf8")) as WalletFile;
     if (data.id === nameOrId || data.name === nameOrId) {
+      if (data.agentos_version !== VAULT_VERSION) {
+        throw new Error(
+          `Wallet "${nameOrId}" is in vault format v${data.agentos_version}, but the current code requires v${VAULT_VERSION}. Re-create the wallet.`,
+        );
+      }
       return { path: fpath, data };
     }
   }
   throw new Error(`Wallet "${nameOrId}" not found`);
 }
 
-function getMnemonic(nameOrId: string): string {
-  const { data } = loadWalletFile(nameOrId);
-  if (data.key_type !== "mnemonic") {
-    throw new Error("Wallet was imported as a raw private key, no mnemonic available");
+function loadApiKeyFileById(id: string): { path: string; data: ApiKeyFile } | null {
+  ensureVault();
+  const dir = join(VAULT_PATH, "keys");
+  for (const f of readdirSync(dir).filter(x => x.endsWith(".json"))) {
+    const fpath = join(dir, f);
+    const data = JSON.parse(readFileSync(fpath, "utf8")) as ApiKeyFile;
+    if (data.id === id) return { path: fpath, data };
   }
-  return decryptSecret(data.crypto, PASSPHRASE);
+  return null;
+}
+
+function loadApiKeyFileByToken(token: string): { path: string; data: ApiKeyFile } | null {
+  if (!token || !token.startsWith("agos_key_")) return null;
+  ensureVault();
+  const tokenHash = createHash("sha256").update(token).digest("hex");
+  const dir = join(VAULT_PATH, "keys");
+  for (const f of readdirSync(dir).filter(x => x.endsWith(".json"))) {
+    const fpath = join(dir, f);
+    const data = JSON.parse(readFileSync(fpath, "utf8")) as ApiKeyFile;
+    if (data.token_hash === tokenHash) return { path: fpath, data };
+  }
+  return null;
 }
 
 // ─── Public API ───
@@ -222,20 +303,24 @@ export function deriveAddress(mnemonic: string, chain: string): string {
   throw new Error(`Chain "${chain}" not supported`);
 }
 
-// Wallet CRUD ──────────────────────────────────────────
+// ─── Wallet CRUD ───
 
-export function createWallet(name: string, words: number = 12): WalletInfo {
+/**
+ * Create a new wallet. The owner passphrase is required and never stored.
+ */
+export function createWallet(name: string, passphrase: string, words: number = 12): WalletInfo {
+  if (!passphrase) throw new Error("Owner passphrase is required");
   ensureVault();
   const mnemonic = generateMnemonic(words);
   const id = randomBytes(16).toString("hex");
   const accounts = deriveAllAccounts(mnemonic);
 
   const file: WalletFile = {
-    agentos_version: 1,
+    agentos_version: VAULT_VERSION,
     id,
     name,
     accounts,
-    crypto: encryptSecret(mnemonic, PASSPHRASE),
+    owner_crypto: encryptWithPassphrase(mnemonic, passphrase),
     key_type: "mnemonic",
     created_at: new Date().toISOString(),
   };
@@ -244,18 +329,19 @@ export function createWallet(name: string, words: number = 12): WalletInfo {
   return { id, name, accounts, createdAt: file.created_at };
 }
 
-export function importWalletMnemonic(name: string, mnemonic: string): WalletInfo {
+export function importWalletMnemonic(name: string, mnemonic: string, passphrase: string): WalletInfo {
   if (!bip39.validateMnemonic(mnemonic)) throw new Error("Invalid mnemonic");
+  if (!passphrase) throw new Error("Owner passphrase is required");
   ensureVault();
   const id = randomBytes(16).toString("hex");
   const accounts = deriveAllAccounts(mnemonic);
 
   const file: WalletFile = {
-    agentos_version: 1,
+    agentos_version: VAULT_VERSION,
     id,
     name,
     accounts,
-    crypto: encryptSecret(mnemonic, PASSPHRASE),
+    owner_crypto: encryptWithPassphrase(mnemonic, passphrase),
     key_type: "mnemonic",
     created_at: new Date().toISOString(),
   };
@@ -281,12 +367,32 @@ export function getWallet(nameOrId: string): WalletInfo {
 }
 
 export function deleteWallet(nameOrId: string): void {
-  const { path } = loadWalletFile(nameOrId);
+  const { path, data } = loadWalletFile(nameOrId);
   unlinkSync(path);
+  // Also clean up any API keys that referenced this wallet
+  ensureVault();
+  const keysDir = join(VAULT_PATH, "keys");
+  for (const f of readdirSync(keysDir).filter(x => x.endsWith(".json"))) {
+    const fpath = join(keysDir, f);
+    const key = JSON.parse(readFileSync(fpath, "utf8")) as ApiKeyFile;
+    if (key.wallet_ids.includes(data.id)) {
+      key.wallet_ids = key.wallet_ids.filter(id => id !== data.id);
+      delete key.encrypted_mnemonics[data.id];
+      if (key.wallet_ids.length === 0) {
+        unlinkSync(fpath);
+      } else {
+        writeFileSync(fpath, JSON.stringify(key, null, 2));
+      }
+    }
+  }
 }
 
-export function exportWallet(nameOrId: string): string {
-  return getMnemonic(nameOrId);
+/**
+ * Export the mnemonic for owner backup. Requires the owner passphrase.
+ */
+export function exportWallet(nameOrId: string, passphrase: string): string {
+  const { data } = loadWalletFile(nameOrId);
+  return decryptWithPassphrase(data.owner_crypto, passphrase);
 }
 
 export function renameWallet(nameOrId: string, newName: string): void {
@@ -295,10 +401,50 @@ export function renameWallet(nameOrId: string, newName: string): void {
   writeFileSync(path, JSON.stringify(data, null, 2));
 }
 
-// Signing ──────────────────────────────────────────────
+// ─── Mnemonic resolution ───
 
-export function signMessage(walletId: string, chain: string, message: string, encoding: "utf8" | "hex" = "utf8"): SignResult {
-  const mnemonic = getMnemonic(walletId);
+/**
+ * Resolve the mnemonic for a wallet using either the owner passphrase
+ * or an API key token. The server holds neither — both must be provided
+ * by the caller for each operation.
+ */
+function resolveMnemonic(walletId: string, opts: { passphrase?: string; token?: string }): string {
+  // Owner mode
+  if (opts.passphrase) {
+    const { data } = loadWalletFile(walletId);
+    return decryptWithPassphrase(data.owner_crypto, opts.passphrase);
+  }
+
+  // Agent mode (HKDF via API key)
+  if (opts.token) {
+    const keyFile = loadApiKeyFileByToken(opts.token);
+    if (!keyFile) throw new Error("Invalid API key token");
+    if (keyFile.data.expires_at && Date.now() > new Date(keyFile.data.expires_at).getTime()) {
+      throw new Error("API key has expired");
+    }
+    // Resolve wallet ID from name if needed
+    const { data: walletData } = loadWalletFile(walletId);
+    if (!keyFile.data.wallet_ids.includes(walletData.id)) {
+      throw new Error("API key does not have access to this wallet");
+    }
+    const blob = keyFile.data.encrypted_mnemonics[walletData.id];
+    if (!blob) throw new Error("API key has no encrypted secret for this wallet");
+    return decryptWithToken(blob, opts.token);
+  }
+
+  throw new Error("Either passphrase or API key token is required to sign");
+}
+
+// ─── Signing ───
+
+export function signMessage(
+  walletId: string,
+  chain: string,
+  message: string,
+  auth: { passphrase?: string; token?: string },
+  encoding: "utf8" | "hex" = "utf8",
+): SignResult {
+  const mnemonic = resolveMnemonic(walletId, auth);
   const c = chain.toLowerCase();
   const msgBytes = encoding === "hex" ? Buffer.from(message, "hex") : Buffer.from(message, "utf8");
 
@@ -318,8 +464,13 @@ export function signMessage(walletId: string, chain: string, message: string, en
   throw new Error(`Chain "${chain}" not supported for message signing`);
 }
 
-export function signTransaction(walletId: string, chain: string, txHex: string): SignResult {
-  const mnemonic = getMnemonic(walletId);
+export function signTransaction(
+  walletId: string,
+  chain: string,
+  txHex: string,
+  auth: { passphrase?: string; token?: string },
+): SignResult {
+  const mnemonic = resolveMnemonic(walletId, auth);
   const c = chain.toLowerCase();
 
   if (c === "solana" || c.startsWith("solana:")) {
@@ -341,8 +492,13 @@ export function signTransaction(walletId: string, chain: string, txHex: string):
   throw new Error(`Chain "${chain}" not supported for transaction signing`);
 }
 
-export function signTypedData(walletId: string, _chain: string, typedDataJson: string): SignResult {
-  const mnemonic = getMnemonic(walletId);
+export function signTypedData(
+  walletId: string,
+  _chain: string,
+  typedDataJson: string,
+  auth: { passphrase?: string; token?: string },
+): SignResult {
+  const mnemonic = resolveMnemonic(walletId, auth);
   const { TypedDataEncoder, SigningKey } = require("ethers");
   const hd = deriveEvmWallet(mnemonic);
 
@@ -358,23 +514,24 @@ export function signTypedData(walletId: string, _chain: string, typedDataJson: s
 }
 
 /**
- * Get the raw Solana keypair for a wallet (used by deposit monitor sweeps).
- * Bypasses the OWS abstraction since sweep operations need full @solana/web3.js Keypair.
+ * Get the raw Solana keypair for a wallet — requires owner passphrase.
+ * Used by the deposit monitor for sweeps. NOT exposed via the API.
  */
-export function getSolanaKeypair(walletId: string): Keypair {
-  const mnemonic = getMnemonic(walletId);
+export function getSolanaKeypair(walletId: string, passphrase: string): Keypair {
+  const mnemonic = resolveMnemonic(walletId, { passphrase });
   return deriveSolanaKeypair(mnemonic);
 }
 
 /**
- * Get the raw EVM private key for a wallet (used by deposit monitor sweeps).
+ * Get the raw EVM private key for a wallet — requires owner passphrase.
+ * Used by the deposit monitor for sweeps. NOT exposed via the API.
  */
-export function getEvmPrivateKey(walletId: string): string {
-  const mnemonic = getMnemonic(walletId);
+export function getEvmPrivateKey(walletId: string, passphrase: string): string {
+  const mnemonic = resolveMnemonic(walletId, { passphrase });
   return deriveEvmWallet(mnemonic).privateKey;
 }
 
-// Policies ─────────────────────────────────────────────
+// ─── Policies ───
 
 export function createPolicy(policyJson: string): { id: string } {
   ensureVault();
@@ -402,26 +559,47 @@ export function deletePolicy(id: string): void {
   if (existsSync(fpath)) unlinkSync(fpath);
 }
 
-// API keys ─────────────────────────────────────────────
+// ─── API keys ───
 
 const API_KEY_PREFIX = "agos_key_";
 
+/**
+ * Create a scoped API key. Requires the owner passphrase to encrypt the
+ * mnemonic copies for each wallet. The passphrase is used transiently
+ * (in this single call) and never stored.
+ *
+ * Returns the token — show it to the user once. We only store SHA256(token)
+ * for lookup and HKDF(token)-encrypted mnemonics.
+ */
 export function createApiKey(
   name: string,
   walletIds: string[],
+  passphrase: string,
   policyIds: string[] = [],
   expiresAt?: string,
 ): ApiKeyResult {
+  if (!passphrase) throw new Error("Owner passphrase is required to create an API key");
+  if (walletIds.length === 0) throw new Error("At least one wallet ID is required");
+
   ensureVault();
   const id = randomBytes(8).toString("hex");
   const token = `${API_KEY_PREFIX}${randomBytes(24).toString("hex")}`;
 
-  const file = {
+  // Decrypt each wallet with the owner passphrase, re-encrypt with HKDF(token)
+  const encryptedMnemonics: Record<string, EncryptedBlob> = {};
+  for (const wid of walletIds) {
+    const { data } = loadWalletFile(wid);
+    const mnemonic = decryptWithPassphrase(data.owner_crypto, passphrase);
+    encryptedMnemonics[data.id] = encryptWithToken(mnemonic, token);
+  }
+
+  const file: ApiKeyFile = {
     id,
     name,
     token_hash: createHash("sha256").update(token).digest("hex"),
-    wallet_ids: walletIds,
+    wallet_ids: walletIds.map(wid => loadWalletFile(wid).data.id), // canonicalize to IDs
     policy_ids: policyIds,
+    encrypted_mnemonics: encryptedMnemonics,
     expires_at: expiresAt || null,
     created_at: new Date().toISOString(),
   };
@@ -434,7 +612,7 @@ export function listApiKeys(): any[] {
   ensureVault();
   const dir = join(VAULT_PATH, "keys");
   return readdirSync(dir).filter(f => f.endsWith(".json")).map(f => {
-    const d = JSON.parse(readFileSync(join(dir, f), "utf8"));
+    const d = JSON.parse(readFileSync(join(dir, f), "utf8")) as ApiKeyFile;
     return {
       id: d.id,
       name: d.name,
@@ -446,8 +624,8 @@ export function listApiKeys(): any[] {
 }
 
 export function revokeApiKey(id: string): void {
-  const fpath = join(VAULT_PATH, "keys", `${id}.json`);
-  if (existsSync(fpath)) unlinkSync(fpath);
+  const found = loadApiKeyFileById(id);
+  if (found) unlinkSync(found.path);
 }
 
 /**
@@ -455,30 +633,19 @@ export function revokeApiKey(id: string): void {
  * or null if invalid/expired/not found.
  */
 export function validateApiKey(token: string): ApiKeyValidation | null {
-  if (!token || !token.startsWith(API_KEY_PREFIX)) return null;
-  ensureVault();
-  const tokenHash = createHash("sha256").update(token).digest("hex");
-  const dir = join(VAULT_PATH, "keys");
-  if (!existsSync(dir)) return null;
+  const found = loadApiKeyFileByToken(token);
+  if (!found) return null;
 
-  for (const file of readdirSync(dir).filter(f => f.endsWith(".json"))) {
-    try {
-      const data = JSON.parse(readFileSync(join(dir, file), "utf8"));
-      if (data.token_hash !== tokenHash) continue;
-
-      if (data.expires_at && Date.now() > new Date(data.expires_at).getTime()) {
-        return null;
-      }
-
-      return {
-        id: data.id,
-        name: data.name,
-        walletIds: data.wallet_ids || [],
-        policyIds: data.policy_ids || [],
-      };
-    } catch {}
+  if (found.data.expires_at && Date.now() > new Date(found.data.expires_at).getTime()) {
+    return null;
   }
-  return null;
+
+  return {
+    id: found.data.id,
+    name: found.data.name,
+    walletIds: found.data.wallet_ids,
+    policyIds: found.data.policy_ids,
+  };
 }
 
 // ─── Helpers ───
