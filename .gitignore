@@ -3,6 +3,7 @@ dist/
 .env
 *.js.map
 data/
+.claude/
 data/deposit-master.json
 data/wallet-master.json
 

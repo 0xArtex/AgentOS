@@ -35,7 +35,7 @@ router.get("/:agentId", (req: Request, res: Response) => {
   try { emails = db.prepare("SELECT id, address FROM emails WHERE agent_id = ?").all(agentId) as any[]; } catch {}
   try { servers = db.prepare("SELECT id, specs, status FROM servers WHERE agent_id = ?").all(agentId) as any[]; } catch {}
   try { domains = db.prepare("SELECT id, domain, status FROM domains WHERE agent_id = ?").all(agentId) as any[]; } catch {}
-  try { wallets = db.prepare("SELECT id, label, public_key, balance_sol, balance_usdc FROM agent_wallets WHERE agent_id = ?").all(agentId) as any[]; } catch {}
+  try { wallets = db.prepare("SELECT id, label, sol_address, base_address, supported_chains FROM agent_wallets WHERE user_id = ?").all(agentId) as any[]; } catch {}
 
   // Activity count
   let activityCount = 0;
