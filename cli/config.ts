@@ -42,6 +42,7 @@ export interface AgentOSConfig {
   setupDone?: boolean
   vaultEnabled?: boolean
   apiKey?: string  // AgentOS API key for agent access
+  defaultPayWalletId?: string  // Vault wallet ID used by x402 pay flow
   // Legacy compat
   chain?: string
   keyfile?: string

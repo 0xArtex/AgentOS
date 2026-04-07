@@ -5,6 +5,8 @@
  */
 
 import { loadKeypair, loadConfig, log } from './config.js'
+import { getVaultSolanaKeypair, hasVaultWallets, listVaultWallets } from './vault.js'
+import type { Keypair as SolanaKeypair } from '@solana/web3.js'
 
 // Solana constants
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
@@ -40,6 +42,41 @@ export function parsePaymentRequired(data: any): {
 }
 
 /**
+ * Resolve the Solana payer keypair. Prefers a vault wallet (AgentOS native,
+ * BIP-39 encrypted) and falls back to a legacy keyfile configured via setup.
+ *
+ * Vault wallet selection order:
+ *   1. walletId argument (explicit)
+ *   2. config.defaultPayWalletId
+ *   3. AGENTOS_PAY_WALLET env var
+ *   4. First vault wallet with a Solana address
+ */
+function resolvePayerKeypair(walletId?: string): SolanaKeypair | null {
+  const cfg = loadConfig()
+
+  // Try the vault first
+  if (hasVaultWallets()) {
+    const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.AGENTOS_PAY_WALLET
+    try {
+      if (targetId) return getVaultSolanaKeypair(targetId)
+      // Otherwise pick the first vault wallet that has a Solana account
+      const wallets = listVaultWallets()
+      const first = wallets.find(w => w.solanaAddress)
+      if (first) return getVaultSolanaKeypair(first.id)
+    } catch (err: any) {
+      console.error(`  Vault wallet load failed: ${err.message}`)
+      // Fall through to keyfile
+    }
+  }
+
+  // Fall back to the legacy keyfile flow
+  const keypairBytes = loadKeypair()
+  if (!keypairBytes) return null
+  const { Keypair } = require('@solana/web3.js')
+  return Keypair.fromSecretKey(keypairBytes) as SolanaKeypair
+}
+
+/**
  * Build and partially sign a USDC transfer transaction for x402 payment.
  * Uses raw keypair for transaction building (needed for multi-instruction Solana txs).
  */
@@ -47,20 +84,20 @@ export async function buildPaymentTransaction(
   payTo: string,
   amount: bigint,
   feePayer: string,
+  walletId?: string,
 ): Promise<{ transaction: string; payer: string } | null> {
-  const keypairBytes = loadKeypair()
-  if (!keypairBytes) {
-    console.error('  No keypair configured. Run: agentos setup --keyfile /path/to/keypair.json')
+  const payer = resolvePayerKeypair(walletId)
+  if (!payer) {
+    console.error('  No wallet configured. Create one with: agentos wallet create')
+    console.error('  Or configure a keyfile: agentos setup --keyfile /path/to/keypair.json')
     return null
   }
 
   // Dynamic import to keep CLI fast when payment isn't needed
   const { Connection, PublicKey, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } = await import('@solana/web3.js')
   const { getAssociatedTokenAddress, createTransferCheckedInstruction, getMint } = await import('@solana/spl-token')
-  const { Keypair } = await import('@solana/web3.js')
 
   const connection = new Connection(SOLANA_RPC, 'confirmed')
-  const payer = Keypair.fromSecretKey(keypairBytes)
   const payerPub = payer.publicKey
   const feePayerPub = new PublicKey(feePayer)
   const recipientPub = new PublicKey(payTo)
@@ -142,15 +179,14 @@ export async function paidRequest(
   const payment = parsePaymentRequired(data)
   if (!payment) throw new Error('Cannot parse payment requirements from 402 response')
 
-  // Determine which chain to pay on and load the right keypair
-  const payChain = payment.network.startsWith('solana') ? 'solana' : 'base'
-  const keypair = loadKeypair(payChain as any)
-  if (!keypair) throw new Error(`No ${payChain} keyfile configured. Run: agentos setup --keyfile /path/to/keypair.json --chain ${payChain}`)
+  if (!payment.network.startsWith('solana')) {
+    throw new Error(`Only Solana x402 payments are supported in this CLI. Got: ${payment.network}`)
+  }
 
   console.log(`  Paying ${Number(payment.amount) / 1e6} USDC on Solana...`)
 
   const tx = await buildPaymentTransaction(payment.payTo, payment.amount, payment.feePayer)
-  if (!tx) throw new Error('Failed to build payment transaction')
+  if (!tx) throw new Error('Failed to build payment transaction — no wallet configured')
 
   // Retry with payment header
   const paymentPayload = {

@@ -582,7 +582,7 @@ async function main() {
           render(React.createElement(MenuScreen, {
             version: VERSION,
             title: 'wallet',
-            subtitle: 'Open Wallet Standard',
+            subtitle: 'Encrypted BIP-39 vault',
             footerLeft: 'Vault-backed wallet operations',
             commands: [
               { name: 'create', description: 'Create a new wallet', hint: '--chains solana,evm' },
@@ -593,6 +593,7 @@ async function main() {
               { name: 'sign-message', description: 'Sign a message', hint: 'WALLET_ID --chain evm --msg "hello"' },
               { name: 'api-key', description: 'Create agent API key', hint: 'WALLET_ID --name my-agent' },
               { name: 'config', description: 'Get agent config', hint: 'WALLET_ID' },
+              { name: 'use', description: 'Set default pay wallet', hint: 'WALLET_ID' },
             ],
           }))
           break
@@ -726,7 +727,26 @@ async function main() {
             print(data.config || data)
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, addresses, sign-message, api-key, config`)
+          case 'use': {
+            const walletId = positional[0] || flags.id as string
+            if (!walletId) err('Wallet ID required')
+            const cfg = loadConfig()
+            cfg.defaultPayWalletId = walletId
+            saveConfig(cfg)
+            if (json) return print({ success: true, defaultPayWalletId: walletId })
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'Default pay wallet set',
+              subtitle: walletId,
+              footerLeft: 'x402 payments will use this wallet',
+              details: [
+                { label: 'Wallet ID', value: walletId },
+                { label: 'Config', value: '~/.agentos/config.json' },
+              ],
+            }))
+            break
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, addresses, sign-message, api-key, config, use`)
         }
         break
       }
