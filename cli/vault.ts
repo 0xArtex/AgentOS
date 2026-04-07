@@ -1,9 +1,13 @@
 /**
- * CLI-side reader for the AgentOS wallet vault.
+ * CLI-side reader for the AgentOS wallet vault (v2 format).
  *
- * Loads encrypted wallet files from ~/.agentos/wallet/, decrypts with
- * AGENTOS_WALLET_PASSWORD, and derives Solana/EVM keys. Vault file format
- * matches src/services/wallet-vault.ts so files are interchangeable.
+ * Loads encrypted wallet files from ~/.agentos/wallet/ and decrypts them
+ * with the user-provided owner passphrase. Vault file format matches
+ * src/services/wallet-vault.ts.
+ *
+ * The CLI never reads the passphrase from environment by default — it
+ * must be provided explicitly to each call. Pass `AGENTOS_WALLET_PASSPHRASE`
+ * via env only as a convenience for scripts.
  */
 import { createDecipheriv, scryptSync } from 'crypto'
 import { existsSync, readFileSync, readdirSync } from 'fs'
@@ -25,10 +29,12 @@ interface WalletFile {
   id: string
   name: string
   accounts: Array<{ chainId: string; address: string; derivationPath: string }>
-  crypto: EncryptedBlob
+  owner_crypto: EncryptedBlob
   key_type: 'mnemonic' | 'private_key'
   created_at: string
 }
+
+const VAULT_VERSION = 2
 
 export interface VaultWalletSummary {
   id: string
@@ -43,7 +49,8 @@ function getVaultDir(): string {
 }
 
 function decrypt(blob: EncryptedBlob, passphrase: string): string {
-  const key = scryptSync(passphrase || 'default', Buffer.from(blob.salt, 'hex'), 32)
+  if (!passphrase) throw new Error('Passphrase is required to decrypt wallet')
+  const key = scryptSync(passphrase, Buffer.from(blob.salt, 'hex'), 32)
   const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(blob.iv, 'hex'))
   decipher.setAuthTag(Buffer.from(blob.tag, 'hex'))
   let decrypted = decipher.update(blob.ciphertext, 'hex', 'utf8')
@@ -57,7 +64,12 @@ function loadWalletFile(nameOrId: string): WalletFile {
 
   for (const f of readdirSync(dir).filter(x => x.endsWith('.json'))) {
     const data = JSON.parse(readFileSync(join(dir, f), 'utf8')) as WalletFile
-    if (data.id === nameOrId || data.name === nameOrId) return data
+    if (data.id === nameOrId || data.name === nameOrId) {
+      if (data.agentos_version !== VAULT_VERSION) {
+        throw new Error(`Wallet is in vault format v${data.agentos_version}, expected v${VAULT_VERSION}`)
+      }
+      return data
+    }
   }
   throw new Error(`Wallet "${nameOrId}" not found in vault at ${dir}`)
 }
@@ -78,14 +90,12 @@ export function listVaultWallets(): VaultWalletSummary[] {
 }
 
 /**
- * Get a raw Solana Keypair for a vault wallet. Requires AGENTOS_WALLET_PASSWORD
- * in the environment if the vault was created with one.
+ * Get a raw Solana Keypair for a vault wallet. The owner passphrase is required.
  */
-export function getVaultSolanaKeypair(walletId: string): Keypair {
+export function getVaultSolanaKeypair(walletId: string, passphrase: string): Keypair {
   const file = loadWalletFile(walletId)
   if (file.key_type !== 'mnemonic') throw new Error('Wallet was imported as a raw private key')
-  const passphrase = process.env.AGENTOS_WALLET_PASSWORD || ''
-  const mnemonic = decrypt(file.crypto, passphrase)
+  const mnemonic = decrypt(file.owner_crypto, passphrase)
   const seed = bip39.mnemonicToSeedSync(mnemonic)
   const derived = derivePath("m/44'/501'/0'/0'", seed.toString('hex'))
   return Keypair.fromSeed(derived.key)

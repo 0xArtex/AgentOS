@@ -121,7 +121,8 @@ async function main() {
   }
   const url = flags.url as string || config.api
   const token = (flags.token as string) || config.apiKey || process.env.AGENTOS_TOKEN || process.env.AGENTOS_API_KEY
-  const ao = new AgentOS(url, true, token)
+  const passphrase = (flags.passphrase as string) || process.env.AGENTOS_WALLET_PASSPHRASE
+  const ao = new AgentOS(url, true, token, passphrase)
   const json = !!flags.json
 
   try {
@@ -598,12 +599,20 @@ async function main() {
           }))
           break
         }
+        // Passphrase resolver: --passphrase flag → AGENTOS_WALLET_PASSPHRASE env var
+        const getPassphrase = (): string => {
+          const p = (flags.passphrase as string) || process.env.AGENTOS_WALLET_PASSPHRASE
+          if (!p) err('Passphrase required. Pass --passphrase or set AGENTOS_WALLET_PASSPHRASE')
+          return p as string
+        }
+
         switch (subcommand) {
           case 'create': {
+            const passphrase = getPassphrase()
             const label = flags.label as string || undefined
             const chainsStr = flags.chains as string || 'solana,evm'
             const chains = chainsStr.split(',').map((c: string) => c.trim())
-            const data = await ao.walletCreate(label, chains)
+            const data = await ao.walletCreate(passphrase, label, chains)
             if (json) return print(data)
             const w = data.wallet
             render(React.createElement(WalletCreateScreen, {
@@ -620,8 +629,9 @@ async function main() {
           case 'import': {
             const mnemonic = flags.mnemonic as string
             if (!mnemonic) err('--mnemonic "your twelve words..." required')
+            const passphrase = getPassphrase()
             const label = flags.label as string || undefined
-            const data = await ao.walletImport(mnemonic, label)
+            const data = await ao.walletImport(mnemonic, passphrase, label)
             if (json) return print(data)
             const w = data.wallet
             render(React.createElement(WalletCreateScreen, {
@@ -686,7 +696,9 @@ async function main() {
             const chain = flags.chain as string
             const msg = flags.msg as string || flags.message as string
             if (!chain || !msg) err('--chain and --msg required')
-            const data = await ao.walletSignMessage(walletId, chain, msg)
+            // Use passphrase if no API key token is set on the SDK
+            const passphrase = ao.token ? undefined : getPassphrase()
+            const data = await ao.walletSignMessage(walletId, chain, msg, passphrase)
             if (json) return print(data)
             render(React.createElement(SuccessScreen, {
               version: VERSION,
@@ -704,7 +716,8 @@ async function main() {
             const walletId = positional[0] || flags.id as string
             if (!walletId) err('Wallet ID required')
             const name = flags.name as string || 'cli-agent'
-            const data = await ao.walletApiKey(walletId, name)
+            const passphrase = getPassphrase()
+            const data = await ao.walletApiKey(walletId, name, passphrase)
             if (json) return print(data)
             render(React.createElement(SuccessScreen, {
               version: VERSION,
@@ -722,7 +735,8 @@ async function main() {
           case 'config': {
             const walletId = positional[0] || flags.id as string
             if (!walletId) err('Wallet ID required')
-            const data = await ao.walletConfig(walletId)
+            const passphrase = getPassphrase()
+            const data = await ao.walletConfig(walletId, passphrase)
             if (json) return print(data)
             print(data.config || data)
             break

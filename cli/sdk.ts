@@ -7,11 +7,13 @@ const DEFAULT_API = 'https://agntos.dev'
 export class AgentOS {
   public api: string
   public token?: string
+  public passphrase?: string
   private autoPay: boolean
 
-  constructor(apiUrl?: string, autoPay?: boolean, token?: string) {
+  constructor(apiUrl?: string, autoPay?: boolean, token?: string, passphrase?: string) {
     this.api = apiUrl || process.env.AGENTOS_API || DEFAULT_API
     this.token = token || process.env.AGENTOS_TOKEN || process.env.AGENTOS_API_KEY
+    this.passphrase = passphrase || process.env.AGENTOS_WALLET_PASSPHRASE
     this.autoPay = autoPay ?? true
   }
 
@@ -23,11 +25,11 @@ export class AgentOS {
     const res = await fetch(this.api + path, opts)
     const data = await res.json() as any
 
-    // If 402 and autoPay enabled, try to pay
+    // If 402 and autoPay enabled, try to pay (uses local vault wallet via pay.ts)
     if (res.status === 402 && this.autoPay) {
       try {
         const { paidRequest } = await import('./pay.js')
-        const result = await paidRequest(this.api, method, path, body)
+        const result = await paidRequest(this.api, method, path, body, this.passphrase)
         return result.data
       } catch (e: any) {
         throw new Error(e.message)
@@ -106,13 +108,13 @@ export class AgentOS {
     return this.request('GET', `/domains/${domain}/dns`)
   }
 
-  // ── Wallet (vault-backed) ──
-  async walletCreate(label?: string, chains?: string[]): Promise<any> {
-    return this.request('POST', '/wallet', { label, chains })
+  // ── Wallet (non-custodial vault) ──
+  async walletCreate(passphrase: string, label?: string, chains?: string[]): Promise<any> {
+    return this.request('POST', '/wallet', { passphrase, label, chains })
   }
 
-  async walletImport(mnemonic: string, label?: string): Promise<any> {
-    return this.request('POST', '/wallet/import', { mnemonic, label })
+  async walletImport(mnemonic: string, passphrase: string, label?: string): Promise<any> {
+    return this.request('POST', '/wallet/import', { mnemonic, passphrase, label })
   }
 
   async walletList(): Promise<any> {
@@ -135,32 +137,33 @@ export class AgentOS {
     return this.request('POST', `/wallet/${walletId}/derive`, { chain })
   }
 
-  async walletSign(walletId: string, chain: string, transaction: string): Promise<any> {
-    return this.request('POST', `/wallet/${walletId}/sign`, { chain, transaction })
+  /** Sign a transaction. Pass either passphrase OR rely on Bearer agos_key_... token */
+  async walletSign(walletId: string, chain: string, transaction: string, passphrase?: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/sign`, { chain, transaction, passphrase })
   }
 
-  async walletSignMessage(walletId: string, chain: string, message: string): Promise<any> {
-    return this.request('POST', `/wallet/${walletId}/sign-message`, { chain, message })
+  async walletSignMessage(walletId: string, chain: string, message: string, passphrase?: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/sign-message`, { chain, message, passphrase })
   }
 
-  async walletSignTyped(walletId: string, chain: string, typedData: string): Promise<any> {
-    return this.request('POST', `/wallet/${walletId}/sign-typed`, { chain, typedData })
+  async walletSignTyped(walletId: string, chain: string, typedData: string, passphrase?: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/sign-typed`, { chain, typedData, passphrase })
   }
 
   async walletPolicy(walletId: string, policy: any): Promise<any> {
     return this.request('POST', `/wallet/${walletId}/policy`, { policy })
   }
 
-  async walletApiKey(walletId: string, name: string, policyIds?: string[], expiresAt?: string): Promise<any> {
-    return this.request('POST', `/wallet/${walletId}/api-key`, { name, policyIds, expiresAt })
+  async walletApiKey(walletId: string, name: string, passphrase: string, policyIds?: string[], expiresAt?: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/api-key`, { name, passphrase, policyIds, expiresAt })
   }
 
   async walletRevokeApiKey(walletId: string, keyId: string): Promise<any> {
     return this.request('DELETE', `/wallet/${walletId}/api-key`, { keyId })
   }
 
-  async walletConfig(walletId: string): Promise<any> {
-    return this.request('GET', `/wallet/${walletId}/config`)
+  async walletConfig(walletId: string, passphrase: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/config`, { passphrase })
   }
 
   // ── Info ──

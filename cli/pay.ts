@@ -43,26 +43,34 @@ export function parsePaymentRequired(data: any): {
 
 /**
  * Resolve the Solana payer keypair. Prefers a vault wallet (AgentOS native,
- * BIP-39 encrypted) and falls back to a legacy keyfile configured via setup.
+ * BIP-39 encrypted, requires passphrase) and falls back to a legacy keyfile.
  *
  * Vault wallet selection order:
  *   1. walletId argument (explicit)
  *   2. config.defaultPayWalletId
  *   3. AGENTOS_PAY_WALLET env var
  *   4. First vault wallet with a Solana address
+ *
+ * Passphrase resolution:
+ *   1. passphrase argument (explicit)
+ *   2. AGENTOS_WALLET_PASSPHRASE env var
  */
-function resolvePayerKeypair(walletId?: string): SolanaKeypair | null {
+function resolvePayerKeypair(walletId?: string, passphrase?: string): SolanaKeypair | null {
   const cfg = loadConfig()
+  const pass = passphrase || process.env.AGENTOS_WALLET_PASSPHRASE
 
   // Try the vault first
   if (hasVaultWallets()) {
+    if (!pass) {
+      console.error('  Vault wallet requires a passphrase. Set AGENTOS_WALLET_PASSPHRASE or pass --passphrase')
+      return null
+    }
     const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.AGENTOS_PAY_WALLET
     try {
-      if (targetId) return getVaultSolanaKeypair(targetId)
-      // Otherwise pick the first vault wallet that has a Solana account
+      if (targetId) return getVaultSolanaKeypair(targetId, pass)
       const wallets = listVaultWallets()
       const first = wallets.find(w => w.solanaAddress)
-      if (first) return getVaultSolanaKeypair(first.id)
+      if (first) return getVaultSolanaKeypair(first.id, pass)
     } catch (err: any) {
       console.error(`  Vault wallet load failed: ${err.message}`)
       // Fall through to keyfile
@@ -85,8 +93,9 @@ export async function buildPaymentTransaction(
   amount: bigint,
   feePayer: string,
   walletId?: string,
+  passphrase?: string,
 ): Promise<{ transaction: string; payer: string } | null> {
-  const payer = resolvePayerKeypair(walletId)
+  const payer = resolvePayerKeypair(walletId, passphrase)
   if (!payer) {
     console.error('  No wallet configured. Create one with: agentos wallet create')
     console.error('  Or configure a keyfile: agentos setup --keyfile /path/to/keypair.json')
@@ -152,12 +161,15 @@ export async function buildPaymentTransaction(
 
 /**
  * Make a paid request: call endpoint → if 402 → build payment → retry with payment
+ *
+ * Passphrase resolution: explicit arg → AGENTOS_WALLET_PASSPHRASE env var → fail
  */
 export async function paidRequest(
   api: string,
   method: string,
   path: string,
-  body?: Record<string, unknown>
+  body?: Record<string, unknown>,
+  passphrase?: string,
 ): Promise<{ data: any; paid: boolean; txHash?: string }> {
   const opts: RequestInit = {
     method,
@@ -185,7 +197,7 @@ export async function paidRequest(
 
   console.log(`  Paying ${Number(payment.amount) / 1e6} USDC on Solana...`)
 
-  const tx = await buildPaymentTransaction(payment.payTo, payment.amount, payment.feePayer)
+  const tx = await buildPaymentTransaction(payment.payTo, payment.amount, payment.feePayer, undefined, passphrase)
   if (!tx) throw new Error('Failed to build payment transaction — no wallet configured')
 
   // Retry with payment header
