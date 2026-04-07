@@ -136,15 +136,45 @@ router.post("/:id/config", requireDashboardOnly, (req: WalletAuthRequest, res: R
 });
 
 /**
- * POST /wallet/:id/policy — Update wallet policy (dashboard only)
+ * POST /wallet/:id/policy — Set spending policy (dashboard only)
+ * Body: { policy: { per_tx_usdc?, daily_usdc?, allowed_chains?: string[] } }
  */
 router.post("/:id/policy", requireDashboardOnly, (req: WalletAuthRequest, res: Response) => {
   try {
     const { policy } = req.body || {};
-    if (!policy) return res.status(400).json({ error: "policy is required" });
-    const json = typeof policy === "string" ? policy : JSON.stringify(policy);
-    walletService.updatePolicy(req.dashUserId!, String(req.params.id), json);
+    if (!policy || typeof policy !== "object") {
+      return res.status(400).json({ error: "policy object is required" });
+    }
+    walletService.updatePolicy(req.dashUserId!, String(req.params.id), policy);
     res.json({ success: true, message: "Policy updated" });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /wallet/:id/policy — Get current policy (dashboard or agent)
+ */
+router.get("/:id/policy", requireWalletAuth, (req: WalletAuthRequest, res: Response) => {
+  const wallet = resolveWalletAccess(req, String(req.params.id));
+  if (!wallet) return res.status(404).json({ error: "Wallet not found or no access" });
+  try {
+    const policy = walletService.getPolicy(wallet.user_id, String(req.params.id));
+    res.json({ policy });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /wallet/:id/spending — Get spend log + 24h total (dashboard or agent)
+ */
+router.get("/:id/spending", requireWalletAuth, (req: WalletAuthRequest, res: Response) => {
+  const wallet = resolveWalletAccess(req, String(req.params.id));
+  if (!wallet) return res.status(404).json({ error: "Wallet not found or no access" });
+  try {
+    const data = walletService.getSpending(wallet.user_id, String(req.params.id));
+    res.json(data);
   } catch (err: any) {
     res.status(400).json({ error: err.message });
   }

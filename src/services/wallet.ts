@@ -261,18 +261,36 @@ export function getAddresses(
 
 // ─── Policy management ───
 
+/**
+ * Set the per-wallet spending policy (per-tx limit, daily limit, allowed chains).
+ * Enforced at sign time by the vault module — fail-closed if a tx can't be decoded.
+ */
 export function updatePolicy(
   userId: string,
   walletId: string,
-  policyJson: string,
+  policy: vault.WalletPolicy,
 ): void {
   const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
   if (!r) throw new Error("Wallet not found");
-  vault.createPolicy(policyJson);
+  vault.setWalletPolicy(r.vault_wallet_id, policy);
 }
 
-export function getPolicies(): any[] {
-  return vault.listPolicies();
+export function getPolicy(userId: string, walletId: string): vault.WalletPolicy | null {
+  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+  return vault.getWalletPolicy(r.vault_wallet_id);
+}
+
+export function getSpending(
+  userId: string,
+  walletId: string,
+): { entries: vault.SpendEntry[]; daily_total_usdc: number } {
+  const r = db.prepare("SELECT vault_wallet_id FROM agent_wallets WHERE id = ? AND user_id = ?").get(walletId, userId) as any;
+  if (!r) throw new Error("Wallet not found");
+  return {
+    entries: vault.getSpendLog(r.vault_wallet_id),
+    daily_total_usdc: vault.getDailySpend(r.vault_wallet_id),
+  };
 }
 
 // ─── API key management ───
