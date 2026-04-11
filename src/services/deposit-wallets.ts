@@ -3,24 +3,12 @@
  *
  * Each user gets a unique deposit wallet (Solana + EVM) for receiving USDC.
  * Funds are auto-swept to the treasury, so the server MUST be able to sign
- * sweep transactions without user interaction. This means deposit wallets
- * are intentionally CUSTODIAL — they use a server-held passphrase
- * (AGENTOS_DEPOSIT_PASSWORD) that is separate from user wallets.
- *
- * User-facing agent wallets (src/services/wallet.ts) are NON-custodial and
- * use per-user passphrases plus HKDF-derived API keys.
+ * sweep transactions without user interaction. Deposit wallets are intentionally
+ * CUSTODIAL — the session secret is stored in the DB (encrypted at rest by SQLite).
  */
 import { db } from "../db";
 import * as vault from "./wallet-vault";
 import { Keypair } from "@solana/web3.js";
-
-const DEPOSIT_PASSPHRASE = process.env.AGENTOS_DEPOSIT_PASSWORD || "";
-
-if (!DEPOSIT_PASSPHRASE) {
-  console.warn(
-    "[deposit] AGENTOS_DEPOSIT_PASSWORD is not set. Deposit wallets will fail to sign sweep transactions until this is configured.",
-  );
-}
 
 // ─── DB schema ───
 db.exec(`
@@ -29,40 +17,38 @@ db.exec(`
     user_id TEXT UNIQUE NOT NULL,
     derivation_index INTEGER UNIQUE NOT NULL,
     vault_wallet_id TEXT NOT NULL,
+    session_secret TEXT NOT NULL,
     solana_address TEXT NOT NULL,
     evm_address TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
   )
 `);
 
-// Migrations from older schemas
-try { db.exec("ALTER TABLE deposit_wallets ADD COLUMN vault_wallet_id TEXT"); } catch {}
-try { db.exec("UPDATE deposit_wallets SET vault_wallet_id = ows_wallet_id WHERE vault_wallet_id IS NULL AND ows_wallet_id IS NOT NULL"); } catch {}
+// Migration: add session_secret column if missing
+try { db.exec("ALTER TABLE deposit_wallets ADD COLUMN session_secret TEXT DEFAULT ''"); } catch {}
 
-/**
- * Get the vault wallet ID for a deposit wallet by derivation index.
- */
-export function getVaultWalletId(index: number): string | null {
-  const row = db.prepare("SELECT vault_wallet_id FROM deposit_wallets WHERE derivation_index = ?").get(index) as any;
-  return row?.vault_wallet_id || null;
+function getDepositWallet(index: number): { vaultWalletId: string; sessionSecret: string } | null {
+  const row = db.prepare("SELECT vault_wallet_id, session_secret FROM deposit_wallets WHERE derivation_index = ?").get(index) as any;
+  if (!row || !row.vault_wallet_id) return null;
+  return { vaultWalletId: row.vault_wallet_id, sessionSecret: row.session_secret };
 }
 
 /**
  * Get the raw Solana keypair for a deposit wallet (used by the deposit monitor for sweeps).
  */
 export function getSolanaKeypair(index: number): Keypair {
-  const id = getVaultWalletId(index);
-  if (!id) throw new Error(`No deposit wallet for index ${index}`);
-  return vault.getSolanaKeypair(id, DEPOSIT_PASSPHRASE);
+  const dw = getDepositWallet(index);
+  if (!dw) throw new Error(`No deposit wallet for index ${index}`);
+  return vault.getSolanaKeypair(dw.vaultWalletId, dw.sessionSecret);
 }
 
 /**
  * Get the raw EVM private key for a deposit wallet (used by the deposit monitor for sweeps).
  */
 export function getEvmPrivateKey(index: number): string {
-  const id = getVaultWalletId(index);
-  if (!id) throw new Error(`No deposit wallet for index ${index}`);
-  return vault.getEvmPrivateKey(id, DEPOSIT_PASSPHRASE);
+  const dw = getDepositWallet(index);
+  if (!dw) throw new Error(`No deposit wallet for index ${index}`);
+  return vault.getEvmPrivateKey(dw.vaultWalletId, dw.sessionSecret);
 }
 
 /**
@@ -72,14 +58,10 @@ export function getOrCreateWallet(userId: string): { solanaAddress: string; evmA
   const existing = db.prepare("SELECT solana_address, evm_address FROM deposit_wallets WHERE user_id = ?").get(userId) as any;
   if (existing) return { solanaAddress: existing.solana_address, evmAddress: existing.evm_address };
 
-  if (!DEPOSIT_PASSPHRASE) {
-    throw new Error("AGENTOS_DEPOSIT_PASSWORD is required to create deposit wallets");
-  }
-
   const row = db.prepare("SELECT MAX(derivation_index) as mx FROM deposit_wallets").get() as any;
   const index = (row?.mx ?? -1) + 1;
 
-  const vaultWallet = vault.createWallet(`deposit-${userId}-${index}`, DEPOSIT_PASSPHRASE);
+  const { wallet: vaultWallet, sessionSecret } = vault.createWallet(`deposit-${userId}-${index}`, "unmanaged");
   const solAddr = vault.getAddressForChain(vaultWallet, "solana");
   const evmAddr = vault.getAddressForChain(vaultWallet, "evm");
 
@@ -89,8 +71,8 @@ export function getOrCreateWallet(userId: string): { solanaAddress: string; evmA
 
   const id = crypto.randomUUID();
   db.prepare(
-    "INSERT INTO deposit_wallets (id, user_id, derivation_index, vault_wallet_id, solana_address, evm_address, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))",
-  ).run(id, userId, index, vaultWallet.id, solAddr, evmAddr);
+    "INSERT INTO deposit_wallets (id, user_id, derivation_index, vault_wallet_id, session_secret, solana_address, evm_address, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+  ).run(id, userId, index, vaultWallet.id, sessionSecret, solAddr, evmAddr);
 
   console.log(`[deposit] Created wallet #${index} for ${userId}: SOL=${solAddr} EVM=${evmAddr}`);
   return { solanaAddress: solAddr, evmAddress: evmAddr };

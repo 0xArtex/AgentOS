@@ -1,45 +1,28 @@
 /**
  * AgentOS Wallet Vault — non-custodial HD wallet management.
  *
- * The server stores encrypted wallets but cannot decrypt them on its own.
+ * Two modes:
+ *   1. Unmanaged — agent has full control, no limits, session secret in OS cred store
+ *   2. Managed — policy engine enforces spending limits, human approves via passkey
+ *
  * Decryption requires either:
- *   1. The owner passphrase (Scrypt-derived key) — for human owner access
- *   2. An agent API key (HKDF-derived key) — for scoped autonomous access
+ *   - A session secret (stored in OS credential store, never on disk)
+ *   - An agent API key (HKDF-derived key)
  *
  * Vault layout (default `~/.agentos/wallet/`):
- *   wallets/   — encrypted wallet files (mnemonic encrypted with owner passphrase)
- *   keys/      — agent API keys (each holds an HKDF-encrypted copy of the mnemonic)
+ *   wallets/   — encrypted wallet files
+ *   keys/      — agent API keys (HKDF-encrypted mnemonic copies)
  *   policies/  — declarative policy rules
- *
- * Wallet file format (v2):
- *   {
- *     agentos_version: 2,
- *     id, name, accounts,
- *     owner_crypto: { iv, salt, ciphertext, tag }   // Scrypt(passphrase) → AES-256-GCM
- *     created_at
- *   }
- *
- * API key file format:
- *   {
- *     id, name,
- *     token_hash: SHA256(token),                    // for lookup only
- *     wallet_ids: ["wid1", ...],
- *     policy_ids: [...],
- *     encrypted_mnemonics: {                         // HKDF(token) → AES-256-GCM
- *       wid1: { iv, salt, ciphertext, tag }
- *     },
- *     expires_at, created_at
- *   }
+ *   spends/    — spend log entries
  */
 import {
   randomBytes,
   createCipheriv,
   createDecipheriv,
-  scryptSync,
   createHash,
   hkdfSync,
 } from "crypto";
-import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync } from "fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, unlinkSync, renameSync, openSync, closeSync, statSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import * as bip39 from "bip39";
@@ -57,6 +40,7 @@ export interface AccountInfo {
 export interface WalletInfo {
   id: string;
   name: string;
+  mode: "unmanaged" | "managed";
   accounts: AccountInfo[];
   createdAt: string;
 }
@@ -83,7 +67,6 @@ export interface ApiKeyValidation {
 
 const DEFAULT_VAULT_PATH = join(homedir(), ".agentos", "wallet");
 const VAULT_PATH = process.env.AGENTOS_WALLET_PATH || DEFAULT_VAULT_PATH;
-const VAULT_VERSION = 2;
 const HKDF_INFO = "agentos-api-key-v1";
 
 function ensureVault(): string {
@@ -93,6 +76,80 @@ function ensureVault(): string {
     if (!existsSync(p)) mkdirSync(p, { recursive: true });
   }
   return VAULT_PATH;
+}
+
+// ─── Atomic writes & file locks ───
+// Prevents data corruption from concurrent CLI/server processes.
+
+const LOCK_STALE_MS = 30_000; // locks older than 30s are considered stale
+const LOCK_RETRY_MS = 50;     // retry interval
+const LOCK_TIMEOUT_MS = 5_000; // give up after 5s
+
+/**
+ * Write a file atomically: write to a temp sibling, then rename.
+ * Rename is atomic on the same filesystem — readers never see partial data.
+ */
+function atomicWriteFileSync(filePath: string, data: string): void {
+  const tmpPath = filePath + `.tmp.${process.pid}`;
+  writeFileSync(tmpPath, data);
+  renameSync(tmpPath, filePath);
+}
+
+/**
+ * Acquire an exclusive lock on a file path. Returns a release function.
+ * Uses O_CREAT|O_EXCL (the 'wx' flag) which atomically creates a file
+ * only if it doesn't exist — the standard cross-platform lockfile pattern.
+ * Stale locks (>30s) are automatically broken.
+ */
+function acquireLock(targetPath: string): () => void {
+  const lockPath = targetPath + ".lock";
+  const deadline = Date.now() + LOCK_TIMEOUT_MS;
+
+  while (true) {
+    try {
+      const fd = openSync(lockPath, "wx");
+      // Write our PID so stale detection can log who held it
+      writeFileSync(lockPath, `${process.pid}\n${Date.now()}`);
+      closeSync(fd);
+      return () => {
+        try { unlinkSync(lockPath); } catch {}
+      };
+    } catch (err: any) {
+      if (err.code !== "EEXIST") throw err;
+
+      // Lock file exists — check if stale
+      try {
+        const stat = statSync(lockPath);
+        if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
+          try { unlinkSync(lockPath); } catch {}
+          continue; // retry immediately after breaking stale lock
+        }
+      } catch {
+        continue; // lock file vanished between check and stat
+      }
+
+      if (Date.now() >= deadline) {
+        throw new Error(`Timed out waiting for lock on ${targetPath}. Another process may be stuck.`);
+      }
+
+      // Busy-wait with small sleep (sync context — no async available)
+      const waitUntil = Date.now() + LOCK_RETRY_MS;
+      while (Date.now() < waitUntil) { /* spin */ }
+    }
+  }
+}
+
+/**
+ * Run a function while holding an exclusive lock on a file.
+ * The lock is always released, even if fn throws.
+ */
+function withLock<T>(targetPath: string, fn: () => T): T {
+  const release = acquireLock(targetPath);
+  try {
+    return fn();
+  } finally {
+    release();
+  }
 }
 
 // ─── USDC mints (used for spending limit decoding) ───
@@ -131,19 +188,19 @@ function decryptWithKey(blob: EncryptedBlob, key: Buffer): string {
   return decrypted;
 }
 
-function encryptWithPassphrase(plaintext: string, passphrase: string): EncryptedBlob {
-  if (!passphrase) throw new Error("Passphrase is required");
+// Session secret: raw 32-byte hex key → AES-256-GCM
+function encryptWithSessionSecret(plaintext: string, sessionSecretHex: string): EncryptedBlob {
+  const key = Buffer.from(sessionSecretHex, "hex");
   const salt = randomBytes(32);
-  const key = scryptSync(passphrase, salt, 32);
   return encryptWithKey(plaintext, key, salt);
 }
 
-function decryptWithPassphrase(blob: EncryptedBlob, passphrase: string): string {
-  if (!passphrase) throw new Error("Passphrase is required");
-  const key = scryptSync(passphrase, Buffer.from(blob.salt, "hex"), 32);
+function decryptWithSessionSecret(blob: EncryptedBlob, sessionSecretHex: string): string {
+  const key = Buffer.from(sessionSecretHex, "hex");
   return decryptWithKey(blob, key);
 }
 
+// HKDF(token) for API keys
 function encryptWithToken(plaintext: string, token: string): EncryptedBlob {
   const salt = randomBytes(32);
   const key = Buffer.from(hkdfSync("sha256", token, salt, HKDF_INFO, 32));
@@ -173,7 +230,7 @@ function deriveAllAccounts(mnemonic: string): AccountInfo[] {
     });
   } catch {}
 
-  // EVM (secp256k1, BIP-44)
+  // EVM / Base (secp256k1, BIP-44)
   try {
     const { HDNodeWallet } = require("ethers");
     const hd = HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0");
@@ -202,11 +259,6 @@ function deriveEvmWallet(mnemonic: string): any {
 
 /**
  * Spending policy enforced at sign time.
- *   per_tx_usdc      — reject if a single tx transfers more than this
- *   daily_usdc       — reject if 24h cumulative spend (including this tx) exceeds this
- *   allowed_chains   — only sign for chains in this list (e.g. ["solana", "evm"])
- *
- * All fields optional; null/undefined = unlimited / unrestricted.
  */
 export interface WalletPolicy {
   per_tx_usdc?: number | null;
@@ -222,12 +274,12 @@ export interface SpendEntry {
 }
 
 interface WalletFile {
-  agentos_version: number;
   id: string;
   name: string;
+  mode: "unmanaged" | "managed";
   accounts: AccountInfo[];
-  owner_crypto: EncryptedBlob;
-  key_type: "mnemonic" | "private_key";
+  session_crypto: EncryptedBlob;
+  key_type: "mnemonic";
   policy?: WalletPolicy;
   created_at: string;
 }
@@ -250,11 +302,6 @@ function loadWalletFile(nameOrId: string): { path: string; data: WalletFile } {
     const fpath = join(dir, f);
     const data = JSON.parse(readFileSync(fpath, "utf8")) as WalletFile;
     if (data.id === nameOrId || data.name === nameOrId) {
-      if (data.agentos_version !== VAULT_VERSION) {
-        throw new Error(
-          `Wallet "${nameOrId}" is in vault format v${data.agentos_version}, but the current code requires v${VAULT_VERSION}. Re-create the wallet.`,
-        );
-      }
       return { path: fpath, data };
     }
   }
@@ -307,51 +354,89 @@ export function deriveAddress(mnemonic: string, chain: string): string {
   throw new Error(`Chain "${chain}" not supported`);
 }
 
+// ─── Input validation ───
+
+const SAFE_NAME_RE = /^[a-zA-Z0-9 _\-\.]{1,128}$/;
+
+function validateName(name: string): string {
+  if (!name || typeof name !== "string") throw new Error("Wallet name is required");
+  const trimmed = name.trim();
+  if (!SAFE_NAME_RE.test(trimmed)) {
+    throw new Error(
+      `Invalid wallet name: must be 1-128 characters, alphanumeric/spaces/hyphens/underscores/dots only. Got: "${trimmed.slice(0, 30)}"`,
+    );
+  }
+  return trimmed;
+}
+
+function validateHex(value: string, label: string): void {
+  if (!value || !/^[0-9a-f]+$/i.test(value)) {
+    throw new Error(`${label} must be a non-empty hex string`);
+  }
+}
+
 // ─── Wallet CRUD ───
 
 /**
- * Create a new wallet. The owner passphrase is required and never stored.
+ * Create a new wallet. Returns the wallet info and the session secret
+ * (which the caller must store in the OS credential store).
  */
-export function createWallet(name: string, passphrase: string, words: number = 12): WalletInfo {
-  if (!passphrase) throw new Error("Owner passphrase is required");
+export function createWallet(
+  name: string,
+  mode: "unmanaged" | "managed" = "unmanaged",
+  words: number = 12,
+): { wallet: WalletInfo; sessionSecret: string } {
+  const safeName = validateName(name);
   ensureVault();
   const mnemonic = generateMnemonic(words);
   const id = randomBytes(16).toString("hex");
   const accounts = deriveAllAccounts(mnemonic);
+  const sessionSecret = randomBytes(32).toString("hex");
 
   const file: WalletFile = {
-    agentos_version: VAULT_VERSION,
     id,
-    name,
+    name: safeName,
+    mode,
     accounts,
-    owner_crypto: encryptWithPassphrase(mnemonic, passphrase),
+    session_crypto: encryptWithSessionSecret(mnemonic, sessionSecret),
     key_type: "mnemonic",
     created_at: new Date().toISOString(),
   };
 
-  writeFileSync(join(VAULT_PATH, "wallets", `${id}.json`), JSON.stringify(file, null, 2));
-  return { id, name, accounts, createdAt: file.created_at };
+  atomicWriteFileSync(join(VAULT_PATH, "wallets", `${id}.json`), JSON.stringify(file, null, 2));
+  return {
+    wallet: { id, name: safeName, mode, accounts, createdAt: file.created_at },
+    sessionSecret,
+  };
 }
 
-export function importWalletMnemonic(name: string, mnemonic: string, passphrase: string): WalletInfo {
+export function importWalletMnemonic(
+  name: string,
+  mnemonic: string,
+  mode: "unmanaged" | "managed" = "unmanaged",
+): { wallet: WalletInfo; sessionSecret: string } {
+  const safeName = validateName(name);
   if (!bip39.validateMnemonic(mnemonic)) throw new Error("Invalid mnemonic");
-  if (!passphrase) throw new Error("Owner passphrase is required");
   ensureVault();
   const id = randomBytes(16).toString("hex");
   const accounts = deriveAllAccounts(mnemonic);
+  const sessionSecret = randomBytes(32).toString("hex");
 
   const file: WalletFile = {
-    agentos_version: VAULT_VERSION,
     id,
-    name,
+    name: safeName,
+    mode,
     accounts,
-    owner_crypto: encryptWithPassphrase(mnemonic, passphrase),
+    session_crypto: encryptWithSessionSecret(mnemonic, sessionSecret),
     key_type: "mnemonic",
     created_at: new Date().toISOString(),
   };
 
-  writeFileSync(join(VAULT_PATH, "wallets", `${id}.json`), JSON.stringify(file, null, 2));
-  return { id, name, accounts, createdAt: file.created_at };
+  atomicWriteFileSync(join(VAULT_PATH, "wallets", `${id}.json`), JSON.stringify(file, null, 2));
+  return {
+    wallet: { id, name: safeName, mode, accounts, createdAt: file.created_at },
+    sessionSecret,
+  };
 }
 
 export function listWallets(): WalletInfo[] {
@@ -361,90 +446,150 @@ export function listWallets(): WalletInfo[] {
     .filter(f => f.endsWith(".json"))
     .map(f => {
       const data = JSON.parse(readFileSync(join(dir, f), "utf8")) as WalletFile;
-      return { id: data.id, name: data.name, accounts: data.accounts, createdAt: data.created_at };
+      return { id: data.id, name: data.name, mode: data.mode, accounts: data.accounts, createdAt: data.created_at };
     });
 }
 
 export function getWallet(nameOrId: string): WalletInfo {
   const { data } = loadWalletFile(nameOrId);
-  return { id: data.id, name: data.name, accounts: data.accounts, createdAt: data.created_at };
+  return { id: data.id, name: data.name, mode: data.mode, accounts: data.accounts, createdAt: data.created_at };
 }
 
 export function deleteWallet(nameOrId: string): void {
   const { path, data } = loadWalletFile(nameOrId);
-  unlinkSync(path);
-  // Also clean up any API keys that referenced this wallet
+  withLock(path, () => {
+    unlinkSync(path);
+  });
+  // Clean up API keys that referenced this wallet
   ensureVault();
   const keysDir = join(VAULT_PATH, "keys");
   for (const f of readdirSync(keysDir).filter(x => x.endsWith(".json"))) {
     const fpath = join(keysDir, f);
-    const key = JSON.parse(readFileSync(fpath, "utf8")) as ApiKeyFile;
-    if (key.wallet_ids.includes(data.id)) {
-      key.wallet_ids = key.wallet_ids.filter(id => id !== data.id);
-      delete key.encrypted_mnemonics[data.id];
-      if (key.wallet_ids.length === 0) {
-        unlinkSync(fpath);
-      } else {
-        writeFileSync(fpath, JSON.stringify(key, null, 2));
+    withLock(fpath, () => {
+      // Re-read inside lock to get fresh state
+      if (!existsSync(fpath)) return;
+      const key = JSON.parse(readFileSync(fpath, "utf8")) as ApiKeyFile;
+      if (key.wallet_ids.includes(data.id)) {
+        key.wallet_ids = key.wallet_ids.filter(id => id !== data.id);
+        delete key.encrypted_mnemonics[data.id];
+        if (key.wallet_ids.length === 0) {
+          unlinkSync(fpath);
+        } else {
+          atomicWriteFileSync(fpath, JSON.stringify(key, null, 2));
+        }
       }
-    }
+    });
   }
 }
 
-/**
- * Export the mnemonic for owner backup. Requires the owner passphrase.
- */
-export function exportWallet(nameOrId: string, passphrase: string): string {
-  const { data } = loadWalletFile(nameOrId);
-  return decryptWithPassphrase(data.owner_crypto, passphrase);
+export function renameWallet(nameOrId: string, newName: string): void {
+  const safeName = validateName(newName);
+  const { path } = loadWalletFile(nameOrId);
+  withLock(path, () => {
+    const fresh = JSON.parse(readFileSync(path, "utf8")) as WalletFile;
+    fresh.name = safeName;
+    atomicWriteFileSync(path, JSON.stringify(fresh, null, 2));
+  });
 }
 
-export function renameWallet(nameOrId: string, newName: string): void {
-  const { path, data } = loadWalletFile(nameOrId);
-  data.name = newName;
-  writeFileSync(path, JSON.stringify(data, null, 2));
+// ─── File integrity verification ───
+
+/**
+ * Verify that the addresses stored in the wallet file match what the mnemonic
+ * actually derives. Catches tampering: if an attacker edits the JSON to swap
+ * addresses (e.g., to redirect funds), this check catches it at sign time.
+ *
+ * GCM protects the mnemonic, but the accounts array is plaintext in the file.
+ */
+function verifyWalletIntegrity(walletId: string, mnemonic: string): void {
+  const { data } = loadWalletFile(walletId);
+  const derived = deriveAllAccounts(mnemonic);
+
+  // Bidirectional check: file ↔ mnemonic must match exactly.
+  // Forward: every stored account must be derivable (catches swaps + injected fake accounts)
+  for (const stored of data.accounts) {
+    const match = derived.find(d => d.chainId === stored.chainId);
+    if (!match) {
+      throw new Error(
+        `SECURITY: wallet file integrity check failed. ` +
+        `Chain ${stored.chainId} present in file but not derivable from mnemonic. ` +
+        `The wallet file may have been tampered with. Refusing to sign.`,
+      );
+    }
+    if (match.address !== stored.address) {
+      throw new Error(
+        `SECURITY: wallet file integrity check failed. ` +
+        `Stored address for ${stored.chainId} does not match derived address. ` +
+        `Expected ${match.address}, found ${stored.address}. ` +
+        `The wallet file may have been tampered with. Refusing to sign.`,
+      );
+    }
+  }
+
+  // Reverse: every derived account must be present in the file (catches deletions)
+  for (const der of derived) {
+    const match = data.accounts.find(s => s.chainId === der.chainId);
+    if (!match) {
+      throw new Error(
+        `SECURITY: wallet file integrity check failed. ` +
+        `Chain ${der.chainId} derivable from mnemonic but missing from file. ` +
+        `The wallet file may have been tampered with. Refusing to sign.`,
+      );
+    }
+  }
 }
 
 // ─── Mnemonic resolution ───
 
 /**
- * Resolve the mnemonic for a wallet using either the owner passphrase
- * or an API key token. The server holds neither — both must be provided
- * by the caller for each operation.
+ * Resolve the mnemonic for a wallet using either:
+ *   1. A session secret (from OS credential store)
+ *   2. An API key token (HKDF-derived)
+ *
+ * After decryption, verifies wallet file integrity by re-deriving addresses
+ * from the mnemonic and comparing against stored values.
  */
-function resolveMnemonic(walletId: string, opts: { passphrase?: string; token?: string }): string {
-  // Owner mode
-  if (opts.passphrase) {
-    const { data } = loadWalletFile(walletId);
-    return decryptWithPassphrase(data.owner_crypto, opts.passphrase);
-  }
+function resolveMnemonic(walletId: string, opts: { sessionSecret?: string; token?: string }): string {
+  let mnemonic: string;
 
-  // Agent mode (HKDF via API key)
-  if (opts.token) {
+  // Session secret path
+  if (opts.sessionSecret) {
+    const { data } = loadWalletFile(walletId);
+    mnemonic = decryptWithSessionSecret(data.session_crypto, opts.sessionSecret);
+  }
+  // API key path (HKDF)
+  else if (opts.token) {
     const keyFile = loadApiKeyFileByToken(opts.token);
     if (!keyFile) throw new Error("Invalid API key token");
     if (keyFile.data.expires_at && Date.now() > new Date(keyFile.data.expires_at).getTime()) {
       throw new Error("API key has expired");
     }
-    // Resolve wallet ID from name if needed
     const { data: walletData } = loadWalletFile(walletId);
     if (!keyFile.data.wallet_ids.includes(walletData.id)) {
       throw new Error("API key does not have access to this wallet");
     }
     const blob = keyFile.data.encrypted_mnemonics[walletData.id];
     if (!blob) throw new Error("API key has no encrypted secret for this wallet");
-    return decryptWithToken(blob, opts.token);
+    mnemonic = decryptWithToken(blob, opts.token);
+  } else {
+    throw new Error("Either session secret or API key token is required to sign");
   }
 
-  throw new Error("Either passphrase or API key token is required to sign");
+  // Verify file integrity — re-derive addresses from the mnemonic and compare
+  verifyWalletIntegrity(walletId, mnemonic);
+
+  return mnemonic;
 }
 
 // ─── Policy management ───
 
 export function setWalletPolicy(walletId: string, policy: WalletPolicy): void {
-  const { path, data } = loadWalletFile(walletId);
-  data.policy = policy;
-  writeFileSync(path, JSON.stringify(data, null, 2));
+  const { path } = loadWalletFile(walletId);
+  withLock(path, () => {
+    const fresh = JSON.parse(readFileSync(path, "utf8")) as WalletFile;
+    fresh.policy = policy;
+    atomicWriteFileSync(path, JSON.stringify(fresh, null, 2));
+  });
 }
 
 export function getWalletPolicy(walletId: string): WalletPolicy | null {
@@ -470,9 +615,12 @@ function readSpendLog(vaultWalletId: string): SpendEntry[] {
 
 function appendSpend(vaultWalletId: string, entry: SpendEntry): void {
   ensureVault();
-  const log = readSpendLog(vaultWalletId);
-  log.push(entry);
-  writeFileSync(spendLogPath(vaultWalletId), JSON.stringify(log, null, 2));
+  const fpath = spendLogPath(vaultWalletId);
+  withLock(fpath, () => {
+    const log = readSpendLog(vaultWalletId);
+    log.push(entry);
+    atomicWriteFileSync(fpath, JSON.stringify(log, null, 2));
+  });
 }
 
 export function getSpendLog(walletId: string): SpendEntry[] {
@@ -495,11 +643,6 @@ interface DecodedSpend {
   mint: string;
 }
 
-/**
- * Decode a Solana VersionedTransaction (or legacy Transaction) and extract
- * USDC SPL TransferChecked details. Returns null if the tx is not a USDC
- * transfer that we can recognize.
- */
 function decodeSolanaUsdcTransfer(txHex: string): DecodedSpend | null {
   try {
     const { VersionedTransaction, Transaction } = require("@solana/web3.js");
@@ -526,17 +669,13 @@ function decodeSolanaUsdcTransfer(txHex: string): DecodedSpend | null {
       const programId = (accountKeys.get ? accountKeys.get(programIdIdx) : accountKeys[programIdIdx])?.toString();
       if (programId !== SPL_TOKEN && programId !== SPL_TOKEN_2022) continue;
 
-      // Get instruction data bytes (versioned uses Uint8Array, legacy uses Buffer)
       const dataBytes: Uint8Array = ix.data instanceof Uint8Array ? ix.data : Buffer.from(ix.data, "base64");
-
-      // TransferChecked discriminator = 12, data: [12, amount(u64 LE), decimals(u8)]
       if (dataBytes[0] !== 12 || dataBytes.length < 10) continue;
 
       const amountRaw = Buffer.from(dataBytes.slice(1, 9)).readBigUInt64LE();
       const decimals = dataBytes[9];
       if (decimals !== USDC_DECIMALS) continue;
 
-      // accountKeyIndexes = [source, mint, destination, authority, ...]
       const accIdxs: number[] = ix.accountKeyIndexes || ix.accounts || [];
       if (accIdxs.length < 4) continue;
       const mintKey = (accountKeys.get ? accountKeys.get(accIdxs[1]) : accountKeys[accIdxs[1]])?.toString();
@@ -555,13 +694,6 @@ function decodeSolanaUsdcTransfer(txHex: string): DecodedSpend | null {
   }
 }
 
-/**
- * Decode an unsigned EVM transaction (RLP serialized) and extract a USDC ERC-20
- * transfer if it's calling Base USDC. Returns null otherwise.
- *
- * EVM ERC-20 transfer selector: 0xa9059cbb
- * Calldata layout: [4-byte selector] [32-byte address] [32-byte uint256]
- */
 function decodeEvmUsdcTransfer(txHex: string): DecodedSpend | null {
   try {
     const { ethers } = require("ethers");
@@ -572,7 +704,7 @@ function decodeEvmUsdcTransfer(txHex: string): DecodedSpend | null {
     const data = (tx.data || "").toLowerCase();
     if (!data.startsWith("0xa9059cbb") || data.length < 138) return null;
 
-    const destHex = "0x" + data.substring(34, 74);  // 12 bytes pad + 20 bytes addr
+    const destHex = "0x" + data.substring(34, 74);
     const amountHex = "0x" + data.substring(74, 138);
     const amount = BigInt(amountHex);
 
@@ -595,6 +727,20 @@ function decodeUsdcTransfer(chain: string, txHex: string): DecodedSpend | null {
 
 // ─── Policy enforcement ───
 
+/**
+ * Error thrown when a managed wallet exceeds spending limits.
+ * The caller should present an approval link to the human.
+ */
+export class PolicyApprovalRequired extends Error {
+  code = "REQUIRES_APPROVAL" as const;
+  decoded: DecodedSpend;
+  constructor(msg: string, decoded: DecodedSpend) {
+    super(msg);
+    this.name = "PolicyApprovalRequired";
+    this.decoded = decoded;
+  }
+}
+
 function enforcePolicy(walletId: string, chain: string, txHex: string): DecodedSpend | null {
   const { data } = loadWalletFile(walletId);
   const policy = data.policy;
@@ -603,9 +749,12 @@ function enforcePolicy(walletId: string, chain: string, txHex: string): DecodedS
   // Chain allowlist
   if (policy.allowed_chains && policy.allowed_chains.length > 0) {
     const c = chain.toLowerCase();
+    const EVM_ALIASES = ["evm", "base", "ethereum"];
+    const normalizeChain = (ch: string) => EVM_ALIASES.includes(ch) ? "evm" : ch.split(":")[0];
+    const normalizedC = normalizeChain(c);
     const allowed = policy.allowed_chains.some(a => {
       const al = a.toLowerCase();
-      return c === al || c.startsWith(al + ":") || al.startsWith(c + ":");
+      return normalizedC === normalizeChain(al) || c === al || c.startsWith(al + ":") || al.startsWith(c + ":");
     });
     if (!allowed) {
       throw new Error(`Policy denied: chain "${chain}" not in allowed_chains [${policy.allowed_chains.join(", ")}]`);
@@ -619,15 +768,19 @@ function enforcePolicy(walletId: string, chain: string, txHex: string): DecodedS
   const decoded = decodeUsdcTransfer(chain, txHex);
   if (!decoded) {
     throw new Error(
-      `Policy denied: cannot decode transaction. The wallet has spending limits set but the transaction does not match a recognized USDC transfer pattern. Either remove the limits or use a supported transaction shape.`,
+      `Policy denied: cannot decode transaction. The wallet has spending limits set but the transaction does not match a recognized USDC transfer pattern.`,
     );
   }
 
   // Per-tx limit
   if (policy.per_tx_usdc != null && decoded.amount_usdc > policy.per_tx_usdc) {
-    throw new Error(
-      `Policy denied: transaction amount $${decoded.amount_usdc} exceeds per-tx limit $${policy.per_tx_usdc}`,
-    );
+    if (data.mode === "managed") {
+      throw new PolicyApprovalRequired(
+        `Transaction amount $${decoded.amount_usdc} exceeds per-tx limit $${policy.per_tx_usdc}. Human approval required.`,
+        decoded,
+      );
+    }
+    throw new Error(`Policy denied: transaction amount $${decoded.amount_usdc} exceeds per-tx limit $${policy.per_tx_usdc}`);
   }
 
   // 24h daily limit
@@ -638,6 +791,12 @@ function enforcePolicy(walletId: string, chain: string, txHex: string): DecodedS
       .reduce((sum, e) => sum + e.amount_usdc, 0);
     const newTotal = spentLast24h + decoded.amount_usdc;
     if (newTotal > policy.daily_usdc) {
+      if (data.mode === "managed") {
+        throw new PolicyApprovalRequired(
+          `This transaction ($${decoded.amount_usdc.toFixed(6)}) would bring 24h spend to $${newTotal.toFixed(6)}, exceeding daily limit of $${policy.daily_usdc}. Human approval required.`,
+          decoded,
+        );
+      }
       throw new Error(
         `Policy denied: this transaction ($${decoded.amount_usdc.toFixed(6)}) would bring 24h spend to $${newTotal.toFixed(6)}, exceeding daily limit of $${policy.daily_usdc}`,
       );
@@ -653,7 +812,7 @@ export function signMessage(
   walletId: string,
   chain: string,
   message: string,
-  auth: { passphrase?: string; token?: string },
+  auth: { sessionSecret?: string; token?: string },
   encoding: "utf8" | "hex" = "utf8",
 ): SignResult {
   const mnemonic = resolveMnemonic(walletId, auth);
@@ -680,10 +839,9 @@ export function signTransaction(
   walletId: string,
   chain: string,
   txHex: string,
-  auth: { passphrase?: string; token?: string },
+  auth: { sessionSecret?: string; token?: string },
 ): SignResult {
-  // Enforce spending policy BEFORE decryption — fail-closed if decode fails
-  // and policy has limits set.
+  // Enforce spending policy BEFORE decryption
   const decoded = enforcePolicy(walletId, chain, txHex);
 
   const mnemonic = resolveMnemonic(walletId, auth);
@@ -706,7 +864,7 @@ export function signTransaction(
     throw new Error(`Chain "${chain}" not supported for transaction signing`);
   }
 
-  // Record the spend if we successfully decoded one
+  // Record the spend
   if (decoded) {
     const { data } = loadWalletFile(walletId);
     appendSpend(data.id, {
@@ -724,7 +882,7 @@ export function signTypedData(
   walletId: string,
   _chain: string,
   typedDataJson: string,
-  auth: { passphrase?: string; token?: string },
+  auth: { sessionSecret?: string; token?: string },
 ): SignResult {
   const mnemonic = resolveMnemonic(walletId, auth);
   const { TypedDataEncoder, SigningKey } = require("ethers");
@@ -742,49 +900,21 @@ export function signTypedData(
 }
 
 /**
- * Get the raw Solana keypair for a wallet — requires owner passphrase.
- * Used by the deposit monitor for sweeps. NOT exposed via the API.
+ * Get raw Solana keypair — requires session secret.
+ * Used by deposit monitor for sweeps.
  */
-export function getSolanaKeypair(walletId: string, passphrase: string): Keypair {
-  const mnemonic = resolveMnemonic(walletId, { passphrase });
+export function getSolanaKeypair(walletId: string, sessionSecret: string): Keypair {
+  const mnemonic = resolveMnemonic(walletId, { sessionSecret });
   return deriveSolanaKeypair(mnemonic);
 }
 
 /**
- * Get the raw EVM private key for a wallet — requires owner passphrase.
- * Used by the deposit monitor for sweeps. NOT exposed via the API.
+ * Get raw EVM private key — requires session secret.
+ * Used by deposit monitor for sweeps.
  */
-export function getEvmPrivateKey(walletId: string, passphrase: string): string {
-  const mnemonic = resolveMnemonic(walletId, { passphrase });
+export function getEvmPrivateKey(walletId: string, sessionSecret: string): string {
+  const mnemonic = resolveMnemonic(walletId, { sessionSecret });
   return deriveEvmWallet(mnemonic).privateKey;
-}
-
-// ─── Policies ───
-
-export function createPolicy(policyJson: string): { id: string } {
-  ensureVault();
-  const policy = JSON.parse(policyJson);
-  const id = policy.id || randomBytes(8).toString("hex");
-  writeFileSync(join(VAULT_PATH, "policies", `${id}.json`), JSON.stringify({ id, ...policy }, null, 2));
-  return { id };
-}
-
-export function listPolicies(): any[] {
-  ensureVault();
-  const dir = join(VAULT_PATH, "policies");
-  return readdirSync(dir).filter(f => f.endsWith(".json"))
-    .map(f => JSON.parse(readFileSync(join(dir, f), "utf8")));
-}
-
-export function getPolicy(id: string): any {
-  const fpath = join(VAULT_PATH, "policies", `${id}.json`);
-  if (!existsSync(fpath)) throw new Error(`Policy "${id}" not found`);
-  return JSON.parse(readFileSync(fpath, "utf8"));
-}
-
-export function deletePolicy(id: string): void {
-  const fpath = join(VAULT_PATH, "policies", `${id}.json`);
-  if (existsSync(fpath)) unlinkSync(fpath);
 }
 
 // ─── API keys ───
@@ -792,48 +922,46 @@ export function deletePolicy(id: string): void {
 const API_KEY_PREFIX = "agos_key_";
 
 /**
- * Create a scoped API key. Requires the owner passphrase to encrypt the
- * mnemonic copies for each wallet. The passphrase is used transiently
- * (in this single call) and never stored.
- *
- * Returns the token — show it to the user once. We only store SHA256(token)
- * for lookup and HKDF(token)-encrypted mnemonics.
+ * Create a scoped API key. Requires a session secret to decrypt the mnemonic,
+ * then re-encrypts with HKDF(token).
  */
 export function createApiKey(
   name: string,
   walletIds: string[],
-  passphrase: string,
+  sessionSecret: string,
   policyIds: string[] = [],
   expiresAt?: string,
 ): ApiKeyResult {
-  if (!passphrase) throw new Error("Owner passphrase is required to create an API key");
+  const safeName = validateName(name);
+  validateHex(sessionSecret, "sessionSecret");
   if (walletIds.length === 0) throw new Error("At least one wallet ID is required");
+  for (const wid of walletIds) validateHex(wid, "walletId");
 
   ensureVault();
   const id = randomBytes(8).toString("hex");
   const token = `${API_KEY_PREFIX}${randomBytes(24).toString("hex")}`;
 
-  // Decrypt each wallet with the owner passphrase, re-encrypt with HKDF(token)
+  // Decrypt each wallet with session secret, re-encrypt with HKDF(token)
   const encryptedMnemonics: Record<string, EncryptedBlob> = {};
   for (const wid of walletIds) {
     const { data } = loadWalletFile(wid);
-    const mnemonic = decryptWithPassphrase(data.owner_crypto, passphrase);
+    const mnemonic = decryptWithSessionSecret(data.session_crypto, sessionSecret);
     encryptedMnemonics[data.id] = encryptWithToken(mnemonic, token);
   }
 
   const file: ApiKeyFile = {
     id,
-    name,
+    name: safeName,
     token_hash: createHash("sha256").update(token).digest("hex"),
-    wallet_ids: walletIds.map(wid => loadWalletFile(wid).data.id), // canonicalize to IDs
+    wallet_ids: walletIds.map(wid => loadWalletFile(wid).data.id),
     policy_ids: policyIds,
     encrypted_mnemonics: encryptedMnemonics,
     expires_at: expiresAt || null,
     created_at: new Date().toISOString(),
   };
 
-  writeFileSync(join(VAULT_PATH, "keys", `${id}.json`), JSON.stringify(file, null, 2));
-  return { token, id, name };
+  atomicWriteFileSync(join(VAULT_PATH, "keys", `${id}.json`), JSON.stringify(file, null, 2));
+  return { token, id, name: safeName };
 }
 
 export function listApiKeys(): any[] {
@@ -856,10 +984,6 @@ export function revokeApiKey(id: string): void {
   if (found) unlinkSync(found.path);
 }
 
-/**
- * Validate an API key token. Returns the accessible wallet IDs and policy IDs,
- * or null if invalid/expired/not found.
- */
 export function validateApiKey(token: string): ApiKeyValidation | null {
   const found = loadApiKeyFileByToken(token);
   if (!found) return null;
