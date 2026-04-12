@@ -124,10 +124,11 @@ app.use(sqlInjectionGuard);
 app.use(bruteForceProtection);
 
 // Wallet routes BEFORE timeout (on-chain signing can take 60s+)
+// Vault directories are created lazily on first write (see ensureVault in wallet-vault.ts)
 import walletRoutes from "./routes/wallet";
-import { initVault } from "./services/wallet-vault";
-initVault();
+import walletPasskeyRoutes from "./routes/wallet-passkey";
 app.use("/wallet", walletRoutes);
+app.use("/wallet", walletPasskeyRoutes);
 
 app.use(requestTimeout(30_000));
 app.use(rateLimit(200, 60_000));
@@ -453,8 +454,9 @@ app.use("/api/agent-workflows", agentWorkflowsRoutes);
 
 app.use("/api/health-summary", healthSummaryRoutes);
 app.use("/api/agent-score", agentScoreRoutes);
-// /api/wallet → same OWS wallet routes
+// /api/wallet → same wallet routes
 app.use("/api/wallet", walletRoutes);
+app.use("/api/wallet", walletPasskeyRoutes);
 import agentProfileRouter from "./routes/agent-profile";
 import judgeReadyRouter from "./routes/judge-ready";
 import judgeSummaryRouter from "./routes/judge-summary";

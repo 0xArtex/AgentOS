@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Approve Request</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111;
+      --surface-raised: #161616;
+      --border: #222;
+      --border-focus: #333;
+      --accent: #f54900;
+      --accent-dim: rgba(245, 73, 0, 0.12);
+      --accent-hover: #ff5c1a;
+      --text: #e8e8e8;
+      --text-dim: #888;
+      --text-muted: #555;
+      --success: #22c55e;
+      --success-dim: rgba(34, 197, 94, 0.1);
+      --error: #ef4444;
+      --error-dim: rgba(239, 68, 68, 0.1);
+      --warning: #f59e0b;
+      --warning-dim: rgba(245, 158, 11, 0.1);
+      --font: 'Courier New', Courier, monospace;
+      --radius: 6px;
+      --transition: 0.15s ease;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+
+    .wordmark {
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .wordmark::before, .wordmark::after {
+      content: '';
+      display: block;
+      width: 24px;
+      height: 1px;
+      background: var(--text-muted);
+    }
+
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 24px 28px 20px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0.02em;
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .req-id-badge {
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 8px;
+      white-space: nowrap;
+      flex-shrink: 0;
+    }
+
+    .card-body { padding: 28px; }
+
+    /* Loading skeleton */
+    .skeleton {
+      background: linear-gradient(90deg, var(--surface-raised) 25%, #1c1c1c 50%, var(--surface-raised) 75%);
+      background-size: 200% 100%;
+      animation: shimmer 1.4s infinite;
+      border-radius: 4px;
+    }
+
+    @keyframes shimmer { to { background-position: -200% 0; } }
+
+    .skeleton-block { height: 14px; margin-bottom: 8px; }
+    .skeleton-block.short { width: 60%; }
+    .skeleton-block.med { width: 80%; }
+    .skeleton-block.full { width: 100%; }
+    .skeleton-block.tall { height: 60px; }
+
+    /* Action card */
+    .action-card {
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px;
+      margin-bottom: 20px;
+    }
+
+    .action-card-label {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .action-name {
+      font-size: 13px;
+      color: var(--text);
+      margin-bottom: 10px;
+      font-weight: 500;
+    }
+
+    .action-params {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .param-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+    }
+
+    .param-key { color: var(--text-dim); }
+
+    .param-value {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* Expiry indicator */
+    .expiry-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+    }
+
+    .expiry-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--success);
+      flex-shrink: 0;
+    }
+
+    .expiry-dot.urgent { background: var(--warning); animation: pulse 1s infinite; }
+    .expiry-dot.expired { background: var(--error); }
+
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* Divider */
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 20px 0;
+    }
+
+    /* Passkey prompt */
+    .passkey-icon {
+      width: 48px;
+      height: 48px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(245, 73, 0, 0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 14px;
+      font-size: 20px;
+    }
+
+    .passkey-prompt {
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: center;
+      margin-bottom: 20px;
+    }
+
+    /* Buttons */
+    .btn {
+      width: 100%;
+      padding: 13px 20px;
+      border-radius: var(--radius);
+      border: none;
+      font-family: var(--font);
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-danger {
+      background: transparent;
+      color: var(--error);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-danger:hover:not(:disabled) {
+      background: var(--error-dim);
+      border-color: rgba(239, 68, 68, 0.5);
+    }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: none;
+    }
+
+    .btn.loading .spinner { display: block; }
+    .btn.loading .btn-text { opacity: 0.6; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Alerts */
+    .alert {
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      font-size: 12px;
+      line-height: 1.5;
+      margin-bottom: 16px;
+      display: none;
+    }
+
+    .alert.visible { display: block; }
+
+    .alert-error {
+      background: var(--error-dim);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+    }
+
+    .alert-warning {
+      background: var(--warning-dim);
+      border: 1px solid rgba(245, 158, 11, 0.2);
+      color: #fcd34d;
+    }
+
+    .alert-label {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    /* Success state */
+    .success-icon {
+      width: 56px;
+      height: 56px;
+      background: var(--success-dim);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 24px;
+      color: var(--success);
+    }
+
+    .result-title {
+      text-align: center;
+      font-size: 15px;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    .result-title.success { color: var(--success); }
+    .result-title.rejected { color: var(--text-dim); }
+
+    .result-body {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.7;
+    }
+
+    .footer-note {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Error state */
+    .state-error {
+      text-align: center;
+      padding: 40px 28px;
+    }
+
+    .state-error-icon {
+      font-size: 28px;
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+
+    .state-error-title {
+      font-size: 14px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .state-error-body {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Panels */
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    .button-stack {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wordmark">AgentOS</div>
+
+  <div class="card" id="main-card">
+    <div class="card-header">
+      <div>
+        <div class="card-title">Agent Approval Request</div>
+        <div class="card-subtitle">Review and authorise your agent's action</div>
+      </div>
+      <div class="req-id-badge" id="req-badge">Loading...</div>
+    </div>
+    <div class="card-body" id="card-body">
+      <!-- loading skeleton -->
+      <div class="skeleton skeleton-block short" style="margin-bottom:16px;height:11px;width:40%"></div>
+      <div class="action-card">
+        <div class="skeleton skeleton-block short" style="height:10px;width:30%;margin-bottom:12px"></div>
+        <div class="skeleton skeleton-block med" style="height:13px;margin-bottom:12px"></div>
+        <div class="skeleton skeleton-block full" style="height:10px;margin-bottom:6px"></div>
+        <div class="skeleton skeleton-block med" style="height:10px"></div>
+      </div>
+      <div class="skeleton skeleton-block short" style="height:11px;margin-bottom:20px;width:50%"></div>
+      <div class="skeleton skeleton-block full tall" style="border-radius:6px;margin-bottom:10px"></div>
+      <div class="skeleton skeleton-block full" style="height:44px;border-radius:6px"></div>
+    </div>
+  </div>
+
+  <script>
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    function base64urlToBuffer(base64url) {
+      const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/')
+      const pad = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4))
+      const binary = atob(base64 + pad)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      return bytes.buffer
+    }
+
+    function bufferToBase64url(buffer) {
+      const bytes = new Uint8Array(buffer)
+      let binary = ''
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+
+    function jsonPost(url, body) {
+      return fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+    }
+
+    function formatParam(key, value) {
+      // Friendly label formatting
+      const labels = {
+        daily_usdc: 'Daily limit',
+        per_tx_usdc: 'Per-transaction limit',
+        amount: 'Amount',
+        recipient: 'Recipient',
+        token: 'Token',
+        destination: 'Destination',
+      }
+      const label = labels[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+
+      // Currency formatting
+      const currencyKeys = ['daily_usdc', 'per_tx_usdc', 'amount']
+      let display = value
+      if (currencyKeys.includes(key) && typeof value === 'number') {
+        display = `$${value.toLocaleString()} USDC`
+      } else if (typeof value === 'string' && value.length > 28) {
+        display = value.slice(0, 10) + '...' + value.slice(-6)
+      }
+
+      return { label, display }
+    }
+
+    function formatExpiry(iso) {
+      const exp = new Date(iso)
+      const now = new Date()
+      const diffMs = exp - now
+      if (diffMs <= 0) return { text: 'Expired', cls: 'expired' }
+      const diffMin = Math.floor(diffMs / 60000)
+      if (diffMin < 5) return { text: `Expires in ${diffMin}m`, cls: 'urgent' }
+      if (diffMin < 60) return { text: `Expires in ${diffMin}m`, cls: '' }
+      const diffH = Math.floor(diffMin / 60)
+      return { text: `Expires in ${diffH}h`, cls: '' }
+    }
+
+    // ── URL parsing ──────────────────────────────────────────────────────────
+
+    const pathMatch = location.pathname.match(/\/wallet\/([^/]+)\/approve\/([^/]+)/)
+    const walletId = pathMatch ? pathMatch[1] : null
+    const reqId    = pathMatch ? pathMatch[2] : null
+
+    // ── State ────────────────────────────────────────────────────────────────
+
+    let requestDetails = null
+
+    // ── Render helpers ───────────────────────────────────────────────────────
+
+    const cardBody = document.getElementById('card-body')
+    const reqBadge = document.getElementById('req-badge')
+
+    function renderFatalError(title, body) {
+      reqBadge.textContent = 'Error'
+      cardBody.innerHTML = `
+        <div class="state-error">
+          <div class="state-error-icon">&#9888;</div>
+          <div class="state-error-title">${title}</div>
+          <div class="state-error-body">${body}</div>
+        </div>
+      `
+    }
+
+    function renderDetails(details) {
+      const { action, params, expiresAt } = details
+      const expiry = formatExpiry(expiresAt)
+
+      const paramRows = Object.entries(params || {}).map(([k, v]) => {
+        const { label, display } = formatParam(k, v)
+        return `
+          <div class="param-row">
+            <span class="param-key">${label}</span>
+            <span class="param-value">${display}</span>
+          </div>
+        `
+      }).join('')
+
+      cardBody.innerHTML = `
+        <div class="expiry-row">
+          <div class="expiry-dot ${expiry.cls}"></div>
+          <span>${expiry.text}</span>
+        </div>
+
+        <div class="action-card">
+          <div class="action-card-label">Requested action</div>
+          <div class="action-name">${action}</div>
+          ${paramRows ? `<div class="action-params">${paramRows}</div>` : ''}
+        </div>
+
+        <div class="passkey-icon">&#128273;</div>
+        <div class="passkey-prompt">
+          Verify your identity with your passkey<br>to authorise this action.
+        </div>
+
+        <div class="alert alert-error" id="auth-err"></div>
+
+        <div class="button-stack">
+          <button class="btn btn-primary" id="btn-approve" ${expiry.cls === 'expired' ? 'disabled' : ''}>
+            <div class="spinner"></div>
+            <span class="btn-text">Approve with Passkey</span>
+          </button>
+          <button class="btn btn-danger" id="btn-reject">
+            Deny
+          </button>
+        </div>
+
+        <div class="footer-note">
+          Wallet ${walletId ? walletId.slice(0, 8) + '...' : ''}
+        </div>
+      `
+
+      document.getElementById('btn-approve').addEventListener('click', handleApprove)
+      document.getElementById('btn-reject').addEventListener('click', handleReject)
+
+      // Live expiry countdown
+      if (expiresAt && expiry.cls !== 'expired') {
+        const expiryRow = cardBody.querySelector('.expiry-row')
+        const dot = cardBody.querySelector('.expiry-dot')
+        const span = expiryRow.querySelector('span')
+        setInterval(() => {
+          const e = formatExpiry(expiresAt)
+          dot.className = `expiry-dot ${e.cls}`
+          span.textContent = e.text
+          if (e.cls === 'expired') {
+            const approveBtn = document.getElementById('btn-approve')
+            if (approveBtn) approveBtn.disabled = true
+          }
+        }, 15000)
+      }
+    }
+
+    function renderSuccess() {
+      cardBody.innerHTML = `
+        <div class="success-icon">&#10003;</div>
+        <div class="result-title success">Action approved</div>
+        <div class="result-body">
+          Your agent has been authorised to proceed.<br>
+          This approval request has been fulfilled.
+        </div>
+        <div class="footer-note">
+          You can close this window.
+        </div>
+      `
+    }
+
+    function renderRejected() {
+      cardBody.innerHTML = `
+        <div style="width:56px;height:56px;background:#1a1a1a;border:1px solid var(--border);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:24px;color:var(--text-muted);">&#215;</div>
+        <div class="result-title rejected">Action denied</div>
+        <div class="result-body">
+          The approval request was denied.<br>
+          Your agent will not proceed with this action.
+        </div>
+        <div class="footer-note">
+          You can close this window.
+        </div>
+      `
+    }
+
+    // ── Approve flow ─────────────────────────────────────────────────────────
+
+    async function handleApprove() {
+      const btn = document.getElementById('btn-approve')
+      const rejectBtn = document.getElementById('btn-reject')
+      const errBox = document.getElementById('auth-err')
+
+      btn.classList.add('loading')
+      btn.disabled = true
+      rejectBtn.disabled = true
+      errBox.classList.remove('visible')
+
+      try {
+        const optRes = await jsonPost(`/wallet/${walletId}/approve/${reqId}/options`, {})
+        if (!optRes.ok) {
+          const msg = await optRes.text()
+          throw new Error(msg || `Server error ${optRes.status}`)
+        }
+        const options = await optRes.json()
+
+        options.challenge = base64urlToBuffer(options.challenge)
+        if (options.allowCredentials) {
+          options.allowCredentials = options.allowCredentials.map(c => ({
+            ...c, id: base64urlToBuffer(c.id),
+          }))
+        }
+
+        const assertion = await navigator.credentials.get({ publicKey: options })
+
+        const assertionPayload = {
+          id: assertion.id,
+          rawId: bufferToBase64url(assertion.rawId),
+          type: assertion.type,
+          response: {
+            authenticatorData: bufferToBase64url(assertion.response.authenticatorData),
+            clientDataJSON: bufferToBase64url(assertion.response.clientDataJSON),
+            signature: bufferToBase64url(assertion.response.signature),
+            userHandle: assertion.response.userHandle
+              ? bufferToBase64url(assertion.response.userHandle)
+              : null,
+          },
+          clientExtensionResults: assertion.getClientExtensionResults(),
+        }
+
+        const verRes = await jsonPost(
+          `/wallet/${walletId}/approve/${reqId}/verify`,
+          { credential: assertionPayload }
+        )
+
+        if (!verRes.ok) {
+          const msg = await verRes.text()
+          throw new Error(msg || `Verification failed (${verRes.status})`)
+        }
+
+        renderSuccess()
+
+      } catch (err) {
+        btn.classList.remove('loading')
+        btn.disabled = false
+        rejectBtn.disabled = false
+
+        let message = err.message || 'An unexpected error occurred.'
+        if (err.name === 'NotAllowedError') {
+          message = 'Authentication was cancelled or timed out. Please try again.'
+        } else if (err.name === 'SecurityError') {
+          message = 'A security error occurred. Ensure you are on the correct site.'
+        } else if (err.name === 'NotSupportedError') {
+          message = 'Your browser or device does not support passkeys.'
+        }
+
+        const errEl = document.getElementById('auth-err')
+        if (errEl) {
+          errEl.innerHTML = `<div class="alert-label">Error</div>${message}`
+          errEl.classList.add('visible')
+        }
+      }
+    }
+
+    function handleReject() {
+      renderRejected()
+    }
+
+    // ── Boot ─────────────────────────────────────────────────────────────────
+
+    async function boot() {
+      if (!walletId || !reqId) {
+        renderFatalError(
+          'Invalid approval link',
+          'This link is missing required parameters.<br>Please use the link provided by your agent.'
+        )
+        return
+      }
+
+      reqBadge.textContent = reqId.slice(0, 12) + '...'
+
+      try {
+        const res = await fetch(`/wallet/${walletId}/approve/${reqId}/details`)
+
+        if (res.status === 404) {
+          renderFatalError('Request not found', 'This approval request does not exist or has already been completed.')
+          return
+        }
+
+        if (res.status === 410) {
+          renderFatalError('Request expired', 'This approval request has expired. Ask your agent to initiate a new one.')
+          return
+        }
+
+        if (!res.ok) {
+          throw new Error(`Server error ${res.status}`)
+        }
+
+        requestDetails = await res.json()
+        renderDetails(requestDetails)
+
+      } catch (err) {
+        renderFatalError(
+          'Failed to load request',
+          'Could not fetch approval details. Please check your connection and refresh.'
+        )
+      }
+    }
+
+    boot()
+  </script>
+</body>
+</html>

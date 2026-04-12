@@ -1,0 +1,783 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wallet Setup</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0a;
+      --surface: #111;
+      --surface-raised: #161616;
+      --border: #222;
+      --border-focus: #333;
+      --accent: #f54900;
+      --accent-dim: rgba(245, 73, 0, 0.12);
+      --accent-hover: #ff5c1a;
+      --text: #e8e8e8;
+      --text-dim: #888;
+      --text-muted: #555;
+      --success: #22c55e;
+      --success-dim: rgba(34, 197, 94, 0.1);
+      --error: #ef4444;
+      --error-dim: rgba(239, 68, 68, 0.1);
+      --font: 'Courier New', Courier, monospace;
+      --radius: 6px;
+      --transition: 0.15s ease;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      line-height: 1.6;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px 16px;
+    }
+
+    .wordmark {
+      font-size: 11px;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .wordmark::before, .wordmark::after {
+      content: '';
+      display: block;
+      width: 24px;
+      height: 1px;
+      background: var(--text-muted);
+    }
+
+    .card {
+      width: 100%;
+      max-width: 420px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+
+    .card-header {
+      padding: 24px 28px 20px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: 0.02em;
+    }
+
+    .card-subtitle {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 4px;
+    }
+
+    .step-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0;
+      margin-bottom: 24px;
+    }
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+    }
+
+    .step.active { color: var(--accent); }
+    .step.done { color: var(--success); }
+
+    .step-num {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 1px solid currentColor;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    .step.done .step-num {
+      background: var(--success);
+      border-color: var(--success);
+      color: #000;
+    }
+
+    .step.done .step-num::after {
+      content: '✓';
+      font-size: 10px;
+    }
+
+    .step.done .step-num span { display: none; }
+
+    .step-connector {
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+      margin: 0 8px;
+    }
+
+    .step-connector.done { background: var(--success); }
+
+    .card-body { padding: 28px; }
+
+    .field {
+      margin-bottom: 20px;
+    }
+
+    .field:last-of-type { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 8px;
+    }
+
+    .input-wrapper {
+      position: relative;
+    }
+
+    .input-prefix {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      font-size: 13px;
+      pointer-events: none;
+    }
+
+    input[type="number"] {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 14px;
+      padding: 11px 12px 11px 28px;
+      outline: none;
+      transition: border-color var(--transition);
+      -moz-appearance: textfield;
+      appearance: textfield;
+    }
+
+    input[type="number"]::-webkit-inner-spin-button,
+    input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; }
+
+    input[type="number"]:focus {
+      border-color: var(--accent);
+    }
+
+    input[type="number"].error {
+      border-color: var(--error);
+    }
+
+    .field-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    .field-error {
+      font-size: 11px;
+      color: var(--error);
+      margin-top: 6px;
+      display: none;
+    }
+
+    .field-error.visible { display: block; }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 24px 0;
+    }
+
+    .btn {
+      width: 100%;
+      padding: 13px 20px;
+      border-radius: var(--radius);
+      border: none;
+      font-family: var(--font);
+      font-size: 13px;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all var(--transition);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    .btn-primary:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .btn-ghost {
+      background: transparent;
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+
+    .btn-ghost:hover:not(:disabled) {
+      border-color: var(--border-focus);
+      color: var(--text);
+    }
+
+    .spinner {
+      width: 14px;
+      height: 14px;
+      border: 2px solid rgba(255,255,255,0.2);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      display: none;
+    }
+
+    .btn.loading .spinner { display: block; }
+    .btn.loading .btn-text { opacity: 0.6; }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .alert {
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      font-size: 12px;
+      line-height: 1.5;
+      display: none;
+    }
+
+    .alert.visible { display: block; }
+
+    .alert-error {
+      background: var(--error-dim);
+      border: 1px solid rgba(239, 68, 68, 0.2);
+      color: #fca5a5;
+    }
+
+    .alert-success {
+      background: var(--success-dim);
+      border: 1px solid rgba(34, 197, 94, 0.2);
+      color: #86efac;
+    }
+
+    .alert-label {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    /* Step panels */
+    .step-panel { display: none; }
+    .step-panel.active { display: block; }
+
+    /* Policy summary */
+    .policy-summary {
+      background: var(--surface-raised);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin-bottom: 20px;
+    }
+
+    .policy-summary-title {
+      font-size: 10px;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .policy-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 12px;
+      padding: 3px 0;
+    }
+
+    .policy-row-label { color: var(--text-dim); }
+
+    .policy-row-value {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* Passkey illustration */
+    .passkey-icon {
+      width: 52px;
+      height: 52px;
+      background: var(--accent-dim);
+      border: 1px solid rgba(245, 73, 0, 0.2);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 22px;
+    }
+
+    .passkey-description {
+      font-size: 12px;
+      color: var(--text-dim);
+      text-align: center;
+      line-height: 1.7;
+      margin-bottom: 24px;
+    }
+
+    /* Success state */
+    .success-icon {
+      width: 56px;
+      height: 56px;
+      background: var(--success-dim);
+      border: 1px solid rgba(34, 197, 94, 0.25);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0 auto 20px;
+      font-size: 24px;
+    }
+
+    .success-title {
+      text-align: center;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--success);
+      margin-bottom: 8px;
+    }
+
+    .success-body {
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-dim);
+      line-height: 1.7;
+    }
+
+    .footer-note {
+      font-size: 11px;
+      color: var(--text-muted);
+      text-align: center;
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+    }
+
+    /* Token missing state */
+    .missing-token {
+      text-align: center;
+      padding: 40px 28px;
+    }
+
+    .missing-token-icon {
+      font-size: 28px;
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+
+    .missing-token-title {
+      font-size: 14px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .missing-token-body {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="wordmark">AgentOS</div>
+
+  <div class="card" id="main-card">
+    <!-- Populated by JS -->
+  </div>
+
+  <script>
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    function base64urlToBuffer(base64url) {
+      const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/')
+      const pad = base64.length % 4 === 0 ? '' : '='.repeat(4 - (base64.length % 4))
+      const binary = atob(base64 + pad)
+      const bytes = new Uint8Array(binary.length)
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+      return bytes.buffer
+    }
+
+    function bufferToBase64url(buffer) {
+      const bytes = new Uint8Array(buffer)
+      let binary = ''
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+      return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+    }
+
+    function json(body) {
+      return {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }
+    }
+
+    // ── URL parsing ──────────────────────────────────────────────────────────
+
+    const pathMatch = location.pathname.match(/\/wallet\/([^/]+)\/setup/)
+    const walletId = pathMatch ? pathMatch[1] : null
+    const params = new URLSearchParams(location.search)
+    const token = params.get('token')
+
+    // ── State ────────────────────────────────────────────────────────────────
+
+    let currentStep = 1
+    let policy = { daily_usdc: 50, per_tx_usdc: 25 }
+
+    // ── Render ───────────────────────────────────────────────────────────────
+
+    const card = document.getElementById('main-card')
+
+    function renderInvalid() {
+      card.innerHTML = `
+        <div class="missing-token">
+          <div class="missing-token-icon">&#128274;</div>
+          <div class="missing-token-title">Invalid setup link</div>
+          <div class="missing-token-body">This link is missing required parameters.<br>Please use the link provided by your agent.</div>
+        </div>
+      `
+    }
+
+    function stepClass(n) {
+      if (n < currentStep) return 'done'
+      if (n === currentStep) return 'active'
+      return ''
+    }
+
+    function renderShell() {
+      card.innerHTML = `
+        <div class="card-header">
+          <div class="card-title">Wallet Setup</div>
+          <div class="card-subtitle">Secure your agent wallet with a passkey</div>
+        </div>
+        <div class="card-body">
+          <div class="step-indicator">
+            <div class="step ${stepClass(1)}" id="si-1">
+              <div class="step-num"><span>1</span></div>
+              <span>Limits</span>
+            </div>
+            <div class="step-connector ${currentStep > 1 ? 'done' : ''}" id="sc-1"></div>
+            <div class="step ${stepClass(2)}" id="si-2">
+              <div class="step-num"><span>2</span></div>
+              <span>Passkey</span>
+            </div>
+            <div class="step-connector ${currentStep > 2 ? 'done' : ''}" id="sc-2"></div>
+            <div class="step ${stepClass(3)}" id="si-3">
+              <div class="step-num"><span>3</span></div>
+              <span>Done</span>
+            </div>
+          </div>
+
+          <div class="step-panel ${currentStep === 1 ? 'active' : ''}" id="panel-1">
+            ${renderStep1()}
+          </div>
+          <div class="step-panel ${currentStep === 2 ? 'active' : ''}" id="panel-2">
+            ${renderStep2()}
+          </div>
+          <div class="step-panel ${currentStep === 3 ? 'active' : ''}" id="panel-3">
+            ${renderStep3()}
+          </div>
+        </div>
+      `
+      attachListeners()
+    }
+
+    function renderStep1() {
+      return `
+        <div class="field">
+          <label for="daily-limit">Daily spending limit</label>
+          <div class="input-wrapper">
+            <span class="input-prefix">$</span>
+            <input type="number" id="daily-limit" min="1" step="1" value="${policy.daily_usdc}" placeholder="50" />
+          </div>
+          <div class="field-hint">Max amount spendable per 24-hour period (USDC)</div>
+          <div class="field-error" id="daily-err">Enter a positive amount.</div>
+        </div>
+        <div class="field">
+          <label for="pertx-limit">Per-transaction limit</label>
+          <div class="input-wrapper">
+            <span class="input-prefix">$</span>
+            <input type="number" id="pertx-limit" min="1" step="1" value="${policy.per_tx_usdc}" placeholder="25" />
+          </div>
+          <div class="field-hint">Max amount per single transaction (USDC)</div>
+          <div class="field-error" id="pertx-err">Must be less than or equal to the daily limit.</div>
+        </div>
+        <div class="divider"></div>
+        <button class="btn btn-primary" id="btn-next">
+          <span class="btn-text">Continue to Passkey</span>
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M1 7h12M8 2l5 5-5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </button>
+      `
+    }
+
+    function renderStep2() {
+      return `
+        <div class="policy-summary">
+          <div class="policy-summary-title">Spending policy</div>
+          <div class="policy-row">
+            <span class="policy-row-label">Daily limit</span>
+            <span class="policy-row-value">$${policy.daily_usdc} USDC</span>
+          </div>
+          <div class="policy-row">
+            <span class="policy-row-label">Per-transaction limit</span>
+            <span class="policy-row-value">$${policy.per_tx_usdc} USDC</span>
+          </div>
+        </div>
+        <div class="passkey-icon">&#128273;</div>
+        <div class="passkey-description">
+          Your device will prompt you to create a passkey.<br>
+          This passkey will be required to approve any agent action<br>
+          that exceeds the limits above.
+        </div>
+        <div class="alert alert-error" id="passkey-err"></div>
+        <button class="btn btn-primary" id="btn-register" style="margin-bottom: 10px;">
+          <div class="spinner"></div>
+          <span class="btn-text">Register Passkey</span>
+        </button>
+        <button class="btn btn-ghost" id="btn-back">
+          Back
+        </button>
+      `
+    }
+
+    function renderStep3() {
+      return `
+        <div class="success-icon">&#10003;</div>
+        <div class="success-title">Wallet secured</div>
+        <div class="success-body">
+          Your passkey has been registered and spending<br>
+          limits are active. Your agent is ready to operate<br>
+          within the configured policy.
+        </div>
+        <div class="footer-note">
+          You can close this window.
+        </div>
+      `
+    }
+
+    // ── Step 1 logic ─────────────────────────────────────────────────────────
+
+    function validateLimits() {
+      const daily = parseFloat(document.getElementById('daily-limit').value)
+      const pertx = parseFloat(document.getElementById('pertx-limit').value)
+      const dailyErr = document.getElementById('daily-err')
+      const pertxErr = document.getElementById('pertx-err')
+      const dailyInput = document.getElementById('daily-limit')
+      const pertxInput = document.getElementById('pertx-limit')
+
+      let ok = true
+
+      if (!daily || daily <= 0) {
+        dailyInput.classList.add('error')
+        dailyErr.classList.add('visible')
+        ok = false
+      } else {
+        dailyInput.classList.remove('error')
+        dailyErr.classList.remove('visible')
+      }
+
+      if (!pertx || pertx <= 0 || pertx > daily) {
+        pertxInput.classList.add('error')
+        pertxErr.classList.add('visible')
+        ok = false
+      } else {
+        pertxInput.classList.remove('error')
+        pertxErr.classList.remove('visible')
+      }
+
+      if (ok) {
+        policy = { daily_usdc: daily, per_tx_usdc: pertx }
+      }
+
+      return ok
+    }
+
+    // ── Step 2 logic ─────────────────────────────────────────────────────────
+
+    async function registerPasskey() {
+      const btn = document.getElementById('btn-register')
+      const errBox = document.getElementById('passkey-err')
+
+      btn.classList.add('loading')
+      btn.disabled = true
+      errBox.classList.remove('visible')
+
+      try {
+        const optRes = await fetch(`/wallet/${walletId}/setup/options`, json({ token }))
+        if (!optRes.ok) {
+          const msg = await optRes.text()
+          throw new Error(msg || `Server error ${optRes.status}`)
+        }
+        const options = await optRes.json()
+
+        options.challenge = base64urlToBuffer(options.challenge)
+        options.user.id = base64urlToBuffer(options.user.id)
+        if (options.excludeCredentials) {
+          options.excludeCredentials = options.excludeCredentials.map(c => ({
+            ...c, id: base64urlToBuffer(c.id),
+          }))
+        }
+
+        const credential = await navigator.credentials.create({ publicKey: options })
+
+        const credentialPayload = {
+          id: credential.id,
+          rawId: bufferToBase64url(credential.rawId),
+          type: credential.type,
+          response: {
+            attestationObject: bufferToBase64url(credential.response.attestationObject),
+            clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+            transports: credential.response.getTransports?.() || [],
+          },
+          clientExtensionResults: credential.getClientExtensionResults(),
+        }
+
+        const verRes = await fetch(`/wallet/${walletId}/setup/verify`, json({
+          token,
+          credential: credentialPayload,
+          policy,
+        }))
+
+        if (!verRes.ok) {
+          const msg = await verRes.text()
+          throw new Error(msg || `Verification failed (${verRes.status})`)
+        }
+
+        currentStep = 3
+        renderShell()
+
+      } catch (err) {
+        btn.classList.remove('loading')
+        btn.disabled = false
+
+        let message = err.message || 'An unexpected error occurred.'
+        if (err.name === 'NotAllowedError') {
+          message = 'Passkey creation was cancelled or timed out. Please try again.'
+        } else if (err.name === 'InvalidStateError') {
+          message = 'A passkey for this wallet already exists on your device.'
+        } else if (err.name === 'NotSupportedError') {
+          message = 'Your browser or device does not support passkeys.'
+        }
+
+        const errEl = document.getElementById('passkey-err')
+        if (errEl) {
+          errEl.innerHTML = `<div class="alert-label">Error</div>${message}`
+          errEl.classList.add('visible')
+        }
+      }
+    }
+
+    // ── Event wiring ─────────────────────────────────────────────────────────
+
+    function attachListeners() {
+      const btnNext = document.getElementById('btn-next')
+      const btnBack = document.getElementById('btn-back')
+      const btnRegister = document.getElementById('btn-register')
+
+      if (btnNext) {
+        btnNext.addEventListener('click', () => {
+          if (validateLimits()) {
+            currentStep = 2
+            renderShell()
+          }
+        })
+      }
+
+      if (btnBack) {
+        btnBack.addEventListener('click', () => {
+          currentStep = 1
+          renderShell()
+        })
+      }
+
+      if (btnRegister) {
+        btnRegister.addEventListener('click', registerPasskey)
+      }
+
+      // Live validation feedback on inputs
+      const dailyInput = document.getElementById('daily-limit')
+      const pertxInput = document.getElementById('pertx-limit')
+
+      if (dailyInput) {
+        dailyInput.addEventListener('input', () => {
+          const daily = parseFloat(dailyInput.value)
+          const pertx = parseFloat(pertxInput.value)
+          document.getElementById('daily-err').classList.toggle('visible', !daily || daily <= 0)
+          dailyInput.classList.toggle('error', !daily || daily <= 0)
+          if (pertx && daily) {
+            document.getElementById('pertx-err').classList.toggle('visible', pertx > daily)
+            pertxInput.classList.toggle('error', pertx > daily)
+          }
+        })
+      }
+
+      if (pertxInput) {
+        pertxInput.addEventListener('input', () => {
+          const daily = parseFloat(document.getElementById('daily-limit').value)
+          const pertx = parseFloat(pertxInput.value)
+          const bad = !pertx || pertx <= 0 || (daily && pertx > daily)
+          document.getElementById('pertx-err').classList.toggle('visible', bad)
+          pertxInput.classList.toggle('error', bad)
+        })
+      }
+    }
+
+    // ── Boot ─────────────────────────────────────────────────────────────────
+
+    if (!walletId || !token) {
+      renderInvalid()
+    } else {
+      renderShell()
+    }
+  </script>
+</body>
+</html>
