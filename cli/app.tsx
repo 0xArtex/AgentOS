@@ -19,9 +19,12 @@ export type SetupScreenProps = { version: string; api: string; keyfile: string; 
 export type ComputePlansScreenProps = { version: string; plans: Array<{ name: string; cpu: string; ram: string; price: string }> }
 export type DomainCheckScreenProps = { version: string; domain: string; available: boolean }
 export type DomainPricingScreenProps = { version: string; query: string; items: Array<{ tld: string; price: string }> }
-export type WalletCreateScreenProps = { version: string; id: string; solana: string | null; base: string | null; chains: string[] }
-export type WalletStatusScreenProps = { version: string; id: string; label: string; accounts: Array<{ chainId: string; address: string }> }
-export type WalletListScreenProps = { version: string; wallets: Array<{ id: string; label: string; solana: string | null; base: string | null; chains: number }> }
+export type DoctorCheck = { name: string; status: 'pass' | 'warn' | 'fail'; detail: string }
+export type DoctorScreenProps = { version: string; checks: DoctorCheck[] }
+export type ConfigScreenProps = { version: string; config: Record<string, string | number | boolean | null | undefined> }
+export type WalletCreateScreenProps = { version: string; id: string; name: string; mode: string; solana: string | null; base: string | null }
+export type WalletStatusScreenProps = { version: string; id: string; name: string; mode: string; solana: string | null; base: string | null }
+export type WalletListScreenProps = { version: string; wallets: Array<{ id: string; name: string; mode: string; solana: string | null; base: string | null }> }
 export type ComputeDeployScreenProps = { version: string; ip: string; id: string; type: string; name: string }
 export type ComputeListScreenProps = { version: string; servers: Array<{ ip: string; type: string; status: string }> }
 export type SuccessScreenProps = { version: string; title: string; subtitle: string; details: Array<{ label: string; value: string }>; footerLeft: string }
@@ -231,27 +234,57 @@ export function DomainPricingScreen(props: DomainPricingScreenProps & ScreenCont
   } />
 }
 
+// Shared row builder — one wallet rendered as a consistent block
+function walletRows(w: { id: string; name: string; mode: string; solana: string | null; base: string | null }) {
+  return [
+    { label: 'Name:', value: w.name },
+    { label: 'ID:', value: w.id },
+    { label: 'Mode:', value: w.mode },
+    ...(w.solana ? [{ label: 'Solana:', value: w.solana }] : []),
+    ...(w.base ? [{ label: 'Base:', value: w.base }] : []),
+  ]
+}
+
 export function WalletCreateScreen(props: WalletCreateScreenProps & ScreenControls) {
-  return <Screen title="wallet created" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="Wallet ready" rows={[
-    { label: 'ID:', value: props.id },
-    ...(props.solana ? [{ label: 'Solana:', value: props.solana }] : []),
-    ...(props.base ? [{ label: 'Base:', value: props.base }] : []),
-    { label: 'Chains:', value: props.chains.join(', ') },
-  ]} />
+  return <Screen title="wallet created" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="Wallet ready" rows={walletRows(props)} />
 }
 
 export function WalletStatusScreen(props: WalletStatusScreenProps & ScreenControls) {
-  return <Screen title="wallet" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="Encrypted vault" rows={[
-    { label: 'ID:', value: props.id },
-    { label: 'Label:', value: props.label },
-    ...props.accounts.map(a => ({ label: a.chainId + ':', value: a.address })),
-  ]} />
+  return <Screen title="wallet" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="Encrypted vault" rows={walletRows(props)} />
 }
 
 export function WalletListScreen(props: WalletListScreenProps & ScreenControls) {
-  return <Screen title="wallets" version={props.version} interactive={props.interactive} onBack={props.onBack} footer={`${props.wallets.length} wallet(s)`} rows={
-    props.wallets.map(w => ({ label: w.label, value: `${w.solana || w.base || 'no address'} (${w.chains} chains)` }))
-  } />
+  // Flatten all wallets into one rows array with blank separators between them
+  const rows: Array<{ label: string; value: string }> = []
+  props.wallets.forEach((w, i) => {
+    if (i > 0) rows.push({ label: '', value: '' }) // spacer
+    rows.push(...walletRows(w))
+  })
+  return <Screen title="wallets" version={props.version} interactive={props.interactive} onBack={props.onBack} footer={`${props.wallets.length} wallet(s)`} rows={rows} />
+}
+
+export function DoctorScreen(props: DoctorScreenProps & ScreenControls) {
+  const failCount = props.checks.filter(c => c.status === 'fail').length
+  const warnCount = props.checks.filter(c => c.status === 'warn').length
+  const footer = failCount > 0
+    ? `${failCount} issue(s) found`
+    : warnCount > 0
+      ? `All critical checks pass · ${warnCount} warning(s)`
+      : 'All checks passed'
+  // Icon-prefixed label shows status at a glance, consistent with wallet screens' label:value pattern
+  const rows = props.checks.map(c => ({
+    label: (c.status === 'pass' ? '✓' : c.status === 'warn' ? '!' : '✗') + ' ' + c.name + ':',
+    value: c.detail,
+  }))
+  return <Screen title="doctor" version={props.version} interactive={props.interactive} onBack={props.onBack} footer={footer} rows={rows} />
+}
+
+export function ConfigScreen(props: ConfigScreenProps & ScreenControls) {
+  const rows = Object.entries(props.config).map(([k, v]) => ({
+    label: k + ':',
+    value: v === null || v === undefined ? 'not set' : String(v),
+  }))
+  return <Screen title="config" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="agentos config" rows={rows} />
 }
 
 export function ComputeDeployScreen(props: ComputeDeployScreenProps & ScreenControls) {

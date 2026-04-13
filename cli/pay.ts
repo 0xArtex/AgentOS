@@ -59,12 +59,8 @@ function resolvePayerKeypair(walletId?: string, passphrase?: string): SolanaKeyp
   const cfg = loadConfig()
   const pass = passphrase || process.env.AGENTOS_WALLET_PASSPHRASE
 
-  // Try the vault first
+  // Try the vault first (session secret from OS cred store, falls back to passphrase)
   if (hasVaultWallets()) {
-    if (!pass) {
-      console.error('  Vault wallet requires a passphrase. Set AGENTOS_WALLET_PASSPHRASE or pass --passphrase')
-      return null
-    }
     const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.AGENTOS_PAY_WALLET
     try {
       if (targetId) return getVaultSolanaKeypair(targetId, pass)

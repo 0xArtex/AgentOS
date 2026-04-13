@@ -108,13 +108,13 @@ export class AgentOS {
     return this.request('GET', `/domains/${domain}/dns`)
   }
 
-  // ── Wallet (non-custodial vault) ──
-  async walletCreate(passphrase: string, label?: string, chains?: string[]): Promise<any> {
-    return this.request('POST', '/wallet', { passphrase, label, chains })
+  // ── Wallet ──
+  async walletCreate(label?: string, chains?: string[], mode?: 'unmanaged' | 'managed'): Promise<any> {
+    return this.request('POST', '/wallet', { label, chains, mode })
   }
 
-  async walletImport(mnemonic: string, passphrase: string, label?: string): Promise<any> {
-    return this.request('POST', '/wallet/import', { mnemonic, passphrase, label })
+  async walletImport(mnemonic: string, label?: string, mode?: 'unmanaged' | 'managed'): Promise<any> {
+    return this.request('POST', '/wallet/import', { mnemonic, label, mode })
   }
 
   async walletList(): Promise<any> {
@@ -137,17 +137,17 @@ export class AgentOS {
     return this.request('POST', `/wallet/${walletId}/derive`, { chain })
   }
 
-  /** Sign a transaction. Pass either passphrase OR rely on Bearer agos_key_... token */
-  async walletSign(walletId: string, chain: string, transaction: string, passphrase?: string): Promise<any> {
-    return this.request('POST', `/wallet/${walletId}/sign`, { chain, transaction, passphrase })
+  /** Sign a transaction. Auth resolved from API key or session secret. */
+  async walletSign(walletId: string, chain: string, transaction: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/sign`, { chain, transaction })
   }
 
-  async walletSignMessage(walletId: string, chain: string, message: string, passphrase?: string): Promise<any> {
-    return this.request('POST', `/wallet/${walletId}/sign-message`, { chain, message, passphrase })
+  async walletSignMessage(walletId: string, chain: string, message: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/sign-message`, { chain, message })
   }
 
-  async walletSignTyped(walletId: string, chain: string, typedData: string, passphrase?: string): Promise<any> {
-    return this.request('POST', `/wallet/${walletId}/sign-typed`, { chain, typedData, passphrase })
+  async walletSignTyped(walletId: string, chain: string, typedData: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/sign-typed`, { chain, typedData })
   }
 
   async walletPolicy(walletId: string, policy: { per_tx_usdc?: number; daily_usdc?: number; allowed_chains?: string[] }): Promise<any> {
@@ -162,16 +162,20 @@ export class AgentOS {
     return this.request('GET', `/wallet/${walletId}/spending`)
   }
 
-  async walletApiKey(walletId: string, name: string, passphrase: string, policyIds?: string[], expiresAt?: string): Promise<any> {
-    return this.request('POST', `/wallet/${walletId}/api-key`, { name, passphrase, policyIds, expiresAt })
+  async walletApiKey(walletId: string, name: string, sessionSecret: string, policyIds?: string[], expiresAt?: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/api-key`, { name, sessionSecret, policyIds, expiresAt })
   }
 
   async walletRevokeApiKey(walletId: string, keyId: string): Promise<any> {
     return this.request('DELETE', `/wallet/${walletId}/api-key`, { keyId })
   }
 
-  async walletConfig(walletId: string, passphrase: string): Promise<any> {
-    return this.request('POST', `/wallet/${walletId}/config`, { passphrase })
+  async walletConfig(walletId: string, sessionSecret: string): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/config`, { sessionSecret })
+  }
+
+  async walletRequestApproval(walletId: string, action: string, params: Record<string, any>): Promise<any> {
+    return this.request('POST', `/wallet/${walletId}/request-approval`, { action, ...params })
   }
 
   // ── Info ──

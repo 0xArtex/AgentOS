@@ -3,7 +3,7 @@
  * Everything lives in ~/.agentos/
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -12,17 +12,28 @@ const HOME = join(homedir(), '.agentos')
 // Directory structure
 const DIRS = {
   root: HOME,
-  credentials: join(HOME, 'credentials'),
   data: join(HOME, 'data'),
   logs: join(HOME, 'logs'),
   drafts: join(HOME, 'drafts'),
   memory: join(HOME, 'memory'),
 }
 
+const LOG_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000 // 30 days
+
 export function ensureDirs() {
   for (const dir of Object.values(DIRS)) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   }
+  // Prune log files older than 30 days
+  try {
+    const now = Date.now()
+    for (const f of readdirSync(DIRS.logs).filter(f => f.endsWith('.log'))) {
+      const fpath = join(DIRS.logs, f)
+      if (now - statSync(fpath).mtimeMs > LOG_MAX_AGE_MS) {
+        unlinkSync(fpath)
+      }
+    }
+  } catch {}
 }
 
 // ── Config ──
@@ -150,9 +161,6 @@ export function addServer(server: any) { const s = getServers(); s.push(server);
 
 export function getDomains(): any[] { return getData('domains.json') || [] }
 export function addDomain(domain: any) { const d = getDomains(); d.push(domain); setData('domains.json', d) }
-
-export function getWallets(): any[] { return getData('wallets.json') || [] }
-export function addWallet(wallet: any) { const w = getWallets(); w.push(wallet); setData('wallets.json', w) }
 
 export function getAccounts(): any[] { return getData('accounts.json') || [] }
 export function addAccount(account: any) { const a = getAccounts(); a.push(account); setData('accounts.json', a) }

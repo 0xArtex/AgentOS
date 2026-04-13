@@ -1,3 +1,9 @@
+---
+name: agentos
+version: 1.0.0
+description: Infrastructure for AI Agents. Phone, email, Social accounts, compute, domains, and voice calling for AI agents. Pay with USDC on Solana or Base via x402.
+---
+
 # AgentOS — Infrastructure for AI Agents
 
 Everything an agent needs: phone, email, compute, domains, voice calling, wallets, and 3500+ skills. Pay with USDC on Solana or Base via x402.
