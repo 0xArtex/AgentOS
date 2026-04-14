@@ -1,4 +1,4 @@
-import { Router, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { requireAuth } from "../middleware/auth";
 import { x402 } from "../middleware/x402";
 import { AuthenticatedRequest } from "../types";
@@ -61,12 +61,40 @@ router.post("/provision", requireAuth(2.0, "email"), async (req: AuthenticatedRe
 /**
  * POST /email/inboxes — Alias for /email/provision
  */
-router.post("/inboxes", requireAuth(2.0, "email"), async (req: AuthenticatedRequest, res: Response) => {
-  const { name, walletAddress, solanaPublicKey: spk } = req.body;
-  if (!name || !(walletAddress || spk)) {
+/**
+ * Validate inbox inputs BEFORE the paywall. Email uses Ed25519 → X25519 E2E encryption,
+ * so the wallet must be a valid Solana pubkey. EVM addresses won't work here (different curve).
+ * Validating upfront prevents users from paying and then getting rejected.
+ */
+function validateInboxInputs(req: Request, res: Response, next: NextFunction): void {
+  const { name, walletAddress, solanaPublicKey: spk } = req.body || {};
+  const key = walletAddress || spk;
+  if (!name || !key) {
     res.status(400).json({ error: "Missing 'name' and 'walletAddress'" });
     return;
   }
+  if (!/^[a-z0-9\-_.]+$/i.test(String(name).toLowerCase().replace(/[^a-z0-9\-_.]/g, ''))) {
+    res.status(400).json({ error: "Invalid inbox name" });
+    return;
+  }
+  // Pre-flight Solana pubkey check — catches EVM addresses before taking payment
+  try {
+    const bs58 = require('bs58');
+    const decoded = bs58.decode(String(key));
+    if (decoded.length !== 32) throw new Error();
+  } catch {
+    res.status(400).json({
+      error: "Invalid walletAddress",
+      message: "Email inboxes require a Solana public key (base58, 32 bytes). EVM addresses are not supported for this endpoint because the E2E encryption uses Ed25519→X25519.",
+      hint: "Pass your wallet's Solana address, e.g. 6mqej25Y32ZWGk3VydUAU4iFr74ripzSURKzYH39SzLy",
+    });
+    return;
+  }
+  next();
+}
+
+router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email"), async (req: AuthenticatedRequest, res: Response) => {
+  const { name, walletAddress, solanaPublicKey: spk } = req.body;
   const owner = req.agentId || req.payment?.payer || "unknown";
   try {
     const result = emailService.createInbox(name, owner, walletAddress || spk);
