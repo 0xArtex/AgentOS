@@ -4,9 +4,12 @@
  * Both flows are gasless: the server/facilitator absorbs chain fees.
  */
 
+import { createRequire } from 'module'
 import { loadKeypair, loadConfig, log } from './config.js'
 import { getVaultSolanaKeypair, getVaultEvmWallet, hasVaultWallets, listVaultWallets } from './vault.js'
 import type { Keypair as SolanaKeypair } from '@solana/web3.js'
+
+const require = createRequire(import.meta.url)
 
 // Solana constants
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
