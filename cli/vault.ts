@@ -191,6 +191,18 @@ export function getVaultSolanaKeypair(walletId: string, passphrase?: string): Ke
 }
 
 /**
+ * Get an ethers Wallet (secp256k1) for a vault wallet.
+ * Used for signing EIP-3009 and EVM transactions.
+ */
+export function getVaultEvmWallet(walletId: string, passphrase?: string): any {
+  const file = loadWalletFile(walletId)
+  if (file.key_type !== 'mnemonic') throw new Error('Wallet was imported as a raw private key')
+  const mnemonic = resolveMnemonic(file, passphrase)
+  const { ethers } = require('ethers')
+  return ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0")
+}
+
+/**
  * Sign a message locally — no server needed.
  * Decrypts via session secret from OS credential store, signs with the chain's keypair.
  */

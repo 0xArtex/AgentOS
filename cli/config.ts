@@ -54,6 +54,7 @@ export interface AgentOSConfig {
   vaultEnabled?: boolean
   apiKey?: string  // AgentOS API key for agent access
   defaultPayWalletId?: string  // Vault wallet ID used by x402 pay flow
+  defaultPayChain?: 'solana' | 'base'  // Which chain to pay on for x402 (default: solana)
   // Legacy compat
   chain?: string
   keyfile?: string

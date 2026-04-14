@@ -1,11 +1,11 @@
 /**
  * x402 payment handler for AgentOS CLI
- * Builds, signs, and submits USDC payment transactions on Solana.
- * Supports vault-backed signing when configured, falls back to raw keypair.
+ * Supports both Solana (SPL USDC transfer) and Base/EVM (EIP-3009 TransferWithAuthorization).
+ * Both flows are gasless: the server/facilitator absorbs chain fees.
  */
 
 import { loadKeypair, loadConfig, log } from './config.js'
-import { getVaultSolanaKeypair, hasVaultWallets, listVaultWallets } from './vault.js'
+import { getVaultSolanaKeypair, getVaultEvmWallet, hasVaultWallets, listVaultWallets } from './vault.js'
 import type { Keypair as SolanaKeypair } from '@solana/web3.js'
 
 // Solana constants
@@ -16,29 +16,44 @@ const COMPUTE_BUDGET = 'ComputeBudget111111111111111111111111111111'
 const MEMO_PROGRAM = 'MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr'
 const SOLANA_RPC = 'https://api.mainnet-beta.solana.com'
 
-/**
- * Parse a 402 response and extract payment requirements
- */
-export function parsePaymentRequired(data: any): {
+// Base constants
+const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
+const BASE_CHAIN_ID = 8453
+
+interface PaymentOption {
   amount: bigint
   payTo: string
   feePayer: string
   asset: string
   network: string
-} | null {
+}
+
+/**
+ * Parse a 402 response. Returns available payment options by chain.
+ */
+export function parsePaymentRequired(data: any): {
+  solana: PaymentOption | null
+  base: PaymentOption | null
+} {
   const accepts = data.accepts || []
-  // Prefer Solana
-  const solana = accepts.find((a: any) => a.network?.startsWith('solana:'))
-  if (solana) {
-    return {
-      amount: BigInt(solana.amount),
-      payTo: solana.payTo,
-      feePayer: solana.extra?.feePayer || '',
-      asset: solana.asset || USDC_MINT,
-      network: solana.network,
-    }
+  const sol = accepts.find((a: any) => a.network?.startsWith('solana:'))
+  const evm = accepts.find((a: any) => a.network?.startsWith('eip155:'))
+  return {
+    solana: sol ? {
+      amount: BigInt(sol.amount),
+      payTo: sol.payTo,
+      feePayer: sol.extra?.feePayer || '',
+      asset: sol.asset || USDC_MINT,
+      network: sol.network,
+    } : null,
+    base: evm ? {
+      amount: BigInt(evm.amount),
+      payTo: evm.payTo,
+      feePayer: '', // facilitator handles gas
+      asset: evm.asset || BASE_USDC,
+      network: evm.network,
+    } : null,
   }
-  return null
 }
 
 /**
@@ -160,6 +175,80 @@ export async function buildPaymentTransaction(
  *
  * Passphrase resolution: explicit arg → AGENTOS_WALLET_PASSPHRASE env var → fail
  */
+/**
+ * Build and sign an EIP-3009 TransferWithAuthorization for Base USDC.
+ * The user signs a typed data message; the facilitator submits the on-chain call.
+ * Gasless for the user — no ETH required.
+ */
+async function buildEvmPaymentAuthorization(
+  payTo: string,
+  amount: bigint,
+  walletId?: string,
+  passphrase?: string,
+): Promise<{ signature: string; authorization: any; payer: string } | null> {
+  const cfg = loadConfig()
+  const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.AGENTOS_PAY_WALLET
+  if (!targetId) return null
+
+  let evmWallet: any
+  try {
+    evmWallet = getVaultEvmWallet(targetId, passphrase)
+  } catch (err: any) {
+    console.error(`  Vault wallet load failed: ${err.message}`)
+    return null
+  }
+
+  const { ethers } = require('ethers')
+
+  // Random 32-byte nonce
+  const nonce = '0x' + Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')
+  const validAfter = 0
+  const validBefore = Math.floor(Date.now() / 1000) + 3600 // 1 hour
+
+  // EIP-3009 TransferWithAuthorization for Base USDC (Circle USDC v2)
+  const domain = {
+    name: 'USD Coin',
+    version: '2',
+    chainId: BASE_CHAIN_ID,
+    verifyingContract: BASE_USDC,
+  }
+
+  const types = {
+    TransferWithAuthorization: [
+      { name: 'from', type: 'address' },
+      { name: 'to', type: 'address' },
+      { name: 'value', type: 'uint256' },
+      { name: 'validAfter', type: 'uint256' },
+      { name: 'validBefore', type: 'uint256' },
+      { name: 'nonce', type: 'bytes32' },
+    ],
+  }
+
+  const message = {
+    from: evmWallet.address,
+    to: ethers.getAddress(payTo),
+    value: amount.toString(),
+    validAfter: validAfter.toString(),
+    validBefore: validBefore.toString(),
+    nonce,
+  }
+
+  const signature = await evmWallet.signTypedData(domain, types, message)
+
+  return {
+    signature,
+    authorization: {
+      from: evmWallet.address,
+      to: ethers.getAddress(payTo),
+      value: amount.toString(),
+      validAfter: validAfter.toString(),
+      validBefore: validBefore.toString(),
+      nonce,
+    },
+    payer: evmWallet.address,
+  }
+}
+
 export async function paidRequest(
   api: string,
   method: string,
@@ -183,28 +272,53 @@ export async function paidRequest(
     return { data, paid: false }
   }
 
-  // 402 — need to pay
-  const payment = parsePaymentRequired(data)
-  if (!payment) throw new Error('Cannot parse payment requirements from 402 response')
+  // 402 — need to pay. Chain is decided by config — no silent fallback.
+  const options = parsePaymentRequired(data)
+  const cfg = loadConfig()
+  const preferredChain = ((cfg as any).defaultPayChain || 'solana') as 'solana' | 'base'
 
-  if (!payment.network.startsWith('solana')) {
-    throw new Error(`Only Solana x402 payments are supported in this CLI. Got: ${payment.network}`)
+  const selected = preferredChain === 'base' ? options.base : options.solana
+  if (!selected) {
+    throw new Error(
+      `Server did not offer ${preferredChain} as a payment option. ` +
+      `Either the endpoint doesn't support ${preferredChain} yet, or use: agentos wallet use <ID> --chain ${preferredChain === 'base' ? 'solana' : 'base'}`,
+    )
   }
 
-  console.log(`  Paying ${Number(payment.amount) / 1e6} USDC on Solana...`)
+  const amountUsdc = Number(selected.amount) / 1e6
+  let paymentPayload: any
+  let payer: string
 
-  const tx = await buildPaymentTransaction(payment.payTo, payment.amount, payment.feePayer, undefined, passphrase)
-  if (!tx) throw new Error('Failed to build payment transaction — no wallet configured')
+  if (preferredChain === 'base') {
+    console.log(`  Paying ${amountUsdc} USDC on Base (gasless via EIP-3009)...`)
+    const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
+    if (!auth) throw new Error('Failed to build EVM payment authorization — no wallet configured')
 
-  // Retry with payment header
-  const paymentPayload = {
-    x402Version: 2,
-    payload: { transaction: tx.transaction },
-    accepted: {
+    paymentPayload = {
+      x402Version: 2,
       scheme: 'exact',
-      network: payment.network,
+      network: selected.network,
+      payload: {
+        signature: auth.signature,
+        authorization: auth.authorization,
+      },
+      accepted: { scheme: 'exact', network: selected.network },
     }
+    payer = auth.payer
+  } else {
+    console.log(`  Paying ${amountUsdc} USDC on Solana...`)
+    const tx = await buildPaymentTransaction(selected.payTo, selected.amount, selected.feePayer, undefined, passphrase)
+    if (!tx) throw new Error('Failed to build Solana payment transaction — no wallet configured')
+
+    paymentPayload = {
+      x402Version: 2,
+      payload: { transaction: tx.transaction },
+      accepted: { scheme: 'exact', network: selected.network },
+    }
+    payer = tx.payer
   }
+
+  const chosenChain = preferredChain
 
   const paidOpts: RequestInit = {
     method,
@@ -219,14 +333,13 @@ export async function paidRequest(
   const paidData = await paidRes.json() as any
 
   if (paidData.error) {
-    // Server returned an error — include message detail for diagnosis
     const detail = paidData.message && paidData.message !== paidData.error
       ? `${paidData.error}: ${paidData.message}`
       : paidData.error
     throw new Error(detail)
   }
 
-  log(`payment: ${Number(payment.amount) / 1e6} USDC → ${path} (payer: ${tx.payer})`)
+  log(`payment: ${amountUsdc} USDC → ${path} on ${chosenChain} (payer: ${payer})`)
 
   return { data: paidData, paid: true, txHash: paidData.txHash }
 }

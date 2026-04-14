@@ -147,6 +147,10 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<WALLET_ID>', desc: 'Wallet ID (positional or --id)' },
     { flag: '--confirm', desc: 'Confirm you understand the risk of exposing the mnemonic' },
   ],
+  use: [
+    { flag: '<WALLET_ID>', desc: 'Wallet ID to use for x402 payments (positional or --id)' },
+    { flag: '--chain <chain>', desc: 'Which chain to pay on', hint: 'solana (default) | base' },
+  ],
 }
 function print(obj: any) {
   const json = JSON.stringify(obj, null, 2)
@@ -916,20 +920,15 @@ async function main() {
           case 'use': {
             const walletId = positional[0] || flags.id as string
             if (!walletId) err('Wallet ID required')
+            const chain = (flags.chain as string)?.toLowerCase()
+            if (chain && chain !== 'solana' && chain !== 'base') {
+              err(`--chain must be 'solana' or 'base', got: ${chain}`)
+            }
             const cfg = loadConfig()
             cfg.defaultPayWalletId = walletId
+            if (chain) (cfg as any).defaultPayChain = chain as 'solana' | 'base'
             saveConfig(cfg)
-            return print({ success: true, defaultPayWalletId: walletId })
-            render(React.createElement(SuccessScreen, {
-              version: VERSION,
-              title: 'Default pay wallet set',
-              subtitle: walletId,
-              footerLeft: 'x402 payments will use this wallet',
-              details: [
-                { label: 'Wallet ID', value: walletId },
-                { label: 'Config', value: '~/.agentos/config.json' },
-              ],
-            }))
+            print({ success: true, defaultPayWalletId: walletId, defaultPayChain: (cfg as any).defaultPayChain || 'solana' })
             break
           }
           case 'request-approval': {
