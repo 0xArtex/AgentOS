@@ -218,7 +218,13 @@ export async function paidRequest(
   const paidRes = await fetch(api + path, paidOpts)
   const paidData = await paidRes.json() as any
 
-  if (paidData.error) throw new Error(paidData.error)
+  if (paidData.error) {
+    // Server returned an error — include message detail for diagnosis
+    const detail = paidData.message && paidData.message !== paidData.error
+      ? `${paidData.error}: ${paidData.message}`
+      : paidData.error
+    throw new Error(detail)
+  }
 
   log(`payment: ${Number(payment.amount) / 1e6} USDC → ${path} (payer: ${tx.payer})`)
 

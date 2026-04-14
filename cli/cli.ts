@@ -1,5 +1,15 @@
 #!/usr/bin/env node
 
+// Silence the noisy `bigint: Failed to load bindings, pure JS will be used`
+// warning from bigint-buffer (transitive dep of @solana/web3.js). The pure JS
+// fallback is fine for CLI one-shot use — the warning is cosmetic noise.
+const __origWarn = console.warn
+console.warn = (...args: any[]) => {
+  const msg = typeof args[0] === 'string' ? args[0] : ''
+  if (msg.startsWith('bigint: Failed to load bindings')) return
+  __origWarn.apply(console, args)
+}
+
 import React from 'react'
 import { render as inkRender } from 'ink'
 import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, ConfigScreen, Dashboard, DoctorScreen, DomainCheckScreen, DomainPricingScreen, ErrorScreen, HealthScreen, MenuScreen, PricingScreen, RecordsScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen, WalletListScreen } from './app.js'
@@ -1134,12 +1144,24 @@ async function main() {
       .trim()
 
     let exitCode: number = EXIT.GENERAL
-    if (rawMsg === 'Payment Required' || rawMsg.includes('402')) {
+    // Show real server error on 402, not generic "Payment required" boilerplate
+    if (rawMsg.startsWith('Payment Required:') || rawMsg.includes('settlement failed') || rawMsg.includes('verification failed')) {
+      render(React.createElement(ErrorScreen, {
+        version: VERSION,
+        title: 'Payment rejected',
+        message: safeMsg,
+        hint: rawMsg.includes('settlement failed')
+          ? 'The tx could not be submitted to Solana. Check wallet balance (USDC + SOL for fees on your side)'
+          : 'The server rejected the payment signature. Check your default pay wallet: agentos config',
+        footerLeft: 'x402 payment failed',
+      }))
+      exitCode = EXIT.PAYMENT
+    } else if (rawMsg === 'Payment Required' || rawMsg.includes('402')) {
       render(React.createElement(ErrorScreen, {
         version: VERSION,
         title: 'Payment required',
         message: 'This endpoint costs USDC via x402.',
-        hint: !config.setupDone ? 'Setup first: agentos setup --keyfile <path> --chain solana' : 'Your wallet is your identity — pay to provision.',
+        hint: 'Set a default pay wallet: agentos wallet use <ID>',
         footerLeft: 'Provisioning blocked until payment',
       }))
       exitCode = EXIT.PAYMENT
