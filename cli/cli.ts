@@ -1001,6 +1001,7 @@ async function main() {
           defaultChain: cfg.defaultChain,
           setupDone: cfg.setupDone,
           defaultPayWalletId: (cfg as any).defaultPayWalletId || null,
+          defaultPayChain: (cfg as any).defaultPayChain || 'solana',
           vaultPath: vaultDir,
           credentialStore: isCredentialStoreAvailable() ? 'available' : 'unavailable',
           configPath: join(homedir(), '.agentos', 'config.json'),
