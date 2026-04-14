@@ -202,9 +202,11 @@ export function x402(minUsdc: number = 0.01) {
         return;
       }
 
+      // Settlement must succeed — don't hand out resources for unpaid-on-chain requests
       if (!result.settled) {
-        console.warn("[x402] Verified but settlement failed:", result.reason);
-        // Still allow the request through — payment was verified
+        console.warn("[x402] Settlement failed:", result.reason);
+        send402Response(res, req, minUsdc, "Payment settlement failed: " + (result.reason || "unknown"));
+        return;
       }
 
       req.payment = {
