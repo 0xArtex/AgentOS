@@ -144,12 +144,15 @@ async function handleEvmPayment(
     });
     const settleResult = await settleResp.json() as any;
     if (settleResult.success === false) {
-      return { verified: true, settled: false, reason: settleResult.error || settleResult.errorReason };
+      // Log full facilitator response so we can see the actual on-chain revert reason
+      console.error("[x402] EVM settlement failed. Facilitator response:", JSON.stringify(settleResult));
+      const reason = settleResult.error || settleResult.errorReason || settleResult.errorMessage || settleResult.message || "transaction_failed";
+      return { verified: true, settled: false, reason };
     }
     return { verified: true, settled: true, signature: settleResult.transaction || result.txHash };
-  } catch (e) {
-    // Don't block on settlement failure
-    return { verified: true, settled: false, reason: "settlement_error" };
+  } catch (e: any) {
+    console.error("[x402] EVM settlement exception:", e?.message);
+    return { verified: true, settled: false, reason: "settlement_error: " + (e?.message || "unknown") };
   }
 }
 

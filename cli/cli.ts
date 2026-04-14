@@ -1151,7 +1151,7 @@ async function main() {
         title: 'Payment rejected',
         message: safeMsg,
         hint: rawMsg.includes('settlement failed')
-          ? 'The tx could not be submitted to Solana. Check wallet balance (USDC + SOL for fees on your side)'
+          ? 'On-chain tx reverted. Check wallet balance (USDC only — chain fees are paid by the server). View tx on explorer if settled partially.'
           : 'The server rejected the payment signature. Check your default pay wallet: agentos config',
         footerLeft: 'x402 payment failed',
       }))
