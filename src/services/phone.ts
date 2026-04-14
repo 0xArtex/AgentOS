@@ -51,15 +51,18 @@ export async function provisionNumber(
 ): Promise<PhoneNumber> {
   const client = getClient();
 
-  // 1. Search for available numbers
-  const available = await searchNumbers(country, { areaCode, limit: 1 });
+  // 1. Search for available numbers — prefer local over toll_free to avoid
+  //    Telnyx's "freemail account" restriction on toll-free orders.
+  const available = await searchNumbers(country, { areaCode, limit: 10 });
   if (available.length === 0) {
     throw new Error(
       `No available numbers in ${country}${areaCode ? ` (area code ${areaCode})` : ""}`
     );
   }
 
-  const chosen = available[0].phoneNumber;
+  // Prefer local numbers; fall back to whatever's available
+  const local = available.find(n => n.type !== "toll_free" && n.type !== "tollfree");
+  const chosen = (local || available[0]).phoneNumber;
 
   // 2. Create a number order to purchase
   const order = await client.numberOrders.create({

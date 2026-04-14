@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest, ProvisionNumberRequest, SendSmsRequest } from "../types";
 import * as phoneService from "../services/phone";
@@ -31,10 +31,41 @@ router.get("/numbers/search", async (req: Request, res: Response) => {
 });
 
 /**
- * POST /phone/numbers — Provision a new phone number
- * Cost: 2.00 USDC (or free during hackathon with agent limits)
+ * Pre-flight validation for phone provisioning. Runs BEFORE the paywall to prevent
+ * charging users when provisioning will fail (no numbers available, bad country code).
  */
-router.post("/numbers", requireAuth(3.0, "phone"), async (req: AuthenticatedRequest, res: Response) => {
+async function preflightProvisionNumber(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const { country, areaCode } = (req.body || {}) as ProvisionNumberRequest;
+  if (!country || typeof country !== "string" || country.length !== 2) {
+    res.status(400).json({ error: "Missing Required Field", message: "The 'country' field is required (ISO-2 code, e.g. 'US')" });
+    return;
+  }
+  try {
+    // Confirm at least one number is available for this country/areaCode before charging
+    const available = await phoneService.searchNumbers(country, { areaCode, limit: 10 });
+    const usable = available.filter(n => n.type !== "toll_free" && n.type !== "tollfree");
+    if (usable.length === 0 && available.length === 0) {
+      res.status(404).json({
+        error: "No numbers available",
+        message: `No numbers available in ${country}${areaCode ? ` (area code ${areaCode})` : ""}`,
+      });
+      return;
+    }
+    next();
+  } catch (err: any) {
+    res.status(502).json({
+      error: "Provider unavailable",
+      message: err.message || "Could not reach phone provider to check availability",
+      hint: "Try again in a moment. You have NOT been charged.",
+    });
+  }
+}
+
+/**
+ * POST /phone/numbers — Provision a new phone number
+ * Cost: 3.00 USDC (or free during hackathon with agent limits)
+ */
+router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { country, areaCode } = req.body as ProvisionNumberRequest;
 
