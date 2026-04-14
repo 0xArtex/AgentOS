@@ -47,8 +47,11 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
         payTo: payToEvm,
         maxTimeoutSeconds: 60,
         asset: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        // EIP-712 domain values for the Base USDC contract — facilitator needs these
+        // to reconstruct the signed domain and verify the client's signature.
         extra: {
-          name: "AgentOS",
+          name: "USD Coin",
+          version: "2",
           facilitator: FACILITATOR_URL,
         },
       },
