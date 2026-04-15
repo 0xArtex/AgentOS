@@ -116,31 +116,111 @@ router.get("/numbers/:id/messages", requireAuth(0.02, "general"), async (req: Au
 });
 
 /**
+ * Pre-flight validation for SMS send. Runs BEFORE the paywall so users aren't
+ * charged when the send is obviously going to fail (bad inputs, unknown number,
+ * deactivated number, or destination country that Telnyx won't accept on our
+ * messaging profile).
+ */
+function preflightSendSms(req: Request, res: Response, next: NextFunction): void {
+  const { to, body } = (req.body || {}) as SendSmsRequest;
+  const phoneNumberId = req.params.id as string;
+
+  if (!to || !body) {
+    res.status(400).json({
+      error: "Missing Required Fields",
+      message: "Both 'to' and 'body' fields are required",
+      hint: "Include 'to' (E.164 phone number like +15551234567) and 'body' (message text)",
+    });
+    return;
+  }
+
+  // E.164: leading '+', 8–15 digits
+  if (!/^\+[1-9]\d{7,14}$/.test(String(to))) {
+    res.status(400).json({
+      error: "Invalid 'to' format",
+      message: "Destination number must be in E.164 format (e.g. +15551234567)",
+      hint: "Include country code, no spaces or dashes. You have NOT been charged.",
+    });
+    return;
+  }
+
+  if (String(body).length === 0 || String(body).length > 1600) {
+    res.status(400).json({
+      error: "Invalid 'body'",
+      message: "Message body must be 1–1600 characters",
+      hint: "You have NOT been charged.",
+    });
+    return;
+  }
+
+  const number = phoneService.getNumber(phoneNumberId);
+  if (!number) {
+    res.status(404).json({
+      error: "Phone Number Not Found",
+      message: `No phone number with ID ${phoneNumberId}`,
+      hint: "Check the ID. You have NOT been charged.",
+    });
+    return;
+  }
+  if (!number.active) {
+    res.status(410).json({
+      error: "Phone Number Deactivated",
+      message: "This number has been released and can no longer send SMS",
+      hint: "Provision a new number. You have NOT been charged.",
+    });
+    return;
+  }
+
+  // Telnyx refuses SMS to some destinations on messaging profiles that don't
+  // have an alphanumeric sender ID (error 40306). This typically affects GCC
+  // and a handful of other countries that require alpha senders. Reject
+  // pre-flight so the caller keeps their USDC.
+  const ALPHA_SENDER_REQUIRED = new Set([
+    "971", // UAE
+    "966", // Saudi Arabia
+    "974", // Qatar
+    "965", // Kuwait
+    "973", // Bahrain
+    "968", // Oman
+    "962", // Jordan
+    "20",  // Egypt
+  ]);
+  const digits = String(to).slice(1);
+  const cc1 = digits.slice(0, 1);
+  const cc2 = digits.slice(0, 2);
+  const cc3 = digits.slice(0, 3);
+  if (ALPHA_SENDER_REQUIRED.has(cc2) || ALPHA_SENDER_REQUIRED.has(cc3) || ALPHA_SENDER_REQUIRED.has(cc1)) {
+    res.status(400).json({
+      error: "Destination not supported",
+      message: `SMS to ${to} requires an alphanumeric sender ID, which is not configured on this messaging profile.`,
+      hint: "Try a destination in a country that accepts numeric sender IDs (US, CA, GB, most of EU). You have NOT been charged.",
+    });
+    return;
+  }
+
+  next();
+}
+
+/**
  * POST /phone/numbers/:id/send — Send an SMS
  * Cost: 0.05 USDC (or free during hackathon)
  */
-router.post("/numbers/:id/send", requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/numbers/:id/send", preflightSendSms, requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { to, body } = req.body as SendSmsRequest;
     const phoneNumberId = req.params.id as string;
-
-    if (!to || !body) {
-      res.status(400).json({
-        error: "Missing Required Fields",
-        message: "Both 'to' and 'body' fields are required",
-        hint: "Include 'to' (E.164 phone number like +15551234567) and 'body' (message text)",
-      });
-      return;
-    }
 
     const msg = await phoneService.sendSms(phoneNumberId, to, body);
     res.status(201).json(msg);
   } catch (err: any) {
     console.error("[phone] Send error:", err);
-    res.status(500).json({
+    // Surface upstream (Telnyx) failures as 502 so the client knows it's not
+    // their fault — but the payment has already settled at this point.
+    const upstreamMsg = err?.raw?.errors?.[0]?.title || err?.message || "Failed to send SMS message";
+    res.status(502).json({
       error: "SMS Send Failed",
-      message: err.message || "Failed to send SMS message",
-      hint: "Check the phone number format (E.164: +15551234567) and try again",
+      message: upstreamMsg,
+      hint: "The carrier rejected this message. Payment has already settled — contact support if this was unexpected.",
     });
   }
 });
