@@ -85,6 +85,9 @@ export interface TwitterLoginRequest {
   login: string;            // email or handle
   password: string;
   totp_seed?: string;       // base32 TOTP seed, optional
+  /** If provided, skip the login form entirely and inject these cookies directly. */
+  auth_token?: string;
+  ct0?: string;
 }
 
 export interface TwitterLoginResult {
@@ -144,6 +147,70 @@ export async function loginTwitter(
       locale: "en-US",
       timezoneId: "America/New_York",
     });
+
+    // ── Fast path: cookie injection ──
+    // If the caller provided auth_token + ct0, skip the login form entirely.
+    // Inject the cookies, hit /home, verify we didn't get bounced to /login,
+    // and harvest the full cookie set. This avoids every anti-bot control at
+    // the login step because there IS no login step.
+    if (req.auth_token && req.ct0) {
+      await ctx.addCookies([
+        {
+          name: "auth_token",
+          value: req.auth_token,
+          domain: ".x.com",
+          path: "/",
+          httpOnly: true,
+          secure: true,
+          sameSite: "Lax",
+        },
+        {
+          name: "ct0",
+          value: req.ct0,
+          domain: ".x.com",
+          path: "/",
+          secure: true,
+          sameSite: "Lax",
+        },
+      ]);
+      const page = await ctx.newPage();
+      try {
+        await page.goto("https://x.com/home", {
+          waitUntil: "domcontentloaded",
+          timeout: 45000,
+        });
+      } catch (e: any) {
+        return {
+          success: false,
+          error: `Navigation to /home failed: ${e.message}`,
+          error_code: "LOGIN_FAILED",
+        };
+      }
+
+      // If we got bounced to a login URL, the cookies are expired / invalid.
+      const finalUrl = page.url();
+      if (/\/login|\/flow\/login|\/i\/flow/.test(finalUrl)) {
+        return {
+          success: false,
+          error: `Cookie injection rejected — X redirected to login (URL: ${finalUrl}). Cookies are likely expired or revoked.`,
+          error_code: "BAD_CREDENTIALS",
+        };
+      }
+
+      // Belt-and-suspenders: verify the home feed rendered.
+      await page
+        .waitForSelector('[data-testid="primaryColumn"], [aria-label*="Home"]', { timeout: 15000 })
+        .catch(() => {});
+
+      const cookies = await ctx.cookies();
+      return {
+        success: true,
+        cookies,
+        captured_at: new Date().toISOString(),
+      };
+    }
+
+    // ── Slow path: form login ──
     const page = await ctx.newPage();
 
     await page.goto("https://x.com/i/flow/login", {

@@ -179,12 +179,20 @@ export class AgentOS {
   }
 
   // ── Social ──
-  async socialTwitterLogin(accountId: string, login: string, password: string, totpSeed?: string): Promise<any> {
+  async socialTwitterLogin(
+    accountId: string,
+    login: string,
+    password: string,
+    totpSeed?: string,
+    cookies?: { auth_token?: string; ct0?: string }
+  ): Promise<any> {
     return this.request('POST', '/social/twitter/login', {
       account_id: accountId,
       login,
       password,
       ...(totpSeed ? { totp_seed: totpSeed } : {}),
+      ...(cookies?.auth_token ? { auth_token: cookies.auth_token } : {}),
+      ...(cookies?.ct0 ? { ct0: cookies.ct0 } : {}),
     })
   }
 

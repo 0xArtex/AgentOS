@@ -39,11 +39,13 @@ router.post(
   requireXEnabled,
   requireAuth(0.02, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
-    const { account_id, login, password, totp_seed } = (req.body || {}) as {
+    const { account_id, login, password, totp_seed, auth_token, ct0 } = (req.body || {}) as {
       account_id?: string;
       login?: string;
       password?: string;
       totp_seed?: string;
+      auth_token?: string;
+      ct0?: string;
     };
 
     if (!account_id || !login || !password) {
@@ -60,6 +62,8 @@ router.post(
         login,
         password,
         totp_seed,
+        auth_token,
+        ct0,
       });
 
       // Never reflect the credentials back to the caller.

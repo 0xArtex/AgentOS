@@ -1017,29 +1017,64 @@ async function main() {
 
         switch (subcommand) {
           case 'import': {
-            const username = (flags.username as string) || positional[0]
-            const password = flags.password as string
-            const login = flags.login as string
-            const email = flags.email as string
-            const emailPassword = (flags['email-password'] as string) || (flags.emailpw as string)
-            const totpSeed = (flags['totp-seed'] as string) || (flags.totp as string)
+            // Option 1: --credentials-line "login:password:email:email_pw:2fa:ct0:auth_token"
+            // Option 2: individual --username --password --email etc flags
+            const line = flags['credentials-line'] as string
+            let login: string | undefined
+            let password: string | undefined
+            let email: string | undefined
+            let emailPassword: string | undefined
+            let totpSeed: string | undefined
+            let ct0: string | undefined
+            let authToken: string | undefined
+            let username = (flags.username as string) || positional[0]
+
+            if (line) {
+              // AccsMarket common formats:
+              //   login:password:email:email_pw                    (4 fields)
+              //   login:password:email:email_pw:2fa                (5 fields)
+              //   login:password:email:email_pw:2fa:ct0:auth_token (7 fields)
+              const parts = line.split(':')
+              if (parts.length < 4) err(`--credentials-line must have at least 4 colon-separated fields, got ${parts.length}`)
+              login = parts[0]
+              password = parts[1]
+              email = parts[2]
+              emailPassword = parts[3]
+              if (parts[4]) totpSeed = parts[4]
+              if (parts[5]) ct0 = parts[5]
+              if (parts[6]) authToken = parts[6]
+              // If no explicit --username, use the login field as the account handle.
+              if (!username) username = login
+            } else {
+              password = flags.password as string
+              login = flags.login as string
+              email = flags.email as string
+              emailPassword = (flags['email-password'] as string) || (flags.emailpw as string)
+              totpSeed = (flags['totp-seed'] as string) || (flags.totp as string)
+              ct0 = flags.ct0 as string
+              authToken = (flags['auth-token'] as string) || (flags.authtoken as string)
+            }
+
+            if (!username) err('--username (or --credentials-line) required')
+            if (!password) err('--password (or --credentials-line) required')
+
             const recovery = flags['recovery-codes'] as string
             const profileUrl = flags['profile-url'] as string
-            if (!username) err('--username (or positional) required')
-            if (!password) err('--password required')
 
             const creds: import('./social-vault.js').SocialCredentials = {
               login: login || email || undefined,
-              password,
+              password: password!,
               email: email || login || undefined,
               email_password: emailPassword,
               totp_seed: totpSeed,
               recovery_codes: recovery ? recovery.split(',').map(s => s.trim()) : undefined,
               profile_url: profileUrl,
+              auth_token: authToken,
+              ct0,
             }
-            const summary = sv.importAccount(platform, username, creds, { source: 'import' })
-            log(`twitter import: ${summary.username} (${summary.id})`)
-            return print(summary)
+            const summary = sv.importAccount(platform, username, creds, { source: line ? 'accsmarket-line' : 'import' })
+            log(`twitter import: ${summary.username} (${summary.id})${authToken ? ' [cookies included — cookie login path]' : ' [form login path]'}`)
+            return print({ ...summary, has_cookies: !!authToken })
           }
 
           case 'list': {
@@ -1105,12 +1140,19 @@ async function main() {
             const creds = sv.unlockCredentials(platform, username)
             if (!creds.login) err('Account has no login field. Re-import with --login <email-or-handle>.', EXIT.BAD_INPUT)
 
-            log(`twitter login: ${username} → launching server-side browser via residential proxy`)
+            const cookiePath = !!(creds.auth_token && creds.ct0)
+            log(`twitter login: ${username} → ${cookiePath ? 'cookie injection path' : 'form login path'} via residential proxy`)
 
             let data: any
             try {
               // Uses the SDK so x402 payment is auto-signed from the configured wallet
-              data = await ao.socialTwitterLogin(acc!.id, creds.login!, creds.password, creds.totp_seed)
+              data = await ao.socialTwitterLogin(
+                acc!.id,
+                creds.login!,
+                creds.password,
+                creds.totp_seed,
+                cookiePath ? { auth_token: creds.auth_token, ct0: creds.ct0 } : undefined
+              )
             } catch (e: any) {
               err(`Login failed: ${e.message}`, EXIT.GENERAL)
             }

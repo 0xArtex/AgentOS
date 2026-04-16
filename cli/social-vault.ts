@@ -37,8 +37,12 @@ export interface SocialCredentials {
   totp_seed?: string
   /** Recovery codes, if provided. */
   recovery_codes?: string[]
-  /** Canonical profile URL from the seller (e.g. https://x.com/NatalieMcK61260). Optional, informational. */
+  /** Canonical profile URL from the seller. Optional, informational. */
   profile_url?: string
+  /** X session cookie — 40-char hex. If present, skip form login entirely. */
+  auth_token?: string
+  /** X CSRF cookie — 160-char hex. Paired with auth_token. */
+  ct0?: string
 }
 
 export interface SocialAccountFile {
