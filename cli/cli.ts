@@ -22,7 +22,7 @@ import { homedir } from 'os'
 // Alias for backwards compat in help text
 const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, white: t.text, gray: t.muted, orange: t.accent }
 
-const VERSION = '0.5.0'
+const VERSION = '0.5.2'
 
 // ─── Exit codes ───
 const EXIT = {
@@ -989,6 +989,129 @@ async function main() {
         break
       }
 
+      case 'twitter': {
+        const sv = await import('./social-vault.js')
+        const platform = 'twitter' as const
+
+        if (!subcommand) {
+          render(React.createElement(MenuScreen, {
+            version: VERSION,
+            title: 'twitter',
+            subtitle: 'Automated X account management',
+            commands: [
+              { name: 'import',  description: 'Save a BYO account to the local vault', hint: '--username --password --totp-seed' },
+              { name: 'list',    description: 'List all local X accounts' },
+              { name: 'info',    description: 'Show one account', hint: '<username>' },
+              { name: 'rename',  description: 'Update the local record when the handle changes', hint: '<old> --to <new>' },
+              { name: 'remove',  description: 'Delete an account from the local vault', hint: '<username> --confirm' },
+              { name: 'totp',    description: 'Print the current TOTP code for an account', hint: '<username>' },
+              { name: 'buy',     description: 'Purchase an aged account (requires server supplier config)', hint: '--age 1y --country US' },
+              { name: 'login',   description: 'Force a fresh server-side session (requires browser runtime)', hint: '<username>' },
+              { name: 'post',    description: 'Post a tweet (requires server browser runtime)', hint: '<username> --body "..."' },
+              { name: 'status',  description: 'Check if the account is alive / shadow-banned', hint: '<username>' },
+            ],
+            footerLeft: 'Phase 1: local vault + BYO import works today. Server-dependent commands stub out.',
+          }))
+          return
+        }
+
+        switch (subcommand) {
+          case 'import': {
+            const username = (flags.username as string) || positional[0]
+            const password = flags.password as string
+            const login = flags.login as string
+            const email = flags.email as string
+            const emailPassword = (flags['email-password'] as string) || (flags.emailpw as string)
+            const totpSeed = (flags['totp-seed'] as string) || (flags.totp as string)
+            const recovery = flags['recovery-codes'] as string
+            const profileUrl = flags['profile-url'] as string
+            if (!username) err('--username (or positional) required')
+            if (!password) err('--password required')
+
+            const creds: import('./social-vault.js').SocialCredentials = {
+              login: login || email || undefined,
+              password,
+              email: email || login || undefined,
+              email_password: emailPassword,
+              totp_seed: totpSeed,
+              recovery_codes: recovery ? recovery.split(',').map(s => s.trim()) : undefined,
+              profile_url: profileUrl,
+            }
+            const summary = sv.importAccount(platform, username, creds, { source: 'import' })
+            log(`twitter import: ${summary.username} (${summary.id})`)
+            return print(summary)
+          }
+
+          case 'list': {
+            const accounts = sv.listAccounts(platform)
+            return print({ accounts, count: accounts.length })
+          }
+
+          case 'info': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
+            return print(acc!)
+          }
+
+          case 'rename': {
+            const oldUsername = positional[0] || (flags.username as string)
+            const newUsername = flags.to as string
+            if (!oldUsername) err('<old-username> required')
+            if (!newUsername) err('--to <new-username> required')
+            const summary = sv.renameAccount(platform, oldUsername, newUsername)
+            log(`twitter rename: ${oldUsername} → ${newUsername}`)
+            return print(summary)
+          }
+
+          case 'remove': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            if (!flags.confirm) {
+              err(
+                `This deletes the local copy of "${username}". The X account itself is NOT deleted.\n\n` +
+                `  Re-run with --confirm to proceed:\n` +
+                `  agentos twitter remove ${username} --confirm`
+              )
+            }
+            sv.removeAccount(platform, username)
+            log(`twitter remove: ${username}`)
+            return print({ success: true, platform, username })
+          }
+
+          case 'totp': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const creds = sv.unlockCredentials(platform, username)
+            if (!creds.totp_seed) err(`twitter account "${username}" has no TOTP seed configured`, EXIT.NOT_FOUND)
+            const { code, secondsUntilNextCode } = await import('./totp.js')
+            return print({
+              platform,
+              username,
+              code: code(creds.totp_seed!),
+              expires_in_seconds: secondsUntilNextCode(),
+            })
+          }
+
+          case 'buy':
+          case 'login':
+          case 'post':
+          case 'status': {
+            err(
+              `twitter ${subcommand}: server-side runtime not configured yet. ` +
+              `See internal/X-Manual.md for the supplier/proxy/browser setup required. ` +
+              `Phase 1 only supports: import, list, info, rename, remove, totp.`,
+              EXIT.GENERAL
+            )
+          }
+
+          default:
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp`)
+        }
+        break
+      }
+
       case 'config': {
         const cfg = loadConfig()
         const { homedir } = await import('os')
@@ -1186,7 +1309,10 @@ async function main() {
         hint = 'Create a wallet first: agentos wallet create'
         exitCode = EXIT.NOT_FOUND
       } else if (rawMsg.includes('not found')) {
-        hint = 'Check the ID with: agentos wallet list'
+        const scope = rawMsg.includes('twitter account') ? 'twitter'
+                    : rawMsg.includes('tiktok account') ? 'tiktok'
+                    : 'wallet'
+        hint = `Check the name with: agentos ${scope} list`
         exitCode = EXIT.NOT_FOUND
       }
       render(React.createElement(ErrorScreen, {
