@@ -131,7 +131,13 @@ import walletPasskeyRoutes from "./routes/wallet-passkey";
 app.use("/wallet", walletRoutes);
 app.use("/wallet", walletPasskeyRoutes);
 
-app.use(requestTimeout(30_000));
+// Social routes run a headless browser and can legitimately take 60-90s
+// through a residential proxy. Skip the default 30s timeout for them; the
+// route itself bounds execution via Playwright's own timeouts.
+app.use((req, res, next) => {
+  if (req.path.startsWith("/social")) return next();
+  return requestTimeout(30_000)(req, res, next);
+});
 app.use(rateLimit(200, 60_000));
 app.use(requestLogger);
 
