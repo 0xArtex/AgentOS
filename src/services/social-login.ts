@@ -194,22 +194,48 @@ export async function loginTwitter(
       };
     }
 
-    // Focus, clear, then type (char-by-char is more human-like than fill).
+    // Focus, clear, then type character-by-character. `pressSequentially`
+    // dispatches real keydown/keypress/keyup events which X's form listens
+    // for to validate + enable the Next button.
     await loginInput.click();
-    await loginInput.fill("");
-    await loginInput.type(req.login, { delay: 40 });
-    await page.waitForTimeout(500);
+    await loginInput.press("Control+A");
+    await loginInput.press("Delete");
+    await loginInput.pressSequentially(req.login, { delay: 80 });
+    await page.waitForTimeout(800);
 
-    // Click the Next button rather than press Enter. X's modal listens for
-    // the click event on the button; programmatic Enter doesn't always
-    // dispatch the same handler chain.
+    // Verify the value actually landed in the input. If the input is empty,
+    // X's form listener didn't fire keydown events properly — capture a
+    // screenshot and fail with a clear error.
+    const typedValue = await loginInput.inputValue().catch(() => "");
+    if (!typedValue || typedValue.trim() === "") {
+      const diag = await snapshot("input-not-filled");
+      return {
+        success: false,
+        error: `Username input never accepted text. X may be using a trusted-events-only form. URL: ${diag.url}`,
+        error_code: "UNEXPECTED_FLOW",
+        diagnostics: diag,
+      };
+    }
+
+    // Capture the pre-submit state so if the submit fails we know the input
+    // was correctly filled.
+    await snapshot("before-next-click");
+
+    // Click the Next button. It starts disabled and enables once the input
+    // has a valid value — wait for the enabled state before clicking.
     const nextButton = page
-      .locator('button:has-text("Next"):visible, div[role="button"]:has-text("Next"):visible')
+      .locator(
+        'button[data-testid="LoginForm_Login_Button"]:visible, ' +
+        'button:has-text("Next"):visible, ' +
+        'div[role="button"]:has-text("Next"):visible'
+      )
       .first();
     try {
+      await nextButton.waitFor({ state: "visible", timeout: 5000 });
       await nextButton.click({ timeout: 5000 });
     } catch {
-      // Fall back to Enter if the button locator didn't resolve
+      // Fall back to keyboard Enter
+      await loginInput.focus();
       await page.keyboard.press("Enter");
     }
 
