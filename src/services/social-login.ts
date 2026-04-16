@@ -216,19 +216,23 @@ export async function loginTwitter(
     ]).catch(() => "unknown");
 
     if (nextStep === "identifier_challenge") {
+      const diag = await snapshot("identifier-challenge");
       return {
         success: false,
         error:
           "X requested an additional identifier (likely phone/username). Handle manually or extend the flow.",
         error_code: "IDENTIFIER_CHALLENGE",
+        diagnostics: diag,
       };
     }
 
     if (nextStep === "unknown") {
+      const diag = await snapshot("unknown-after-username");
       return {
         success: false,
-        error: "X did not render a recognised next step after username.",
+        error: `X did not render a recognised next step after username. URL: ${diag.url || "?"} | Title: ${diag.title || "?"}`,
         error_code: "UNEXPECTED_FLOW",
+        diagnostics: diag,
       };
     }
 
@@ -260,18 +264,31 @@ export async function loginTwitter(
     ]).catch(() => "unknown");
 
     if (afterPassword === "bad_creds") {
+      const diag = await snapshot("bad-creds");
       return {
         success: false,
         error: "Invalid login or password",
         error_code: "BAD_CREDENTIALS",
+        diagnostics: diag,
       };
     }
     if (afterPassword === "email_verify") {
+      const diag = await snapshot("email-verify");
       return {
         success: false,
         error:
           "X requested email verification. First login must be done manually through the proxy before automation, or wire email polling next.",
         error_code: "EMAIL_VERIFICATION_REQUIRED",
+        diagnostics: diag,
+      };
+    }
+    if (afterPassword === "unknown") {
+      const diag = await snapshot("unknown-after-password");
+      return {
+        success: false,
+        error: `Unknown state after password. URL: ${diag.url || "?"} | Title: ${diag.title || "?"}`,
+        error_code: "UNEXPECTED_FLOW",
+        diagnostics: diag,
       };
     }
 
