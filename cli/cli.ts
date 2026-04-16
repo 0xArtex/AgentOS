@@ -1094,20 +1094,97 @@ async function main() {
             })
           }
 
+          case 'login': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
+
+            // Decrypt credentials locally — they transit the network only over TLS
+            // during this one request, and are never persisted server-side.
+            const creds = sv.unlockCredentials(platform, username)
+            if (!creds.login) err('Account has no login field. Re-import with --login <email-or-handle>.', EXIT.BAD_INPUT)
+
+            log(`twitter login: ${username} → launching server-side browser via residential proxy`)
+
+            const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+            if (token) headers['Authorization'] = `Bearer ${token}`
+
+            let res: Response
+            try {
+              res = await fetch(ao.api + '/social/twitter/login', {
+                method: 'POST',
+                headers,
+                body: JSON.stringify({
+                  account_id: acc!.id,
+                  login: creds.login,
+                  password: creds.password,
+                  totp_seed: creds.totp_seed,
+                }),
+              })
+            } catch (e: any) {
+              err(`Network error contacting ${ao.api}: ${e.message}`, EXIT.NETWORK)
+            }
+
+            const data = await res!.json() as any
+            if (!res!.ok || !data.success) {
+              err(
+                `Login failed: ${data.error || 'unknown error'}` +
+                (data.error_code ? ` [${data.error_code}]` : ''),
+                EXIT.GENERAL
+              )
+            }
+
+            sv.saveSession(acc!.id, platform, data.cookies || [])
+            sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+
+            return print({
+              success: true,
+              platform,
+              username,
+              cookies_captured: (data.cookies || []).length,
+              captured_at: data.captured_at,
+            })
+          }
+
+          case 'session': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
+            const sess = sv.loadSession(acc!.id)
+            if (!sess) {
+              return print({
+                platform,
+                username,
+                cached: false,
+                hint: `No cached session. Run: node cli/dist/cli.js twitter login ${username}`,
+              })
+            }
+            const ageHours = sv.sessionAgeHours(acc!.id)
+            return print({
+              platform,
+              username,
+              cached: true,
+              cookies: sess.cookies.length,
+              captured_at: sess.captured_at,
+              age_hours: Number((ageHours || 0).toFixed(2)),
+              stale: (ageHours || 0) > 12,
+            })
+          }
+
           case 'buy':
-          case 'login':
           case 'post':
           case 'status': {
             err(
-              `twitter ${subcommand}: server-side runtime not configured yet. ` +
-              `See internal/X-Manual.md for the supplier/proxy/browser setup required. ` +
-              `Phase 1 only supports: import, list, info, rename, remove, totp.`,
+              `twitter ${subcommand}: not wired yet. ` +
+              `Phase 2 currently supports: login, session. Phase 3 will add buy/post/status.`,
               EXIT.GENERAL
             )
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session`)
         }
         break
       }

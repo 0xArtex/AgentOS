@@ -49,6 +49,7 @@ import { swaggerSpec } from "./swagger";
 import "./db"; // Initialize database
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
+import socialRoutes from "./routes/social";
 import domainRoutes from "./routes/domains";
 import xAccountRoutes from "./routes/xaccounts";
 import skillsRoutes from "./routes/skills";
@@ -170,6 +171,7 @@ app.use(resolveDashboardSession as any);
 // ── Routes ────────────────────────────────────────────────────
 app.use("/phone", phoneRoutes);
 app.use("/email", emailRoutes);
+app.use("/social", socialRoutes);
 app.use("/x", xAccountRoutes);
 app.use("/skills", skillsRoutes);
 app.use("/domains", domainRoutes);

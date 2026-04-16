@@ -269,3 +269,40 @@ export function updateMeta(platform: Platform, username: string, patch: Partial<
   acc.meta = { ...acc.meta, ...patch }
   writeAccount(acc)
 }
+
+// ─── Session cache (cookies from login) ─────────────────────────────────
+
+export interface SocialSession {
+  account_id: string
+  platform: Platform
+  cookies: any[]
+  captured_at: string
+}
+
+function sessionPath(accountId: string): string {
+  return join(getSocialDir(), 'sessions', `${accountId}.sess`)
+}
+
+export function saveSession(accountId: string, platform: Platform, cookies: any[]): SocialSession {
+  ensureDirs()
+  const session: SocialSession = {
+    account_id: accountId,
+    platform,
+    cookies,
+    captured_at: new Date().toISOString(),
+  }
+  writeFileSync(sessionPath(accountId), JSON.stringify(session, null, 2))
+  return session
+}
+
+export function loadSession(accountId: string): SocialSession | undefined {
+  const fpath = sessionPath(accountId)
+  if (!existsSync(fpath)) return undefined
+  return JSON.parse(readFileSync(fpath, 'utf8')) as SocialSession
+}
+
+export function sessionAgeHours(accountId: string): number | undefined {
+  const sess = loadSession(accountId)
+  if (!sess) return undefined
+  return (Date.now() - new Date(sess.captured_at).getTime()) / 1000 / 3600
+}
