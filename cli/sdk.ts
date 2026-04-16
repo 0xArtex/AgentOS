@@ -178,6 +178,16 @@ export class AgentOS {
     return this.request('POST', `/wallet/${walletId}/request-approval`, { action, ...params })
   }
 
+  // ── Social ──
+  async socialTwitterLogin(accountId: string, login: string, password: string, totpSeed?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/login', {
+      account_id: accountId,
+      login,
+      password,
+      ...(totpSeed ? { totp_seed: totpSeed } : {}),
+    })
+  }
+
   // ── Info ──
   async pricing(): Promise<any> {
     return this.request('GET', '/pricing')

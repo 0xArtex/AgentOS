@@ -1107,30 +1107,18 @@ async function main() {
 
             log(`twitter login: ${username} → launching server-side browser via residential proxy`)
 
-            const headers: Record<string, string> = { 'Content-Type': 'application/json' }
-            if (token) headers['Authorization'] = `Bearer ${token}`
-
-            let res: Response
+            let data: any
             try {
-              res = await fetch(ao.api + '/social/twitter/login', {
-                method: 'POST',
-                headers,
-                body: JSON.stringify({
-                  account_id: acc!.id,
-                  login: creds.login,
-                  password: creds.password,
-                  totp_seed: creds.totp_seed,
-                }),
-              })
+              // Uses the SDK so x402 payment is auto-signed from the configured wallet
+              data = await ao.socialTwitterLogin(acc!.id, creds.login!, creds.password, creds.totp_seed)
             } catch (e: any) {
-              err(`Network error contacting ${ao.api}: ${e.message}`, EXIT.NETWORK)
+              err(`Login failed: ${e.message}`, EXIT.GENERAL)
             }
 
-            const data = await res!.json() as any
-            if (!res!.ok || !data.success) {
+            if (!data || !data.success) {
               err(
-                `Login failed: ${data.error || 'unknown error'}` +
-                (data.error_code ? ` [${data.error_code}]` : ''),
+                `Login failed: ${data?.error || 'unknown error'}` +
+                (data?.error_code ? ` [${data.error_code}]` : ''),
                 EXIT.GENERAL
               )
             }

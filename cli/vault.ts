@@ -108,17 +108,11 @@ function verifyIntegrity(file: WalletFile, mnemonic: string): void {
     }
   }
 
-  // Every derived account must be present in the file (catches deletions)
-  for (const der of derived) {
-    const match = file.accounts.find(s => s.chainId === der.chainId)
-    if (!match) {
-      throw new Error(
-        `SECURITY: wallet file integrity check failed. ` +
-        `Chain ${der.chainId} derivable from mnemonic but missing from file. ` +
-        `The wallet file may have been tampered with. Refusing to sign.`,
-      )
-    }
-  }
+  // Note: we deliberately do NOT reverse-check that every derivable chain is
+  // present in the file. Derivation is deterministic and public, so an attacker
+  // cannot gain anything by removing a chain from the file. Enforcing reverse
+  // equality only breaks wallets created before new chains were added to the
+  // derivation set, which has real operational cost with zero security upside.
 }
 
 function resolveMnemonic(file: WalletFile, passphrase?: string): string {

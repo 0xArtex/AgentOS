@@ -102,6 +102,12 @@ export interface TwitterLoginResult {
     | "BAD_CREDENTIALS"
     | "LOGIN_TIMEOUT"
     | "LOGIN_FAILED";
+  diagnostics?: {
+    url?: string;
+    title?: string;
+    page_text_excerpt?: string;
+    screenshot_path?: string;
+  };
 }
 
 export async function loginTwitter(
@@ -145,11 +151,52 @@ export async function loginTwitter(
       timeout: 45000,
     });
 
+    // Helper — capture page state when something unexpected happens so the
+    // error response tells us what X actually served.
+    const snapshot = async (tag: string) => {
+      try {
+        const url = page.url();
+        const title = await page.title().catch(() => "");
+        const text: string = await page
+          .evaluate(
+            // eslint-disable-next-line no-undef
+            "(() => (document.body && document.body.innerText ? document.body.innerText.slice(0, 500) : ''))()"
+          )
+          .catch(() => "");
+        const shotDir = "/tmp/agentos-social-shots";
+        const fs = await import("fs");
+        if (!fs.existsSync(shotDir)) fs.mkdirSync(shotDir, { recursive: true });
+        const shotPath = `${shotDir}/${tag}-${Date.now()}.png`;
+        await page.screenshot({ path: shotPath, fullPage: true });
+        return { url, title, page_text_excerpt: text, screenshot_path: shotPath };
+      } catch {
+        return {};
+      }
+    };
+
     // ── Step 1: username/email ──
-    await page.waitForSelector('input[autocomplete="username"]', {
-      timeout: 20000,
-    });
-    await page.fill('input[autocomplete="username"]', req.login);
+    // X uses `input[name="text"]` in the actual DOM; the autocomplete attr
+    // isn't always set. Race both so we catch whichever renders.
+    let loginInputFound = false;
+    try {
+      await Promise.race([
+        page.waitForSelector('input[name="text"]', { timeout: 20000 }),
+        page.waitForSelector('input[autocomplete="username"]', { timeout: 20000 }),
+      ]);
+      loginInputFound = true;
+    } catch {}
+
+    if (!loginInputFound) {
+      const diag = await snapshot("no-login-input");
+      return {
+        success: false,
+        error: `Login input never rendered. X may have served an anti-bot page. URL: ${diag.url || "unknown"}`,
+        error_code: "UNEXPECTED_FLOW",
+        diagnostics: diag,
+      };
+    }
+
+    await page.fill('input[name="text"], input[autocomplete="username"]', req.login);
     await page.waitForTimeout(400);
     await page.keyboard.press("Enter");
 
