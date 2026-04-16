@@ -175,18 +175,16 @@ export async function loginTwitter(
     };
 
     // ── Step 1: username/email ──
-    // X uses `input[name="text"]` in the actual DOM; the autocomplete attr
-    // isn't always set. Race both so we catch whichever renders.
-    let loginInputFound = false;
-    try {
-      await Promise.race([
-        page.waitForSelector('input[name="text"]', { timeout: 20000 }),
-        page.waitForSelector('input[autocomplete="username"]', { timeout: 20000 }),
-      ]);
-      loginInputFound = true;
-    } catch {}
+    // X often renders more than one `input[name="text"]` in the DOM (hidden
+    // + visible), and the visible one is inside a dialog. Use locator-first
+    // APIs that scope to visible elements and explicitly click to focus.
+    const loginInput = page.locator(
+      'input[autocomplete="username"]:visible, input[name="text"]:visible'
+    ).first();
 
-    if (!loginInputFound) {
+    try {
+      await loginInput.waitFor({ state: "visible", timeout: 20000 });
+    } catch {
       const diag = await snapshot("no-login-input");
       return {
         success: false,
@@ -196,9 +194,24 @@ export async function loginTwitter(
       };
     }
 
-    await page.fill('input[name="text"], input[autocomplete="username"]', req.login);
-    await page.waitForTimeout(400);
-    await page.keyboard.press("Enter");
+    // Focus, clear, then type (char-by-char is more human-like than fill).
+    await loginInput.click();
+    await loginInput.fill("");
+    await loginInput.type(req.login, { delay: 40 });
+    await page.waitForTimeout(500);
+
+    // Click the Next button rather than press Enter. X's modal listens for
+    // the click event on the button; programmatic Enter doesn't always
+    // dispatch the same handler chain.
+    const nextButton = page
+      .locator('button:has-text("Next"):visible, div[role="button"]:has-text("Next"):visible')
+      .first();
+    try {
+      await nextButton.click({ timeout: 5000 });
+    } catch {
+      // Fall back to Enter if the button locator didn't resolve
+      await page.keyboard.press("Enter");
+    }
 
     // ── Step 2: X may ask for an alt identifier, password, or 2FA first ──
     const nextStep = await Promise.race([
@@ -238,9 +251,19 @@ export async function loginTwitter(
 
     // ── Step 3: password (if we didn't already hit 2FA) ──
     if (nextStep === "password") {
-      await page.fill('input[name="password"]', req.password);
-      await page.waitForTimeout(400);
-      await page.keyboard.press("Enter");
+      const pwInput = page.locator('input[name="password"]:visible').first();
+      await pwInput.click();
+      await pwInput.fill("");
+      await pwInput.type(req.password, { delay: 40 });
+      await page.waitForTimeout(500);
+      const loginButton = page
+        .locator('button:has-text("Log in"):visible, div[role="button"]:has-text("Log in"):visible')
+        .first();
+      try {
+        await loginButton.click({ timeout: 5000 });
+      } catch {
+        await page.keyboard.press("Enter");
+      }
     }
 
     // ── Step 4: post-password disposition ──
