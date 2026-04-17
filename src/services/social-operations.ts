@@ -914,14 +914,25 @@ async function updateProfileImage(
       return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
     }
 
-    // X renders two hidden <input type="file"> elements on the profile editor
-    // — one for the avatar (photoInput) and one for the banner (headerInput).
-    const inputTestId = kind === "avatar" ? "fileInput" : "headerPhotoInput";
+    // X renders two `<input type="file">` elements on the profile editor —
+    // one for the banner (header), one for the avatar. Both can share the
+    // same testid ("fileInput") but sit in different containers and render
+    // the banner FIRST. Target via container scoping, then legacy testid,
+    // then positional fallback (banner is always index 0, avatar index 1).
+    const containerTestId = kind === "avatar" ? "photoInputAvatarItem" : "photoInputBannerItem";
     const legacyTestId = kind === "avatar" ? "photoInput" : "headerInput";
 
-    const fileInput = page.locator(
-      `[data-testid="${inputTestId}"], [data-testid="${legacyTestId}"], input[type="file"]`
-    ).first();
+    let fileInput = page
+      .locator(`[data-testid="${containerTestId}"] input[type="file"]`)
+      .first();
+    if ((await fileInput.count()) === 0) {
+      fileInput = page.locator(`input[type="file"][data-testid="${legacyTestId}"]`).first();
+    }
+    if ((await fileInput.count()) === 0) {
+      // Positional fallback: banner = 0, avatar = 1
+      fileInput = page.locator('input[type="file"]').nth(kind === "avatar" ? 1 : 0);
+    }
+
     await fileInput.waitFor({ state: "attached", timeout: 20000 });
     await fileInput.setInputFiles(materialized.filePath);
 
