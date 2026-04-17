@@ -11,6 +11,82 @@
  * banner come in a follow-up since they need the profile settings UI.
  */
 import { openAuthenticatedSession, isSessionExpiredUrl } from "./social-runtime";
+import { isSsrfSafe } from "./email";
+import { randomUUID } from "crypto";
+
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+
+interface ImageInput {
+  image_base64?: string;   // raw base64 or data: URL
+  image_url?: string;       // https URL — server fetches
+}
+
+/**
+ * Materialise an image from either base64 or a URL into a temp file path
+ * the server-side browser can upload. Returns the path + a cleanup fn.
+ */
+async function materializeImage(
+  input: ImageInput
+): Promise<{ filePath: string; cleanup: () => void }> {
+  if (!input.image_base64 && !input.image_url) {
+    throw new Error("image_base64 or image_url is required");
+  }
+
+  const fs = await import("fs");
+  const path = await import("path");
+
+  const dir = "/tmp/agentos-uploads";
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  let buf: Buffer;
+  let ext = "png";
+
+  if (input.image_base64) {
+    const dataUrlMatch = input.image_base64.match(/^data:image\/(\w+);base64,(.+)$/);
+    if (dataUrlMatch) {
+      ext = dataUrlMatch[1].toLowerCase();
+      buf = Buffer.from(dataUrlMatch[2], "base64");
+    } else {
+      buf = Buffer.from(input.image_base64, "base64");
+    }
+  } else {
+    if (!isSsrfSafe(input.image_url!)) {
+      throw new Error("Image URL must be HTTPS and must not target private networks");
+    }
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30000);
+    let resp: Response;
+    try {
+      resp = await fetch(input.image_url!, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!resp.ok) throw new Error(`Failed to fetch image: HTTP ${resp.status}`);
+    const contentType = resp.headers.get("content-type") || "";
+    if (!/^image\//.test(contentType)) {
+      throw new Error(`URL did not return an image (content-type: ${contentType})`);
+    }
+    ext = contentType.split("/")[1]?.split(";")[0]?.toLowerCase() || "png";
+    const arrayBuf = await resp.arrayBuffer();
+    buf = Buffer.from(arrayBuf);
+  }
+
+  if (buf.length > MAX_IMAGE_BYTES) {
+    throw new Error(`Image too large (${buf.length} bytes, max ${MAX_IMAGE_BYTES})`);
+  }
+
+  // Whitelist extensions X accepts
+  if (!["png", "jpeg", "jpg", "webp", "gif"].includes(ext)) ext = "png";
+
+  const filePath = path.join(dir, `${randomUUID()}.${ext}`);
+  fs.writeFileSync(filePath, buf);
+
+  const cleanup = () => {
+    try { fs.unlinkSync(filePath); } catch { /* noop */ }
+  };
+
+  return { filePath, cleanup };
+}
 
 async function debugShot(page: any, tag: string): Promise<string | undefined> {
   try {
@@ -803,6 +879,117 @@ export async function updateProfile(
   } finally {
     await close();
   }
+}
+
+/* ─── updateAvatar / updateBanner: set profile picture or header image ── */
+
+async function updateProfileImage(
+  req: OpRequest & ImageInput,
+  kind: "avatar" | "banner"
+): Promise<OpResult> {
+  let materialized: { filePath: string; cleanup: () => void };
+  try {
+    materialized = await materializeImage(req);
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "INVALID_INPUT" };
+  }
+
+  let session;
+  try {
+    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+  } catch (e: any) {
+    materialized.cleanup();
+    return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
+  }
+
+  const { page, close } = session;
+  try {
+    await page
+      .goto("https://x.com/settings/profile", { waitUntil: "domcontentloaded", timeout: 45000 })
+      .catch(async () => {
+        await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 45000 });
+      });
+
+    if (isSessionExpiredUrl(page.url())) {
+      return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
+    }
+
+    // X renders two hidden <input type="file"> elements on the profile editor
+    // — one for the avatar (photoInput) and one for the banner (headerInput).
+    const inputTestId = kind === "avatar" ? "fileInput" : "headerPhotoInput";
+    const legacyTestId = kind === "avatar" ? "photoInput" : "headerInput";
+
+    const fileInput = page.locator(
+      `[data-testid="${inputTestId}"], [data-testid="${legacyTestId}"], input[type="file"]`
+    ).first();
+    await fileInput.waitFor({ state: "attached", timeout: 20000 });
+    await fileInput.setInputFiles(materialized.filePath);
+
+    // X opens a crop / apply modal after upload. Find its Apply button.
+    const applyButton = page
+      .locator(
+        '[data-testid="applyButton"]:visible, ' +
+        'button:has-text("Apply"):visible, ' +
+        '[data-testid="saveEditProfilePicture"]:visible'
+      )
+      .first();
+    await applyButton.waitFor({ state: "visible", timeout: 20000 });
+    await applyButton.click({ timeout: 5000 });
+
+    // Now the top-level Save on the profile editor.
+    const saveButton = page
+      .locator(
+        '[data-testid="Profile_Save_Button"]:visible, ' +
+        'button:has-text("Save"):visible'
+      )
+      .first();
+    await saveButton.waitFor({ state: "visible", timeout: 15000 });
+
+    // X's endpoints for avatar/banner updates. Broad match covers v1.1 REST
+    // and any GraphQL variants.
+    const apiPattern =
+      kind === "avatar"
+        ? /update_profile_image|UpdateProfileImage/
+        : /update_profile_banner|UpdateProfileBanner/;
+
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await saveButton.click({ timeout: 5000 }); },
+      apiPattern
+    );
+
+    if (!apiResult) {
+      const shot = await debugShot(page, `${kind}-no-api-call`);
+      return {
+        success: false,
+        error: `No ${kind} update API call observed. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    if (!apiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected ${kind} update: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
+        error_code: mapXError(apiResult.status, apiResult.errorCode),
+      };
+    }
+
+    return { success: true, data: { kind } };
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+  } finally {
+    materialized.cleanup();
+    await close();
+  }
+}
+
+export async function updateAvatar(req: OpRequest & ImageInput): Promise<OpResult> {
+  return updateProfileImage(req, "avatar");
+}
+
+export async function updateBanner(req: OpRequest & ImageInput): Promise<OpResult> {
+  return updateProfileImage(req, "banner");
 }
 
 /* ─── follow: follow another user by handle ───────────────────────────── */

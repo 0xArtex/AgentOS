@@ -244,6 +244,20 @@ export class AgentOS {
   ): Promise<any> {
     return this.request('POST', '/social/twitter/profile', { account_id: accountId, cookies, ...patch })
   }
+  async socialTwitterAvatar(
+    accountId: string,
+    cookies: any[],
+    image: { image_base64?: string; image_url?: string }
+  ): Promise<any> {
+    return this.request('POST', '/social/twitter/avatar', { account_id: accountId, cookies, ...image })
+  }
+  async socialTwitterBanner(
+    accountId: string,
+    cookies: any[],
+    image: { image_base64?: string; image_url?: string }
+  ): Promise<any> {
+    return this.request('POST', '/social/twitter/banner', { account_id: accountId, cookies, ...image })
+  }
 
   // ── Info ──
   async pricing(): Promise<any> {

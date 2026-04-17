@@ -1213,7 +1213,9 @@ async function main() {
           case 'bio':
           case 'name':
           case 'location':
-          case 'website': {
+          case 'website':
+          case 'pfp':
+          case 'banner': {
             const username = positional[0] || (flags.username as string)
             if (!username) err(`<username> required`)
             const acc = sv.getAccount(platform, username)
@@ -1269,9 +1271,30 @@ async function main() {
               } else if (subcommand === 'location') {
                 const text = (flags.text as string) || ''
                 data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { location: text })
-              } else {
+              } else if (subcommand === 'website') {
                 const url = (flags.url as string) || (flags.text as string) || ''
                 data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { website: url })
+              } else {
+                // pfp / banner: accept --file (local path, base64-encoded here)
+                // OR --url (hosted image, server fetches).
+                const filePath = (flags.file as string) || (flags.path as string)
+                const imageUrl = flags.url as string
+                if (!filePath && !imageUrl) err('--file <local-path> or --url <https-url> required')
+                let image: { image_base64?: string; image_url?: string } = {}
+                if (filePath) {
+                  const { readFileSync, existsSync } = await import('fs')
+                  if (!existsSync(filePath)) err(`File not found: ${filePath}`, EXIT.NOT_FOUND)
+                  const buf = readFileSync(filePath)
+                  const ext = filePath.toLowerCase().match(/\.(png|jpg|jpeg|webp|gif)$/)?.[1] || 'png'
+                  image.image_base64 = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${buf.toString('base64')}`
+                } else {
+                  image.image_url = imageUrl
+                }
+                if (subcommand === 'pfp') {
+                  data = await ao.socialTwitterAvatar(acc!.id, sess!.cookies, image)
+                } else {
+                  data = await ao.socialTwitterBanner(acc!.id, sess!.cookies, image)
+                }
               }
             } catch (e: any) {
               err(`${subcommand} failed: ${e.message}`, EXIT.GENERAL)
@@ -1298,7 +1321,7 @@ async function main() {
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website, pfp, banner`)
         }
         break
       }

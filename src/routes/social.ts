@@ -19,6 +19,8 @@ import {
   deleteTweet,
   unfollowUser,
   updateProfile,
+  updateAvatar,
+  updateBanner,
 } from "../services/social-operations";
 
 const router = Router();
@@ -277,6 +279,50 @@ router.post(
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Profile update failed" });
+    }
+  }
+);
+
+// Profile images cost slightly more because they transfer a file (up to 10 MB)
+// plus a 2-step upload+crop+save UI flow that takes ~20s of browser time.
+router.post(
+  "/twitter/avatar",
+  requireXEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { image_base64, image_url } = req.body as { image_base64?: string; image_url?: string };
+    if (!image_base64 && !image_url) {
+      res.status(400).json({ error: "image_base64 or image_url is required" });
+      return;
+    }
+    try {
+      const result = await updateAvatar({ ...common, image_base64, image_url });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Avatar update failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/banner",
+  requireXEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { image_base64, image_url } = req.body as { image_base64?: string; image_url?: string };
+    if (!image_base64 && !image_url) {
+      res.status(400).json({ error: "image_base64 or image_url is required" });
+      return;
+    }
+    try {
+      const result = await updateBanner({ ...common, image_base64, image_url });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Banner update failed" });
     }
   }
 );
