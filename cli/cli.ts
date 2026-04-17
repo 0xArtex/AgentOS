@@ -1207,7 +1207,13 @@ async function main() {
           case 'reply':
           case 'like':
           case 'retweet':
-          case 'follow': {
+          case 'follow':
+          case 'unfollow':
+          case 'delete':
+          case 'bio':
+          case 'name':
+          case 'location':
+          case 'website': {
             const username = positional[0] || (flags.username as string)
             if (!username) err(`<username> required`)
             const acc = sv.getAccount(platform, username)
@@ -1240,10 +1246,32 @@ async function main() {
                 const tweetUrl = (flags.tweet as string) || (flags.url as string)
                 if (!tweetUrl) err('--tweet <tweet-url> required')
                 data = await ao.socialTwitterRetweet(acc!.id, sess!.cookies, tweetUrl)
-              } else {
+              } else if (subcommand === 'follow') {
                 const target = (flags.user as string) || (flags.target as string)
                 if (!target) err('--user <@handle> required')
                 data = await ao.socialTwitterFollow(acc!.id, sess!.cookies, target)
+              } else if (subcommand === 'unfollow') {
+                const target = (flags.user as string) || (flags.target as string)
+                if (!target) err('--user <@handle> required')
+                data = await ao.socialTwitterUnfollow(acc!.id, sess!.cookies, target)
+              } else if (subcommand === 'delete') {
+                const tweetUrl = (flags.tweet as string) || (flags.url as string)
+                if (!tweetUrl) err('--tweet <tweet-url> required')
+                data = await ao.socialTwitterDelete(acc!.id, sess!.cookies, tweetUrl)
+              } else if (subcommand === 'bio') {
+                const text = (flags.text as string) || (flags.body as string)
+                if (text === undefined) err('--text "..." required (pass "" to clear)')
+                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { bio: text })
+              } else if (subcommand === 'name') {
+                const text = (flags.display as string) || (flags.text as string) || (flags.name as string)
+                if (!text) err('--display "Display Name" required')
+                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { display_name: text })
+              } else if (subcommand === 'location') {
+                const text = (flags.text as string) || ''
+                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { location: text })
+              } else {
+                const url = (flags.url as string) || (flags.text as string) || ''
+                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { website: url })
               }
             } catch (e: any) {
               err(`${subcommand} failed: ${e.message}`, EXIT.GENERAL)
@@ -1270,7 +1298,7 @@ async function main() {
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website`)
         }
         break
       }

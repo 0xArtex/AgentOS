@@ -211,6 +211,19 @@ export class AgentOS {
   async socialTwitterFollow(accountId: string, cookies: any[], targetUser: string): Promise<any> {
     return this.request('POST', '/social/twitter/follow', { account_id: accountId, cookies, target_user: targetUser })
   }
+  async socialTwitterUnfollow(accountId: string, cookies: any[], targetUser: string): Promise<any> {
+    return this.request('POST', '/social/twitter/unfollow', { account_id: accountId, cookies, target_user: targetUser })
+  }
+  async socialTwitterDelete(accountId: string, cookies: any[], tweetUrl: string): Promise<any> {
+    return this.request('POST', '/social/twitter/delete', { account_id: accountId, cookies, tweet_url: tweetUrl })
+  }
+  async socialTwitterProfile(
+    accountId: string,
+    cookies: any[],
+    patch: { bio?: string; display_name?: string; location?: string; website?: string }
+  ): Promise<any> {
+    return this.request('POST', '/social/twitter/profile', { account_id: accountId, cookies, ...patch })
+  }
 
   // ── Info ──
   async pricing(): Promise<any> {

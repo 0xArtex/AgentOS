@@ -471,6 +471,285 @@ export async function retweetTweet(
   }
 }
 
+/* ─── delete: delete one of your own tweets by URL ────────────────────── */
+
+export async function deleteTweet(
+  req: OpRequest & { tweet_url: string }
+): Promise<OpResult> {
+  if (!req.tweet_url || !/\/status\/\d+/.test(req.tweet_url)) {
+    return { success: false, error: "tweet_url must be a full X tweet URL", error_code: "INVALID_INPUT" };
+  }
+
+  let session;
+  try {
+    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
+  }
+
+  const { page, close } = session;
+  try {
+    await page.goto(req.tweet_url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    if (isSessionExpiredUrl(page.url())) {
+      return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
+    }
+
+    // Open the "..." menu on the tweet
+    const caretButton = page.locator('[data-testid="caret"]:visible').first();
+    await caretButton.waitFor({ state: "visible", timeout: 20000 });
+    await caretButton.click({ timeout: 5000 });
+
+    // Click Delete in the dropdown
+    const deleteMenuItem = page
+      .locator('[data-testid="Dropdown"] [role="menuitem"]:has-text("Delete"):visible, [role="menuitem"]:has-text("Delete"):visible')
+      .first();
+    await deleteMenuItem.waitFor({ state: "visible", timeout: 10000 });
+    await deleteMenuItem.click({ timeout: 5000 });
+
+    // Confirm in the modal
+    const confirmButton = page.locator('[data-testid="confirmationSheetConfirm"]:visible').first();
+    await confirmButton.waitFor({ state: "visible", timeout: 10000 });
+
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await confirmButton.click({ timeout: 5000 }); },
+      /\/DeleteTweet/
+    );
+
+    if (!apiResult) {
+      const shot = await debugShot(page, "delete-no-api-call");
+      return {
+        success: false,
+        error: `No DeleteTweet API call observed. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    if (!apiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected the delete: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
+        error_code: mapXError(apiResult.status, apiResult.errorCode),
+      };
+    }
+
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+  } finally {
+    await close();
+  }
+}
+
+/* ─── unfollow: stop following a user ──────────────────────────────────── */
+
+export async function unfollowUser(
+  req: OpRequest & { target_user: string }
+): Promise<OpResult> {
+  if (!req.target_user) {
+    return { success: false, error: "target_user is required", error_code: "INVALID_INPUT" };
+  }
+  const handle = req.target_user.replace(/^@/, "").trim();
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) {
+    return { success: false, error: `Invalid handle: ${handle}`, error_code: "INVALID_INPUT" };
+  }
+
+  let session;
+  try {
+    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
+  }
+
+  const { page, close } = session;
+  try {
+    await page.goto(`https://x.com/${handle}`, { waitUntil: "domcontentloaded", timeout: 45000 });
+    if (isSessionExpiredUrl(page.url())) {
+      return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
+    }
+
+    const notFollowing = await page
+      .locator('[data-testid$="-follow"]:visible')
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (notFollowing) {
+      return { success: true, data: { already_not_following: true } };
+    }
+
+    const unfollowButton = page.locator('[data-testid$="-unfollow"]:visible').first();
+    await unfollowButton.waitFor({ state: "visible", timeout: 20000 });
+    await unfollowButton.click({ timeout: 5000 });
+
+    // Confirmation modal
+    const confirmButton = page.locator('[data-testid="confirmationSheetConfirm"]:visible').first();
+    await confirmButton.waitFor({ state: "visible", timeout: 10000 });
+
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await confirmButton.click({ timeout: 5000 }); },
+      /\/friendships\/destroy|\/UnfollowUser/
+    );
+
+    if (!apiResult) {
+      const shot = await debugShot(page, "unfollow-no-api-call");
+      return {
+        success: false,
+        error: `No unfollow API call observed. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    if (!apiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected the unfollow: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
+        error_code: mapXError(apiResult.status, apiResult.errorCode),
+      };
+    }
+
+    return { success: true };
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+  } finally {
+    await close();
+  }
+}
+
+/* ─── updateProfile: change bio / display name / location / website ────── */
+
+export async function updateProfile(
+  req: OpRequest & {
+    bio?: string;
+    display_name?: string;
+    location?: string;
+    website?: string;
+  }
+): Promise<OpResult> {
+  const fields: Array<[string, string | undefined]> = [
+    ["bio", req.bio],
+    ["display_name", req.display_name],
+    ["location", req.location],
+    ["website", req.website],
+  ];
+  const provided = fields.filter(([, v]) => v !== undefined);
+  if (provided.length === 0) {
+    return { success: false, error: "At least one of bio/display_name/location/website is required", error_code: "INVALID_INPUT" };
+  }
+  if (req.bio !== undefined && req.bio.length > 160) {
+    return { success: false, error: `bio exceeds 160 chars (got ${req.bio.length})`, error_code: "INVALID_INPUT" };
+  }
+  if (req.display_name !== undefined && (req.display_name.length === 0 || req.display_name.length > 50)) {
+    return { success: false, error: "display_name must be 1-50 chars", error_code: "INVALID_INPUT" };
+  }
+
+  let session;
+  try {
+    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
+  }
+
+  const { page, close } = session;
+  try {
+    // Navigate to own profile — X routes to the logged-in user's page.
+    await page.goto("https://x.com/settings/profile", { waitUntil: "domcontentloaded", timeout: 45000 }).catch(async () => {
+      // Fallback path: go to home then click profile link
+      await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 45000 });
+    });
+
+    if (isSessionExpiredUrl(page.url())) {
+      return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
+    }
+
+    // Ensure we're in the profile editor modal. X lazy-loads the settings UI
+    // through a modal on some viewports and a full page on others. We look for
+    // a known field on either.
+    await page
+      .locator('input[name="displayName"], [data-testid="UserName-edit"], [name="description"]')
+      .first()
+      .waitFor({ state: "visible", timeout: 20000 })
+      .catch(() => {});
+
+    if (req.display_name !== undefined) {
+      const nameInput = page.locator('input[name="displayName"]:visible, input[data-testid="UserName-edit"]:visible').first();
+      await nameInput.waitFor({ state: "visible", timeout: 10000 });
+      await nameInput.click();
+      await nameInput.press("Control+A");
+      await nameInput.press("Delete");
+      await nameInput.pressSequentially(req.display_name, { delay: 25 });
+    }
+
+    if (req.bio !== undefined) {
+      const bioInput = page.locator('textarea[name="description"]:visible, [data-testid="UserDescription-edit"]:visible').first();
+      await bioInput.waitFor({ state: "visible", timeout: 10000 });
+      await bioInput.click();
+      await bioInput.press("Control+A");
+      await bioInput.press("Delete");
+      await bioInput.pressSequentially(req.bio, { delay: 25 });
+    }
+
+    if (req.location !== undefined) {
+      const locInput = page.locator('input[name="location"]:visible').first();
+      await locInput.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+      await locInput.click();
+      await locInput.press("Control+A");
+      await locInput.press("Delete");
+      await locInput.pressSequentially(req.location, { delay: 25 });
+    }
+
+    if (req.website !== undefined) {
+      const urlInput = page.locator('input[name="url"]:visible').first();
+      await urlInput.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
+      await urlInput.click();
+      await urlInput.press("Control+A");
+      await urlInput.press("Delete");
+      await urlInput.pressSequentially(req.website, { delay: 25 });
+    }
+
+    // Save
+    const saveButton = page
+      .locator(
+        '[data-testid="Profile_Save_Button"]:visible, ' +
+        'button:has-text("Save"):visible'
+      )
+      .first();
+    await saveButton.waitFor({ state: "visible", timeout: 10000 });
+
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await saveButton.click({ timeout: 5000 }); },
+      /\/UpdateProfile|account\/update_profile/
+    );
+
+    if (!apiResult) {
+      const shot = await debugShot(page, "profile-no-api-call");
+      return {
+        success: false,
+        error: `No profile update API call observed. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    if (!apiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected profile update: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
+        error_code: mapXError(apiResult.status, apiResult.errorCode),
+      };
+    }
+
+    return {
+      success: true,
+      data: Object.fromEntries(provided),
+    };
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+  } finally {
+    await close();
+  }
+}
+
 /* ─── follow: follow another user by handle ───────────────────────────── */
 
 export async function followUser(

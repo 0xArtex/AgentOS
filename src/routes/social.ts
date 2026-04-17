@@ -16,6 +16,9 @@ import {
   likeTweet,
   retweetTweet,
   followUser,
+  deleteTweet,
+  unfollowUser,
+  updateProfile,
 } from "../services/social-operations";
 
 const router = Router();
@@ -210,6 +213,70 @@ router.post(
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Follow failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/unfollow",
+  requireXEnabled,
+  requireAuth(0.001, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { target_user } = req.body as { target_user?: string };
+    if (!target_user) {
+      res.status(400).json({ error: "target_user is required" });
+      return;
+    }
+    try {
+      const result = await unfollowUser({ ...common, target_user });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Unfollow failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/delete",
+  requireXEnabled,
+  requireAuth(0.001, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { tweet_url } = req.body as { tweet_url?: string };
+    if (!tweet_url) {
+      res.status(400).json({ error: "tweet_url is required" });
+      return;
+    }
+    try {
+      const result = await deleteTweet({ ...common, tweet_url });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Delete failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/profile",
+  requireXEnabled,
+  requireAuth(0.001, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { bio, display_name, location, website } = req.body as {
+      bio?: string;
+      display_name?: string;
+      location?: string;
+      website?: string;
+    };
+    try {
+      const result = await updateProfile({ ...common, bio, display_name, location, website });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Profile update failed" });
     }
   }
 );
