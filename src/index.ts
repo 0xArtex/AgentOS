@@ -118,7 +118,16 @@ import deadlineDayRoute from "./routes/deadline-day";
 
 app.use(securityHeaders);
 app.use(paramPollution);
-app.use(express.json({ limit: "100kb" }));
+// Social image-upload endpoints transfer up to ~10 MB of base64 image data;
+// everything else stays on the security-tight 100 KB default.
+const IMAGE_UPLOAD_ROUTES = new Set([
+  "/social/twitter/avatar",
+  "/social/twitter/banner",
+]);
+app.use((req, res, next) => {
+  const limit = IMAGE_UPLOAD_ROUTES.has(req.path) ? "15mb" : "100kb";
+  return express.json({ limit })(req, res, next);
+});
 app.use(cors);
 app.use(sanitizeInputs);
 app.use(sqlInjectionGuard);
