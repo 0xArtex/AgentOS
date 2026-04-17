@@ -1203,9 +1203,18 @@ async function main() {
 
           case 'username': {
             const username = positional[0] || (flags.username as string)
-            const newUsername = flags.to as string
+            const rawNewUsername = flags.to as string
             if (!username) err('<username> required')
-            if (!newUsername) err('--to <new-handle> required')
+            if (!rawNewUsername) err('--to <new-handle> required')
+            // Pre-flight validate so we don't pay for preventable input errors.
+            const newUsername = rawNewUsername.replace(/^@/, '').trim()
+            if (!/^[A-Za-z0-9_]{4,15}$/.test(newUsername)) {
+              err(
+                `Invalid username "${rawNewUsername}". X requires 4-15 chars, letters/numbers/underscores only. ` +
+                `You have NOT been charged.`,
+                EXIT.BAD_INPUT
+              )
+            }
             const acc = sv.getAccount(platform, username)
             if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
             const sess = sv.loadSession(acc!.id)
