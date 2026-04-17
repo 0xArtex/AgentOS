@@ -196,6 +196,22 @@ export class AgentOS {
     })
   }
 
+  async socialTwitterPost(accountId: string, cookies: any[], text: string): Promise<any> {
+    return this.request('POST', '/social/twitter/post', { account_id: accountId, cookies, text })
+  }
+  async socialTwitterReply(accountId: string, cookies: any[], tweetUrl: string, text: string): Promise<any> {
+    return this.request('POST', '/social/twitter/reply', { account_id: accountId, cookies, tweet_url: tweetUrl, text })
+  }
+  async socialTwitterLike(accountId: string, cookies: any[], tweetUrl: string): Promise<any> {
+    return this.request('POST', '/social/twitter/like', { account_id: accountId, cookies, tweet_url: tweetUrl })
+  }
+  async socialTwitterRetweet(accountId: string, cookies: any[], tweetUrl: string): Promise<any> {
+    return this.request('POST', '/social/twitter/retweet', { account_id: accountId, cookies, tweet_url: tweetUrl })
+  }
+  async socialTwitterFollow(accountId: string, cookies: any[], targetUser: string): Promise<any> {
+    return this.request('POST', '/social/twitter/follow', { account_id: accountId, cookies, target_user: targetUser })
+  }
+
   // ── Info ──
   async pricing(): Promise<any> {
     return this.request('GET', '/pricing')

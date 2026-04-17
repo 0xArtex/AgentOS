@@ -10,6 +10,13 @@ import { Router, Response } from "express";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
+import {
+  postTweet,
+  replyToTweet,
+  likeTweet,
+  retweetTweet,
+  followUser,
+} from "../services/social-operations";
 
 const router = Router();
 
@@ -78,6 +85,131 @@ router.post(
         error: "Login failed",
         message: err?.message || "Unexpected error during login",
       });
+    }
+  }
+);
+
+/* ─── Operations: post / reply / like / retweet / follow ──────────── */
+
+function validateOpBody(req: AuthenticatedRequest, res: Response): null | {
+  account_id: string;
+  cookies: any[];
+} {
+  const { account_id, cookies } = (req.body || {}) as {
+    account_id?: string;
+    cookies?: any[];
+  };
+  if (!account_id || !Array.isArray(cookies) || cookies.length === 0) {
+    res.status(400).json({
+      error: "Missing required fields",
+      message: "account_id and a non-empty cookies array are required.",
+    });
+    return null;
+  }
+  return { account_id, cookies };
+}
+
+router.post(
+  "/twitter/post",
+  requireXEnabled,
+  requireAuth(0.02, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { text } = req.body as { text?: string };
+    if (!text) {
+      res.status(400).json({ error: "text is required" });
+      return;
+    }
+    try {
+      const result = await postTweet({ ...common, text });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Post failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/reply",
+  requireXEnabled,
+  requireAuth(0.02, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { tweet_url, text } = req.body as { tweet_url?: string; text?: string };
+    if (!tweet_url || !text) {
+      res.status(400).json({ error: "tweet_url and text are required" });
+      return;
+    }
+    try {
+      const result = await replyToTweet({ ...common, tweet_url, text });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Reply failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/like",
+  requireXEnabled,
+  requireAuth(0.02, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { tweet_url } = req.body as { tweet_url?: string };
+    if (!tweet_url) {
+      res.status(400).json({ error: "tweet_url is required" });
+      return;
+    }
+    try {
+      const result = await likeTweet({ ...common, tweet_url });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Like failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/retweet",
+  requireXEnabled,
+  requireAuth(0.02, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { tweet_url } = req.body as { tweet_url?: string };
+    if (!tweet_url) {
+      res.status(400).json({ error: "tweet_url is required" });
+      return;
+    }
+    try {
+      const result = await retweetTweet({ ...common, tweet_url });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Retweet failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/follow",
+  requireXEnabled,
+  requireAuth(0.02, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { target_user } = req.body as { target_user?: string };
+    if (!target_user) {
+      res.status(400).json({ error: "target_user is required" });
+      return;
+    }
+    try {
+      const result = await followUser({ ...common, target_user });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Follow failed" });
     }
   }
 );

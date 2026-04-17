@@ -7,18 +7,9 @@
  * browser context. The returned cookies are what the caller caches.
  */
 import { createHmac } from "crypto";
+import { getStealthChromium, buildProxyConfig } from "./social-runtime";
 
-// We lazy-load playwright-extra so the server boots even when the binary
-// isn't installed (e.g. in dev machines without `playwright install`).
 type Browser = any;
-
-async function getStealthChromium() {
-  const { chromium } = await import("playwright-extra");
-  const stealthMod = await import("puppeteer-extra-plugin-stealth");
-  const StealthPlugin = (stealthMod as any).default || (stealthMod as any);
-  chromium.use(StealthPlugin());
-  return chromium;
-}
 
 // ─── TOTP (RFC 6238) ───
 const BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -51,32 +42,6 @@ function totpCode(seed: string, at: number = Date.now()): string {
     ((h[offset + 2] & 0xff) << 8) |
     (h[offset + 3] & 0xff);
   return String(value % 1_000_000).padStart(6, "0");
-}
-
-// ─── Proxy config ───
-function buildProxyConfig(accountId: string) {
-  const host = process.env.IPROYAL_HOST;
-  const port = process.env.IPROYAL_PORT;
-  const username = process.env.IPROYAL_USERNAME;
-  const basePassword = process.env.IPROYAL_PASSWORD;
-  const country = process.env.IPROYAL_DEFAULT_COUNTRY || "us";
-
-  if (!host || !port || !username || !basePassword) {
-    throw new Error(
-      "IPROYAL_* env not configured. Set IPROYAL_HOST, IPROYAL_PORT, IPROYAL_USERNAME, IPROYAL_PASSWORD."
-    );
-  }
-
-  // The password format is: <base>_country-<cc>_session-<id>_lifetime-<dur>
-  // Inject the per-account session id while preserving the base secret.
-  const baseSecret = basePassword.split("_")[0];
-  const perAccountPassword = `${baseSecret}_country-${country}_session-${accountId}_lifetime-168h`;
-
-  return {
-    server: `http://${host}:${port}`,
-    username,
-    password: perAccountPassword,
-  };
 }
 
 // ─── Public API ───

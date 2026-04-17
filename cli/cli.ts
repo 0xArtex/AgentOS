@@ -1203,18 +1203,74 @@ async function main() {
             })
           }
 
-          case 'buy':
           case 'post':
+          case 'reply':
+          case 'like':
+          case 'retweet':
+          case 'follow': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err(`<username> required`)
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
+            const sess = sv.loadSession(acc!.id)
+            if (!sess || !sess.cookies || sess.cookies.length === 0) {
+              err(
+                `No cached session for ${username}. Run 'twitter login ${username}' first.`,
+                EXIT.NOT_FOUND
+              )
+            }
+
+            let data: any
+            try {
+              if (subcommand === 'post') {
+                const text = (flags.body as string) || (flags.text as string)
+                if (!text) err('--body "..." required')
+                data = await ao.socialTwitterPost(acc!.id, sess!.cookies, text)
+              } else if (subcommand === 'reply') {
+                const tweetUrl = (flags.to as string) || (flags.tweet as string)
+                const text = (flags.body as string) || (flags.text as string)
+                if (!tweetUrl) err('--to <tweet-url> required')
+                if (!text) err('--body "..." required')
+                data = await ao.socialTwitterReply(acc!.id, sess!.cookies, tweetUrl, text)
+              } else if (subcommand === 'like') {
+                const tweetUrl = (flags.tweet as string) || (flags.url as string)
+                if (!tweetUrl) err('--tweet <tweet-url> required')
+                data = await ao.socialTwitterLike(acc!.id, sess!.cookies, tweetUrl)
+              } else if (subcommand === 'retweet') {
+                const tweetUrl = (flags.tweet as string) || (flags.url as string)
+                if (!tweetUrl) err('--tweet <tweet-url> required')
+                data = await ao.socialTwitterRetweet(acc!.id, sess!.cookies, tweetUrl)
+              } else {
+                const target = (flags.user as string) || (flags.target as string)
+                if (!target) err('--user <@handle> required')
+                data = await ao.socialTwitterFollow(acc!.id, sess!.cookies, target)
+              }
+            } catch (e: any) {
+              err(`${subcommand} failed: ${e.message}`, EXIT.GENERAL)
+            }
+
+            if (!data?.success) {
+              err(
+                `${subcommand} failed: ${data?.error || 'unknown'}` +
+                (data?.error_code ? ` [${data.error_code}]` : ''),
+                EXIT.GENERAL
+              )
+            }
+
+            sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+            return print({ success: true, platform, username, op: subcommand, ...(data?.data || {}) })
+          }
+
+          case 'buy':
           case 'status': {
             err(
-              `twitter ${subcommand}: not wired yet. ` +
-              `Phase 2 currently supports: login, session. Phase 3 will add buy/post/status.`,
+              `twitter ${subcommand}: not wired yet. Phase 3 will add buy/status.`,
               EXIT.GENERAL
             )
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow`)
         }
         break
       }
