@@ -25,6 +25,76 @@ async function debugShot(page: any, tag: string): Promise<string | undefined> {
   }
 }
 
+/**
+ * Intercept X's network response for a specific operation while we trigger it
+ * via a UI click. Waits up to `timeoutMs` for a POST to a URL matching the
+ * given pattern. Returns the parsed JSON body and status code, plus any X
+ * error payload extracted from `.errors`.
+ */
+interface ApiResult {
+  ok: boolean;
+  status: number;
+  json: any;
+  errorMessage?: string;
+  errorCode?: number;
+}
+
+async function submitAndAwaitXApi(
+  page: any,
+  trigger: () => Promise<void>,
+  urlPattern: RegExp,
+  timeoutMs: number = 25000
+): Promise<ApiResult | null> {
+  const responsePromise = page
+    .waitForResponse(
+      (resp: any) => urlPattern.test(resp.url()) && resp.request().method() === "POST",
+      { timeout: timeoutMs }
+    )
+    .catch(() => null);
+
+  await trigger();
+
+  const resp = await responsePromise;
+  if (!resp) return null;
+
+  const status = resp.status();
+  let json: any = null;
+  try {
+    json = await resp.json();
+  } catch {
+    try {
+      const text = await resp.text();
+      json = { raw: text };
+    } catch {
+      json = null;
+    }
+  }
+
+  const errors = json?.errors;
+  const errorMessage = Array.isArray(errors) && errors[0]?.message ? errors[0].message : undefined;
+  const errorCode = Array.isArray(errors) && errors[0]?.code ? errors[0].code : undefined;
+
+  return {
+    ok: resp.ok() && !errorMessage,
+    status,
+    json,
+    errorMessage,
+    errorCode,
+  };
+}
+
+/**
+ * Map X's standard error codes to our error_code enum.
+ * https://developer.x.com/en/docs/authentication/api-reference/error-codes
+ */
+function mapXError(status: number, xCode?: number): "SESSION_EXPIRED" | "RATE_LIMITED" | "NOT_FOUND" | "INVALID_INPUT" | "UNKNOWN" {
+  if (status === 401 || status === 403 || xCode === 64 || xCode === 89) return "SESSION_EXPIRED";
+  if (status === 429 || xCode === 88 || xCode === 226) return "RATE_LIMITED";
+  if (status === 404 || xCode === 34 || xCode === 17) return "NOT_FOUND";
+  if (xCode === 170 || xCode === 187) return "INVALID_INPUT";
+  return "UNKNOWN";
+}
+
 export interface OpResult<T = any> {
   success: boolean;
   data?: T;
@@ -48,7 +118,7 @@ export interface OpRequest {
 
 export async function postTweet(
   req: OpRequest & { text: string }
-): Promise<OpResult<{ tweet_url?: string }>> {
+): Promise<OpResult<{ tweet_url?: string; tweet_id?: string; x_error_code?: number; x_http_status?: number }>> {
   if (!req.text || !req.text.trim()) {
     return { success: false, error: "text is required", error_code: "INVALID_INPUT" };
   }
@@ -89,10 +159,6 @@ export async function postTweet(
     await textarea.pressSequentially(req.text, { delay: 30 });
     await page.waitForTimeout(800);
 
-    await debugShot(page, "post-before-click");
-
-    // Click the inline post button. Text-based and testid selectors combined
-    // so we catch either variant.
     const postButton = page
       .locator(
         '[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):visible, ' +
@@ -100,40 +166,64 @@ export async function postTweet(
       )
       .first();
 
+    let buttonReady = true;
     try {
       await postButton.waitFor({ state: "visible", timeout: 10000 });
-      await postButton.click({ timeout: 5000 });
-    } catch (e: any) {
-      const shot = await debugShot(page, "post-button-not-clickable");
+    } catch {
+      buttonReady = false;
+    }
+
+    if (!buttonReady) {
+      const shot = await debugShot(page, "post-button-not-visible");
       return {
         success: false,
-        error: `Post button not clickable: ${e.message}. Screenshot: ${shot}`,
+        error: `Post button never became enabled. Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
 
-    // Success signal: the enabled post button disappears (disabled again once
-    // the text is cleared post-submit) OR a network "CreateTweet" request
-    // resolves with 200. Wait briefly for either.
-    await page.waitForTimeout(3500);
+    // Click the button AND intercept the CreateTweet API response atomically.
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await postButton.click({ timeout: 5000 }); },
+      /\/CreateTweet/
+    );
 
-    // If an error toast appeared, treat as failure.
-    const errorToast = await page
-      .locator('[data-testid="toast"]:has-text("Something went wrong"), [role="alert"]:visible')
-      .first()
-      .isVisible()
-      .catch(() => false);
-
-    if (errorToast) {
-      const shot = await debugShot(page, "post-error-toast");
+    if (!apiResult) {
+      const shot = await debugShot(page, "post-no-api-call");
       return {
         success: false,
-        error: `X returned an error toast after submit. Screenshot: ${shot}`,
+        error: `No CreateTweet API call observed after click. X likely blocked the submit. Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
 
-    return { success: true, data: {} };
+    if (!apiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected the tweet: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
+        error_code: mapXError(apiResult.status, apiResult.errorCode),
+        data: { x_error_code: apiResult.errorCode, x_http_status: apiResult.status },
+      };
+    }
+
+    const tweetId: string | undefined = apiResult.json?.data?.create_tweet?.tweet_results?.result?.rest_id;
+    if (!tweetId) {
+      return {
+        success: false,
+        error: "CreateTweet returned 200 but no tweet ID in response — ambiguous state.",
+        error_code: "UNKNOWN",
+        data: apiResult.json,
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        tweet_id: tweetId,
+        tweet_url: `https://x.com/i/web/status/${tweetId}`,
+      },
+    };
   } catch (e: any) {
     return { success: false, error: e.message || String(e), error_code: "UI_TIMEOUT" };
   } finally {
@@ -176,8 +266,6 @@ export async function replyToTweet(
     await replyBox.pressSequentially(req.text, { delay: 30 });
     await page.waitForTimeout(800);
 
-    await debugShot(page, "reply-before-click");
-
     const replyButton = page
       .locator(
         '[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):visible, ' +
@@ -185,36 +273,54 @@ export async function replyToTweet(
       )
       .first();
 
+    let buttonReady = true;
     try {
       await replyButton.waitFor({ state: "visible", timeout: 10000 });
-      await replyButton.click({ timeout: 5000 });
-    } catch (e: any) {
-      const shot = await debugShot(page, "reply-button-not-clickable");
+    } catch {
+      buttonReady = false;
+    }
+
+    if (!buttonReady) {
+      const shot = await debugShot(page, "reply-button-not-visible");
       return {
         success: false,
-        error: `Reply button not clickable: ${e.message}. Screenshot: ${shot}`,
+        error: `Reply button never became enabled. Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
 
-    await page.waitForTimeout(3500);
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await replyButton.click({ timeout: 5000 }); },
+      /\/CreateTweet/
+    );
 
-    const errorToast = await page
-      .locator('[data-testid="toast"]:has-text("Something went wrong"), [role="alert"]:visible')
-      .first()
-      .isVisible()
-      .catch(() => false);
-
-    if (errorToast) {
-      const shot = await debugShot(page, "reply-error-toast");
+    if (!apiResult) {
+      const shot = await debugShot(page, "reply-no-api-call");
       return {
         success: false,
-        error: `X returned an error toast after reply submit. Screenshot: ${shot}`,
+        error: `No CreateTweet API call observed after click. Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
 
-    return { success: true };
+    if (!apiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected the reply: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
+        error_code: mapXError(apiResult.status, apiResult.errorCode),
+        data: { x_error_code: apiResult.errorCode, x_http_status: apiResult.status },
+      };
+    }
+
+    const tweetId: string | undefined = apiResult.json?.data?.create_tweet?.tweet_results?.result?.rest_id;
+    return {
+      success: true,
+      data: tweetId ? {
+        tweet_id: tweetId,
+        tweet_url: `https://x.com/i/web/status/${tweetId}`,
+      } : {},
+    };
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
   } finally {
@@ -248,16 +354,41 @@ export async function likeTweet(
       return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
     }
 
-    const likeButton = page.locator('[data-testid="like"]:visible').first();
+    const likeButton = page.locator('[data-testid="like"]:visible, [data-testid="unlike"]:visible').first();
     await likeButton.waitFor({ state: "visible", timeout: 20000 });
-    await likeButton.click({ timeout: 5000 });
 
-    // Confirmation: the button flips to data-testid="unlike"
-    await page
+    // Already liked? data-testid="unlike" appears when it's already liked.
+    const alreadyLiked = await page
       .locator('[data-testid="unlike"]:visible')
       .first()
-      .waitFor({ state: "visible", timeout: 10000 })
-      .catch(() => {});
+      .isVisible()
+      .catch(() => false);
+    if (alreadyLiked) {
+      return { success: true, data: { already_liked: true } };
+    }
+
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await likeButton.click({ timeout: 5000 }); },
+      /\/FavoriteTweet/
+    );
+
+    if (!apiResult) {
+      const shot = await debugShot(page, "like-no-api-call");
+      return {
+        success: false,
+        error: `No FavoriteTweet API call observed. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    if (!apiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected the like: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
+        error_code: mapXError(apiResult.status, apiResult.errorCode),
+      };
+    }
 
     return { success: true };
   } catch (e: any) {
@@ -293,16 +424,44 @@ export async function retweetTweet(
       return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
     }
 
-    const retweetButton = page.locator('[data-testid="retweet"]:visible').first();
+    const retweetButton = page.locator('[data-testid="retweet"]:visible, [data-testid="unretweet"]:visible').first();
     await retweetButton.waitFor({ state: "visible", timeout: 20000 });
-    await retweetButton.click({ timeout: 5000 });
 
-    // X shows a popup — click "Repost"
-    const confirmButton = page
-      .locator('[data-testid="retweetConfirm"]:visible')
-      .first();
+    const alreadyRetweeted = await page
+      .locator('[data-testid="unretweet"]:visible')
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (alreadyRetweeted) {
+      return { success: true, data: { already_retweeted: true } };
+    }
+
+    await retweetButton.click({ timeout: 5000 });
+    const confirmButton = page.locator('[data-testid="retweetConfirm"]:visible').first();
     await confirmButton.waitFor({ state: "visible", timeout: 10000 });
-    await confirmButton.click({ timeout: 5000 });
+
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await confirmButton.click({ timeout: 5000 }); },
+      /\/CreateRetweet/
+    );
+
+    if (!apiResult) {
+      const shot = await debugShot(page, "retweet-no-api-call");
+      return {
+        success: false,
+        error: `No CreateRetweet API call observed. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    if (!apiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected the retweet: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
+        error_code: mapXError(apiResult.status, apiResult.errorCode),
+      };
+    }
 
     return { success: true };
   } catch (e: any) {
@@ -354,14 +513,29 @@ export async function followUser(
 
     const followButton = page.locator('[data-testid$="-follow"]:visible').first();
     await followButton.waitFor({ state: "visible", timeout: 20000 });
-    await followButton.click({ timeout: 5000 });
 
-    // Confirmation: the button flips to unfollow
-    await page
-      .locator('[data-testid$="-unfollow"]:visible')
-      .first()
-      .waitFor({ state: "visible", timeout: 10000 })
-      .catch(() => {});
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await followButton.click({ timeout: 5000 }); },
+      /\/friendships\/create|\/FollowUser/
+    );
+
+    if (!apiResult) {
+      const shot = await debugShot(page, "follow-no-api-call");
+      return {
+        success: false,
+        error: `No friendships/create API call observed. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    if (!apiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected the follow: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
+        error_code: mapXError(apiResult.status, apiResult.errorCode),
+      };
+    }
 
     return { success: true };
   } catch (e: any) {
