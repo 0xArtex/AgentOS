@@ -129,12 +129,18 @@ export async function replyToTweet(
     await replyBox.waitFor({ state: "visible", timeout: 20000 });
     await replyBox.click();
     await replyBox.pressSequentially(req.text, { delay: 30 });
-    await page.waitForTimeout(600);
+    await page.waitForTimeout(800);
 
+    // X uses several testids for the reply submit depending on viewport + flow:
+    //   tweetButtonInline, tweetButton, and occasionally button text "Reply".
     const replyButton = page
-      .locator('[data-testid="tweetButton"]:not([aria-disabled="true"]):visible')
+      .locator(
+        '[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):visible, ' +
+        '[data-testid="tweetButton"]:not([aria-disabled="true"]):visible, ' +
+        'button:has-text("Reply"):not([aria-disabled="true"]):visible'
+      )
       .first();
-    await replyButton.waitFor({ state: "visible", timeout: 5000 });
+    await replyButton.waitFor({ state: "visible", timeout: 10000 });
     await replyButton.click({ timeout: 5000 });
 
     await page
