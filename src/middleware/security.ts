@@ -53,6 +53,12 @@ export function sqlInjectionGuard(req: Request, res: Response, next: NextFunctio
     next();
     return;
   }
+  // Skip for image-upload endpoints — base64 + data-URL prefix contains `;`
+  // which the SQL pattern matches as a statement separator.
+  if (req.path === "/social/twitter/avatar" || req.path === "/social/twitter/banner") {
+    next();
+    return;
+  }
   if (checkValue(req.body) || checkValue(req.query) || checkValue(req.params)) {
     res.status(400).json({ error: "Malicious Input Detected", message: "Request blocked by security filter" });
     return;
