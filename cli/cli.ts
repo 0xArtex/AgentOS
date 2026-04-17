@@ -1141,8 +1141,6 @@ async function main() {
             if (!creds.login) err('Account has no login field. Re-import with --login <email-or-handle>.', EXIT.BAD_INPUT)
 
             const cookiePath = !!(creds.auth_token && creds.ct0)
-            log(`twitter login: ${username} → ${cookiePath ? 'cookie injection path' : 'form login path'} via residential proxy`)
-
             let data: any
             try {
               // Uses the SDK so x402 payment is auto-signed from the configured wallet

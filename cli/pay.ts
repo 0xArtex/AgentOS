@@ -292,57 +292,75 @@ export async function paidRequest(
   let paymentPayload: any
   let payer: string
 
-  if (preferredChain === 'base') {
-    console.log(`  Paying ${amountUsdc} USDC on Base (gasless via EIP-3009)...`)
-    const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
-    if (!auth) throw new Error('Failed to build EVM payment authorization — no wallet configured')
+  // Only show the spinner when attached to an interactive terminal. Piped
+  // output (agents running in cron / Docker / pipelines) stays clean JSON.
+  const interactive = process.stdout.isTTY
+  let spinner: any = null
+  const chainLabel = preferredChain === 'base' ? 'Base (gasless)' : 'Solana'
+  if (interactive) {
+    const { Spinner } = await import('./ui.js')
+    spinner = new Spinner()
+    spinner.start(`Paying ${amountUsdc} USDC on ${chainLabel}`)
+  }
 
-    paymentPayload = {
-      x402Version: 2,
-      scheme: 'exact',
-      network: selected.network,
-      payload: {
-        signature: auth.signature,
-        authorization: auth.authorization,
+  try {
+    if (preferredChain === 'base') {
+      const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
+      if (!auth) throw new Error('Failed to build EVM payment authorization — no wallet configured')
+
+      paymentPayload = {
+        x402Version: 2,
+        scheme: 'exact',
+        network: selected.network,
+        payload: {
+          signature: auth.signature,
+          authorization: auth.authorization,
+        },
+        accepted: { scheme: 'exact', network: selected.network },
+      }
+      payer = auth.payer
+    } else {
+      const tx = await buildPaymentTransaction(selected.payTo, selected.amount, selected.feePayer, undefined, passphrase)
+      if (!tx) throw new Error('Failed to build Solana payment transaction — no wallet configured')
+
+      paymentPayload = {
+        x402Version: 2,
+        payload: { transaction: tx.transaction },
+        accepted: { scheme: 'exact', network: selected.network },
+      }
+      payer = tx.payer
+    }
+
+    if (spinner) spinner.update(`Waiting for server...`)
+
+    const chosenChain = preferredChain
+
+    const paidOpts: RequestInit = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'Payment-Signature': Buffer.from(JSON.stringify(paymentPayload)).toString('base64'),
       },
-      accepted: { scheme: 'exact', network: selected.network },
     }
-    payer = auth.payer
-  } else {
-    console.log(`  Paying ${amountUsdc} USDC on Solana...`)
-    const tx = await buildPaymentTransaction(selected.payTo, selected.amount, selected.feePayer, undefined, passphrase)
-    if (!tx) throw new Error('Failed to build Solana payment transaction — no wallet configured')
+    if (body) paidOpts.body = JSON.stringify(body)
 
-    paymentPayload = {
-      x402Version: 2,
-      payload: { transaction: tx.transaction },
-      accepted: { scheme: 'exact', network: selected.network },
+    const paidRes = await fetch(api + path, paidOpts)
+    const paidData = await paidRes.json() as any
+
+    if (paidData.error) {
+      const detail = paidData.message && paidData.message !== paidData.error
+        ? `${paidData.error}: ${paidData.message}`
+        : paidData.error
+      if (spinner) spinner.stop(detail, false)
+      throw new Error(detail)
     }
-    payer = tx.payer
+
+    if (spinner) spinner.stop(`Paid ${amountUsdc} USDC on ${chainLabel}`, true)
+    log(`payment: ${amountUsdc} USDC → ${path} on ${chosenChain} (payer: ${payer})`)
+
+    return { data: paidData, paid: true, txHash: paidData.txHash }
+  } catch (e) {
+    if (spinner) spinner.stop(`Payment failed`, false)
+    throw e
   }
-
-  const chosenChain = preferredChain
-
-  const paidOpts: RequestInit = {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      'Payment-Signature': Buffer.from(JSON.stringify(paymentPayload)).toString('base64'),
-    },
-  }
-  if (body) paidOpts.body = JSON.stringify(body)
-
-  const paidRes = await fetch(api + path, paidOpts)
-  const paidData = await paidRes.json() as any
-
-  if (paidData.error) {
-    const detail = paidData.message && paidData.message !== paidData.error
-      ? `${paidData.error}: ${paidData.message}`
-      : paidData.error
-    throw new Error(detail)
-  }
-
-  log(`payment: ${amountUsdc} USDC → ${path} on ${chosenChain} (payer: ${payer})`)
-
-  return { data: paidData, paid: true, txHash: paidData.txHash }
 }
