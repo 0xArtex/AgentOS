@@ -945,16 +945,15 @@ async function updateProfileImage(
       .first();
     await saveButton.waitFor({ state: "visible", timeout: 15000 });
 
-    // X's endpoints for avatar/banner updates. Broad match covers v1.1 REST,
-    // GraphQL variants, and generic profile update endpoints (X sometimes
-    // bundles avatar into a combined account/update_profile call).
+    // X's specific endpoint patterns for each image kind. Keep these tight
+    // because a generic `update_profile.json` also fires on Save for
+    // bio/name changes — matching that creates a false positive.
     const apiPattern =
       kind === "avatar"
-        ? /update_profile_image|UpdateProfileImage|update_profile\.json|UpdateProfile\b/
-        : /update_profile_banner|UpdateProfileBanner|UpdateBanner\b/;
+        ? /update_profile_image|UpdateProfileImage/
+        : /update_profile_banner|UpdateProfileBanner/;
 
-    // Log every POST to X's API during the op so we can see what was actually
-    // called if the match fails.
+    // Log every POST to X's domains during the op, regardless of match.
     const seenPosts: string[] = [];
     const requestLog = (req: any) => {
       if (req.method() === "POST") {
@@ -977,8 +976,8 @@ async function updateProfileImage(
       return {
         success: false,
         error:
-          `No ${kind} update API call observed matching pattern ${apiPattern}. ` +
-          `Observed POSTs: ${seenPosts.slice(0, 8).join(", ") || "(none)"}. ` +
+          `No ${kind} update API call observed. ` +
+          `Observed POSTs during op: ${seenPosts.slice(0, 10).join(" | ") || "(none)"}. ` +
           `Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
@@ -992,7 +991,7 @@ async function updateProfileImage(
       };
     }
 
-    return { success: true, data: { kind } };
+    return { success: true, data: { kind, observed_posts: seenPosts.slice(0, 10) } };
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
   } finally {
