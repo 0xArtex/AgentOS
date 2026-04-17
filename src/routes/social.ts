@@ -44,7 +44,7 @@ function requireXEnabled(
 router.post(
   "/twitter/login",
   requireXEnabled,
-  requireAuth(0.02, "general"),
+  requireAuth(0.005, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const { account_id, login, password, totp_seed, auth_token, ct0 } = (req.body || {}) as {
       account_id?: string;
@@ -112,7 +112,7 @@ function validateOpBody(req: AuthenticatedRequest, res: Response): null | {
 router.post(
   "/twitter/post",
   requireXEnabled,
-  requireAuth(0.02, "general"),
+  requireAuth(0.001, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -133,7 +133,7 @@ router.post(
 router.post(
   "/twitter/reply",
   requireXEnabled,
-  requireAuth(0.02, "general"),
+  requireAuth(0.001, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -154,7 +154,7 @@ router.post(
 router.post(
   "/twitter/like",
   requireXEnabled,
-  requireAuth(0.02, "general"),
+  requireAuth(0.001, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -175,7 +175,7 @@ router.post(
 router.post(
   "/twitter/retweet",
   requireXEnabled,
-  requireAuth(0.02, "general"),
+  requireAuth(0.001, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -196,7 +196,7 @@ router.post(
 router.post(
   "/twitter/follow",
   requireXEnabled,
-  requireAuth(0.02, "general"),
+  requireAuth(0.001, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
