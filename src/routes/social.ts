@@ -6,10 +6,12 @@
  * Credentials transit the request body only — they are never written to disk,
  * logged, or returned. Only cookies come back.
  */
-import { Router, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
+import { timingSafeEqual } from "crypto";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
+import { poolAdd, poolBuy, poolStatus, poolMarkDead } from "../services/social-pool";
 import {
   postTweet,
   replyToTweet,
@@ -43,6 +45,34 @@ function requireXEnabled(
 }
 
 /**
+ * Pool-admin middleware. The client sends `X-Pool-Admin-Token` header; the
+ * server matches it constant-time against POOL_ADMIN_TOKEN env var. Rejects
+ * if either is missing/wrong.
+ */
+function requirePoolAdmin(req: Request, res: Response, next: NextFunction): void {
+  const expected = process.env.POOL_ADMIN_TOKEN;
+  if (!expected || expected.length < 16) {
+    res.status(503).json({
+      error: "Pool admin not configured",
+      message: "POOL_ADMIN_TOKEN env var is unset or too short on the server.",
+    });
+    return;
+  }
+  const provided = (req.headers["x-pool-admin-token"] || "") as string;
+  if (!provided || provided.length !== expected.length) {
+    res.status(401).json({ error: "Pool admin token missing or malformed" });
+    return;
+  }
+  const a = Buffer.from(expected, "utf8");
+  const b = Buffer.from(provided, "utf8");
+  if (!timingSafeEqual(a, b)) {
+    res.status(401).json({ error: "Invalid pool admin token" });
+    return;
+  }
+  next();
+}
+
+/**
  * POST /social/twitter/login
  * Body: { account_id, login, password, totp_seed? }
  * Returns: { success, cookies, captured_at } on success, else an error code.
@@ -52,8 +82,9 @@ router.post(
   requireXEnabled,
   requireAuth(0.005, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
-    const { account_id, login, password, totp_seed, auth_token, ct0 } = (req.body || {}) as {
+    const { account_id, proxy_session_id, login, password, totp_seed, auth_token, ct0 } = (req.body || {}) as {
       account_id?: string;
+      proxy_session_id?: string;
       login?: string;
       password?: string;
       totp_seed?: string;
@@ -72,6 +103,7 @@ router.post(
     try {
       const result = await loginTwitter({
         account_id,
+        proxy_session_id,
         login,
         password,
         totp_seed,
@@ -99,10 +131,12 @@ router.post(
 
 function validateOpBody(req: AuthenticatedRequest, res: Response): null | {
   account_id: string;
+  proxy_session_id?: string;
   cookies: any[];
 } {
-  const { account_id, cookies } = (req.body || {}) as {
+  const { account_id, cookies, proxy_session_id } = (req.body || {}) as {
     account_id?: string;
+    proxy_session_id?: string;
     cookies?: any[];
   };
   if (!account_id || !Array.isArray(cookies) || cookies.length === 0) {
@@ -112,7 +146,7 @@ function validateOpBody(req: AuthenticatedRequest, res: Response): null | {
     });
     return null;
   }
-  return { account_id, cookies };
+  return { account_id, proxy_session_id, cookies };
 }
 
 router.post(
@@ -324,6 +358,144 @@ router.post(
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Banner update failed" });
+    }
+  }
+);
+
+/* ─── Pool: admin seeding + status ──────────────────────────────────── */
+
+router.post(
+  "/twitter/pool-add",
+  requireXEnabled,
+  requirePoolAdmin,
+  async (req: Request, res: Response) => {
+    const {
+      credentials_line,
+      username: explicitUsername,
+      login,
+      password,
+      email,
+      email_password,
+      totp_seed,
+      auth_token,
+      ct0,
+      profile_url,
+      country,
+      age_category,
+      acquired_cost_usdc,
+      sale_price_usdc,
+      notes,
+    } = (req.body || {}) as Record<string, any>;
+
+    let creds: any = {};
+    let username = explicitUsername;
+
+    if (credentials_line && typeof credentials_line === "string") {
+      const parts = credentials_line.split(":");
+      if (parts.length < 4) {
+        res.status(400).json({ error: "credentials_line must have at least 4 colon-separated fields" });
+        return;
+      }
+      creds = {
+        login: parts[0],
+        password: parts[1],
+        email: parts[2],
+        email_password: parts[3],
+      };
+      if (parts[4]) creds.totp_seed = parts[4];
+      if (parts[5]) creds.ct0 = parts[5];
+      if (parts[6]) creds.auth_token = parts[6];
+      if (!username) username = parts[0];
+    } else {
+      creds = {
+        login: login || email,
+        password,
+        email: email || login,
+        email_password,
+        totp_seed,
+        auth_token,
+        ct0,
+        profile_url,
+      };
+    }
+
+    if (!username || !creds.password) {
+      res.status(400).json({ error: "username and password (or credentials_line) required" });
+      return;
+    }
+    if (typeof sale_price_usdc !== "number" || sale_price_usdc <= 0) {
+      res.status(400).json({ error: "sale_price_usdc must be a positive number" });
+      return;
+    }
+
+    try {
+      const result = await poolAdd({
+        platform: "twitter",
+        username,
+        credentials: creds,
+        country,
+        age_category,
+        acquired_cost_usdc,
+        sale_price_usdc,
+        notes,
+      });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Pool add failed" });
+    }
+  }
+);
+
+router.get(
+  "/twitter/pool-status",
+  requireXEnabled,
+  requirePoolAdmin,
+  (_req: Request, res: Response) => {
+    res.json(poolStatus());
+  }
+);
+
+router.post(
+  "/twitter/pool-mark-dead",
+  requireXEnabled,
+  requirePoolAdmin,
+  (req: Request, res: Response) => {
+    const { id, reason } = (req.body || {}) as { id?: string; reason?: string };
+    if (!id) {
+      res.status(400).json({ error: "id required" });
+      return;
+    }
+    const updated = poolMarkDead(id, reason || "marked dead by admin");
+    res.json({ success: updated });
+  }
+);
+
+/* ─── Buy: public-facing, paid ─────────────────────────────────────── */
+
+router.post(
+  "/twitter/buy",
+  requireXEnabled,
+  requireAuth(5.0, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { country, age_category } = (req.body || {}) as {
+      country?: string;
+      age_category?: string;
+    };
+    const buyerWallet = req.payment?.payer || req.agentId;
+    if (!buyerWallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    try {
+      const result = poolBuy({
+        platform: "twitter",
+        country,
+        age_category,
+        buyer_wallet: buyerWallet,
+      });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Buy failed" });
     }
   }
 );

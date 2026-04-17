@@ -47,6 +47,8 @@ function totpCode(seed: string, at: number = Date.now()): string {
 // ─── Public API ───
 export interface TwitterLoginRequest {
   account_id: string;       // used to derive a unique sticky proxy session
+  /** Overrides account_id when pinning the IPRoyal session. Preserves IP lineage across pool handoff. */
+  proxy_session_id?: string;
   login: string;            // email or handle
   password: string;
   totp_seed?: string;       // base32 TOTP seed, optional
@@ -81,9 +83,10 @@ export interface TwitterLoginResult {
 export async function loginTwitter(
   req: TwitterLoginRequest
 ): Promise<TwitterLoginResult> {
+  const sessionKey = req.proxy_session_id || req.account_id;
   let proxy;
   try {
-    proxy = buildProxyConfig(req.account_id);
+    proxy = buildProxyConfig(sessionKey);
   } catch (e: any) {
     return {
       success: false,

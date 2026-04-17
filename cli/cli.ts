@@ -1141,6 +1141,7 @@ async function main() {
             if (!creds.login) err('Account has no login field. Re-import with --login <email-or-handle>.', EXIT.BAD_INPUT)
 
             const cookiePath = !!(creds.auth_token && creds.ct0)
+            const psid = sv.getProxySessionId(platform, username)
             let data: any
             try {
               // Uses the SDK so x402 payment is auto-signed from the configured wallet
@@ -1149,7 +1150,8 @@ async function main() {
                 creds.login!,
                 creds.password,
                 creds.totp_seed,
-                cookiePath ? { auth_token: creds.auth_token, ct0: creds.ct0 } : undefined
+                cookiePath ? { auth_token: creds.auth_token, ct0: creds.ct0 } : undefined,
+                psid
               )
             } catch (e: any) {
               err(`Login failed: ${e.message}`, EXIT.GENERAL)
@@ -1225,9 +1227,10 @@ async function main() {
             const creds = sv.unlockCredentials(platform, username)
             if (!creds.password) err('Account has no password in vault — cannot authenticate username change.')
 
+            const psid = sv.getProxySessionId(platform, username)
             let data: any
             try {
-              data = await ao.socialTwitterUsername(acc!.id, sess!.cookies, newUsername, creds.password)
+              data = await ao.socialTwitterUsername(acc!.id, sess!.cookies, newUsername, creds.password, psid)
             } catch (e: any) {
               err(`Username change failed: ${e.message}`, EXIT.GENERAL)
             }
@@ -1269,53 +1272,54 @@ async function main() {
                 EXIT.NOT_FOUND
               )
             }
+            const psid = sv.getProxySessionId(platform, username)
 
             let data: any
             try {
               if (subcommand === 'post') {
                 const text = (flags.body as string) || (flags.text as string)
                 if (!text) err('--body "..." required')
-                data = await ao.socialTwitterPost(acc!.id, sess!.cookies, text)
+                data = await ao.socialTwitterPost(acc!.id, sess!.cookies, text, psid)
               } else if (subcommand === 'reply') {
                 const tweetUrl = (flags.to as string) || (flags.tweet as string)
                 const text = (flags.body as string) || (flags.text as string)
                 if (!tweetUrl) err('--to <tweet-url> required')
                 if (!text) err('--body "..." required')
-                data = await ao.socialTwitterReply(acc!.id, sess!.cookies, tweetUrl, text)
+                data = await ao.socialTwitterReply(acc!.id, sess!.cookies, tweetUrl, text, psid)
               } else if (subcommand === 'like') {
                 const tweetUrl = (flags.tweet as string) || (flags.url as string)
                 if (!tweetUrl) err('--tweet <tweet-url> required')
-                data = await ao.socialTwitterLike(acc!.id, sess!.cookies, tweetUrl)
+                data = await ao.socialTwitterLike(acc!.id, sess!.cookies, tweetUrl, psid)
               } else if (subcommand === 'retweet') {
                 const tweetUrl = (flags.tweet as string) || (flags.url as string)
                 if (!tweetUrl) err('--tweet <tweet-url> required')
-                data = await ao.socialTwitterRetweet(acc!.id, sess!.cookies, tweetUrl)
+                data = await ao.socialTwitterRetweet(acc!.id, sess!.cookies, tweetUrl, psid)
               } else if (subcommand === 'follow') {
                 const target = (flags.user as string) || (flags.target as string)
                 if (!target) err('--user <@handle> required')
-                data = await ao.socialTwitterFollow(acc!.id, sess!.cookies, target)
+                data = await ao.socialTwitterFollow(acc!.id, sess!.cookies, target, psid)
               } else if (subcommand === 'unfollow') {
                 const target = (flags.user as string) || (flags.target as string)
                 if (!target) err('--user <@handle> required')
-                data = await ao.socialTwitterUnfollow(acc!.id, sess!.cookies, target)
+                data = await ao.socialTwitterUnfollow(acc!.id, sess!.cookies, target, psid)
               } else if (subcommand === 'delete') {
                 const tweetUrl = (flags.tweet as string) || (flags.url as string)
                 if (!tweetUrl) err('--tweet <tweet-url> required')
-                data = await ao.socialTwitterDelete(acc!.id, sess!.cookies, tweetUrl)
+                data = await ao.socialTwitterDelete(acc!.id, sess!.cookies, tweetUrl, psid)
               } else if (subcommand === 'bio') {
                 const text = (flags.text as string) || (flags.body as string)
                 if (text === undefined) err('--text "..." required (pass "" to clear)')
-                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { bio: text })
+                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { bio: text }, psid)
               } else if (subcommand === 'name') {
                 const text = (flags.display as string) || (flags.text as string) || (flags.name as string)
                 if (!text) err('--display "Display Name" required')
-                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { display_name: text })
+                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { display_name: text }, psid)
               } else if (subcommand === 'location') {
                 const text = (flags.text as string) || ''
-                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { location: text })
+                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { location: text }, psid)
               } else if (subcommand === 'website') {
                 const url = (flags.url as string) || (flags.text as string) || ''
-                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { website: url })
+                data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { website: url }, psid)
               } else {
                 // pfp / banner: accept --file (local path, base64-encoded here)
                 // OR --url (hosted image, server fetches).
@@ -1333,9 +1337,9 @@ async function main() {
                   image.image_url = imageUrl
                 }
                 if (subcommand === 'pfp') {
-                  data = await ao.socialTwitterAvatar(acc!.id, sess!.cookies, image)
+                  data = await ao.socialTwitterAvatar(acc!.id, sess!.cookies, image, psid)
                 } else {
-                  data = await ao.socialTwitterBanner(acc!.id, sess!.cookies, image)
+                  data = await ao.socialTwitterBanner(acc!.id, sess!.cookies, image, psid)
                 }
               }
             } catch (e: any) {
@@ -1354,16 +1358,91 @@ async function main() {
             return print({ success: true, platform, username, op: subcommand, ...(data?.data || {}) })
           }
 
-          case 'buy':
+          case 'buy': {
+            const country = flags.country as string
+            const ageCategory = (flags.age as string) || (flags['age-category'] as string)
+            let data: any
+            try {
+              data = await ao.socialTwitterBuy(country, ageCategory)
+            } catch (e: any) {
+              err(`Buy failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.success || !data.account) {
+              err(`Buy failed: ${data?.error || 'no account returned'}`, EXIT.GENERAL)
+            }
+            const { account } = data
+            // Auto-import into the local vault + prime the session cache so
+            // the buyer can post immediately with the cookies the admin
+            // pre-seasoned at pool-add time.
+            const summary = sv.importAccount(platform, account.username, account.credentials, {
+              source: 'pool',
+              proxy_session_id: account.proxy_session_id,
+              notes: `Bought from pool (${account.country || 'any'}${account.age_category ? ', ' + account.age_category : ''})`,
+            })
+            sv.saveSession(summary.id, platform, account.cookies || [])
+            sv.updateMeta(platform, summary.username, { last_action_at: new Date().toISOString() })
+            return print({
+              success: true,
+              platform,
+              username: summary.username,
+              country: account.country,
+              age_category: account.age_category,
+              hint: `Ready to post — try: node cli/dist/cli.js twitter post ${summary.username} --body "gm"`,
+            })
+          }
+
+          case 'pool-add': {
+            const adminToken = process.env.AGENTOS_POOL_ADMIN_TOKEN
+            if (!adminToken) err('AGENTOS_POOL_ADMIN_TOKEN env var not set — you must be the pool admin to run this.', EXIT.AUTH_FAIL)
+            const line = flags['credentials-line'] as string
+            const country = (flags.country as string) || undefined
+            const ageCategory = (flags.age as string) || (flags['age-category'] as string) || undefined
+            const price = flags.price !== undefined ? Number(flags.price) : undefined
+            if (!line) err('--credentials-line "login:pw:email:email_pw:2fa:ct0:auth_token" required')
+            if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
+              err('--price <USDC> required (e.g. --price 5)')
+            }
+
+            const res = await fetch(ao.api + '/social/twitter/pool-add', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'X-Pool-Admin-Token': adminToken!,
+              },
+              body: JSON.stringify({
+                credentials_line: line,
+                country,
+                age_category: ageCategory,
+                sale_price_usdc: price,
+              }),
+            })
+            const data = await res.json() as any
+            if (!res.ok || !data.success) {
+              err(`Pool add failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
+            }
+            return print(data)
+          }
+
+          case 'pool-status': {
+            const adminToken = process.env.AGENTOS_POOL_ADMIN_TOKEN
+            if (!adminToken) err('AGENTOS_POOL_ADMIN_TOKEN env var not set — admin-only command.', EXIT.AUTH_FAIL)
+            const res = await fetch(ao.api + '/social/twitter/pool-status', {
+              headers: { 'X-Pool-Admin-Token': adminToken! },
+            })
+            const data = await res.json() as any
+            if (!res.ok) err(`Pool status failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
+            return print(data)
+          }
+
           case 'status': {
             err(
-              `twitter ${subcommand}: not wired yet. Phase 3 will add buy/status.`,
+              `twitter status: not wired yet. Phase 3 will add it.`,
               EXIT.GENERAL
             )
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website, pfp, banner, username`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website, pfp, banner, username, buy, pool-add, pool-status`)
         }
         break
       }

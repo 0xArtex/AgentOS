@@ -455,6 +455,30 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
   `);
 
+  // Social account pool — admin-seeded accounts for sale to agents
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_account_pool (
+      id TEXT PRIMARY KEY,
+      platform TEXT NOT NULL,
+      username TEXT NOT NULL,
+      country TEXT,
+      age_category TEXT,
+      proxy_session_id TEXT NOT NULL,
+      credentials_encrypted TEXT NOT NULL,
+      cookies_encrypted TEXT,
+      acquired_cost_usdc REAL,
+      sale_price_usdc REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'ready' CHECK(status IN ('ready', 'sold', 'dead')),
+      sold_to_wallet TEXT,
+      sold_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      tested_at TEXT,
+      notes TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_pool_status_platform_country ON social_account_pool(status, platform, country);
+    CREATE INDEX IF NOT EXISTS idx_pool_sold_to ON social_account_pool(sold_to_wallet);
+  `);
+
   console.log('✅ Database initialized with all tables');
 }
 

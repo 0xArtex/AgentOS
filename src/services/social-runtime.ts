@@ -22,12 +22,22 @@ export async function getStealthChromium(): Promise<any> {
   return chromium;
 }
 
-export function buildProxyConfig(accountId: string) {
+/**
+ * Build an IPRoyal proxy config pinned to a stable session ID. The session
+ * ID should be the account's **portable** identity — for pool accounts this
+ * is set at pool-add time and preserved across ownership handoff so the
+ * residential IP stays identical. For local-only accounts the caller can
+ * just pass the account_id.
+ */
+export function buildProxyConfig(
+  sessionKey: string,
+  opts?: { country?: string }
+) {
   const host = process.env.IPROYAL_HOST;
   const port = process.env.IPROYAL_PORT;
   const username = process.env.IPROYAL_USERNAME;
   const basePassword = process.env.IPROYAL_PASSWORD;
-  const country = process.env.IPROYAL_DEFAULT_COUNTRY || "us";
+  const country = opts?.country || process.env.IPROYAL_DEFAULT_COUNTRY || "us";
 
   if (!host || !port || !username || !basePassword) {
     throw new Error(
@@ -36,7 +46,7 @@ export function buildProxyConfig(accountId: string) {
   }
 
   const baseSecret = basePassword.split("_")[0];
-  const perAccountPassword = `${baseSecret}_country-${country}_session-${accountId}_lifetime-168h`;
+  const perAccountPassword = `${baseSecret}_country-${country}_session-${sessionKey}_lifetime-168h`;
 
   return {
     server: `http://${host}:${port}`,
@@ -49,11 +59,19 @@ const DEFAULT_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 export interface OpenSessionOptions {
+  /** Stable identifier for the account locally. */
   accountId: string;
+  /**
+   * Portable proxy-session key. If set, overrides `accountId` when building
+   * the IPRoyal sticky session. Used to preserve the residential IP across
+   * pool ownership handoff. Falls back to `accountId` when omitted.
+   */
+  proxySessionId?: string;
   cookies: any[];
   userAgent?: string;
   timezoneId?: string;
   locale?: string;
+  country?: string;
 }
 
 export interface OpenedSession {
@@ -71,7 +89,8 @@ export async function openAuthenticatedSession(
   opts: OpenSessionOptions
 ): Promise<OpenedSession> {
   const chromium = await getStealthChromium();
-  const proxy = buildProxyConfig(opts.accountId);
+  const sessionKey = opts.proxySessionId || opts.accountId;
+  const proxy = buildProxyConfig(sessionKey, { country: opts.country });
   const browser = await chromium.launch({ headless: true, proxy });
   const ctx = await browser.newContext({
     userAgent: opts.userAgent || DEFAULT_UA,

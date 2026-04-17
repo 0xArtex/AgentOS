@@ -204,10 +204,12 @@ export class AgentOS {
     login: string,
     password: string,
     totpSeed?: string,
-    cookies?: { auth_token?: string; ct0?: string }
+    cookies?: { auth_token?: string; ct0?: string },
+    proxySessionId?: string
   ): Promise<any> {
     return this.request('POST', '/social/twitter/login', {
       account_id: accountId,
+      ...(proxySessionId ? { proxy_session_id: proxySessionId } : {}),
       login,
       password,
       ...(totpSeed ? { totp_seed: totpSeed } : {}),
@@ -216,59 +218,71 @@ export class AgentOS {
     })
   }
 
-  async socialTwitterPost(accountId: string, cookies: any[], text: string): Promise<any> {
-    return this.request('POST', '/social/twitter/post', { account_id: accountId, cookies, text })
+  async socialTwitterPost(accountId: string, cookies: any[], text: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/post', { account_id: accountId, proxy_session_id: proxySessionId, cookies, text })
   }
-  async socialTwitterReply(accountId: string, cookies: any[], tweetUrl: string, text: string): Promise<any> {
-    return this.request('POST', '/social/twitter/reply', { account_id: accountId, cookies, tweet_url: tweetUrl, text })
+  async socialTwitterReply(accountId: string, cookies: any[], tweetUrl: string, text: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/reply', { account_id: accountId, proxy_session_id: proxySessionId, cookies, tweet_url: tweetUrl, text })
   }
-  async socialTwitterLike(accountId: string, cookies: any[], tweetUrl: string): Promise<any> {
-    return this.request('POST', '/social/twitter/like', { account_id: accountId, cookies, tweet_url: tweetUrl })
+  async socialTwitterLike(accountId: string, cookies: any[], tweetUrl: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/like', { account_id: accountId, proxy_session_id: proxySessionId, cookies, tweet_url: tweetUrl })
   }
-  async socialTwitterRetweet(accountId: string, cookies: any[], tweetUrl: string): Promise<any> {
-    return this.request('POST', '/social/twitter/retweet', { account_id: accountId, cookies, tweet_url: tweetUrl })
+  async socialTwitterRetweet(accountId: string, cookies: any[], tweetUrl: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/retweet', { account_id: accountId, proxy_session_id: proxySessionId, cookies, tweet_url: tweetUrl })
   }
-  async socialTwitterFollow(accountId: string, cookies: any[], targetUser: string): Promise<any> {
-    return this.request('POST', '/social/twitter/follow', { account_id: accountId, cookies, target_user: targetUser })
+  async socialTwitterFollow(accountId: string, cookies: any[], targetUser: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/follow', { account_id: accountId, proxy_session_id: proxySessionId, cookies, target_user: targetUser })
   }
-  async socialTwitterUnfollow(accountId: string, cookies: any[], targetUser: string): Promise<any> {
-    return this.request('POST', '/social/twitter/unfollow', { account_id: accountId, cookies, target_user: targetUser })
+  async socialTwitterUnfollow(accountId: string, cookies: any[], targetUser: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/unfollow', { account_id: accountId, proxy_session_id: proxySessionId, cookies, target_user: targetUser })
   }
-  async socialTwitterDelete(accountId: string, cookies: any[], tweetUrl: string): Promise<any> {
-    return this.request('POST', '/social/twitter/delete', { account_id: accountId, cookies, tweet_url: tweetUrl })
+  async socialTwitterDelete(accountId: string, cookies: any[], tweetUrl: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/delete', { account_id: accountId, proxy_session_id: proxySessionId, cookies, tweet_url: tweetUrl })
   }
   async socialTwitterProfile(
     accountId: string,
     cookies: any[],
-    patch: { bio?: string; display_name?: string; location?: string; website?: string }
+    patch: { bio?: string; display_name?: string; location?: string; website?: string },
+    proxySessionId?: string
   ): Promise<any> {
-    return this.request('POST', '/social/twitter/profile', { account_id: accountId, cookies, ...patch })
+    return this.request('POST', '/social/twitter/profile', { account_id: accountId, proxy_session_id: proxySessionId, cookies, ...patch })
   }
   async socialTwitterAvatar(
     accountId: string,
     cookies: any[],
-    image: { image_base64?: string; image_url?: string }
+    image: { image_base64?: string; image_url?: string },
+    proxySessionId?: string
   ): Promise<any> {
-    return this.request('POST', '/social/twitter/avatar', { account_id: accountId, cookies, ...image })
+    return this.request('POST', '/social/twitter/avatar', { account_id: accountId, proxy_session_id: proxySessionId, cookies, ...image })
   }
   async socialTwitterBanner(
     accountId: string,
     cookies: any[],
-    image: { image_base64?: string; image_url?: string }
+    image: { image_base64?: string; image_url?: string },
+    proxySessionId?: string
   ): Promise<any> {
-    return this.request('POST', '/social/twitter/banner', { account_id: accountId, cookies, ...image })
+    return this.request('POST', '/social/twitter/banner', { account_id: accountId, proxy_session_id: proxySessionId, cookies, ...image })
   }
   async socialTwitterUsername(
     accountId: string,
     cookies: any[],
     newUsername: string,
-    password: string
+    password: string,
+    proxySessionId?: string
   ): Promise<any> {
     return this.request('POST', '/social/twitter/username', {
       account_id: accountId,
+      proxy_session_id: proxySessionId,
       cookies,
       new_username: newUsername,
       password,
+    })
+  }
+
+  async socialTwitterBuy(country?: string, ageCategory?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/buy', {
+      ...(country ? { country } : {}),
+      ...(ageCategory ? { age_category: ageCategory } : {}),
     })
   }
 

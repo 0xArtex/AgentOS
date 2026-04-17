@@ -51,9 +51,17 @@ export interface SocialAccountFile {
   username: string                   // current handle, source of truth
   previous_usernames: string[]
   cred_crypto: EncryptedBlob
+  /**
+   * Portable IPRoyal sticky-session key. Set when the account was seasoned
+   * server-side (e.g. pool accounts, where the first login happened before
+   * the buyer's vault existed). When present, every server op pins the
+   * residential IP to this key rather than the local `id` — so the buyer
+   * inherits the exact same IP the admin seasoned.
+   */
+  proxy_session_id?: string
   meta: {
     acquired_at: string
-    acquisition_source: 'import' | 'accsmarket' | string
+    acquisition_source: 'import' | 'accsmarket' | 'pool' | string
     status: AccountStatus
     age_years?: number
     original_signup_country?: string
@@ -70,6 +78,7 @@ export interface SocialAccountSummary {
   acquired_at: string
   source: string
   last_action_at: string | null
+  proxy_session_id?: string
 }
 
 function getSocialDir(): string {
@@ -151,7 +160,7 @@ export function importAccount(
   platform: Platform,
   username: string,
   credentials: SocialCredentials,
-  opts: { source?: string; notes?: string } = {}
+  opts: { source?: string; notes?: string; proxy_session_id?: string } = {}
 ): SocialAccountSummary {
   if (findByUsername(platform, username)) {
     throw new Error(`${platform} account "${username}" already exists locally. Use 'remove' first if you want to re-import.`)
@@ -167,6 +176,7 @@ export function importAccount(
     username,
     previous_usernames: [],
     cred_crypto: encrypt(JSON.stringify(credentials), sessionSecret),
+    proxy_session_id: opts.proxy_session_id,
     meta: {
       acquired_at: new Date().toISOString(),
       acquisition_source: opts.source || 'import',
@@ -185,6 +195,7 @@ export function importAccount(
     acquired_at: account.meta.acquired_at,
     source: account.meta.acquisition_source,
     last_action_at: account.meta.last_action_at,
+    proxy_session_id: account.proxy_session_id,
   }
 }
 
@@ -272,6 +283,15 @@ export function updateMeta(platform: Platform, username: string, patch: Partial<
   if (!acc) throw new Error(`${platform} account "${username}" not found locally`)
   acc.meta = { ...acc.meta, ...patch }
   writeAccount(acc)
+}
+
+/**
+ * Return the proxy_session_id for an account, if any. Server ops include
+ * this so the residential IP lineage is preserved (essential for pool
+ * accounts where the admin seasoned the session from a specific IP).
+ */
+export function getProxySessionId(platform: Platform, username: string): string | undefined {
+  return findByUsername(platform, username)?.proxy_session_id
 }
 
 // ─── Session cache (cookies from login) ─────────────────────────────────

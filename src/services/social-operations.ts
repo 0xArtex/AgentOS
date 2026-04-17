@@ -187,6 +187,8 @@ export interface OpResult<T = any> {
 
 export interface OpRequest {
   account_id: string;
+  /** Portable IP-lineage key. Overrides account_id for proxy session. */
+  proxy_session_id?: string;
   cookies: any[];
 }
 
@@ -210,6 +212,7 @@ export async function postTweet(
   try {
     session = await openAuthenticatedSession({
       accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
     });
   } catch (e: any) {
@@ -323,6 +326,7 @@ export async function replyToTweet(
   try {
     session = await openAuthenticatedSession({
       accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
     });
   } catch (e: any) {
@@ -417,6 +421,7 @@ export async function likeTweet(
   try {
     session = await openAuthenticatedSession({
       accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
     });
   } catch (e: any) {
@@ -487,6 +492,7 @@ export async function retweetTweet(
   try {
     session = await openAuthenticatedSession({
       accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
     });
   } catch (e: any) {
@@ -558,7 +564,7 @@ export async function deleteTweet(
 
   let session;
   try {
-    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+    session = await openAuthenticatedSession({ accountId: req.account_id, proxySessionId: req.proxy_session_id, cookies: req.cookies });
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
   }
@@ -632,7 +638,7 @@ export async function unfollowUser(
 
   let session;
   try {
-    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+    session = await openAuthenticatedSession({ accountId: req.account_id, proxySessionId: req.proxy_session_id, cookies: req.cookies });
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
   }
@@ -776,7 +782,7 @@ export async function updateProfile(
 
   let session;
   try {
-    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+    session = await openAuthenticatedSession({ accountId: req.account_id, proxySessionId: req.proxy_session_id, cookies: req.cookies });
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
   }
@@ -900,7 +906,7 @@ export async function changeUsername(
 
   let session;
   try {
-    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+    session = await openAuthenticatedSession({ accountId: req.account_id, proxySessionId: req.proxy_session_id, cookies: req.cookies });
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
   }
@@ -1040,7 +1046,7 @@ async function updateProfileImage(
 
   let session;
   try {
-    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+    session = await openAuthenticatedSession({ accountId: req.account_id, proxySessionId: req.proxy_session_id, cookies: req.cookies });
   } catch (e: any) {
     materialized.cleanup();
     return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
@@ -1180,6 +1186,7 @@ export async function followUser(
   try {
     session = await openAuthenticatedSession({
       accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
     });
   } catch (e: any) {
