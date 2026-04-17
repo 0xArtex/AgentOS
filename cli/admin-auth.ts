@@ -5,6 +5,9 @@
  * The admin signs `<method>:<path>:<timestamp>` with the Solana key derived
  * from the configured admin wallet. No secrets transit the network.
  */
+import { readFileSync, readdirSync, existsSync } from 'fs'
+import { join } from 'path'
+import { homedir } from 'os'
 import { loadConfig } from './config.js'
 import { signMessageLocal } from './vault.js'
 
@@ -24,19 +27,17 @@ function resolveAdminWalletId(): string {
 
 export function buildAdminHeaders(method: string, path: string): Record<string, string> {
   const walletId = resolveAdminWalletId()
-  // Get the Solana address for this wallet — vault files store it.
-  const { readFileSync, readdirSync, existsSync } = require('fs')
-  const { join } = require('path')
-  const { homedir } = require('os')
   const vaultDir = process.env.AGENTOS_WALLET_PATH || join(homedir(), '.agentos', 'wallet')
   const walletsDir = join(vaultDir, 'wallets')
   if (!existsSync(walletsDir)) throw new Error(`Vault directory not found: ${walletsDir}`)
 
   let pubkey = ''
-  for (const f of readdirSync(walletsDir).filter((n: string) => n.endsWith('.json'))) {
-    const data = JSON.parse(readFileSync(join(walletsDir, f), 'utf8'))
+  for (const f of readdirSync(walletsDir).filter(n => n.endsWith('.json'))) {
+    const data = JSON.parse(readFileSync(join(walletsDir, f), 'utf8')) as any
     if (data.id === walletId || data.name === walletId) {
-      const sol = (data.accounts || []).find((a: any) => a.chainId === 'solana')
+      const sol = (data.accounts || []).find((a: any) =>
+        a.chainId === 'solana' || String(a.chainId || '').startsWith('solana:')
+      )
       if (sol) pubkey = sol.address
       break
     }

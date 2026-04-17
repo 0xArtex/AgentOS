@@ -100,8 +100,9 @@ function requirePoolAdmin(req: Request, res: Response, next: NextFunction): void
   }
 
   // Message binds the HTTP method and path so a signature for GET /pool-status
-  // can't be replayed against POST /pool-add.
-  const message = `${req.method}:${req.path}:${timestamp}`;
+  // can't be replayed against POST /pool-add. Use originalUrl so the mount
+  // prefix (/social) is included — that's what the client signed.
+  const message = `${req.method}:${req.originalUrl.split("?")[0]}:${timestamp}`;
   try {
     const pubkeyBytes = bs58.decode(pubkey);
     const sigBytes = Buffer.from(signature, "hex");
