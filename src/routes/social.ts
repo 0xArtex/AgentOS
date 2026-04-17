@@ -21,6 +21,7 @@ import {
   updateProfile,
   updateAvatar,
   updateBanner,
+  changeUsername,
 } from "../services/social-operations";
 
 const router = Router();
@@ -323,6 +324,27 @@ router.post(
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Banner update failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/username",
+  requireXEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { new_username, password } = req.body as { new_username?: string; password?: string };
+    if (!new_username || !password) {
+      res.status(400).json({ error: "new_username and password are required" });
+      return;
+    }
+    try {
+      const result = await changeUsername({ ...common, new_username, password });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Username change failed" });
     }
   }
 );

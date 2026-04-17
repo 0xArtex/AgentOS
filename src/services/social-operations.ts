@@ -881,6 +881,150 @@ export async function updateProfile(
   }
 }
 
+/* ─── changeUsername: change the @handle ─────────────────────────────── */
+
+export async function changeUsername(
+  req: OpRequest & { new_username: string; password: string }
+): Promise<OpResult<{ new_username?: string; observed_posts?: string[] }>> {
+  const handle = req.new_username.replace(/^@/, "").trim();
+  if (!/^[A-Za-z0-9_]{4,15}$/.test(handle)) {
+    return {
+      success: false,
+      error: "new_username must be 4-15 chars, A-Z / 0-9 / _",
+      error_code: "INVALID_INPUT",
+    };
+  }
+  if (!req.password) {
+    return { success: false, error: "password is required for username change", error_code: "INVALID_INPUT" };
+  }
+
+  let session;
+  try {
+    session = await openAuthenticatedSession({ accountId: req.account_id, cookies: req.cookies });
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
+  }
+
+  const { page, close } = session;
+  try {
+    await page.goto("https://x.com/settings/screen_name", {
+      waitUntil: "domcontentloaded",
+      timeout: 45000,
+    });
+
+    if (isSessionExpiredUrl(page.url())) {
+      return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
+    }
+
+    // Username input. X uses `name="typedScreenName"` on the settings screen.
+    const usernameInput = page
+      .locator(
+        'input[name="typedScreenName"]:visible, ' +
+        'input[name="screen_name"]:visible, ' +
+        'input[data-testid="UserName-edit"]:visible'
+      )
+      .first();
+    await usernameInput.waitFor({ state: "visible", timeout: 20000 });
+    await usernameInput.click();
+    await usernameInput.press("Control+A");
+    await usernameInput.press("Delete");
+    await usernameInput.pressSequentially(handle, { delay: 35 });
+
+    // X validates availability live; wait a moment for the check.
+    await page.waitForTimeout(1500);
+
+    // Check for inline error (e.g. "That username has been taken.")
+    const takenError = await page
+      .locator('text=/has been taken|not available|invalid username/i')
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (takenError) {
+      return {
+        success: false,
+        error: `Username @${handle} is unavailable or invalid on X.`,
+        error_code: "INVALID_INPUT",
+      };
+    }
+
+    // Log all POSTs during save to aid debugging if the pattern doesn't match.
+    const seenPosts: string[] = [];
+    const requestLog = (r: any) => {
+      if (r.method() === "POST") {
+        const u = r.url();
+        if (/x\.com|twitter\.com/.test(u)) seenPosts.push(u);
+      }
+    };
+    page.on("request", requestLog);
+
+    // Find the Save button (only enabled when input is valid + available).
+    const saveButton = page
+      .locator(
+        'button:has-text("Save"):not([aria-disabled="true"]):visible, ' +
+        '[data-testid="Profile_Save_Button"]:not([aria-disabled="true"]):visible'
+      )
+      .first();
+    await saveButton.waitFor({ state: "visible", timeout: 10000 });
+
+    // Intercept the settings update request. X posts to either the REST
+    // `account/settings.json` or the newer GraphQL `UpdateScreenName`.
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await saveButton.click({ timeout: 5000 }); },
+      /account\/settings|account\/update_profile|UpdateScreenName|update_screen_name/
+    );
+
+    // X may show a password re-auth modal. If it does, fill the password and
+    // submit, then wait for the settings API again.
+    let effectiveApiResult = apiResult;
+    const passwordInput = page.locator('input[type="password"]:visible, input[name="password"]:visible').first();
+    const passwordVisible = await passwordInput.isVisible().catch(() => false);
+    if (passwordVisible) {
+      await passwordInput.click();
+      await passwordInput.fill(req.password);
+      await page.waitForTimeout(400);
+
+      const confirmButton = page
+        .locator('button:has-text("Confirm"):visible, button:has-text("Save"):visible, button[type="submit"]:visible')
+        .first();
+      const retryResult = await submitAndAwaitXApi(
+        page,
+        async () => { await confirmButton.click({ timeout: 5000 }); },
+        /account\/settings|account\/update_profile|UpdateScreenName|update_screen_name/
+      );
+      if (retryResult) effectiveApiResult = retryResult;
+    }
+
+    page.off("request", requestLog);
+
+    if (!effectiveApiResult) {
+      const shot = await debugShot(page, "username-no-api-call");
+      return {
+        success: false,
+        error:
+          `No settings API call observed after save. Observed POSTs: ${seenPosts.slice(0, 10).join(" | ") || "(none)"}. ` +
+          `Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+        data: { observed_posts: seenPosts },
+      };
+    }
+
+    if (!effectiveApiResult.ok) {
+      return {
+        success: false,
+        error: `X rejected username change: ${effectiveApiResult.errorMessage || `HTTP ${effectiveApiResult.status}`}`,
+        error_code: mapXError(effectiveApiResult.status, effectiveApiResult.errorCode),
+      };
+    }
+
+    return { success: true, data: { new_username: handle } };
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+  } finally {
+    await close();
+  }
+}
+
 /* ─── updateAvatar / updateBanner: set profile picture or header image ── */
 
 async function updateProfileImage(

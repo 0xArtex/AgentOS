@@ -258,6 +258,19 @@ export class AgentOS {
   ): Promise<any> {
     return this.request('POST', '/social/twitter/banner', { account_id: accountId, cookies, ...image })
   }
+  async socialTwitterUsername(
+    accountId: string,
+    cookies: any[],
+    newUsername: string,
+    password: string
+  ): Promise<any> {
+    return this.request('POST', '/social/twitter/username', {
+      account_id: accountId,
+      cookies,
+      new_username: newUsername,
+      password,
+    })
+  }
 
   // ── Info ──
   async pricing(): Promise<any> {

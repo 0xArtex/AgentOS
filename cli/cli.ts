@@ -1201,6 +1201,41 @@ async function main() {
             })
           }
 
+          case 'username': {
+            const username = positional[0] || (flags.username as string)
+            const newUsername = flags.to as string
+            if (!username) err('<username> required')
+            if (!newUsername) err('--to <new-handle> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
+            const sess = sv.loadSession(acc!.id)
+            if (!sess || !sess.cookies || sess.cookies.length === 0) {
+              err(`No cached session. Run 'twitter login ${username}' first.`, EXIT.NOT_FOUND)
+            }
+            // Unlock password locally — transits to server only in this call.
+            const creds = sv.unlockCredentials(platform, username)
+            if (!creds.password) err('Account has no password in vault — cannot authenticate username change.')
+
+            let data: any
+            try {
+              data = await ao.socialTwitterUsername(acc!.id, sess!.cookies, newUsername, creds.password)
+            } catch (e: any) {
+              err(`Username change failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.success) {
+              err(
+                `Username change failed: ${data?.error || 'unknown'}` +
+                (data?.error_code ? ` [${data.error_code}]` : ''),
+                EXIT.GENERAL
+              )
+            }
+
+            // Sync local record to the new handle.
+            const renamed = sv.renameAccount(platform, username, newUsername.replace(/^@/, ''))
+            sv.updateMeta(platform, renamed.username, { last_action_at: new Date().toISOString() })
+            return print({ success: true, platform, old_username: username, new_username: renamed.username })
+          }
+
           case 'post':
           case 'reply':
           case 'like':
@@ -1319,7 +1354,7 @@ async function main() {
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website, pfp, banner`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website, pfp, banner, username`)
         }
         break
       }
