@@ -945,12 +945,24 @@ async function updateProfileImage(
       .first();
     await saveButton.waitFor({ state: "visible", timeout: 15000 });
 
-    // X's endpoints for avatar/banner updates. Broad match covers v1.1 REST
-    // and any GraphQL variants.
+    // X's endpoints for avatar/banner updates. Broad match covers v1.1 REST,
+    // GraphQL variants, and generic profile update endpoints (X sometimes
+    // bundles avatar into a combined account/update_profile call).
     const apiPattern =
       kind === "avatar"
-        ? /update_profile_image|UpdateProfileImage/
-        : /update_profile_banner|UpdateProfileBanner/;
+        ? /update_profile_image|UpdateProfileImage|update_profile\.json|UpdateProfile\b/
+        : /update_profile_banner|UpdateProfileBanner|UpdateBanner\b/;
+
+    // Log every POST to X's API during the op so we can see what was actually
+    // called if the match fails.
+    const seenPosts: string[] = [];
+    const requestLog = (req: any) => {
+      if (req.method() === "POST") {
+        const u = req.url();
+        if (/x\.com|twitter\.com/.test(u)) seenPosts.push(u);
+      }
+    };
+    page.on("request", requestLog);
 
     const apiResult = await submitAndAwaitXApi(
       page,
@@ -958,11 +970,16 @@ async function updateProfileImage(
       apiPattern
     );
 
+    page.off("request", requestLog);
+
     if (!apiResult) {
       const shot = await debugShot(page, `${kind}-no-api-call`);
       return {
         success: false,
-        error: `No ${kind} update API call observed. Screenshot: ${shot}`,
+        error:
+          `No ${kind} update API call observed matching pattern ${apiPattern}. ` +
+          `Observed POSTs: ${seenPosts.slice(0, 8).join(", ") || "(none)"}. ` +
+          `Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
