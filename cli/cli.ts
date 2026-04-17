@@ -1359,11 +1359,10 @@ async function main() {
           }
 
           case 'buy': {
-            const country = flags.country as string
-            const ageCategory = (flags.age as string) || (flags['age-category'] as string)
+            // Agents just say "buy." Server picks the oldest ready account.
             let data: any
             try {
-              data = await ao.socialTwitterBuy(country, ageCategory)
+              data = await ao.socialTwitterBuy()
             } catch (e: any) {
               err(`Buy failed: ${e.message}`, EXIT.GENERAL)
             }
@@ -1377,7 +1376,7 @@ async function main() {
             const summary = sv.importAccount(platform, account.username, account.credentials, {
               source: 'pool',
               proxy_session_id: account.proxy_session_id,
-              notes: `Bought from pool (${account.country || 'any'}${account.age_category ? ', ' + account.age_category : ''})`,
+              notes: 'Bought from pool',
             })
             sv.saveSession(summary.id, platform, account.cookies || [])
             sv.updateMeta(platform, summary.username, { last_action_at: new Date().toISOString() })
@@ -1385,8 +1384,6 @@ async function main() {
               success: true,
               platform,
               username: summary.username,
-              country: account.country,
-              age_category: account.age_category,
               hint: `Ready to post — try: node cli/dist/cli.js twitter post ${summary.username} --body "gm"`,
             })
           }
