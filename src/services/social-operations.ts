@@ -583,12 +583,13 @@ export async function unfollowUser(
     // X may or may not show a confirmation modal depending on viewport /
     // account state. Set up API interception before the first click so we
     // catch the request whether it fires from the button OR the modal
-    // confirm. Then click the button, and try to click the confirm if it
-    // appears — but don't require it.
+    // confirm. Regex is broad because X's unfollow endpoint lives on legacy
+    // v1.1 (friendships/destroy) on most accounts but sometimes routes via
+    // different GraphQL operation names.
     const responsePromise = page
       .waitForResponse(
         (resp: any) =>
-          /\/friendships\/destroy|\/UnfollowUser/.test(resp.url()) &&
+          /friendships\/destroy|UnfollowUser|DisconnectUser|SubscribeUser/.test(resp.url()) &&
           resp.request().method() === "POST",
         { timeout: 25000 }
       )
@@ -597,13 +598,19 @@ export async function unfollowUser(
     await unfollowButton.click({ timeout: 5000 });
 
     // Optional confirmation modal — handle if it appears within 3s.
+    let modalAppeared = false;
     try {
       const confirmButton = page.locator('[data-testid="confirmationSheetConfirm"]:visible').first();
       await confirmButton.waitFor({ state: "visible", timeout: 3000 });
+      modalAppeared = true;
       await confirmButton.click({ timeout: 5000 });
     } catch {
-      // No modal — the initial click fired the API directly.
+      // No modal — the initial click fired the API directly (or nothing happened).
     }
+
+    // Take a diagnostic screenshot ~1s after the final click so if the API
+    // never fires, we can see what X actually rendered.
+    setTimeout(() => { debugShot(page, `unfollow-post-click-modal-${modalAppeared}`); }, 1500);
 
     const resp = await responsePromise;
     const apiResult = resp
