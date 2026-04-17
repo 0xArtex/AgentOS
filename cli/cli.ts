@@ -1392,43 +1392,81 @@ async function main() {
           }
 
           case 'pool-add': {
-            const adminToken = process.env.AGENTOS_POOL_ADMIN_TOKEN
-            if (!adminToken) err('AGENTOS_POOL_ADMIN_TOKEN env var not set — you must be the pool admin to run this.', EXIT.AUTH_FAIL)
+            const { buildAdminHeaders } = await import('./admin-auth.js')
+            const file = (flags.file as string) || (flags.batch as string)
             const line = flags['credentials-line'] as string
             const country = (flags.country as string) || undefined
             const ageCategory = (flags.age as string) || (flags['age-category'] as string) || undefined
             const price = flags.price !== undefined ? Number(flags.price) : undefined
-            if (!line) err('--credentials-line "login:pw:email:email_pw:2fa:ct0:auth_token" required')
             if (typeof price !== 'number' || !Number.isFinite(price) || price <= 0) {
               err('--price <USDC> required (e.g. --price 5)')
             }
-
-            const res = await fetch(ao.api + '/social/twitter/pool-add', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'X-Pool-Admin-Token': adminToken!,
-              },
-              body: JSON.stringify({
-                credentials_line: line,
-                country,
-                age_category: ageCategory,
-                sale_price_usdc: price,
-              }),
-            })
-            const data = await res.json() as any
-            if (!res.ok || !data.success) {
-              err(`Pool add failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
+            if (!file && !line) {
+              err('Either --credentials-line "..." or --file path/to/accounts.txt required')
             }
-            return print(data)
+
+            // Collect credentials lines from flag or file.
+            let lines: string[] = []
+            if (line) {
+              lines = [line]
+            } else {
+              const { readFileSync, existsSync } = await import('fs')
+              if (!existsSync(file!)) err(`File not found: ${file}`, EXIT.NOT_FOUND)
+              lines = readFileSync(file!, 'utf8')
+                .split(/\r?\n/)
+                .map(s => s.trim())
+                .filter(s => s.length > 0 && !s.startsWith('#')) // # = comment
+            }
+
+            const results: any[] = []
+            const isInteractive = process.stdout.isTTY
+            let spin: any = null
+            if (isInteractive && lines.length > 1) {
+              spin = new Spinner()
+              spin.start(`Seeding pool (0/${lines.length})`)
+            }
+
+            for (let i = 0; i < lines.length; i++) {
+              const credsLine = lines[i]
+              if (spin) spin.update(`Seeding pool (${i + 1}/${lines.length})`)
+              try {
+                const headers = buildAdminHeaders('POST', '/social/twitter/pool-add')
+                const res = await fetch(ao.api + '/social/twitter/pool-add', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', ...headers },
+                  body: JSON.stringify({
+                    credentials_line: credsLine,
+                    country,
+                    age_category: ageCategory,
+                    sale_price_usdc: price,
+                  }),
+                })
+                const data = await res.json() as any
+                if (!res.ok || !data.success) {
+                  results.push({ index: i, success: false, error: data.error || `HTTP ${res.status}`, username: credsLine.split(':')[0] })
+                } else {
+                  results.push({ index: i, success: true, id: data.id, username: credsLine.split(':')[0], cookies_captured: data.cookies_captured })
+                }
+              } catch (e: any) {
+                results.push({ index: i, success: false, error: e.message, username: credsLine.split(':')[0] })
+              }
+            }
+            if (spin) {
+              const ok = results.filter(r => r.success).length
+              spin.stop(`Seeded ${ok}/${lines.length} accounts`, ok === lines.length)
+            }
+            return print({
+              total: lines.length,
+              seeded: results.filter(r => r.success).length,
+              failed: results.filter(r => !r.success).length,
+              results,
+            })
           }
 
           case 'pool-status': {
-            const adminToken = process.env.AGENTOS_POOL_ADMIN_TOKEN
-            if (!adminToken) err('AGENTOS_POOL_ADMIN_TOKEN env var not set — admin-only command.', EXIT.AUTH_FAIL)
-            const res = await fetch(ao.api + '/social/twitter/pool-status', {
-              headers: { 'X-Pool-Admin-Token': adminToken! },
-            })
+            const { buildAdminHeaders } = await import('./admin-auth.js')
+            const headers = buildAdminHeaders('GET', '/social/twitter/pool-status')
+            const res = await fetch(ao.api + '/social/twitter/pool-status', { headers })
             const data = await res.json() as any
             if (!res.ok) err(`Pool status failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
             return print(data)
