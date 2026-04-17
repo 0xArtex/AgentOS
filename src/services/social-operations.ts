@@ -12,6 +12,19 @@
  */
 import { openAuthenticatedSession, isSessionExpiredUrl } from "./social-runtime";
 
+async function debugShot(page: any, tag: string): Promise<string | undefined> {
+  try {
+    const fs = await import("fs");
+    const dir = "/tmp/agentos-social-shots";
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const shotPath = `${dir}/${tag}-${Date.now()}.png`;
+    await page.screenshot({ path: shotPath, fullPage: true });
+    return shotPath;
+  } catch {
+    return undefined;
+  }
+}
+
 export interface OpResult<T = any> {
   success: boolean;
   data?: T;
@@ -76,37 +89,40 @@ export async function postTweet(
     await textarea.pressSequentially(req.text, { delay: 30 });
     await page.waitForTimeout(800);
 
-    // Submit via Ctrl/Cmd+Enter keyboard shortcut — more reliable than the
-    // button across X's flow variants.
-    const isMac = process.platform === "darwin";
-    await textarea.press(isMac ? "Meta+Enter" : "Control+Enter");
+    await debugShot(page, "post-before-click");
 
-    let submitted = false;
+    // Click the inline post button. Text-based and testid selectors combined
+    // so we catch either variant.
+    const postButton = page
+      .locator(
+        '[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):visible, ' +
+        '[data-testid="tweetButton"]:not([aria-disabled="true"]):visible'
+      )
+      .first();
+
     try {
-      await page.waitForFunction(
-        'document.querySelector(\'[data-testid="tweetTextarea_0"]\') === null || document.querySelector(\'[data-testid="tweetTextarea_0"]\').innerText.trim() === ""',
-        { timeout: 10000 }
-      );
-      submitted = true;
-    } catch {
-      const postButton = page
-        .locator('[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):visible')
-        .first();
-      try {
-        await postButton.waitFor({ state: "visible", timeout: 5000 });
-        await postButton.click({ timeout: 5000 });
-        await page.waitForFunction(
-          'document.querySelector(\'[data-testid="tweetTextarea_0"]\') === null || document.querySelector(\'[data-testid="tweetTextarea_0"]\').innerText.trim() === ""',
-          { timeout: 10000 }
-        );
-        submitted = true;
-      } catch {}
-    }
-
-    if (!submitted) {
+      await postButton.waitFor({ state: "visible", timeout: 10000 });
+      await postButton.click({ timeout: 5000 });
+    } catch (e: any) {
+      const shot = await debugShot(page, "post-button-not-clickable");
       return {
         success: false,
-        error: "Post composed but submission did not clear the textarea — X likely rejected or silently ignored it.",
+        error: `Post button not clickable: ${e.message}. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    // Success: wait for the textarea to actually clear.
+    try {
+      await page.waitForFunction(
+        "(() => { const el = document.querySelector('[data-testid=\"tweetTextarea_0\"]'); return el === null || ((el.innerText || '').trim() === ''); })()",
+        { timeout: 15000 }
+      );
+    } catch {
+      const shot = await debugShot(page, "post-did-not-clear");
+      return {
+        success: false,
+        error: `Post submitted but textarea never cleared — X likely rejected the tweet silently. Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
@@ -154,45 +170,37 @@ export async function replyToTweet(
     await replyBox.pressSequentially(req.text, { delay: 30 });
     await page.waitForTimeout(800);
 
-    // Primary: keyboard shortcut. X accepts Ctrl/Cmd+Enter to submit from any
-    // focused compose textarea. Works reliably regardless of which viewport /
-    // button variant X is rendering.
-    const isMac = process.platform === "darwin";
-    await replyBox.press(isMac ? "Meta+Enter" : "Control+Enter");
+    await debugShot(page, "reply-before-click");
 
-    // Success signal: the textarea's value is cleared (X resets on submit).
-    // If the button stayed enabled and text stayed there, the submit didn't
-    // go through.
-    let submitted = false;
+    const replyButton = page
+      .locator(
+        '[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):visible, ' +
+        '[data-testid="tweetButton"]:not([aria-disabled="true"]):visible'
+      )
+      .first();
+
     try {
-      await page.waitForFunction(
-        'document.querySelector(\'[data-testid="tweetTextarea_0"]\') === null || document.querySelector(\'[data-testid="tweetTextarea_0"]\').innerText.trim() === ""',
-        { timeout: 10000 }
-      );
-      submitted = true;
-    } catch {
-      // Keyboard didn't take; fall back to clicking the inline submit button.
-      const replyButton = page
-        .locator(
-          '[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):visible, ' +
-          '[data-testid="tweetButton"]:not([aria-disabled="true"]):visible'
-        )
-        .first();
-      try {
-        await replyButton.waitFor({ state: "visible", timeout: 5000 });
-        await replyButton.click({ timeout: 5000 });
-        await page.waitForFunction(
-          'document.querySelector(\'[data-testid="tweetTextarea_0"]\') === null || document.querySelector(\'[data-testid="tweetTextarea_0"]\').innerText.trim() === ""',
-          { timeout: 10000 }
-        );
-        submitted = true;
-      } catch {}
-    }
-
-    if (!submitted) {
+      await replyButton.waitFor({ state: "visible", timeout: 10000 });
+      await replyButton.click({ timeout: 5000 });
+    } catch (e: any) {
+      const shot = await debugShot(page, "reply-button-not-clickable");
       return {
         success: false,
-        error: "Reply composed but submission did not clear the textarea — X likely rejected or silently ignored it.",
+        error: `Reply button not clickable: ${e.message}. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    try {
+      await page.waitForFunction(
+        "(() => { const el = document.querySelector('[data-testid=\"tweetTextarea_0\"]'); return el === null || ((el.innerText || '').trim() === ''); })()",
+        { timeout: 15000 }
+      );
+    } catch {
+      const shot = await debugShot(page, "reply-did-not-clear");
+      return {
+        success: false,
+        error: `Reply submitted but textarea never cleared — X likely rejected it. Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
