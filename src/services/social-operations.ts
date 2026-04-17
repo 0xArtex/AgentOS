@@ -596,6 +596,27 @@ export async function unfollowUser(
       .catch(() => null);
 
     await unfollowButton.click({ timeout: 5000 });
+    await page.waitForTimeout(1000);
+
+    // Edge case: if the target has paid subscriptions enabled (e.g. @elonmusk),
+    // X may open a "Subscribe - $X/month" modal instead of the unfollow
+    // confirmation. Detect and surface that cleanly rather than spinning for
+    // an API call that never fires.
+    const subscribeModal = await page
+      .locator('[role="dialog"]:has-text("Subscribe"):has-text("/month")')
+      .first()
+      .isVisible()
+      .catch(() => false);
+    if (subscribeModal) {
+      return {
+        success: false,
+        error:
+          `X opened a paid-subscription modal instead of the unfollow prompt. ` +
+          `@${handle} runs paid subscriptions and X blocks automated unfollow on monetised accounts. ` +
+          `Unfollow manually via the web UI if needed.`,
+        error_code: "INVALID_INPUT",
+      };
+    }
 
     // Optional confirmation modal — handle if it appears within 3s.
     let modalAppeared = false;
@@ -608,8 +629,8 @@ export async function unfollowUser(
       // No modal — the initial click fired the API directly (or nothing happened).
     }
 
-    // Take a diagnostic screenshot ~1s after the final click so if the API
-    // never fires, we can see what X actually rendered.
+    // Diagnostic screenshot ~1s after the final click in case the API
+    // never fires.
     setTimeout(() => { debugShot(page, `unfollow-post-click-modal-${modalAppeared}`); }, 1500);
 
     const resp = await responsePromise;
