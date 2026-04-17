@@ -579,17 +579,44 @@ export async function unfollowUser(
 
     const unfollowButton = page.locator('[data-testid$="-unfollow"]:visible').first();
     await unfollowButton.waitFor({ state: "visible", timeout: 20000 });
+
+    // X may or may not show a confirmation modal depending on viewport /
+    // account state. Set up API interception before the first click so we
+    // catch the request whether it fires from the button OR the modal
+    // confirm. Then click the button, and try to click the confirm if it
+    // appears — but don't require it.
+    const responsePromise = page
+      .waitForResponse(
+        (resp: any) =>
+          /\/friendships\/destroy|\/UnfollowUser/.test(resp.url()) &&
+          resp.request().method() === "POST",
+        { timeout: 25000 }
+      )
+      .catch(() => null);
+
     await unfollowButton.click({ timeout: 5000 });
 
-    // Confirmation modal
-    const confirmButton = page.locator('[data-testid="confirmationSheetConfirm"]:visible').first();
-    await confirmButton.waitFor({ state: "visible", timeout: 10000 });
+    // Optional confirmation modal — handle if it appears within 3s.
+    try {
+      const confirmButton = page.locator('[data-testid="confirmationSheetConfirm"]:visible').first();
+      await confirmButton.waitFor({ state: "visible", timeout: 3000 });
+      await confirmButton.click({ timeout: 5000 });
+    } catch {
+      // No modal — the initial click fired the API directly.
+    }
 
-    const apiResult = await submitAndAwaitXApi(
-      page,
-      async () => { await confirmButton.click({ timeout: 5000 }); },
-      /\/friendships\/destroy|\/UnfollowUser/
-    );
+    const resp = await responsePromise;
+    const apiResult = resp
+      ? await (async () => {
+          const status = resp.status();
+          let json: any = null;
+          try { json = await resp.json(); } catch { try { json = { raw: await resp.text() }; } catch {} }
+          const errors = json?.errors;
+          const errorMessage = Array.isArray(errors) && errors[0]?.message ? errors[0].message : undefined;
+          const errorCode = Array.isArray(errors) && errors[0]?.code ? errors[0].code : undefined;
+          return { ok: resp.ok() && !errorMessage, status, json, errorMessage, errorCode };
+        })()
+      : null;
 
     if (!apiResult) {
       const shot = await debugShot(page, "unfollow-no-api-call");

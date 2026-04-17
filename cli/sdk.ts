@@ -23,7 +23,27 @@ export class AgentOS {
     const opts: RequestInit = { method, headers }
     if (body) opts.body = JSON.stringify(body)
     const res = await fetch(this.api + path, opts)
-    const data = await res.json() as any
+
+    // Some edge layers (CDN, nginx) return HTML error pages for transient
+    // upstream failures. Detect that before trying JSON.parse so the agent
+    // gets a usable error instead of "Unexpected token '<'".
+    const contentType = res.headers.get('content-type') || ''
+    let data: any
+    if (contentType.includes('application/json')) {
+      data = await res.json().catch(() => ({ error: 'Invalid JSON response from server' }))
+    } else {
+      const text = await res.text().catch(() => '')
+      if (res.status === 402) {
+        // 402 without JSON body still handled by paidRequest below.
+        data = {}
+      } else {
+        throw new Error(
+          `Server returned ${res.status} ${res.statusText} with non-JSON body ` +
+          `(${contentType || 'no content-type'}). This is usually a transient CDN/nginx error — retry in a moment. ` +
+          `First 200 chars: ${text.slice(0, 200)}`
+        )
+      }
+    }
 
     // If 402 and autoPay enabled, try to pay (uses local vault wallet via pay.ts)
     if (res.status === 402 && this.autoPay) {
