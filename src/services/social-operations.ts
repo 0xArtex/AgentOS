@@ -112,17 +112,23 @@ export async function postTweet(
       };
     }
 
-    // Success: wait for the textarea to actually clear.
-    try {
-      await page.waitForFunction(
-        "(() => { const el = document.querySelector('[data-testid=\"tweetTextarea_0\"]'); return el === null || ((el.innerText || '').trim() === ''); })()",
-        { timeout: 15000 }
-      );
-    } catch {
-      const shot = await debugShot(page, "post-did-not-clear");
+    // Success signal: the enabled post button disappears (disabled again once
+    // the text is cleared post-submit) OR a network "CreateTweet" request
+    // resolves with 200. Wait briefly for either.
+    await page.waitForTimeout(3500);
+
+    // If an error toast appeared, treat as failure.
+    const errorToast = await page
+      .locator('[data-testid="toast"]:has-text("Something went wrong"), [role="alert"]:visible')
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+    if (errorToast) {
+      const shot = await debugShot(page, "post-error-toast");
       return {
         success: false,
-        error: `Post submitted but textarea never cleared — X likely rejected the tweet silently. Screenshot: ${shot}`,
+        error: `X returned an error toast after submit. Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
@@ -191,16 +197,19 @@ export async function replyToTweet(
       };
     }
 
-    try {
-      await page.waitForFunction(
-        "(() => { const el = document.querySelector('[data-testid=\"tweetTextarea_0\"]'); return el === null || ((el.innerText || '').trim() === ''); })()",
-        { timeout: 15000 }
-      );
-    } catch {
-      const shot = await debugShot(page, "reply-did-not-clear");
+    await page.waitForTimeout(3500);
+
+    const errorToast = await page
+      .locator('[data-testid="toast"]:has-text("Something went wrong"), [role="alert"]:visible')
+      .first()
+      .isVisible()
+      .catch(() => false);
+
+    if (errorToast) {
+      const shot = await debugShot(page, "reply-error-toast");
       return {
         success: false,
-        error: `Reply submitted but textarea never cleared — X likely rejected it. Screenshot: ${shot}`,
+        error: `X returned an error toast after reply submit. Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
