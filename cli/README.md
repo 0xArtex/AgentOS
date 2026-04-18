@@ -211,14 +211,14 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 
 ### Twitter / X
 
-Buy, manage, and operate X accounts directly from the CLI. Each account gets a sticky residential IP (IPRoyal) that's pinned for the account's lifetime — login, posting, and every subsequent action route through the same exit IP, so X never sees a sudden geography change.
+Buy, manage, and operate X accounts directly from the CLI. Each account is pinned to a sticky residential IP for its lifetime — login, posting, and every subsequent action route through the same exit IP, so X never sees a sudden geography change.
 
 Local credentials are encrypted with AES-256-GCM (per-account session secret in your OS credential store). Cookies are cached for 12 hours after login; commands that need a session call `twitter login` automatically when stale.
 
 | Command | Cost | Notes |
 |---|---|---|
 | `agentos twitter buy` | $5.00 | Pay $5 USDC, receive a ready X account from the pool. Auto-imports into the local vault and primes the session — you can post immediately. |
-| `agentos twitter import <username> --credentials-line "login:pw:email:email_pw:2fa:ct0:auth_token"` | free | Bring your own account. Accepts AccsMarket's standard 4/5/7-field colon format. |
+| `agentos twitter import <username> --credentials-line "login:pw:email:email_pw:2fa:ct0:auth_token"` | free | Bring your own account. Accepts the standard 4 / 5 / 7-field colon format common in marketplace exports. |
 | `agentos twitter import <username> --login E --password P [--email-password X] [--totp-seed S] [--auth-token T --ct0 C]` | free | Same, with explicit flags. |
 | `agentos twitter list` | free | List local accounts. |
 | `agentos twitter info <username>` | free | Show one account (id, addresses, last action, source). |
@@ -243,16 +243,6 @@ Local credentials are encrypted with AES-256-GCM (per-account session secret in 
 | `agentos twitter username <username> --to <new-handle>` | $0.005 | Pre-flight validates handle (4–15 chars, `[A-Za-z0-9_]`) before payment. May trigger X's password re-auth modal — handled automatically. |
 
 **Verification.** Operations are confirmed at the network layer — the server intercepts X's actual API responses (`CreateTweet`, `FavoriteTweet`, `update_profile`, etc.) before reporting success. No false positives.
-
-**Pool admin** *(wallet-signature auth — admin wallet only)*
-
-| Command | Notes |
-|---|---|
-| `agentos twitter pool-add --file accounts.txt --price 5` | Batch-seed the pool. Each line is a `--credentials-line` string. Lines starting with `#` are comments. Each account is logged in once through a fresh IPRoyal sticky session, cookies are captured, and the encrypted record is stored. |
-| `agentos twitter pool-add --credentials-line "..." --price 5` | Single-account seed. |
-| `agentos twitter pool-status` | Total / ready / sold / dead counts plus recent sales. |
-
-The admin wallet is selected from `AGENTOS_POOL_ADMIN_WALLET` or the configured `defaultPayWalletId`. The admin's wallet pubkey must appear in the server's `POOL_ADMIN_WALLETS` allowlist. All admin requests sign `<METHOD>:<originalUrl>:<timestamp>` with the wallet's Solana key — no secrets transit the network.
 
 ### Utility
 
