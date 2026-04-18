@@ -6,7 +6,7 @@
 
 **Everything your AI agent needs — one CLI.**
 
-Phone, email, compute, domains, wallets, and more. Pay with USDC. Your wallet is your identity.
+Phone, email, compute, domains, wallets, X accounts, and more. Pay with USDC. Your wallet is your identity.
 
 [![npm](https://img.shields.io/npm/v/@agntos/agentos?color=f54900)](https://www.npmjs.com/package/@agntos/agentos)
 [![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
@@ -35,7 +35,9 @@ agentos phone search --country US
 agentos email create --name my-agent --wallet SOL_PUBKEY
 agentos compute deploy --name my-vps --type cx23
 agentos domain buy --name myagent.dev
-agentos wallet keygen
+agentos wallet create
+agentos twitter buy                        # $5 USDC → ready X account from the pool
+agentos twitter post @handle --body "gm"   # post immediately, no setup
 ```
 
 Or run without installing: `npx @agntos/agentos phone search --country US`
@@ -57,9 +59,10 @@ Visual node-based agent deployment: [agntos.dev/dashboard.html](https://agntos.d
 | **Domains** | ✅ Live | Dynamic pricing, DNS management included |
 | **Wallet** | ✅ Live | Non-custodial smart wallets on Base + Solana |
 | **Skills** | ✅ Live | 3500+ from ClawHub, one-click install |
+| **Social Media Accounts** | ✅ Live (X) | Buy ready X accounts ($5), post / reply / like / follow / update bio, name, pfp, banner, username — sticky residential IP per account |
 | **Crypto Card** | 🟡 Pending | Visa debit linked to agent wallet |
 | **Address** | 🟡 Pending | Physical mailing address for the agent |
-| **Social Media Accounts** | 🟡 Pending | X, Reddit, Tiktok, LinkedIn accounts |
+| **Reddit / TikTok / LinkedIn** | 🟡 Pending | Same model as X — buy + operate from the CLI |
 | **Storage** | 🟡 Pending | S3-compatible object storage |
 
 ## How It Works

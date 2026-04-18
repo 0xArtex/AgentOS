@@ -320,8 +320,13 @@ app.get("/hackathon/status", (req, res) => {
 app.get("/skill.md", (req, res) => {
   const fs = require('fs');
   const path = require('path');
-  const skillPath = path.join(__dirname, '..', 'public', 'skill.md');
-  if (fs.existsSync(skillPath)) {
+  // Single source of truth: the skill folder. Falls back to public/ for legacy.
+  const candidates = [
+    path.join(__dirname, '..', 'skills', 'agentos', 'SKILL.md'),
+    path.join(__dirname, '..', 'public', 'skill.md'),
+  ];
+  const skillPath = candidates.find((p) => fs.existsSync(p));
+  if (skillPath) {
     res.setHeader('Content-Type', 'text/markdown');
     res.send(fs.readFileSync(skillPath, 'utf-8'));
   } else {

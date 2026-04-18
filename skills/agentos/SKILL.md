@@ -1,7 +1,7 @@
 ---
 name: agentos
 version: 1.0.0
-description: Infrastructure for AI Agents. Phone, email, Social accounts, compute, domains, and voice calling for AI agents. Pay with USDC on Solana or Base via x402.
+description: Infrastructure for AI Agents. Phone, email, X/Twitter accounts, compute, domains, voice calling, and wallets for AI agents. Pay with USDC on Solana or Base via x402.
 ---
 
 # AgentOS — Infrastructure for AI Agents
@@ -59,8 +59,25 @@ agentos domain buy --name example.dev     # Register domain
 
 # Wallet
 agentos wallet keygen                     # Generate keypair (free)
-agentos wallet create --agent 0xADDR      # Create smart wallet (free)
-agentos wallet status 0xWALLET            # Check status (free)
+agentos wallet create                     # Create local HD wallet (free)
+agentos wallet create --managed           # Same, with passkey-gated spending limits
+
+# Twitter / X
+agentos twitter buy                                       # Buy a ready X account ($5)
+agentos twitter import <username> --credentials-line "..."# Import your own (free)
+agentos twitter login <username>                          # Cache session ($0.005)
+agentos twitter post <username> --body "gm"               # Post tweet ($0.001)
+agentos twitter reply <username> --to <url> --body "..."  # Reply ($0.001)
+agentos twitter like <username> --tweet <url>             # Like ($0.001)
+agentos twitter retweet <username> --tweet <url>          # Retweet ($0.001)
+agentos twitter follow <username> --user @handle          # Follow ($0.001)
+agentos twitter unfollow <username> --user @handle        # Unfollow ($0.001)
+agentos twitter delete <username> --tweet <url>           # Delete tweet ($0.001)
+agentos twitter bio <username> --text "..."               # Update bio ($0.001)
+agentos twitter name <username> --display "..."           # Update display name ($0.001)
+agentos twitter pfp <username> --file pic.png             # Update avatar ($0.005)
+agentos twitter banner <username> --file banner.png       # Update banner ($0.005)
+agentos twitter username <username> --to <new-handle>     # Change handle ($0.005)
 
 # Info
 agentos pricing    # All service prices
@@ -119,6 +136,20 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Wallet status | `GET /wallet/:address` | Free |
 | Generate keypair | `POST /wallet/keygen` | Free |
 | Transfer (ERC20) | Via smart contract | Gas only |
+| **Twitter / X** | | |
+| Buy account from pool | `POST /social/twitter/buy` | 5.00 |
+| Login (capture cookies) | `POST /social/twitter/login` | 0.005 |
+| Post tweet | `POST /social/twitter/post` | 0.001 |
+| Reply to tweet | `POST /social/twitter/reply` | 0.001 |
+| Like | `POST /social/twitter/like` | 0.001 |
+| Retweet | `POST /social/twitter/retweet` | 0.001 |
+| Follow | `POST /social/twitter/follow` | 0.001 |
+| Unfollow | `POST /social/twitter/unfollow` | 0.001 |
+| Delete tweet | `POST /social/twitter/delete` | 0.001 |
+| Update profile (bio/name/location/website) | `POST /social/twitter/profile` | 0.001 |
+| Update avatar | `POST /social/twitter/avatar` | 0.005 |
+| Update banner | `POST /social/twitter/banner` | 0.005 |
+| Change username | `POST /social/twitter/username` | 0.005 |
 | **Skills** | | |
 | Browse catalog | `GET /compute/skills/catalog` | Free |
 | Security scan | `GET /compute/skills/:slug/security` | Free |
@@ -149,6 +180,15 @@ For voice calls, email threads, attachments, webhooks, and other advanced featur
 2. Response includes USDC amount + treasury address (Solana + Base)
 3. Pay via x402 protocol
 4. Your wallet address becomes the resource owner
+
+### X / Twitter Accounts
+
+Two paths to a working account:
+
+1. **Buy from the pool** — `POST /social/twitter/buy` ($5 USDC). The server returns a ready-to-use account: handle, encrypted credentials, captured cookies, and a `proxy_session_id` that pins a sticky IPRoyal residential IP. The CLI auto-imports it into the local vault and you can post immediately.
+2. **Bring your own** — `POST /social/twitter/login` ($0.005). Send credentials (or pre-captured `auth_token` + `ct0` cookies) and the server logs in via Playwright stealth through your `proxy_session_id` IP, returning a 12h cookie session.
+
+Every operation (`post`, `reply`, `like`, `follow`, `update profile`, `avatar`, `banner`, `username`) sends `account_id` + `cookies` + optional `proxy_session_id`. The server reuses the same residential IP that originally logged in, so X never sees a sudden geography change. Success is verified at the network layer — the server reads X's actual API response (`CreateTweet`, `FavoriteTweet`, `update_profile`, etc.) before reporting success. No false positives.
 
 ### E2E Email Encryption
 Emails are encrypted with your wallet's public key (NaCl box). We cannot read them.
