@@ -16,13 +16,24 @@ import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, ConfigScree
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addNote } from './config.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
-import { existsSync } from 'fs'
+import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
+import { fileURLToPath } from 'url'
+import { dirname, join } from 'path'
 
 // Alias for backwards compat in help text
 const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, white: t.text, gray: t.muted, orange: t.accent }
 
-const VERSION = '0.5.2'
+// Read version from package.json so the binary and the published version
+// can never drift. dist/cli.js sits next to ../package.json after build.
+const VERSION = (() => {
+  try {
+    const here = dirname(fileURLToPath(import.meta.url))
+    return JSON.parse(readFileSync(join(here, '..', 'package.json'), 'utf8')).version as string
+  } catch {
+    return '0.0.0'
+  }
+})()
 
 // ─── Exit codes ───
 const EXIT = {
