@@ -17,14 +17,18 @@ setInterval(() => {
 }, 5 * 60_000);
 
 /**
- * Simple in-memory rate limiter keyed by payer wallet address.
+ * Simple in-memory rate limiter keyed by the caller's authenticated identity,
+ * falling back to IP. NEVER keys off a raw inbound header — that was a
+ * trivial bypass (rotate the header, get a fresh bucket).
  * @param maxRequests  Maximum requests allowed in the window
  * @param windowMs     Window duration in milliseconds
  */
 export function rateLimit(maxRequests: number = 10, windowMs: number = 60_000) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
-    // Use dashboard user, payer wallet, or IP
-    const key = req.headers["x-dashboard-user"] as string || req.payment?.payer ?? req.ip ?? "unknown";
+    // Authenticated identity only: req.agentId / req.payment.payer are set by
+    // trusted middleware earlier in the pipeline; req.ip is derived from the
+    // socket. Any incoming X-* header is attacker-controlled — do not trust it.
+    const key = req.agentId || req.payment?.payer || req.ip || "unknown";
     const now = Date.now();
 
     let entry = store.get(key);

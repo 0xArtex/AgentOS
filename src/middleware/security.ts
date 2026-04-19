@@ -30,39 +30,20 @@ export const securityHeaders = helmet({
 // HTTP parameter pollution protection
 export const paramPollution = hpp();
 
-// SQL injection pattern detection
-const SQL_PATTERNS = [
-  /(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|EXEC|UNION)\b.*\b(FROM|INTO|TABLE|DATABASE|WHERE)\b)/i,
-  /(--|;|\/\*|\*\/|xp_|sp_)/i,
-  /(\b(OR|AND)\b\s+\d+\s*=\s*\d+)/i,
-];
-
-export function sqlInjectionGuard(req: Request, res: Response, next: NextFunction): void {
-  const checkValue = (val: unknown): boolean => {
-    if (typeof val === "string") {
-      return SQL_PATTERNS.some(p => p.test(val));
-    }
-    if (typeof val === "object" && val !== null) {
-      return Object.values(val).some(checkValue);
-    }
-    return false;
-  };
-
-  // Skip SQL check for canvas state saves (contains HTML/SVG that triggers false positives)
-  if (req.method === "PUT" && (req.path.startsWith("/projects/") || req.originalUrl.startsWith("/projects/"))) {
-    next();
-    return;
-  }
-  // Skip for image-upload endpoints — base64 + data-URL prefix contains `;`
-  // which the SQL pattern matches as a statement separator.
-  if (req.path === "/social/twitter/avatar" || req.path === "/social/twitter/banner") {
-    next();
-    return;
-  }
-  if (checkValue(req.body) || checkValue(req.query) || checkValue(req.params)) {
-    res.status(400).json({ error: "Malicious Input Detected", message: "Request blocked by security filter" });
-    return;
-  }
+/**
+ * SQL injection guard (no-op).
+ *
+ * The real defense is `better-sqlite3` prepared statements, which are used
+ * everywhere in this codebase — parameterised input cannot be misinterpreted
+ * as SQL regardless of its contents. The earlier regex-based WAF layer was
+ * generating false positives on legitimate content (tweets containing the
+ * words "select" and "from", data-URL image uploads, project canvas saves)
+ * and providing no real security value on top of prepared statements.
+ *
+ * Kept as a middleware so the `app.use(sqlInjectionGuard)` call sites don't
+ * need to change.
+ */
+export function sqlInjectionGuard(_req: Request, _res: Response, next: NextFunction): void {
   next();
 }
 
@@ -98,19 +79,33 @@ export function sanitizeInputs(req: Request, _res: Response, next: NextFunction)
   next();
 }
 
-// API key brute force protection — track failed auth attempts per IP
-const failedAttempts = new Map<string, { count: number; blockedUntil: number }>();
+// API key brute force protection — track failed auth attempts per IP.
+// Map is capped at MAX_FAILED_ENTRIES; on overflow the oldest entry is evicted
+// (Map iteration order is insertion order). Prevents unbounded growth under a
+// distributed spray attack.
+const MAX_FAILED_ENTRIES = 10_000;
+const failedAttempts = new Map<string, { count: number; blockedUntil: number; updatedAt: number }>();
+
+function touchFailedEntry(ip: string, entry: { count: number; blockedUntil: number; updatedAt: number }): void {
+  // Re-insert to move to the tail (most recently used).
+  failedAttempts.delete(ip);
+  failedAttempts.set(ip, entry);
+  if (failedAttempts.size > MAX_FAILED_ENTRIES) {
+    const oldestKey = failedAttempts.keys().next().value;
+    if (oldestKey !== undefined) failedAttempts.delete(oldestKey);
+  }
+}
 
 export function bruteForceProtection(req: Request, res: Response, next: NextFunction): void {
   const ip = req.ip || req.socket.remoteAddress || "unknown";
   const entry = failedAttempts.get(ip);
-  
+
   if (entry && Date.now() < entry.blockedUntil) {
     const retryAfter = Math.ceil((entry.blockedUntil - Date.now()) / 1000);
-    res.status(429).json({ 
-      error: "Too Many Failed Attempts", 
+    res.status(429).json({
+      error: "Too Many Failed Attempts",
       message: "Temporarily blocked due to repeated failures",
-      retryAfter 
+      retryAfter
     });
     return;
   }
@@ -119,13 +114,14 @@ export function bruteForceProtection(req: Request, res: Response, next: NextFunc
   const originalJson = res.json.bind(res);
   res.json = function(body: any) {
     if (res.statusCode === 401 || res.statusCode === 403) {
-      const entry = failedAttempts.get(ip) || { count: 0, blockedUntil: 0 };
-      entry.count++;
-      if (entry.count >= 10) {
-        entry.blockedUntil = Date.now() + 15 * 60 * 1000; // Block 15 min
-        entry.count = 0;
+      const cur = failedAttempts.get(ip) || { count: 0, blockedUntil: 0, updatedAt: Date.now() };
+      cur.count++;
+      cur.updatedAt = Date.now();
+      if (cur.count >= 10) {
+        cur.blockedUntil = Date.now() + 15 * 60 * 1000; // Block 15 min
+        cur.count = 0;
       }
-      failedAttempts.set(ip, entry);
+      touchFailedEntry(ip, cur);
     }
     return originalJson(body);
   };
@@ -137,6 +133,9 @@ export function bruteForceProtection(req: Request, res: Response, next: NextFunc
 setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of failedAttempts) {
-    if (now > entry.blockedUntil + 60000) failedAttempts.delete(ip);
+    // Drop entries that are neither currently blocked nor recently updated.
+    const stale = now > entry.updatedAt + 30 * 60_000;
+    const unblocked = now > entry.blockedUntil + 60_000;
+    if (stale && unblocked) failedAttempts.delete(ip);
   }
 }, 5 * 60_000);

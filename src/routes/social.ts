@@ -443,10 +443,18 @@ router.post(
 
     if (credentials_line && typeof credentials_line === "string") {
       const parts = credentials_line.split(":");
-      if (parts.length < 4) {
-        res.status(400).json({ error: "credentials_line must have at least 4 colon-separated fields" });
+      // Only accept the documented 4 / 5 / 7-field formats exactly. Anything
+      // else indicates a password containing `:` — the caller must use the
+      // explicit-flag path instead to avoid a silent mis-split.
+      if (![4, 5, 7].includes(parts.length)) {
+        res.status(400).json({
+          error: "credentials_line must have exactly 4, 5, or 7 colon-separated fields",
+          hint: "If your password contains ':', use explicit body fields instead of credentials_line.",
+          got: parts.length,
+        });
         return;
       }
+
       creds = {
         login: parts[0],
         password: parts[1],
@@ -456,6 +464,31 @@ router.post(
       if (parts[4]) creds.totp_seed = parts[4];
       if (parts[5]) creds.ct0 = parts[5];
       if (parts[6]) creds.auth_token = parts[6];
+
+      // Validate typed fields. A mis-split will almost always fail one of
+      // these checks — fail fast rather than storing garbage credentials.
+      if (creds.totp_seed !== undefined && !/^[A-Z2-7]{16,64}$/.test(creds.totp_seed)) {
+        res.status(400).json({
+          error: "credentials_line: 5th field must be an RFC 4648 base32 TOTP seed (16-64 chars of A-Z 2-7)",
+          hint: "Your password probably contains ':' — use explicit body fields instead.",
+        });
+        return;
+      }
+      if (creds.ct0 !== undefined && !/^[0-9a-f]{16,64}$/i.test(creds.ct0)) {
+        res.status(400).json({
+          error: "credentials_line: 6th field must be the X `ct0` cookie (16-64 hex chars)",
+          hint: "Your password probably contains ':' — use explicit body fields instead.",
+        });
+        return;
+      }
+      if (creds.auth_token !== undefined && !/^[0-9a-f]{32,80}$/i.test(creds.auth_token)) {
+        res.status(400).json({
+          error: "credentials_line: 7th field must be the X `auth_token` cookie (32-80 hex chars)",
+          hint: "Your password probably contains ':' — use explicit body fields instead.",
+        });
+        return;
+      }
+
       if (!username) username = parts[0];
     } else {
       creds = {

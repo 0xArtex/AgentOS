@@ -303,30 +303,79 @@ export interface SocialSession {
   captured_at: string
 }
 
+interface EncryptedSessionFile {
+  account_id: string
+  platform: Platform
+  captured_at: string
+  cookies_crypto: EncryptedBlob
+}
+
 function sessionPath(accountId: string): string {
   return join(getSocialDir(), 'sessions', `${accountId}.sess`)
 }
 
+/**
+ * Persist a login session. Cookies are AES-GCM encrypted with the same per-
+ * account session secret that protects credentials — an attacker with only
+ * read access to ~/.agentos/social/sessions/ gets ciphertext, not cookies.
+ */
 export function saveSession(accountId: string, platform: Platform, cookies: any[]): SocialSession {
   ensureDirs()
-  const session: SocialSession = {
+  const sessionSecret = retrieveSecret(accountId)
+  if (!sessionSecret) {
+    throw new Error(
+      `Cannot encrypt session for ${accountId}: no session secret in the OS credential store. ` +
+      `Was the account imported on this machine?`
+    )
+  }
+  const capturedAt = new Date().toISOString()
+  const payload: EncryptedSessionFile = {
     account_id: accountId,
     platform,
-    cookies,
-    captured_at: new Date().toISOString(),
+    captured_at: capturedAt,
+    cookies_crypto: encrypt(JSON.stringify(cookies), sessionSecret),
   }
-  writeFileSync(sessionPath(accountId), JSON.stringify(session, null, 2))
-  return session
+  writeFileSync(sessionPath(accountId), JSON.stringify(payload, null, 2), { mode: 0o600 })
+  return { account_id: accountId, platform, cookies, captured_at: capturedAt }
 }
 
 export function loadSession(accountId: string): SocialSession | undefined {
   const fpath = sessionPath(accountId)
   if (!existsSync(fpath)) return undefined
-  return JSON.parse(readFileSync(fpath, 'utf8')) as SocialSession
+  const raw = JSON.parse(readFileSync(fpath, 'utf8')) as EncryptedSessionFile | SocialSession
+
+  // Legacy (plaintext) sessions from before session encryption existed — migrate
+  // by re-saving encrypted when possible. Return as-is if the secret is missing.
+  if ((raw as SocialSession).cookies && Array.isArray((raw as SocialSession).cookies)) {
+    const legacy = raw as SocialSession
+    try { saveSession(accountId, legacy.platform, legacy.cookies) } catch {}
+    return legacy
+  }
+
+  const encFile = raw as EncryptedSessionFile
+  const sessionSecret = retrieveSecret(accountId)
+  if (!sessionSecret) return undefined
+  try {
+    const cookies = JSON.parse(decrypt(encFile.cookies_crypto, sessionSecret)) as any[]
+    return {
+      account_id: encFile.account_id,
+      platform: encFile.platform,
+      cookies,
+      captured_at: encFile.captured_at,
+    }
+  } catch {
+    return undefined
+  }
 }
 
 export function sessionAgeHours(accountId: string): number | undefined {
-  const sess = loadSession(accountId)
-  if (!sess) return undefined
-  return (Date.now() - new Date(sess.captured_at).getTime()) / 1000 / 3600
+  const fpath = sessionPath(accountId)
+  if (!existsSync(fpath)) return undefined
+  try {
+    const raw = JSON.parse(readFileSync(fpath, 'utf8')) as { captured_at?: string }
+    if (!raw.captured_at) return undefined
+    return (Date.now() - new Date(raw.captured_at).getTime()) / 1000 / 3600
+  } catch {
+    return undefined
+  }
 }

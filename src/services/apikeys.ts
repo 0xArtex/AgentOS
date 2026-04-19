@@ -52,11 +52,17 @@ export async function listKeys(owner?: string): Promise<Omit<ApiKey, "secret">[]
 }
 
 /**
- * Revoke an API key.
+ * Revoke an API key. Owner scope is enforced — only the creator can revoke.
  */
-export async function revokeKey(id: string): Promise<void> {
+export async function revokeKey(id: string, owner?: string): Promise<void> {
   const key = storage.getApiKey(id);
   if (!key) throw new Error(`API key ${id} not found`);
+
+  if (owner && key.owner && key.owner !== owner) {
+    const err = new Error(`You do not own API key ${id}`);
+    (err as any).statusCode = 403;
+    throw err;
+  }
 
   key.active = false;
   storage.setApiKey(id, key);

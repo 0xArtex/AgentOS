@@ -105,13 +105,23 @@ export async function provisionNumber(
 }
 
 /**
- * Get all messages for a phone number.
+ * Get all messages for a phone number. Owner scope is enforced — callers
+ * must present their identity; we refuse to return messages for a number
+ * they do not own.
  */
-export function getMessages(phoneNumberId: string): SmsMessage[] {
+export function getMessages(phoneNumberId: string, owner?: string): SmsMessage[] {
+  const number = storage.getPhoneNumber(phoneNumberId);
+  if (!number) throw new Error(`Phone number ${phoneNumberId} not found`);
+  if (owner && number.owner && number.owner !== owner) {
+    const err = new Error(`You do not own phone number ${phoneNumberId}`);
+    (err as any).statusCode = 403;
+    throw err;
+  }
   const msgs = storage.getSmsMessages(phoneNumberId);
   if (!msgs) throw new Error(`Phone number ${phoneNumberId} not found`);
   return msgs;
 }
+
 
 /**
  * Send an SMS from a provisioned number.

@@ -48,10 +48,13 @@ const payToSolana = config.treasuryWallet;
 
 // Self-hosted x402 facilitator (for EVM)
 // Internal: used for server-side verify/settle
-const FACILITATOR_URL_INTERNAL = "http://localhost:8090";
+const FACILITATOR_URL_INTERNAL = process.env.X402_FACILITATOR_URL_INTERNAL || "http://localhost:8090";
 // External: shown in 402 response for clients that need it
-const FACILITATOR_URL = "https://agntos.dev/x402";
-const FACILITATOR_BEARER = "agntos-facilitator-secret-2026";
+const FACILITATOR_URL = process.env.X402_FACILITATOR_URL || "https://agntos.dev/x402";
+const FACILITATOR_BEARER = process.env.X402_FACILITATOR_BEARER;
+if (!FACILITATOR_BEARER && process.env.NODE_ENV === "production") {
+  throw new Error("X402_FACILITATOR_BEARER must be set in production");
+}
 
 // Fee payer for Solana (must match the key in x402-svm-verify)
 const SOLANA_FEE_PAYER = "4R67MWivvc52g9BSzQRvQyD8GshttW1QLbnj46usBrcQ";

@@ -104,11 +104,16 @@ router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone"), asy
 router.get("/numbers/:id/messages", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const phoneNumberId = req.params.id as string;
-    const msgs = phoneService.getMessages(phoneNumberId);
+    const owner = req.payment?.payer || req.agentId;
+    if (!owner) {
+      return res.status(401).json({ error: "No caller identity — cannot verify ownership" });
+    }
+    const msgs = phoneService.getMessages(phoneNumberId, owner);
     res.json({ messages: msgs });
   } catch (err: any) {
-    res.status(404).json({
-      error: "Phone Number Not Found",
+    const status = err?.statusCode === 403 ? 403 : 404;
+    res.status(status).json({
+      error: status === 403 ? "Forbidden" : "Phone Number Not Found",
       message: err.message || "Could not find messages for this phone number",
       hint: "Check the phone number ID and ensure you own this number",
     });

@@ -478,18 +478,145 @@ export function verifyWalletAuth(
 export { encryptForWallet };
 
 // ── SSRF Protection ──
+// Block any IP in these ranges — covers loopback, private networks,
+// link-local (cloud metadata at 169.254.169.254), CGNAT, and benchmarks.
+function isPrivateIPv4(octets: number[]): boolean {
+  const [a, b] = octets;
+  if (a === 10) return true;                       // 10.0.0.0/8
+  if (a === 127) return true;                      // 127.0.0.0/8 loopback
+  if (a === 0) return true;                        // 0.0.0.0/8
+  if (a === 169 && b === 254) return true;         // 169.254.0.0/16 link-local (incl. AWS IMDS)
+  if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12
+  if (a === 192 && b === 168) return true;         // 192.168.0.0/16
+  if (a === 100 && b >= 64 && b <= 127) return true; // 100.64.0.0/10 CGNAT
+  if (a === 198 && (b === 18 || b === 19)) return true; // 198.18.0.0/15 benchmarks
+  if (a >= 224) return true;                       // multicast + reserved
+  return false;
+}
+
+function parseIPv4(s: string): number[] | null {
+  if (!/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(s)) return null;
+  const parts = s.split(".").map(p => parseInt(p, 10));
+  if (parts.some(p => Number.isNaN(p) || p < 0 || p > 255)) return null;
+  return parts;
+}
+
+function isPrivateIPv6(s: string): boolean {
+  const lower = s.toLowerCase().replace(/^\[|\]$/g, "");
+  if (lower === "::" || lower === "::1") return true;                 // unspecified + loopback
+  if (lower.startsWith("fe80")) return true;                           // link-local
+  if (lower.startsWith("fc") || lower.startsWith("fd")) return true;   // unique local
+  if (lower.startsWith("ff")) return true;                             // multicast
+  // IPv4-mapped: ::ffff:127.0.0.1 — check the embedded v4
+  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(lower);
+  if (mapped) {
+    const parts = parseIPv4(mapped[1]);
+    return parts ? isPrivateIPv4(parts) : true;
+  }
+  return false;
+}
+
+/**
+ * Quick synchronous check against the URL itself. Rejects numeric-IP forms,
+ * literal loopback hosts, and any hostname that's already an IP in a private
+ * range. Use together with `fetchSsrfSafe()` (below) which re-checks after
+ * DNS resolution and on every redirect.
+ */
 export function isSsrfSafe(url: string): boolean {
   try {
     const parsed = new URL(url);
-    const hostname = parsed.hostname;
-    if (/^127\./.test(hostname)) return false;
-    if (/^10\./.test(hostname)) return false;
-    if (/^172\.(1[6-9]|2\d|3[01])\./.test(hostname)) return false;
-    if (/^192\.168\./.test(hostname)) return false;
-    if (/^169\.254\./.test(hostname)) return false;
-    if (/^0\./.test(hostname)) return false;
-    if (hostname === 'localhost' || hostname === '::1' || hostname === '0.0.0.0') return false;
-    if (parsed.protocol !== 'https:') return false; // require HTTPS
-    return true;
+    if (parsed.protocol !== 'https:') return false;
+
+    const hostname = parsed.hostname.toLowerCase();
+
+    // Block obvious hostname forms that map to localhost.
+    if (hostname === 'localhost' || hostname === 'localhost.localdomain') return false;
+    if (hostname.endsWith('.localhost')) return false;
+
+    // Numeric-IP encodings that bypass naive string checks (decimal, octal, hex).
+    // If it parses as a non-negative finite number, it's an IP in disguise.
+    if (/^\d+$/.test(hostname) || /^0x[0-9a-f]+$/i.test(hostname) || /^0[0-7]+$/.test(hostname)) {
+      return false;
+    }
+
+    // IPv4 literal?
+    const v4 = parseIPv4(hostname);
+    if (v4) return !isPrivateIPv4(v4);
+
+    // IPv6 literal (URL strips brackets; allow both)
+    const v6Candidate = hostname.includes(':') ? hostname : null;
+    if (v6Candidate) return !isPrivateIPv6(v6Candidate);
+
+    return true; // hostname — caller must still re-check after DNS resolve
   } catch { return false; }
+}
+
+/**
+ * Perform an HTTPS GET with full SSRF protection:
+ *   1. Reject the URL if it's already a private IP / numeric-IP / non-HTTPS.
+ *   2. Resolve the hostname and re-check all returned IPs against private ranges.
+ *   3. Manually follow redirects, re-applying the same checks at each hop.
+ *   4. Enforce a hard response-size ceiling and abort timeout.
+ *
+ * Use this instead of bare `fetch()` whenever the URL comes from a user.
+ */
+export async function fetchSsrfSafe(
+  urlStr: string,
+  opts: { timeoutMs?: number; maxRedirects?: number; maxBytes?: number } = {},
+): Promise<Response> {
+  const timeoutMs = opts.timeoutMs ?? 30000;
+  const maxRedirects = opts.maxRedirects ?? 5;
+  const maxBytes = opts.maxBytes ?? 20 * 1024 * 1024; // 20 MB
+
+  const { promises: dns } = await import('dns');
+
+  let current = urlStr;
+  for (let hop = 0; hop <= maxRedirects; hop++) {
+    if (!isSsrfSafe(current)) {
+      throw new Error(`SSRF guard: URL rejected (${current})`);
+    }
+
+    const parsed = new URL(current);
+
+    // Only re-resolve when the host is a name (not an already-validated IP literal).
+    if (!parseIPv4(parsed.hostname) && !parsed.hostname.includes(':')) {
+      const records = await dns.lookup(parsed.hostname, { all: true, verbatim: true });
+      for (const rec of records) {
+        if (rec.family === 4) {
+          const v4 = parseIPv4(rec.address);
+          if (!v4 || isPrivateIPv4(v4)) {
+            throw new Error(`SSRF guard: ${parsed.hostname} resolves to private IP ${rec.address}`);
+          }
+        } else if (rec.family === 6) {
+          if (isPrivateIPv6(rec.address)) {
+            throw new Error(`SSRF guard: ${parsed.hostname} resolves to private IP ${rec.address}`);
+          }
+        }
+      }
+    }
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let resp: Response;
+    try {
+      resp = await fetch(current, { signal: controller.signal, redirect: 'manual' });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    if (resp.status >= 300 && resp.status < 400) {
+      const location = resp.headers.get('location');
+      if (!location) throw new Error('SSRF guard: redirect without Location header');
+      // Resolve relative Location against the current URL
+      current = new URL(location, current).toString();
+      continue;
+    }
+
+    const contentLength = parseInt(resp.headers.get('content-length') || '0', 10);
+    if (contentLength > maxBytes) {
+      throw new Error(`SSRF guard: response too large (${contentLength} > ${maxBytes})`);
+    }
+    return resp;
+  }
+  throw new Error(`SSRF guard: too many redirects (> ${maxRedirects})`);
 }

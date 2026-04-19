@@ -42,14 +42,19 @@ router.get("/", x402(0.01), async (req: AuthenticatedRequest, res: Response) => 
 
 /**
  * DELETE /apikeys/:id — Revoke a key
- * Cost: 0.01 USDC
+ * Cost: 0.01 USDC. Only the original owner can revoke.
  */
 router.delete("/:id", x402(0.01), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    await apikeysService.revokeKey(req.params.id as string);
+    const owner = req.payment?.payer || req.agentId;
+    if (!owner) {
+      return res.status(401).json({ error: "No caller identity — cannot verify ownership" });
+    }
+    await apikeysService.revokeKey(req.params.id as string, owner);
     res.json({ revoked: true, id: req.params.id });
   } catch (err: any) {
-    res.status(404).json({ error: err.message });
+    const status = err?.statusCode === 403 ? 403 : 404;
+    res.status(status).json({ error: err.message });
   }
 });
 

@@ -11,7 +11,7 @@
  * banner come in a follow-up since they need the profile settings UI.
  */
 import { openAuthenticatedSession, isSessionExpiredUrl } from "./social-runtime";
-import { isSsrfSafe } from "./email";
+import { fetchSsrfSafe } from "./email";
 import { randomUUID } from "crypto";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
@@ -50,17 +50,9 @@ async function materializeImage(
       buf = Buffer.from(input.image_base64, "base64");
     }
   } else {
-    if (!isSsrfSafe(input.image_url!)) {
-      throw new Error("Image URL must be HTTPS and must not target private networks");
-    }
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000);
-    let resp: Response;
-    try {
-      resp = await fetch(input.image_url!, { signal: controller.signal });
-    } finally {
-      clearTimeout(timeout);
-    }
+    // SSRF-safe fetch: rejects private IPs, follows redirects manually,
+    // re-validates each hop. See src/services/email.ts:fetchSsrfSafe.
+    const resp = await fetchSsrfSafe(input.image_url!, { timeoutMs: 30000, maxBytes: MAX_IMAGE_BYTES });
     if (!resp.ok) throw new Error(`Failed to fetch image: HTTP ${resp.status}`);
     const contentType = resp.headers.get("content-type") || "";
     if (!/^image\//.test(contentType)) {
