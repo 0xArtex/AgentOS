@@ -26,14 +26,14 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
       const agent = db.prepare("SELECT * FROM agents WHERE token = ?").get(apiKey) as any;
       if (agent) {
         req.agentId = agent.colosseum_id || agent.wallet_address || agent.id;
-        
-        // 'general' service type = always allowed for registered agents
-        if (serviceType === 'general') {
+
+        // Free endpoints (minUsdc === 0) — identified agents pass through.
+        // Paid endpoints ALWAYS require x402 payment, regardless of serviceType.
+        if (minUsdc === 0) {
           next();
           return;
         }
 
-        // For provisioning services, require x402 payment
         if (hasPayment) {
           const paymentAuth = requireX402Payment(minUsdc);
           return paymentAuth(req, res, next);
@@ -50,11 +50,11 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
       const agent = db.prepare(
         "SELECT * FROM agents WHERE colosseum_id = ? OR name = ? OR id = ?"
       ).get(agentId, agentId, agentId) as any;
-      
+
       if (agent) {
         req.agentId = agent.colosseum_id || agent.wallet_address || agent.id;
 
-        if (serviceType === 'general') {
+        if (minUsdc === 0) {
           next();
           return;
         }
@@ -67,7 +67,7 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
         send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet = your identity.");
         return;
       }
-      
+
       // Not found but has payment — let x402 handle it
       if (hasPayment) {
         const paymentAuth = requireX402Payment(minUsdc);
@@ -100,8 +100,8 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
         res.status(401).json({ error: "Invalid session for dashboard user" });
         return;
       }
-      // Dashboard users must have sufficient balance for paid services
-      if (serviceType !== 'general' && minUsdc > 0) {
+      // Dashboard users must have sufficient balance for any paid service.
+      if (minUsdc > 0) {
         const bal = balanceService.getBalance(dashboardUser);
         if (bal.balance_usdc < minUsdc) {
           res.status(402).json({ error: "Insufficient balance", required: minUsdc, balance: bal.balance_usdc });

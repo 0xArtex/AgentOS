@@ -16,6 +16,45 @@ function sshCmd(ip: string, pw?: string | null): string {
   return `ssh -i ${PLATFORM_KEY} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -o PasswordAuthentication=no root@${ip}`;
 }
 
+/**
+ * Reject any user-provided string that isn't a simple identifier-like token.
+ * Anything that will be interpolated into a remote shell command must pass this.
+ * Pattern: alphanum, dot, underscore, hyphen — no slashes, no quotes, no `$`, no spaces.
+ */
+function assertIdent(s: unknown, field: string): string {
+  if (typeof s !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(s)) {
+    throw new Error(`Invalid ${field}: must be 1-128 chars of [A-Za-z0-9._-]`);
+  }
+  return s;
+}
+
+/** Reject git URLs that aren't obviously safe https (no shell metachars, no spaces). */
+function assertGitUrl(s: unknown): string {
+  if (typeof s !== 'string' || !/^https:\/\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=-]{1,512}$/.test(s)) {
+    throw new Error('Invalid git URL');
+  }
+  // Extra defense: blocklist characters that could break out of double quotes
+  if (/["`$\\]/.test(s)) throw new Error('Invalid git URL: unsafe characters');
+  return s;
+}
+
+/**
+ * Write arbitrary bytes to a remote path via base64 — safe because base64 output
+ * is [A-Za-z0-9+/=] only, which cannot contain shell metacharacters.
+ */
+function sshWriteFile(ssh: string, remotePath: string, content: string, opts: { chmod?: string; append?: boolean; timeout?: number } = {}): void {
+  const { execSync } = require('child_process');
+  assertIdent(remotePath.split('/').pop() || '', 'remotePath basename');
+  // Path itself must not contain shell metachars. We assert a restrictive allowlist.
+  if (!/^\/[A-Za-z0-9._\/-]{1,512}$/.test(remotePath)) {
+    throw new Error('Invalid remote path');
+  }
+  const b64 = Buffer.from(content).toString('base64');
+  const op = opts.append ? '>>' : '>';
+  const chmod = opts.chmod ? ` && chmod ${assertIdent(opts.chmod, 'chmod').toString()} ${remotePath}` : '';
+  execSync(`${ssh} "echo '${b64}' | base64 -d ${op} ${remotePath}${chmod}"`, { timeout: opts.timeout ?? 15000 });
+}
+
 // ── Plans (free, no auth) ─────────────────────────────────────
 
 /**
@@ -222,8 +261,11 @@ router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general'), async (req: 
     const serverId = String(req.params.id);
     const { publicKey } = req.body as { publicKey: string };
 
-    if (!publicKey || !publicKey.startsWith("ssh-")) {
-      return res.status(400).json({ error: "Invalid SSH public key", hint: "Must start with ssh-ed25519 or ssh-rsa" });
+    // Strict format check — OpenSSH public keys: "<type> <base64-key>[ <comment>]"
+    // Reject any input with shell metacharacters or newlines.
+    if (typeof publicKey !== 'string' || publicKey.length > 16384 ||
+        !/^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521))\s+[A-Za-z0-9+/=]+(\s+[\w.@-]+)?$/.test(publicKey.trim())) {
+      return res.status(400).json({ error: "Invalid SSH public key", hint: "Must be an OpenSSH-format public key: '<type> <base64> [comment]'" });
     }
 
     const row = db.prepare("SELECT ipv4, root_password FROM servers WHERE id = ?").get(serverId) as any;
@@ -234,9 +276,9 @@ router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general'), async (req: 
     const { execSync } = require("child_process");
     const ssh = sshCmd(ip);
 
-    // 1. Inject user's public key
-    const escapedKey = publicKey.replace(/'/g, "'\\''");
-    execSync(`${ssh} "mkdir -p ~/.ssh && echo '${escapedKey}' >> ~/.ssh/authorized_keys && chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys"`, { timeout: 20000 });
+    // 1. Inject user's public key via base64 (never interpolate user input into shell)
+    execSync(`${ssh} "mkdir -p ~/.ssh && chmod 700 ~/.ssh"`, { timeout: 20000 });
+    sshWriteFile(ssh, '/root/.ssh/authorized_keys', publicKey.trim() + '\n', { append: true, chmod: '600', timeout: 20000 });
 
     // 2. Remove platform temp key from authorized_keys
     execSync(`${ssh} "sed -i '/agentos-platform-temp/d' ~/.ssh/authorized_keys"`, { timeout: 10000 });
@@ -370,7 +412,6 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
         config.agents.defaults.subagents = { ...(config.agents.defaults.subagents || {}), model };
       }
 
-      const escapedKey = anthropicKey.replace(/'/g, "'\\''");
       if (effectiveAuthMode === 'oauth') {
         // Write auth-profiles.json directly (paste-token is interactive)
         const authProfile = {
@@ -383,14 +424,17 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
             }
           }
         };
-        const authB64 = Buffer.from(JSON.stringify(authProfile, null, 2)).toString('base64');
-        execSync(`${ssh} "mkdir -p /root/.openclaw/agents/main/agent && echo '${authB64}' | base64 -d > /root/.openclaw/agents/main/agent/auth-profiles.json"`, { timeout: 10000 });
+        execSync(`${ssh} "mkdir -p /root/.openclaw/agents/main/agent"`, { timeout: 10000 });
+        sshWriteFile(ssh, '/root/.openclaw/agents/main/agent/auth-profiles.json', JSON.stringify(authProfile, null, 2));
       } else {
         const envVarMap: Record<string, string> = { anthropic: 'ANTHROPIC_API_KEY', openai: 'OPENAI_API_KEY', openrouter: 'OPENROUTER_API_KEY' };
         envVar = envVarMap[effectiveProvider] || 'ANTHROPIC_API_KEY';
         envValue = anthropicKey;
-        // Idempotent: remove old line, add new
-        execSync(`${ssh} "grep -v '${envVar}' /etc/environment > /tmp/env.tmp 2>/dev/null; echo '${envVar}=${escapedKey}' >> /tmp/env.tmp; mv /tmp/env.tmp /etc/environment"`, { timeout: 10000 });
+        // Idempotent: remove old line, then write user-provided key via base64 stdin
+        // (never interpolate anthropicKey into the shell string).
+        execSync(`${ssh} "grep -v '^${envVar}=' /etc/environment > /tmp/env.tmp 2>/dev/null || true"`, { timeout: 10000 });
+        sshWriteFile(ssh, '/tmp/env.tmp', `${envVar}=${anthropicKey}\n`, { append: true });
+        execSync(`${ssh} "mv /tmp/env.tmp /etc/environment"`, { timeout: 10000 });
       }
     }
 
@@ -431,8 +475,12 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), asy
 
     // 6. Create workspace files if agent name provided
     if (agentName) {
-      const identityMd = `# IDENTITY.md\\n\\n- **Name:** ${agentName}\\n- **Born:** ${new Date().toISOString().split('T')[0]}\\n`;
-      execSync(`${ssh} "echo -e '${identityMd}' > /root/.openclaw/workspace/IDENTITY.md"`, { timeout: 10000 });
+      if (typeof agentName !== 'string' || agentName.length > 256) {
+        return res.status(400).json({ error: "agentName must be a string up to 256 chars" });
+      }
+      const born = new Date().toISOString().split('T')[0];
+      const identityMd = `# IDENTITY.md\n\n- **Name:** ${agentName}\n- **Born:** ${born}\n`;
+      sshWriteFile(ssh, '/root/.openclaw/workspace/IDENTITY.md', identityMd);
     }
 
     // 7. Create/update systemd service + restart
@@ -550,7 +598,13 @@ router.post("/servers/:id/install-skill", requireAuth(0.01, 'general'), async (r
     const serverId = String(req.params.id);
     const { skillName, skillUrl } = req.body; // skillUrl = clawhub URL or git repo
 
-    if (!skillName) return res.status(400).json({ error: "skillName is required" });
+    // Validate inputs before ANY shell interpolation.
+    try {
+      assertIdent(skillName, 'skillName');
+      if (skillUrl !== undefined) assertGitUrl(skillUrl);
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
 
     const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
@@ -562,7 +616,6 @@ router.post("/servers/:id/install-skill", requireAuth(0.01, 'general'), async (r
     execSync(`${ssh} "mkdir -p /root/.openclaw/workspace/skills"`, { timeout: 10000 });
 
     // Install skill via git clone or copy from clawhub
-    const gitUrl = skillUrl || `https://github.com/openclaw/skills.git`;
     const skillDir = `/root/.openclaw/workspace/skills/${skillName}`;
 
     // Try clawhub first (openclaw install), fallback to direct copy from our VPS
@@ -573,11 +626,11 @@ router.post("/servers/:id/install-skill", requireAuth(0.01, 'general'), async (r
       const builtinSkillPath = `/usr/lib/node_modules/openclaw/skills/${skillName}`;
       const sourcePath = existsSync(localSkillPath) ? localSkillPath : existsSync(builtinSkillPath) ? builtinSkillPath : null;
       if (sourcePath) {
-        // Tar + pipe to remote
+        // Tar + pipe to remote (skillName is validated ident)
         const parentDir = require("path").dirname(sourcePath);
         execSync(`tar -C ${parentDir} -cf - ${skillName} | ${ssh} "tar -C /root/.openclaw/workspace/skills -xf -"`, { timeout: 30000 });
       } else if (skillUrl) {
-        // Git clone
+        // Git clone — skillUrl and skillName are validated above
         execSync(`${ssh} "git clone --depth 1 ${skillUrl} ${skillDir} 2>/dev/null || echo 'clone failed'"`, { timeout: 30000 });
       } else {
         return res.status(400).json({ error: `Skill '${skillName}' not found locally and no URL provided` });
@@ -586,7 +639,7 @@ router.post("/servers/:id/install-skill", requireAuth(0.01, 'general'), async (r
       return res.status(500).json({ error: "Failed to install skill", message: e.message?.split("\n")[0] });
     }
 
-    // Verify it installed
+    // Verify it installed — skillDir is safe because skillName is validated
     let installed = false;
     try {
       const check = execSync(`${ssh} "test -f ${skillDir}/SKILL.md && echo yes || echo no"`, { timeout: 10000, encoding: "utf-8" }).trim();
@@ -694,7 +747,11 @@ router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general'), async (re
   try {
     const serverId = String(req.params.id);
     const { skillName } = req.body;
-    if (!skillName) return res.status(400).json({ error: "skillName is required" });
+    try {
+      assertIdent(skillName, 'skillName');
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
 
     const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
@@ -702,6 +759,7 @@ router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general'), async (re
     const { execSync } = require("child_process");
     const ssh = sshCmd(row.ipv4);
 
+    // skillName is now a safe identifier (no `..`, no `/`, no shell metachars)
     execSync(`${ssh} "rm -rf /root/.openclaw/workspace/skills/${skillName}"`, { timeout: 10000 });
     execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
 
@@ -908,14 +966,19 @@ router.post("/servers/:id/pairing-approve", requireAuth(0.01, 'general'), async 
   try {
     const serverId = String(req.params.id);
     const { code, channel: chan } = req.body;
-    if (!code) return res.status(400).json({ error: "Pairing code is required" });
+    const channel = chan || 'telegram';
+    try {
+      assertIdent(code, 'code');
+      assertIdent(channel, 'channel');
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
 
     const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const { execSync } = require("child_process");
     const ssh = sshCmd(row.ipv4);
-    const channel = chan || 'telegram';
 
     const result = execSync(`${ssh} "openclaw pairing approve ${channel} ${code} 2>&1"`, { timeout: 15000, encoding: "utf-8" }).trim();
 
@@ -1031,6 +1094,7 @@ router.post("/servers/:id/install-clawhub-skills", requireAuth(0.01, 'general'),
     // Install each skill via clawhub CLI (batched)
     for (const slug of slugs) {
       try {
+        assertIdent(slug, 'slug');
         execSync(`${ssh} "cd /root/.openclaw/workspace && clawhub install ${slug} --force --no-input 2>&1"`, { timeout: 30000, encoding: "utf-8" });
         installed++;
         results.push({ slug, status: 'installed' });

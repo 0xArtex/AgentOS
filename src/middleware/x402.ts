@@ -1,9 +1,47 @@
 import { Request, Response, NextFunction } from "express";
+import { createHash } from "crypto";
 import { config } from "../config";
 import { AuthenticatedRequest } from "../types";
 import { verifySvmPayment, settleSvmPayment } from "./x402-svm-verify";
+import { db } from "../db";
 
 const { encodePaymentRequiredHeader, decodePaymentSignatureHeader } = require("@x402/core/http");
+
+/**
+ * Defence-in-depth: track every x402 payment header we've already consumed,
+ * keyed by sha256(header + endpoint). Solana rejects duplicate transactions
+ * at the chain level, but we want to reject replays before spending an RPC
+ * round-trip, and to catch cross-endpoint reuse that hasn't yet settled.
+ *
+ * Persisted in the `used_payments` table so it survives restarts.
+ */
+const PAYMENT_REPLAY_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
+function paymentFingerprint(paymentHeader: string, method: string, path: string): string {
+  return createHash("sha256")
+    .update(method + "\n" + path + "\n" + paymentHeader)
+    .digest("hex");
+}
+
+function checkAndClaimFingerprint(fp: string, payer: string, amountLamports: bigint, endpoint: string): "ok" | "replay" {
+  const claim = db.transaction((fingerprint: string) => {
+    const existing = db.prepare("SELECT signature FROM used_payments WHERE signature = ?").get(fingerprint) as any;
+    if (existing) return "replay";
+    db.prepare(
+      "INSERT INTO used_payments (signature, payer, amount_lamports, verified_at, endpoint) VALUES (?, ?, ?, ?, ?)"
+    ).run(fingerprint, payer, amountLamports.toString(), new Date().toISOString(), endpoint);
+    return "ok";
+  });
+  return claim(fp) as "ok" | "replay";
+}
+
+// Opportunistic cleanup of old replay entries on each request (cheap, indexed).
+function pruneOldPayments(): void {
+  try {
+    const cutoff = new Date(Date.now() - PAYMENT_REPLAY_TTL_MS).toISOString();
+    db.prepare("DELETE FROM used_payments WHERE verified_at < ?").run(cutoff);
+  } catch {}
+}
 
 const payToEvm = config.treasuryEvmWallet;
 const payToSolana = config.treasuryWallet;
@@ -165,6 +203,19 @@ export function x402(minUsdc: number = 0.01) {
       return;
     }
 
+    // Replay guard (defence in depth): reject any payment header we've
+    // already consumed for this method+path before hitting the chain.
+    pruneOldPayments();
+    const fingerprint = paymentFingerprint(paymentHeader, req.method, req.originalUrl.split("?")[0]);
+    const alreadySeen = db.prepare("SELECT signature FROM used_payments WHERE signature = ?").get(fingerprint);
+    if (alreadySeen) {
+      res.status(402).json({
+        error: "Payment Required",
+        message: "Payment header already consumed. Build a fresh x402 payment for each request.",
+      });
+      return;
+    }
+
     try {
       let paymentPayload: any;
       try {
@@ -212,6 +263,23 @@ export function x402(minUsdc: number = 0.01) {
       if (!result.settled) {
         console.warn("[x402] Settlement failed:", result.reason);
         send402Response(res, req, minUsdc, "Payment settlement failed: " + (result.reason || "unknown"));
+        return;
+      }
+
+      // Claim the fingerprint AFTER successful settlement to block replays.
+      // A race where two parallel requests slip past the initial pre-settle
+      // check will lose the INSERT UNIQUE race — only the first wins.
+      const claim = checkAndClaimFingerprint(
+        fingerprint,
+        result.payer || "unknown",
+        BigInt(Math.round(minUsdc * 1e6)),
+        req.method + " " + req.originalUrl.split("?")[0],
+      );
+      if (claim === "replay") {
+        res.status(402).json({
+          error: "Payment Required",
+          message: "Payment already consumed (replay detected). Submit a fresh x402 payment.",
+        });
         return;
       }
 

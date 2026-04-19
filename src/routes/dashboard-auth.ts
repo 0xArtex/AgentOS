@@ -1,23 +1,54 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db";
-import { createHash, randomBytes } from "crypto";
+import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import nacl from "tweetnacl";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
 
 const router = Router();
 const SESSION_DAYS = 30;
+const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * scrypt password hashing. Format: "scrypt:<N>:<r>:<p>:<salt-hex>:<hash-hex>".
+ * Legacy rows use "<salt-hex>:<sha256-hex>" and are accepted on login so
+ * existing users can log in once; on successful login we upgrade the stored
+ * hash to scrypt transparently.
+ */
+const SCRYPT_N = 2 ** 15;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SCRYPT_KEYLEN = 64;
 
 function hashPassword(password: string): string {
-  const salt = randomBytes(16).toString("hex");
-  const hash = createHash("sha256").update(salt + password).digest("hex");
-  return salt + ":" + hash;
+  const salt = randomBytes(16);
+  const hash = scryptSync(password, salt, SCRYPT_KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });
+  return `scrypt:${SCRYPT_N}:${SCRYPT_R}:${SCRYPT_P}:${salt.toString("hex")}:${hash.toString("hex")}`;
 }
 
 function verifyPassword(password: string, stored: string): boolean {
+  if (stored.startsWith("scrypt:")) {
+    const parts = stored.split(":");
+    if (parts.length !== 6) return false;
+    const N = parseInt(parts[1], 10);
+    const r = parseInt(parts[2], 10);
+    const p = parseInt(parts[3], 10);
+    const salt = Buffer.from(parts[4], "hex");
+    const expected = Buffer.from(parts[5], "hex");
+    const actual = scryptSync(password, salt, expected.length, { N, r, p });
+    return expected.length === actual.length && timingSafeEqual(expected, actual);
+  }
+  // Legacy format: "<salt-hex>:<sha256-hex>".
   const [salt, hash] = stored.split(":");
+  if (!salt || !hash) return false;
   const check = createHash("sha256").update(salt + password).digest("hex");
-  return check === hash;
+  const a = Buffer.from(hash, "hex");
+  const b = Buffer.from(check, "hex");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function isLegacyHash(stored: string): boolean {
+  return !stored.startsWith("scrypt:");
 }
 
 function createSession(userId: string): string {
@@ -33,7 +64,7 @@ function createSession(userId: string): string {
 router.post("/register", (req: Request, res: Response) => {
   const { email, password, name } = req.body || {};
   if (!email || !password) return res.status(400).json({ error: "email and password required" });
-  if (password.length < 6) return res.status(400).json({ error: "Password must be at least 6 characters" });
+  if (password.length < 10) return res.status(400).json({ error: "Password must be at least 10 characters" });
 
   const existing = db.prepare("SELECT id FROM dashboard_users WHERE email = ?").get(email);
   if (existing) return res.status(409).json({ error: "Email already registered" });
@@ -57,20 +88,52 @@ router.post("/login", (req: Request, res: Response) => {
   if (!user || !user.password_hash) return res.status(401).json({ error: "Invalid email or password" });
   if (!verifyPassword(password, user.password_hash)) return res.status(401).json({ error: "Invalid email or password" });
 
+  // Silently upgrade legacy SHA-256 hashes to scrypt on successful login.
+  if (isLegacyHash(user.password_hash)) {
+    try {
+      db.prepare("UPDATE dashboard_users SET password_hash = ? WHERE id = ?").run(hashPassword(password), user.id);
+    } catch {}
+  }
+
   const token = createSession(user.id);
   res.json({ token, user: { id: user.id, email: user.email, display_name: user.display_name } });
 });
 
 // POST /auth/wallet — wallet-based auth (Solana)
-// Client signs a message, we verify the signature
+// Client signs a server-issued nonce. Nonces are one-time and short-lived —
+// captured signatures cannot be replayed.
 router.post("/wallet", (req: Request, res: Response) => {
   const { walletAddress, signature, message, chain } = req.body || {};
   if (!walletAddress || !signature || !message) {
     return res.status(400).json({ error: "walletAddress, signature, and message required" });
   }
 
-  // Verify the message contains our domain and is recent
-  if (!message.includes("agntos.dev") && !message.includes("AgentOS")) {
+  // Extract the nonce from the signed message and validate it against our store.
+  const nonceMatch = /Nonce:\s*([a-f0-9]{32})/i.exec(String(message));
+  if (!nonceMatch) {
+    return res.status(400).json({ error: "Message must include a server-issued nonce. Call POST /auth/wallet/nonce first." });
+  }
+  const nonce = nonceMatch[1].toLowerCase();
+
+  // Atomically check + consume (single-use). Reject if missing, expired, or used.
+  const consume = db.transaction((n: string) => {
+    const row = db.prepare(
+      "SELECT expires_at, used FROM wallet_auth_nonces WHERE nonce = ?"
+    ).get(n) as { expires_at: number; used: number } | undefined;
+    if (!row) return "unknown_nonce";
+    if (row.used) return "nonce_already_used";
+    if (Date.now() > row.expires_at) return "nonce_expired";
+    db.prepare("UPDATE wallet_auth_nonces SET used = 1 WHERE nonce = ?").run(n);
+    return "ok";
+  });
+
+  const consumeResult = consume(nonce);
+  if (consumeResult !== "ok") {
+    return res.status(401).json({ error: "Nonce validation failed: " + consumeResult });
+  }
+
+  // Verify the message still mentions our domain (defence in depth — the nonce is the real bind).
+  if (!String(message).includes("agntos.dev") && !String(message).includes("AgentOS")) {
     return res.status(400).json({ error: "Invalid message format" });
   }
 
@@ -126,9 +189,17 @@ router.post("/logout", (req: Request, res: Response) => {
   res.json({ success: true });
 });
 
-// POST /auth/wallet/nonce — get a nonce/message to sign
-router.post("/wallet/nonce", (req: Request, res: Response) => {
+// POST /auth/wallet/nonce — get a one-time nonce + message to sign.
+router.post("/wallet/nonce", (_req: Request, res: Response) => {
   const nonce = randomBytes(16).toString("hex");
+  const expiresAt = Date.now() + NONCE_TTL_MS;
+  db.prepare(
+    "INSERT INTO wallet_auth_nonces (nonce, expires_at, used) VALUES (?, ?, 0)"
+  ).run(nonce, expiresAt);
+  // Opportunistic GC of expired nonces (cheap — indexed).
+  try {
+    db.prepare("DELETE FROM wallet_auth_nonces WHERE expires_at < ?").run(Date.now() - NONCE_TTL_MS);
+  } catch {}
   const message = `Sign in to AgentOS (agntos.dev)\n\nNonce: ${nonce}\nTimestamp: ${new Date().toISOString()}`;
   res.json({ message, nonce });
 });

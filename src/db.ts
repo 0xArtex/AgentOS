@@ -455,6 +455,16 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
   `);
 
+  // Wallet-auth nonces (single-use, short-TTL challenges for /auth/wallet)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS wallet_auth_nonces (
+      nonce TEXT PRIMARY KEY,
+      expires_at INTEGER NOT NULL,
+      used INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE INDEX IF NOT EXISTS idx_wallet_auth_nonces_expires ON wallet_auth_nonces(expires_at);
+  `);
+
   // Social account pool — admin-seeded accounts for sale to agents
   db.exec(`
     CREATE TABLE IF NOT EXISTS social_account_pool (
