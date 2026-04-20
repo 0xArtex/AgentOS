@@ -690,18 +690,46 @@ async function solveDeviceVerification(
   snapshot: (tag: string) => Promise<any>
 ): Promise<void> {
   // 1. Click the Email verification option. TikTok renders it as a clickable
-  //    row inside the "Verify it's really you" modal; the text "Email"
-  //    anchored to the row is the most stable selector across versions.
-  const emailOption = page
-    .locator('[class*="modal"] div:has-text("Email"), [role="dialog"] button:has-text("Email"), [role="dialog"] div:has(>div:has-text("Email"))')
-    .first();
+  //    card row containing the text "Email" plus a redacted email address
+  //    (e.g. "s***d@rambler.ru"). We locate a container that has BOTH pieces
+  //    of text and click it — this is robust across UI variants.
+  //
+  //    Fallback chain: strict row match → button/role match → plain "Email"
+  //    text click (which usually bubbles to the handler). Each step tries a
+  //    less specific locator if the previous one didn't resolve.
+  const attempts: Array<() => Promise<void>> = [
+    // Preferred: a container with the "Email" label AND an email address visible.
+    async () => {
+      await page
+        .locator('div:has(> span:text-is("Email")):has-text("@"), div:has(> div:text-is("Email")):has-text("@")')
+        .first()
+        .click({ timeout: 5000 });
+    },
+    // Next: any clickable element containing "Email" + "@".
+    async () => {
+      await page
+        .locator('button, div[role="button"], [tabindex="0"]')
+        .filter({ hasText: /Email/ })
+        .filter({ hasText: /@/ })
+        .first()
+        .click({ timeout: 5000 });
+    },
+    // Next: the literal "Email" text — Playwright will bubble the click to
+    // the ancestor handler that TikTok attached.
+    async () => {
+      await page.locator('text=/^Email$/').first().click({ timeout: 5000 });
+    },
+    // Last-ditch: click anything that says "Email" (not exact match).
+    async () => {
+      await page.getByText(/Email/i).first().click({ timeout: 5000 });
+    },
+  ];
 
-  // Fallback: TikTok sometimes renders Email as a plain clickable row.
-  const emailRow = emailOption.or(page.locator('text=/^Email$/').first());
-
-  try {
-    await emailRow.click({ timeout: 8000 });
-  } catch {
+  let clicked = false;
+  for (const attempt of attempts) {
+    try { await attempt(); clicked = true; break; } catch { /* try next */ }
+  }
+  if (!clicked) {
     const diag = await snapshot("email-option-not-found");
     throw new Error(`Could not click Email verification option — TikTok UI variant not recognised. See screenshot at ${diag.screenshot_path}`);
   }
