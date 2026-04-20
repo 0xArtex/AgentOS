@@ -235,19 +235,30 @@ export async function loginTikTok(
           .locator('button[data-e2e="login-button"], button[type="submit"]')
           .first();
         // Wait for React to enable the button now that inputs have real values.
-        try {
-          await loginButton.waitFor({ state: "visible", timeout: 5000 });
-          // Poll for `disabled` attribute clearing (up to 10s) — covers the
-          // brief window after typing where React is still validating.
-          const enableStart = Date.now();
-          while (Date.now() - enableStart < 10000) {
-            const disabled = await loginButton.getAttribute("disabled").catch(() => null);
-            if (disabled === null) break;
-            await page.waitForTimeout(200);
-          }
-        } catch { /* noop */ }
+        await loginButton.waitFor({ state: "visible", timeout: 5000 });
 
-        await loginButton.click({ timeout: 8000 });
+        // Poll for `disabled` attribute clearing (up to 10s). If it never
+        // clears, TikTok's form still considers our inputs invalid — don't
+        // hammer retries on a disabled button, each retry counts as an
+        // attempt and trips TikTok's rate limit for 15-60 min.
+        let enabled = false;
+        const enableStart = Date.now();
+        while (Date.now() - enableStart < 10000) {
+          const disabled = await loginButton.getAttribute("disabled").catch(() => null);
+          if (disabled === null) { enabled = true; break; }
+          await page.waitForTimeout(250);
+        }
+        if (!enabled) {
+          const diag = await snapshot("login-button-stuck-disabled");
+          return {
+            success: false,
+            error: "Login button stayed disabled — TikTok's form validation rejected the input shape. Likely a captcha or field format changed; do not retry without investigating.",
+            error_code: "LOGIN_FAILED",
+            diagnostics: diag,
+          };
+        }
+
+        await loginButton.click({ timeout: 5000 });
       } catch (e: any) {
         const diag = await snapshot("form-fill-failed");
         return {
