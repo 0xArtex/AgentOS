@@ -1556,10 +1556,14 @@ async function main() {
             const webid = (flags.webid as string) || (flags['tt-webid'] as string)
             const totpSeed = (flags['totp-seed'] as string) || (flags.totp as string)
             const profileUrl = flags['profile-url'] as string
+            const country = (flags.country as string)?.toLowerCase()
 
             if (!username) err('<username> (or --username / --credentials-line) required')
             if (!password && !sessionid) {
               err('Provide either --sessionid <hex> for cookie-injection, or --password (via --credentials-line or --password flag) for password login.')
+            }
+            if (!country) {
+              err('--country <iso-2> required (e.g. --country de). Drives proxy exit + browser locale; without it TikTok flags geography mismatch.')
             }
 
             const creds: import('./social-vault.js').SocialCredentials = {
@@ -1575,9 +1579,10 @@ async function main() {
             }
             const summary = sv.importAccount(platform, username, creds, {
               source: line ? 'marketplace-line' : 'import',
+              country,
             })
             const loginPath = sessionid ? 'cookie-injection' : 'form-login (requires CAPSOLVER_API_KEY server-side)'
-            log(`tiktok import: ${summary.username} (${summary.id}) [login path: ${loginPath}]`)
+            log(`tiktok import: ${summary.username} (${summary.id}) [login: ${loginPath}, country: ${country}]`)
             return print({ ...summary, has_sessionid: !!sessionid, has_password: !!password, login_path: loginPath })
           }
 
@@ -1646,6 +1651,7 @@ async function main() {
               err('Account has no cookies and no password. Re-import with either --sessionid or --credentials-line.', EXIT.BAD_INPUT)
             }
             const psid = sv.getProxySessionId(platform, username)
+            const country = sv.getCountry(platform, username)
 
             let data: any
             try {
@@ -1656,6 +1662,7 @@ async function main() {
                 login: hasCookies ? undefined : creds.login,
                 password: hasCookies ? undefined : creds.password,
                 proxySessionId: psid,
+                country,
               })
             } catch (e: any) {
               err(`Login failed: ${e.message}`, EXIT.GENERAL)
@@ -1724,6 +1731,7 @@ async function main() {
               err(`No cached session for ${username}. Run 'tiktok login ${username}' first.`, EXIT.NOT_FOUND)
             }
             const psid = sv.getProxySessionId(platform, username)
+            const country = sv.getCountry(platform, username)
 
             let data: any
             try {
@@ -1745,27 +1753,27 @@ async function main() {
                   media.video_url = videoUrl
                 }
                 const privacy = flags.privacy !== undefined ? Number(flags.privacy) as 0 | 1 | 2 : undefined
-                data = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy }, psid)
+                data = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy }, psid, country)
               } else if (subcommand === 'follow') {
                 const target = (flags.user as string) || (flags.target as string)
                 if (!target) err('--user <@handle> required')
-                data = await ao.socialTiktokFollow(acc!.id, sess!.cookies, target, psid)
+                data = await ao.socialTiktokFollow(acc!.id, sess!.cookies, target, psid, country)
               } else if (subcommand === 'like') {
                 const videoUrl = (flags.video as string) || (flags.url as string)
                 if (!videoUrl) err('--video <tiktok-url> required')
-                data = await ao.socialTiktokLike(acc!.id, sess!.cookies, videoUrl, psid)
+                data = await ao.socialTiktokLike(acc!.id, sess!.cookies, videoUrl, psid, country)
               } else if (subcommand === 'delete') {
                 const videoUrl = (flags.video as string) || (flags.url as string)
                 if (!videoUrl) err('--video <tiktok-url> required')
-                data = await ao.socialTiktokDelete(acc!.id, sess!.cookies, videoUrl, psid)
+                data = await ao.socialTiktokDelete(acc!.id, sess!.cookies, videoUrl, psid, country)
               } else if (subcommand === 'bio') {
                 const text = (flags.text as string) || (flags.body as string)
                 if (text === undefined) err('--text "..." required (pass "" to clear)')
-                data = await ao.socialTiktokProfile(acc!.id, sess!.cookies, { bio: text }, psid)
+                data = await ao.socialTiktokProfile(acc!.id, sess!.cookies, { bio: text }, psid, country)
               } else if (subcommand === 'name') {
                 const text = (flags.display as string) || (flags.text as string) || (flags.name as string)
                 if (!text) err('--display "Display Name" required')
-                data = await ao.socialTiktokProfile(acc!.id, sess!.cookies, { display_name: text }, psid)
+                data = await ao.socialTiktokProfile(acc!.id, sess!.cookies, { display_name: text }, psid, country)
               } else {
                 // pfp
                 const filePath = (flags.file as string) || (flags.path as string)
@@ -1781,7 +1789,7 @@ async function main() {
                 } else {
                   image.image_url = imageUrl
                 }
-                data = await ao.socialTiktokAvatar(acc!.id, sess!.cookies, image, psid)
+                data = await ao.socialTiktokAvatar(acc!.id, sess!.cookies, image, psid, country)
               }
             } catch (e: any) {
               err(`${subcommand} failed: ${e.message}`, EXIT.GENERAL)

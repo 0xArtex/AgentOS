@@ -40,6 +40,8 @@ export interface TikTokOpResult<T = any> {
 export interface TikTokOpRequest {
   account_id: string;
   proxy_session_id?: string;
+  /** ISO country code for locale/timezone alignment. */
+  country?: string;
   cookies: any[];
 }
 
@@ -247,6 +249,7 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
       accountId: req.account_id,
       proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
+      country: req.country,
     });
   } catch (e: any) {
     video.cleanup();
@@ -361,6 +364,7 @@ export async function followUser(req: TikTokFollowRequest): Promise<TikTokOpResu
       accountId: req.account_id,
       proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
+      country: req.country,
     });
   } catch (e: any) {
     return { success: false, error: `Failed to open session: ${e.message}`, error_code: "LAUNCH_FAILED" };
@@ -432,6 +436,7 @@ export async function likeVideo(req: TikTokLikeRequest): Promise<TikTokOpResult<
       accountId: req.account_id,
       proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
+      country: req.country,
     });
   } catch (e: any) {
     return { success: false, error: `Failed to open session: ${e.message}`, error_code: "LAUNCH_FAILED" };
@@ -490,6 +495,7 @@ export async function deleteVideo(req: TikTokDeleteRequest): Promise<TikTokOpRes
       accountId: req.account_id,
       proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
+      country: req.country,
     });
   } catch (e: any) {
     return { success: false, error: `Failed to open session: ${e.message}`, error_code: "LAUNCH_FAILED" };
@@ -561,6 +567,7 @@ export async function updateProfile(req: TikTokProfileRequest): Promise<TikTokOp
       accountId: req.account_id,
       proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
+      country: req.country,
     });
   } catch (e: any) {
     return { success: false, error: `Failed to open session: ${e.message}`, error_code: "LAUNCH_FAILED" };
@@ -659,6 +666,7 @@ export async function updateAvatar(req: TikTokAvatarRequest): Promise<TikTokOpRe
       accountId: req.account_id,
       proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
+      country: req.country,
     });
   } catch (e: any) {
     image.cleanup();

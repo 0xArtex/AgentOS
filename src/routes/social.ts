@@ -632,11 +632,13 @@ router.post(
 function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | {
   account_id: string;
   proxy_session_id?: string;
+  country?: string;
   cookies: any[];
 } {
-  const { account_id, cookies, proxy_session_id } = (req.body || {}) as {
+  const { account_id, cookies, proxy_session_id, country } = (req.body || {}) as {
     account_id?: string;
     proxy_session_id?: string;
+    country?: string;
     cookies?: any[];
   };
   if (!account_id || !Array.isArray(cookies) || cookies.length === 0) {
@@ -646,7 +648,7 @@ function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | 
     });
     return null;
   }
-  return { account_id, proxy_session_id, cookies };
+  return { account_id, proxy_session_id, country, cookies };
 }
 
 // Login is priced higher when it has to solve a captcha (~$0.02 vs $0.005).
@@ -660,6 +662,7 @@ router.post(
     const {
       account_id,
       proxy_session_id,
+      country,
       sessionid,
       tt_csrf_token,
       tt_webid_v2,
@@ -669,6 +672,7 @@ router.post(
     } = (req.body || {}) as {
       account_id?: string;
       proxy_session_id?: string;
+      country?: string;
       sessionid?: string;
       tt_csrf_token?: string;
       tt_webid_v2?: string;
@@ -693,6 +697,7 @@ router.post(
       const result = await loginTikTok({
         account_id,
         proxy_session_id,
+        country,
         sessionid,
         tt_csrf_token,
         tt_webid_v2,

@@ -65,6 +65,13 @@ export interface SocialAccountFile {
    * inherits the exact same IP the admin seasoned.
    */
   proxy_session_id?: string
+  /**
+   * ISO-3166 alpha-2 country code (lowercase). Drives the proxy exit country
+   * AND the browser locale/timezone when the server opens a session for this
+   * account. Stored at the top level (not in the encrypted credentials) so
+   * the server can read it without decrypting the vault blob.
+   */
+  country?: string
   meta: {
     acquired_at: string
     acquisition_source: 'import' | 'accsmarket' | 'pool' | string
@@ -85,6 +92,7 @@ export interface SocialAccountSummary {
   source: string
   last_action_at: string | null
   proxy_session_id?: string
+  country?: string
 }
 
 function getSocialDir(): string {
@@ -166,7 +174,7 @@ export function importAccount(
   platform: Platform,
   username: string,
   credentials: SocialCredentials,
-  opts: { source?: string; notes?: string; proxy_session_id?: string } = {}
+  opts: { source?: string; notes?: string; proxy_session_id?: string; country?: string } = {}
 ): SocialAccountSummary {
   if (findByUsername(platform, username)) {
     throw new Error(`${platform} account "${username}" already exists locally. Use 'remove' first if you want to re-import.`)
@@ -183,6 +191,7 @@ export function importAccount(
     previous_usernames: [],
     cred_crypto: encrypt(JSON.stringify(credentials), sessionSecret),
     proxy_session_id: opts.proxy_session_id,
+    country: opts.country ? opts.country.toLowerCase() : undefined,
     meta: {
       acquired_at: new Date().toISOString(),
       acquisition_source: opts.source || 'import',
@@ -193,35 +202,10 @@ export function importAccount(
   }
   writeAccount(account)
 
-  return {
-    id: account.id,
-    platform: account.platform,
-    username: account.username,
-    status: account.meta.status,
-    acquired_at: account.meta.acquired_at,
-    source: account.meta.acquisition_source,
-    last_action_at: account.meta.last_action_at,
-    proxy_session_id: account.proxy_session_id,
-  }
+  return summarise(account)
 }
 
-export function listAccounts(platform?: Platform): SocialAccountSummary[] {
-  return readAllAccounts()
-    .filter(a => !platform || a.platform === platform)
-    .map(a => ({
-      id: a.id,
-      platform: a.platform,
-      username: a.username,
-      status: a.meta.status,
-      acquired_at: a.meta.acquired_at,
-      source: a.meta.acquisition_source,
-      last_action_at: a.meta.last_action_at,
-    }))
-}
-
-export function getAccount(platform: Platform, username: string): SocialAccountSummary | undefined {
-  const acc = findByUsername(platform, username)
-  if (!acc) return undefined
+function summarise(acc: SocialAccountFile): SocialAccountSummary {
   return {
     id: acc.id,
     platform: acc.platform,
@@ -230,7 +214,21 @@ export function getAccount(platform: Platform, username: string): SocialAccountS
     acquired_at: acc.meta.acquired_at,
     source: acc.meta.acquisition_source,
     last_action_at: acc.meta.last_action_at,
+    proxy_session_id: acc.proxy_session_id,
+    country: acc.country,
   }
+}
+
+export function listAccounts(platform?: Platform): SocialAccountSummary[] {
+  return readAllAccounts()
+    .filter(a => !platform || a.platform === platform)
+    .map(summarise)
+}
+
+export function getAccount(platform: Platform, username: string): SocialAccountSummary | undefined {
+  const acc = findByUsername(platform, username)
+  if (!acc) return undefined
+  return summarise(acc)
 }
 
 export function removeAccount(platform: Platform, username: string): void {
@@ -250,15 +248,7 @@ export function renameAccount(platform: Platform, oldUsername: string, newUserna
   acc.previous_usernames.push(acc.username)
   acc.username = newUsername
   writeAccount(acc)
-  return {
-    id: acc.id,
-    platform: acc.platform,
-    username: acc.username,
-    status: acc.meta.status,
-    acquired_at: acc.meta.acquired_at,
-    source: acc.meta.acquisition_source,
-    last_action_at: acc.meta.last_action_at,
-  }
+  return summarise(acc)
 }
 
 /**
@@ -298,6 +288,11 @@ export function updateMeta(platform: Platform, username: string, patch: Partial<
  */
 export function getProxySessionId(platform: Platform, username: string): string | undefined {
   return findByUsername(platform, username)?.proxy_session_id
+}
+
+/** Return the stored ISO country code for an account (lowercase), if any. */
+export function getCountry(platform: Platform, username: string): string | undefined {
+  return findByUsername(platform, username)?.country
 }
 
 // ─── Session cache (cookies from login) ─────────────────────────────────

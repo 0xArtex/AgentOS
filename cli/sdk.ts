@@ -304,11 +304,13 @@ export class AgentOS {
       login?: string
       password?: string
       proxySessionId?: string
+      country?: string
     },
   ): Promise<any> {
     return this.request('POST', '/social/tiktok/login', {
       account_id: accountId,
       proxy_session_id: opts.proxySessionId,
+      country: opts.country,
       sessionid: opts.sessionid,
       tt_csrf_token: opts.ttCsrfToken,
       tt_webid_v2: opts.ttWebidV2,
@@ -325,10 +327,12 @@ export class AgentOS {
     media: { video_base64?: string; video_url?: string },
     opts?: { privacy?: 0 | 1 | 2; allow_comments?: boolean; allow_duet?: boolean; allow_stitch?: boolean },
     proxySessionId?: string,
+    country?: string,
   ): Promise<any> {
     return this.request('POST', '/social/tiktok/post', {
       account_id: accountId,
       proxy_session_id: proxySessionId,
+      country,
       cookies,
       caption,
       ...media,
@@ -336,16 +340,16 @@ export class AgentOS {
     })
   }
 
-  async socialTiktokFollow(accountId: string, cookies: any[], targetUser: string, proxySessionId?: string): Promise<any> {
-    return this.request('POST', '/social/tiktok/follow', { account_id: accountId, proxy_session_id: proxySessionId, cookies, target_user: targetUser })
+  async socialTiktokFollow(accountId: string, cookies: any[], targetUser: string, proxySessionId?: string, country?: string): Promise<any> {
+    return this.request('POST', '/social/tiktok/follow', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies, target_user: targetUser })
   }
 
-  async socialTiktokLike(accountId: string, cookies: any[], videoUrl: string, proxySessionId?: string): Promise<any> {
-    return this.request('POST', '/social/tiktok/like', { account_id: accountId, proxy_session_id: proxySessionId, cookies, video_url: videoUrl })
+  async socialTiktokLike(accountId: string, cookies: any[], videoUrl: string, proxySessionId?: string, country?: string): Promise<any> {
+    return this.request('POST', '/social/tiktok/like', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies, video_url: videoUrl })
   }
 
-  async socialTiktokDelete(accountId: string, cookies: any[], videoUrl: string, proxySessionId?: string): Promise<any> {
-    return this.request('POST', '/social/tiktok/delete', { account_id: accountId, proxy_session_id: proxySessionId, cookies, video_url: videoUrl })
+  async socialTiktokDelete(accountId: string, cookies: any[], videoUrl: string, proxySessionId?: string, country?: string): Promise<any> {
+    return this.request('POST', '/social/tiktok/delete', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies, video_url: videoUrl })
   }
 
   async socialTiktokProfile(
@@ -353,8 +357,9 @@ export class AgentOS {
     cookies: any[],
     patch: { bio?: string; display_name?: string },
     proxySessionId?: string,
+    country?: string,
   ): Promise<any> {
-    return this.request('POST', '/social/tiktok/profile', { account_id: accountId, proxy_session_id: proxySessionId, cookies, ...patch })
+    return this.request('POST', '/social/tiktok/profile', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies, ...patch })
   }
 
   async socialTiktokAvatar(
@@ -362,8 +367,9 @@ export class AgentOS {
     cookies: any[],
     image: { image_base64?: string; image_url?: string },
     proxySessionId?: string,
+    country?: string,
   ): Promise<any> {
-    return this.request('POST', '/social/tiktok/avatar', { account_id: accountId, proxy_session_id: proxySessionId, cookies, ...image })
+    return this.request('POST', '/social/tiktok/avatar', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies, ...image })
   }
 
   // ── Info ──

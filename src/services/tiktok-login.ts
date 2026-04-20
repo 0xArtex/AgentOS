@@ -14,8 +14,13 @@
  * Both paths end the same way: harvest the full cookie jar + confirm the
  * authed UI rendered.
  */
-import { getStealthChromium, buildProxyConfig } from "./social-runtime";
+import { getStealthChromium, buildProxyConfig, profileForCountry } from "./social-runtime";
 import { solveTikTokCaptcha, isCaptchaSolverConfigured } from "./captcha-solver";
+
+/** Small random pause between UI actions to look less robotic. */
+function humanDelay(min: number = 400, max: number = 1200): Promise<void> {
+  return new Promise((r) => setTimeout(r, min + Math.random() * (max - min)));
+}
 
 type Browser = any;
 
@@ -23,6 +28,8 @@ export interface TikTokLoginRequest {
   account_id: string;
   /** Overrides account_id when pinning the proxy session. Preserves IP lineage across pool handoff. */
   proxy_session_id?: string;
+  /** ISO-3166 alpha-2 country (e.g. "de", "fr"). Drives proxy exit, locale, timezone. */
+  country?: string;
   /** Cookie-injection path: main auth cookie. 40-char hex. */
   sessionid?: string;
   /** CSRF cookie. Hex. */
@@ -89,7 +96,7 @@ export async function loginTikTok(
   const sessionKey = req.proxy_session_id || req.account_id;
   let proxy;
   try {
-    proxy = buildProxyConfig(sessionKey);
+    proxy = buildProxyConfig(sessionKey, { country: req.country });
   } catch (e: any) {
     return {
       success: false,
@@ -111,12 +118,16 @@ export async function loginTikTok(
   }
 
   try {
+    const profile = profileForCountry(req.country);
     const ctx = await browser.newContext({
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
       viewport: { width: 1920, height: 1080 },
-      locale: "en-US",
-      timezoneId: "America/New_York",
+      locale: profile.locale,
+      timezoneId: profile.timezoneId,
+      extraHTTPHeaders: {
+        "accept-language": `${profile.locale},${profile.locale.split("-")[0]};q=0.9`,
+      },
     });
 
     // ── Cookie-injection path ─────────────────────────────────────────
@@ -215,21 +226,33 @@ export async function loginTikTok(
         // Log in button stays `disabled` unless real keydown/keypress/keyup
         // events fire. `fill()` sets the value via JS and bypasses them, so
         // we type character-by-character with `pressSequentially`.
+        // Small wait after page load — a human reads the form before typing.
+        await humanDelay(800, 1600);
+
         const emailInput = page.locator('input[name="username"], input[type="text"]').first();
         await emailInput.waitFor({ state: "visible", timeout: 20000 });
         await emailInput.click();
+        await humanDelay(150, 350);
         await emailInput.press("Control+A");
         await emailInput.press("Delete");
-        await emailInput.pressSequentially(req.login!, { delay: 40 });
+        // Randomise per-keystroke delay for a more human typing cadence.
+        await emailInput.pressSequentially(req.login!, { delay: 45 + Math.random() * 60 });
+
+        // Pause between fields — humans don't tab instantly.
+        await humanDelay(500, 1100);
 
         const passwordInput = page.locator('input[type="password"]').first();
         await passwordInput.waitFor({ state: "visible", timeout: 10000 });
         await passwordInput.click();
+        await humanDelay(150, 350);
         await passwordInput.press("Control+A");
         await passwordInput.press("Delete");
-        await passwordInput.pressSequentially(req.password!, { delay: 40 });
+        await passwordInput.pressSequentially(req.password!, { delay: 55 + Math.random() * 70 });
 
-        await page.waitForTimeout(600);
+        // Blur the password field so React runs its on-blur validators
+        // (some TikTok variants only enable the submit button after blur).
+        await page.keyboard.press("Tab");
+        await humanDelay(400, 900);
 
         const loginButton = page
           .locator('button[data-e2e="login-button"], button[type="submit"]')

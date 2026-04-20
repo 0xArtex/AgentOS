@@ -58,6 +58,72 @@ export function buildProxyConfig(
 const DEFAULT_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
+/**
+ * Country → browser profile mapping.
+ *
+ * Keeps the residential proxy exit IP, the browser locale, and the timezone
+ * aligned. TikTok (and to a lesser extent X) fingerprints this triplet — a
+ * German IP browsing in `en-US` / `America/New_York` is a flag.
+ *
+ * Country codes are ISO 3166-1 alpha-2 (lowercase). Unknown countries fall
+ * back to the US profile.
+ */
+interface CountryProfile {
+  locale: string;
+  timezoneId: string;
+}
+
+const COUNTRY_PROFILES: Record<string, CountryProfile> = {
+  us: { locale: "en-US", timezoneId: "America/New_York" },
+  ca: { locale: "en-CA", timezoneId: "America/Toronto" },
+  gb: { locale: "en-GB", timezoneId: "Europe/London" },
+  ie: { locale: "en-IE", timezoneId: "Europe/Dublin" },
+  au: { locale: "en-AU", timezoneId: "Australia/Sydney" },
+  nz: { locale: "en-NZ", timezoneId: "Pacific/Auckland" },
+  de: { locale: "de-DE", timezoneId: "Europe/Berlin" },
+  at: { locale: "de-AT", timezoneId: "Europe/Vienna" },
+  ch: { locale: "de-CH", timezoneId: "Europe/Zurich" },
+  fr: { locale: "fr-FR", timezoneId: "Europe/Paris" },
+  be: { locale: "fr-BE", timezoneId: "Europe/Brussels" },
+  nl: { locale: "nl-NL", timezoneId: "Europe/Amsterdam" },
+  es: { locale: "es-ES", timezoneId: "Europe/Madrid" },
+  it: { locale: "it-IT", timezoneId: "Europe/Rome" },
+  pt: { locale: "pt-PT", timezoneId: "Europe/Lisbon" },
+  pl: { locale: "pl-PL", timezoneId: "Europe/Warsaw" },
+  cz: { locale: "cs-CZ", timezoneId: "Europe/Prague" },
+  se: { locale: "sv-SE", timezoneId: "Europe/Stockholm" },
+  no: { locale: "nb-NO", timezoneId: "Europe/Oslo" },
+  dk: { locale: "da-DK", timezoneId: "Europe/Copenhagen" },
+  fi: { locale: "fi-FI", timezoneId: "Europe/Helsinki" },
+  gr: { locale: "el-GR", timezoneId: "Europe/Athens" },
+  ro: { locale: "ro-RO", timezoneId: "Europe/Bucharest" },
+  hu: { locale: "hu-HU", timezoneId: "Europe/Budapest" },
+  tr: { locale: "tr-TR", timezoneId: "Europe/Istanbul" },
+  ru: { locale: "ru-RU", timezoneId: "Europe/Moscow" },
+  ua: { locale: "uk-UA", timezoneId: "Europe/Kyiv" },
+  br: { locale: "pt-BR", timezoneId: "America/Sao_Paulo" },
+  mx: { locale: "es-MX", timezoneId: "America/Mexico_City" },
+  ar: { locale: "es-AR", timezoneId: "America/Argentina/Buenos_Aires" },
+  jp: { locale: "ja-JP", timezoneId: "Asia/Tokyo" },
+  kr: { locale: "ko-KR", timezoneId: "Asia/Seoul" },
+  in: { locale: "en-IN", timezoneId: "Asia/Kolkata" },
+  id: { locale: "id-ID", timezoneId: "Asia/Jakarta" },
+  ph: { locale: "en-PH", timezoneId: "Asia/Manila" },
+  th: { locale: "th-TH", timezoneId: "Asia/Bangkok" },
+  vn: { locale: "vi-VN", timezoneId: "Asia/Ho_Chi_Minh" },
+  sg: { locale: "en-SG", timezoneId: "Asia/Singapore" },
+  my: { locale: "en-MY", timezoneId: "Asia/Kuala_Lumpur" },
+  ae: { locale: "en-AE", timezoneId: "Asia/Dubai" },
+  sa: { locale: "ar-SA", timezoneId: "Asia/Riyadh" },
+  il: { locale: "he-IL", timezoneId: "Asia/Jerusalem" },
+  za: { locale: "en-ZA", timezoneId: "Africa/Johannesburg" },
+};
+
+export function profileForCountry(country?: string): CountryProfile {
+  const c = (country || "us").toLowerCase().trim();
+  return COUNTRY_PROFILES[c] || COUNTRY_PROFILES.us;
+}
+
 export interface OpenSessionOptions {
   /** Stable identifier for the account locally. */
   accountId: string;
@@ -92,11 +158,20 @@ export async function openAuthenticatedSession(
   const sessionKey = opts.proxySessionId || opts.accountId;
   const proxy = buildProxyConfig(sessionKey, { country: opts.country });
   const browser = await chromium.launch({ headless: true, proxy });
+
+  // Derive locale + timezone from the account's country if the caller didn't
+  // pin them explicitly. Keeps exit-IP geography aligned with the browser
+  // environment — platforms flag mismatched triplets (IP: DE, locale: en-US).
+  const profile = profileForCountry(opts.country);
+
   const ctx = await browser.newContext({
     userAgent: opts.userAgent || DEFAULT_UA,
     viewport: { width: 1920, height: 1080 },
-    locale: opts.locale || "en-US",
-    timezoneId: opts.timezoneId || "America/New_York",
+    locale: opts.locale || profile.locale,
+    timezoneId: opts.timezoneId || profile.timezoneId,
+    extraHTTPHeaders: {
+      "accept-language": (opts.locale || profile.locale) + "," + (opts.locale || profile.locale).split("-")[0] + ";q=0.9",
+    },
   });
 
   if (opts.cookies && opts.cookies.length > 0) {
