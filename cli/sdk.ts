@@ -303,6 +303,8 @@ export class AgentOS {
       extraCookies?: Array<{ name: string; value: string; domain?: string; path?: string }>
       login?: string
       password?: string
+      email?: string
+      emailPassword?: string
       proxySessionId?: string
       country?: string
     },
@@ -317,6 +319,8 @@ export class AgentOS {
       extra_cookies: opts.extraCookies,
       login: opts.login,
       password: opts.password,
+      email: opts.email,
+      email_password: opts.emailPassword,
     })
   }
 

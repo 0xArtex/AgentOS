@@ -669,6 +669,8 @@ router.post(
       extra_cookies,
       login,
       password,
+      email,
+      email_password,
     } = (req.body || {}) as {
       account_id?: string;
       proxy_session_id?: string;
@@ -679,6 +681,8 @@ router.post(
       extra_cookies?: Array<{ name: string; value: string; domain?: string; path?: string }>;
       login?: string;
       password?: string;
+      email?: string;
+      email_password?: string;
     };
 
     if (!account_id) {
@@ -704,6 +708,8 @@ router.post(
         extra_cookies,
         login,
         password,
+        email,
+        email_password,
       });
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {

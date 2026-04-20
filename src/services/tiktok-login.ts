@@ -16,6 +16,7 @@
  */
 import { getStealthChromium, buildProxyConfig, profileForCountry } from "./social-runtime";
 import { solveTikTokCaptcha, isCaptchaSolverConfigured } from "./captcha-solver";
+import { fetchVerificationCode } from "./email-reader";
 
 /** Small random pause between UI actions to look less robotic. */
 function humanDelay(min: number = 400, max: number = 1200): Promise<void> {
@@ -42,6 +43,13 @@ export interface TikTokLoginRequest {
   login?: string;
   /** Form-login path: TikTok password. */
   password?: string;
+  /**
+   * Bind email + password. When provided, the server can auto-solve TikTok's
+   * "Verify it's really you" device-verification challenge by reading the
+   * code out of the email inbox via IMAP.
+   */
+  email?: string;
+  email_password?: string;
 }
 
 export interface TikTokLoginResult {
@@ -59,6 +67,9 @@ export interface TikTokLoginResult {
     | "CAPTCHA_CHALLENGE"
     | "CAPTCHA_SOLVER_NOT_CONFIGURED"
     | "CAPTCHA_SOLVE_FAILED"
+    | "EMAIL_VERIFICATION_REQUIRED"
+    | "EMAIL_VERIFICATION_FAILED"
+    | "EMAIL_AUTH_FAILED"
     | "SMS_VERIFICATION_REQUIRED"
     | "ACCOUNT_BLOCKED"
     | "LOGIN_TIMEOUT"
@@ -353,20 +364,48 @@ export async function loginTikTok(
         };
       }
 
-      // SMS / email code challenge.
-      const codeChallenge = await page
-        .locator('text=/Enter the verification code|verification code|check your email/i')
+      // Device-verification modal ("Verify it's really you"). TikTok shows
+      // this on first login from a new IP/device. It offers Email (and
+      // sometimes Phone) as verification channels. We click Email, poll the
+      // bind inbox via IMAP, extract the code, submit it.
+      const deviceVerify = await page
+        .locator('text=/Verify it.?s really you|verify your identity|Enter the verification code|we.?ll send a code/i')
         .first()
         .isVisible({ timeout: 500 })
         .catch(() => false);
-      if (codeChallenge) {
-        const diag = await snapshot("sms-verification");
-        return {
-          success: false,
-          error: "TikTok requested an SMS / email verification code. That code lives in the account's email — you need to retrieve it manually once before this account can be automated.",
-          error_code: "SMS_VERIFICATION_REQUIRED",
-          diagnostics: diag,
-        };
+      if (deviceVerify) {
+        if (!req.email || !req.email_password) {
+          const diag = await snapshot("device-verification-no-email");
+          return {
+            success: false,
+            error: "TikTok requires device verification via email, but no email credentials were supplied. Re-import the account with --credentials-line that includes email + email password.",
+            error_code: "EMAIL_VERIFICATION_REQUIRED",
+            diagnostics: diag,
+          };
+        }
+
+        try {
+          await solveDeviceVerification(page, req, snapshot);
+        } catch (e: any) {
+          const diag = await snapshot("email-verification-failed");
+          const message = String(e?.message || e);
+          const code =
+            /AUTH|authenticat/i.test(message) ? "EMAIL_AUTH_FAILED" :
+            /timeout|no matching/i.test(message) ? "EMAIL_VERIFICATION_FAILED" :
+            "EMAIL_VERIFICATION_FAILED";
+          return {
+            success: false,
+            error: `Email auto-solve failed: ${message}`,
+            error_code: code,
+            diagnostics: diag,
+          };
+        }
+
+        // Post-verification — wait for the authed UI OR another challenge.
+        await Promise.race([
+          page.locator('[data-e2e="profile-icon"], [data-e2e="upload-icon"]').first().waitFor({ state: "visible", timeout: 45000 }),
+          page.locator('text=/verification code|incorrect|Maximum number of attempts/i').first().waitFor({ state: "visible", timeout: 45000 }),
+        ]).catch(() => null);
       }
 
       // Captcha gate.
@@ -634,4 +673,95 @@ async function solveCaptcha(
 
   // 5. Wait a beat for the page to accept the solution.
   await page.waitForTimeout(1500);
+}
+
+/**
+ * Drive TikTok's "Verify it's really you" flow end-to-end:
+ *   1. Click the Email option in the modal
+ *   2. TikTok sends a numeric code to the bind inbox
+ *   3. Poll the inbox via IMAP until the code arrives
+ *   4. Paste it into TikTok's code input and submit
+ *
+ * Throws on any failure (including IMAP connect/auth, timeout, unexpected UI).
+ */
+async function solveDeviceVerification(
+  page: any,
+  req: TikTokLoginRequest,
+  snapshot: (tag: string) => Promise<any>
+): Promise<void> {
+  // 1. Click the Email verification option. TikTok renders it as a clickable
+  //    row inside the "Verify it's really you" modal; the text "Email"
+  //    anchored to the row is the most stable selector across versions.
+  const emailOption = page
+    .locator('[class*="modal"] div:has-text("Email"), [role="dialog"] button:has-text("Email"), [role="dialog"] div:has(>div:has-text("Email"))')
+    .first();
+
+  // Fallback: TikTok sometimes renders Email as a plain clickable row.
+  const emailRow = emailOption.or(page.locator('text=/^Email$/').first());
+
+  try {
+    await emailRow.click({ timeout: 8000 });
+  } catch {
+    const diag = await snapshot("email-option-not-found");
+    throw new Error(`Could not click Email verification option — TikTok UI variant not recognised. See screenshot at ${diag.screenshot_path}`);
+  }
+
+  // 2. TikTok shows a "Send code" / "Get code" button on the next screen. Click
+  //    it so the email actually gets dispatched. Some variants auto-send on
+  //    entering the screen — skip gracefully if the button isn't there.
+  await page.waitForTimeout(500);
+  const sendButton = page
+    .locator('button:has-text("Send code"), button:has-text("Get code"), button:has-text("Resend")')
+    .first();
+  await sendButton.click({ timeout: 3000 }).catch(() => { /* auto-sent */ });
+
+  await snapshot("verification-code-sent");
+
+  // 3. Poll the inbox for the code. Use the TikTok sender filter so we don't
+  //    pick up unrelated mail that happens to contain digit sequences.
+  const codeResult = await fetchVerificationCode({
+    email: req.email!,
+    password: req.email_password!,
+    minDigits: 4,
+    maxDigits: 8,
+    fromContains: "tiktok",
+    timeoutMs: 120 * 1000, // 2 minutes — verification mail usually within 30s
+    pollIntervalMs: 4000,
+  });
+
+  if (!codeResult.success || !codeResult.code) {
+    throw new Error(codeResult.error || "Could not retrieve verification code from email");
+  }
+
+  // 4. Enter the code. TikTok's verification input is typically a single
+  //    text field; some variants split into 6 individual cells — handle both.
+  const singleInput = page
+    .locator('input[autocomplete="one-time-code"], input[inputmode="numeric"]:not([name="username"]), input[name="captcha_code"]')
+    .first();
+  const singleVisible = await singleInput.isVisible({ timeout: 2000 }).catch(() => false);
+
+  if (singleVisible) {
+    await singleInput.click();
+    await singleInput.pressSequentially(codeResult.code, { delay: 80 });
+  } else {
+    // Multi-cell input — type digit by digit focusing each cell.
+    const cells = page.locator('input[maxlength="1"][inputmode="numeric"]');
+    const count = await cells.count();
+    if (count < codeResult.code.length) {
+      throw new Error(`Expected ${codeResult.code.length} input cells, found ${count}`);
+    }
+    for (let i = 0; i < codeResult.code.length; i++) {
+      await cells.nth(i).fill(codeResult.code[i]);
+      await page.waitForTimeout(50 + Math.random() * 80);
+    }
+  }
+
+  await page.waitForTimeout(400);
+
+  // 5. Submit — some variants auto-submit when the full code is entered;
+  //    others need an explicit Submit/Verify click.
+  const submitBtn = page
+    .locator('button:has-text("Next"), button:has-text("Submit"), button:has-text("Verify"), button[type="submit"]:not([data-e2e="login-button"])')
+    .first();
+  await submitBtn.click({ timeout: 3000 }).catch(() => { /* auto-submitted */ });
 }

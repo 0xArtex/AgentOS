@@ -1661,6 +1661,10 @@ async function main() {
                 ttWebidV2: creds.tiktok_webid,
                 login: hasCookies ? undefined : creds.login,
                 password: hasCookies ? undefined : creds.password,
+                // Email creds enable server-side auto-solve of TikTok's
+                // "Verify it's really you" device-verification challenge.
+                email: creds.email,
+                emailPassword: creds.email_password,
                 proxySessionId: psid,
                 country,
               })
