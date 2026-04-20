@@ -6,6 +6,7 @@ import { verifySvmPayment, settleSvmPayment } from "./x402-svm-verify";
 import { db } from "../db";
 
 const { encodePaymentRequiredHeader, decodePaymentSignatureHeader } = require("@x402/core/http");
+const { HTTPFacilitatorClient } = require("@x402/core/server");
 
 /**
  * Defence-in-depth: track every x402 payment header we've already consumed,
@@ -50,19 +51,51 @@ const payToSolana = config.treasuryWallet;
 // Internal: used for server-side verify/settle
 const FACILITATOR_URL_INTERNAL = process.env.X402_FACILITATOR_URL_INTERNAL || "http://localhost:8090";
 // External: shown in 402 response for clients that need it
-const FACILITATOR_URL = process.env.X402_FACILITATOR_URL || "https://agntos.dev/x402";
+const SELF_FACILITATOR_URL = process.env.X402_FACILITATOR_URL || "https://agntos.dev/x402";
 const FACILITATOR_BEARER = process.env.X402_FACILITATOR_BEARER;
-if (!FACILITATOR_BEARER && process.env.NODE_ENV === "production") {
-  throw new Error("X402_FACILITATOR_BEARER must be set in production");
+
+// Optional CDP facilitator — when enabled, EVM verify/settle goes through
+// Coinbase so endpoints become indexable in the x402 Bazaar.
+// Enable by setting CDP_API_KEY_ID and CDP_API_KEY_SECRET.
+let cdpClient: any = null;
+let cdpFacilitatorUrl: string | null = null;
+if (process.env.CDP_API_KEY_ID && process.env.CDP_API_KEY_SECRET) {
+  try {
+    const { facilitator } = require("@coinbase/x402");
+    cdpClient = new HTTPFacilitatorClient(facilitator);
+    cdpFacilitatorUrl = facilitator.url || "https://api.cdp.coinbase.com/platform/v2/x402";
+    console.log("[x402] CDP facilitator enabled — EVM payments route through Coinbase");
+  } catch (e: any) {
+    console.warn("[x402] CDP env vars set but @coinbase/x402 failed to load:", e.message);
+  }
+}
+const USE_CDP = !!cdpClient;
+
+// What we advertise to clients in the 402 response. CDP URL when enabled so
+// Bazaar crawlers can attribute this endpoint to a CDP-registered seller.
+const FACILITATOR_URL = USE_CDP ? cdpFacilitatorUrl! : SELF_FACILITATOR_URL;
+
+if (!FACILITATOR_BEARER && !USE_CDP && process.env.NODE_ENV === "production") {
+  throw new Error("Either X402_FACILITATOR_BEARER (self-hosted) or CDP_API_KEY_ID+CDP_API_KEY_SECRET (Coinbase) must be set in production");
 }
 
 // Fee payer for Solana (must match the key in x402-svm-verify)
 const SOLANA_FEE_PAYER = "4R67MWivvc52g9BSzQRvQyD8GshttW1QLbnj46usBrcQ";
 
-function buildPaymentRequired(req: Request, minUsdc: number) {
+export type X402Metadata = {
+  description?: string;
+  category?: string;
+  tags?: string[];
+};
+
+function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Metadata) {
   const resource = "https://" + (req.get("host") || "agntos.dev") + req.originalUrl;
-  const description = "AgentOS: " + req.method + " " + req.originalUrl;
+  const description = metadata?.description || "AgentOS: " + req.method + " " + req.originalUrl;
   const amount = String(Math.round(minUsdc * 1e6));
+
+  const bazaar: Record<string, any> = { discoverable: true };
+  if (metadata?.category) bazaar.category = metadata.category;
+  if (metadata?.tags && metadata.tags.length > 0) bazaar.tags = metadata.tags;
 
   return {
     x402Version: 2,
@@ -77,7 +110,8 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
         asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         extra: {
           name: "AgentOS",
-          facilitator: FACILITATOR_URL,
+          // Solana still uses our self-hosted fee-payer path, even when CDP is on
+          facilitator: SELF_FACILITATOR_URL,
           feePayer: SOLANA_FEE_PAYER,
         },
       },
@@ -93,15 +127,26 @@ function buildPaymentRequired(req: Request, minUsdc: number) {
         extra: {
           name: "USD Coin",
           version: "2",
+          // EVM routes through CDP when enabled — this is what makes the endpoint
+          // discoverable in the x402 Bazaar.
           facilitator: FACILITATOR_URL,
         },
       },
     ],
+    // Per-route bazaar extension. The CDP Bazaar crawler looks for this on the
+    // 402 payload to index the endpoint. Per-network `accepts[].extensions` is
+    // also populated so downstream facilitators that read from `accepts` can
+    // still pick it up.
+    extensions: {
+      bazaar,
+    },
+    description,
+    mimeType: "application/json",
   };
 }
 
-export function send402Response(res: Response, req: Request, minUsdc: number, message: string) {
-  const paymentRequired = buildPaymentRequired(req, minUsdc);
+export function send402Response(res: Response, req: Request, minUsdc: number, message: string, metadata?: X402Metadata) {
+  const paymentRequired = buildPaymentRequired(req, minUsdc, metadata);
   const encoded = encodePaymentRequiredHeader(paymentRequired);
 
   res.setHeader("PAYMENT-REQUIRED", encoded);
@@ -155,7 +200,42 @@ async function handleEvmPayment(
   paymentPayload: any,
   matchedRequirement: any,
 ): Promise<{ verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string }> {
-  // Use facilitator for EVM
+  // CDP facilitator path: signed-request verify/settle through Coinbase so the
+  // Bazaar can index this endpoint.
+  if (USE_CDP && cdpClient) {
+    try {
+      const verifyResult: any = await cdpClient.verify(paymentPayload, matchedRequirement);
+      if (!verifyResult?.isValid) {
+        return {
+          verified: false,
+          settled: false,
+          reason: verifyResult?.invalidReason || verifyResult?.invalidMessage || "cdp_verify_failed",
+          payer: verifyResult?.payer,
+        };
+      }
+      const settleResult: any = await cdpClient.settle(paymentPayload, matchedRequirement);
+      if (settleResult?.success === false) {
+        console.error("[x402] CDP settlement failed:", JSON.stringify(settleResult));
+        return {
+          verified: true,
+          settled: false,
+          reason: settleResult?.errorReason || settleResult?.errorMessage || "cdp_settle_failed",
+          payer: verifyResult?.payer,
+        };
+      }
+      return {
+        verified: true,
+        settled: true,
+        signature: settleResult?.transaction || settleResult?.txHash,
+        payer: verifyResult?.payer,
+      };
+    } catch (e: any) {
+      console.error("[x402] CDP facilitator error:", e?.message);
+      return { verified: false, settled: false, reason: "cdp_error: " + (e?.message || "unknown") };
+    }
+  }
+
+  // Self-hosted facilitator (bearer-authed local service)
   const verifyResp = await fetch(FACILITATOR_URL_INTERNAL + "/verify", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": "Bearer " + FACILITATOR_BEARER },
@@ -197,12 +277,12 @@ async function handleEvmPayment(
   }
 }
 
-export function x402(minUsdc: number = 0.01) {
+export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
 
     if (!paymentHeader) {
-      send402Response(res, req, minUsdc, "Payment required. Use x402 protocol.");
+      send402Response(res, req, minUsdc, "Payment required. Use x402 protocol.", metadata);
       return;
     }
 

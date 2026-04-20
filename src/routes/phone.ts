@@ -33,8 +33,14 @@ router.get("/numbers/search", async (req: Request, res: Response) => {
 /**
  * Pre-flight validation for phone provisioning. Runs BEFORE the paywall to prevent
  * charging users when provisioning will fail (no numbers available, bad country code).
+ *
+ * Skipped when the request has no payment header — defers to x402 so the CDP Bazaar
+ * crawler's empty-body probe gets a 402 (not a 400) and the endpoint is indexable.
  */
 async function preflightProvisionNumber(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
+  if (!hasPayment) { next(); return; }
+
   const { country, areaCode } = (req.body || {}) as ProvisionNumberRequest;
   if (!country || typeof country !== "string" || country.length !== 2) {
     res.status(400).json({ error: "Missing Required Field", message: "The 'country' field is required (ISO-2 code, e.g. 'US')" });
@@ -65,7 +71,11 @@ async function preflightProvisionNumber(req: Request, res: Response, next: NextF
  * POST /phone/numbers — Provision a new phone number
  * Cost: 3.00 USDC (or free during hackathon with agent limits)
  */
-router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone", {
+  description: "Provision a real phone number (SMS + voice) for your agent. Body: { country: ISO-2, areaCode? }",
+  category: "communications",
+  tags: ["phone", "sms", "voice", "telnyx", "provision"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { country, areaCode } = req.body as ProvisionNumberRequest;
 
@@ -101,7 +111,11 @@ router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone"), asy
  * GET /phone/numbers/:id/messages — Get all messages for a number
  * Cost: 0.01 USDC (or free during hackathon)
  */
-router.get("/numbers/:id/messages", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/numbers/:id/messages", requireAuth(0.02, "general", {
+  description: "Read all SMS messages received on a phone number you own.",
+  category: "communications",
+  tags: ["phone", "sms", "inbox", "read"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const phoneNumberId = req.params.id as string;
     const owner = req.payment?.payer || req.agentId;
@@ -125,8 +139,13 @@ router.get("/numbers/:id/messages", requireAuth(0.02, "general"), async (req: Au
  * charged when the send is obviously going to fail (bad inputs, unknown number,
  * deactivated number, or destination country that Telnyx won't accept on our
  * messaging profile).
+ *
+ * Skipped when the request has no payment header so x402 handles discovery probes.
  */
 function preflightSendSms(req: Request, res: Response, next: NextFunction): void {
+  const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
+  if (!hasPayment) { next(); return; }
+
   const { to, body } = (req.body || {}) as SendSmsRequest;
   const phoneNumberId = req.params.id as string;
 
@@ -210,7 +229,11 @@ function preflightSendSms(req: Request, res: Response, next: NextFunction): void
  * POST /phone/numbers/:id/send — Send an SMS
  * Cost: 0.05 USDC (or free during hackathon)
  */
-router.post("/numbers/:id/send", preflightSendSms, requireAuth(0.05, "general"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/numbers/:id/send", preflightSendSms, requireAuth(0.05, "general", {
+  description: "Send an SMS message from a phone number you own. Body: { to: E.164, body: string }",
+  category: "communications",
+  tags: ["phone", "sms", "send", "outbound"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { to, body } = req.body as SendSmsRequest;
     const phoneNumberId = req.params.id as string;
@@ -252,7 +275,11 @@ router.delete("/numbers/:id", requireAuth(0.01, "general"), async (req: Authenti
  * POST /phone/numbers/:id/call — Place an outbound call
  * Cost: 0.10 USDC
  */
-router.post("/numbers/:id/call", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/numbers/:id/call", requireAuth(0.10, "general", {
+  description: "Place an outbound phone call from a number you own, with optional TTS or audio playback.",
+  category: "communications",
+  tags: ["phone", "voice", "call", "dial", "outbound"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { to, tts, ttsVoice, audioUrl, record, timeoutSecs } = req.body as {
       to: string;

@@ -1,5 +1,5 @@
 import { Response, NextFunction } from "express";
-import { requireX402Payment, send402Response } from "./x402";
+import { requireX402Payment, send402Response, X402Metadata } from "./x402";
 import { db } from "../db";
 import { AuthenticatedRequest } from "../types";
 import * as balanceService from "../services/balance";
@@ -14,13 +14,13 @@ import { getOrCreateWallet } from "../services/deposit-wallets";
  * 3. x402 USDC payment → always works, no registration needed
  * 4. No auth → 401
  */
-export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 'server' | 'general' = 'general') {
+export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 'server' | 'general' = 'general', metadata?: X402Metadata) {
   return async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
-    
+
     const authHeader = req.headers["authorization"]?.toString().replace("Bearer ", "");
     const apiKey = authHeader || req.headers["x-api-key"] as string || req.headers["x-agent-token"] as string;
     const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
-    
+
     // Method 1: Registered agent token
     if (apiKey && (apiKey.startsWith("aos_") || apiKey.startsWith("agt_"))) {
       const agent = db.prepare("SELECT * FROM agents WHERE token = ?").get(apiKey) as any;
@@ -35,11 +35,11 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
         }
 
         if (hasPayment) {
-          const paymentAuth = requireX402Payment(minUsdc);
+          const paymentAuth = requireX402Payment(minUsdc, metadata);
           return paymentAuth(req, res, next);
         }
 
-        send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet = your identity.");
+        send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet = your identity.", metadata);
         return;
       }
     }
@@ -60,27 +60,27 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
         }
 
         if (hasPayment) {
-          const paymentAuth = requireX402Payment(minUsdc);
+          const paymentAuth = requireX402Payment(minUsdc, metadata);
           return paymentAuth(req, res, next);
         }
 
-        send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet = your identity.");
+        send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet = your identity.", metadata);
         return;
       }
 
       // Not found but has payment — let x402 handle it
       if (hasPayment) {
-        const paymentAuth = requireX402Payment(minUsdc);
+        const paymentAuth = requireX402Payment(minUsdc, metadata);
         return paymentAuth(req, res, next);
       }
 
-      send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet address becomes the owner.");
+      send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet address becomes the owner.", metadata);
       return;
     }
 
     // Method 3: x402 payment only (no registration needed)
     if (hasPayment) {
-      const paymentAuth = requireX402Payment(minUsdc);
+      const paymentAuth = requireX402Payment(minUsdc, metadata);
       return paymentAuth(req, res, next);
     }
 
@@ -114,6 +114,6 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
     }
 
     // No auth at all — send 402 so x402-compatible agents can pay
-    send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet address becomes the owner.");
+    send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet address becomes the owner.", metadata);
   };
 }

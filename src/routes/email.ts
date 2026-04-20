@@ -12,7 +12,11 @@ const router = Router();
  * POST /email/provision — Create an email inbox
  * Cost: 1.00 USDC (or free during hackathon)
  */
-router.post("/provision", requireAuth(2.0, "email"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/provision", requireAuth(2.0, "email", {
+  description: "Create an end-to-end encrypted email inbox at {name}@agntos.dev, keyed to your Solana wallet.",
+  category: "communications",
+  tags: ["email", "inbox", "e2e", "encryption", "provision"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, walletAddress } = req.body;
 
@@ -67,6 +71,12 @@ router.post("/provision", requireAuth(2.0, "email"), async (req: AuthenticatedRe
  * Validating upfront prevents users from paying and then getting rejected.
  */
 function validateInboxInputs(req: Request, res: Response, next: NextFunction): void {
+  // Skip when request has no payment header so x402 discovery probes (CDP Bazaar
+  // crawler) receive 402, not 400. Anyone without a payment header can't be charged
+  // yet, so there's nothing to protect against here.
+  const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
+  if (!hasPayment) { next(); return; }
+
   const { name, walletAddress, solanaPublicKey: spk } = req.body || {};
   const key = walletAddress || spk;
   if (!name || !key) {
@@ -93,7 +103,11 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
-router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
+  description: "Create an end-to-end encrypted email inbox at {name}@agntos.dev, keyed to your Solana wallet.",
+  category: "communications",
+  tags: ["email", "inbox", "e2e", "encryption", "provision"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   const { name, walletAddress, solanaPublicKey: spk } = req.body;
   const owner = req.agentId || req.payment?.payer || "unknown";
   try {
@@ -113,7 +127,11 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email"), async (r
  * 
  * Messages are encrypted at rest — only decrypted in-flight during this request.
  */
-router.get("/inboxes/:id/messages", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/inboxes/:id/messages", x402(0.02, {
+  description: "Read decrypted messages from an inbox you own. Payment wallet must match the inbox wallet.",
+  category: "communications",
+  tags: ["email", "inbox", "read", "messages"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
     const inbox = emailService.getInbox(inboxId);
@@ -203,7 +221,11 @@ router.get("/inboxes/:id/messages", x402(0.02), async (req: AuthenticatedRequest
  * POST /email/inboxes/:id/send — Send email
  * Cost: 0.05 USDC
  */
-router.post("/inboxes/:id/send", x402(0.08), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/inboxes/:id/send", x402(0.08, {
+  description: "Send an email from an inbox you own. Body: { to, subject, body, html? }",
+  category: "communications",
+  tags: ["email", "send", "outbound"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
     const inbox = emailService.getInbox(inboxId);
