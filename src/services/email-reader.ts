@@ -236,7 +236,7 @@ async function scanOnce(
         // Decode quoted-printable / base64 lazily — most verify emails are
         // plain text, and if not, the digits are usually also in headers /
         // subject or the fallback HTML text content.
-        const bodyText = rawSource.replace(/=\r\n/g, "").replace(/=[0-9A-F]{2}/g, (m) =>
+        const bodyText = rawSource.replace(/=\r\n/g, "").replace(/=[0-9A-F]{2}/g, (m: string) =>
           String.fromCharCode(parseInt(m.slice(1), 16))
         );
         const haystack = subject + "\n" + bodyText;
