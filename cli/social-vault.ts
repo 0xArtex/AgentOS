@@ -43,6 +43,12 @@ export interface SocialCredentials {
   auth_token?: string
   /** X CSRF cookie — 160-char hex. Paired with auth_token. */
   ct0?: string
+  /** TikTok main auth cookie (hex). Required for TikTok cookie-injection login. */
+  tiktok_sessionid?: string
+  /** TikTok CSRF token cookie. */
+  tiktok_csrf?: string
+  /** TikTok device fingerprint cookie — preserves IP/device consistency. */
+  tiktok_webid?: string
 }
 
 export interface SocialAccountFile {

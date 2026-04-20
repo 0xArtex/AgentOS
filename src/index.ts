@@ -119,13 +119,22 @@ import deadlineDayRoute from "./routes/deadline-day";
 app.use(securityHeaders);
 app.use(paramPollution);
 // Social image-upload endpoints transfer up to ~10 MB of base64 image data;
-// everything else stays on the security-tight 100 KB default.
+// TikTok video uploads can hit ~100 MB (base64 is ~1.33× the raw bytes).
+// Everything else stays on the security-tight 100 KB default.
 const IMAGE_UPLOAD_ROUTES = new Set([
   "/social/twitter/avatar",
   "/social/twitter/banner",
+  "/social/tiktok/avatar",
+]);
+const VIDEO_UPLOAD_ROUTES = new Set([
+  "/social/tiktok/post",
 ]);
 app.use((req, res, next) => {
-  const limit = IMAGE_UPLOAD_ROUTES.has(req.path) ? "15mb" : "100kb";
+  const limit = VIDEO_UPLOAD_ROUTES.has(req.path)
+    ? "150mb"
+    : IMAGE_UPLOAD_ROUTES.has(req.path)
+      ? "15mb"
+      : "100kb";
   return express.json({ limit })(req, res, next);
 });
 app.use(cors);

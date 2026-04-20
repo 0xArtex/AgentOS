@@ -1488,7 +1488,291 @@ async function main() {
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website, pfp, banner, username, buy, pool-add, pool-status`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website, pfp, banner, username, buy`)
+        }
+        break
+      }
+
+      case 'tiktok': {
+        const sv = await import('./social-vault.js')
+        const platform = 'tiktok' as const
+
+        if (!subcommand) {
+          render(React.createElement(MenuScreen, {
+            version: VERSION,
+            title: 'tiktok',
+            subtitle: 'Automated TikTok account management',
+            commands: [
+              { name: 'import',  description: 'Save a BYO TikTok account. Export cookies from DevTools → Application → Cookies → .tiktok.com', hint: '<username> --sessionid ... --csrf ... --webid ...' },
+              { name: 'list',    description: 'List all local TikTok accounts' },
+              { name: 'info',    description: 'Show one account', hint: '<username>' },
+              { name: 'rename',  description: 'Update the local handle', hint: '<old> --to <new>' },
+              { name: 'remove',  description: 'Delete an account from the local vault', hint: '<username> --confirm' },
+              { name: 'totp',    description: 'Print the current TOTP code', hint: '<username>' },
+              { name: 'login',   description: 'Validate cookies and cache the session', hint: '<username>' },
+              { name: 'session', description: 'Check cached session status', hint: '<username>' },
+              { name: 'post',    description: 'Post a video', hint: '<username> --file video.mp4 --caption "..."' },
+              { name: 'follow',  description: 'Follow a TikTok user', hint: '<username> --user @handle' },
+              { name: 'like',    description: 'Like a video', hint: '<username> --video https://...' },
+              { name: 'delete',  description: 'Delete a video', hint: '<username> --video https://...' },
+              { name: 'bio',     description: 'Update bio (<=80 chars)', hint: '<username> --text "..."' },
+              { name: 'name',    description: 'Update display name (<=30 chars)', hint: '<username> --display "..."' },
+              { name: 'pfp',     description: 'Update avatar', hint: '<username> --file pic.png' },
+            ],
+            footerLeft: 'BYO: export sessionid from a logged-in TikTok browser, import, then post / follow / like.',
+          }))
+          return
+        }
+
+        switch (subcommand) {
+          case 'import': {
+            const username = (flags.username as string) || positional[0]
+            const sessionid = flags.sessionid as string
+            const csrf = (flags.csrf as string) || (flags['tt-csrf'] as string)
+            const webid = (flags.webid as string) || (flags['tt-webid'] as string)
+            const totpSeed = (flags['totp-seed'] as string) || (flags.totp as string)
+            const password = flags.password as string
+            const email = flags.email as string
+            const emailPassword = (flags['email-password'] as string) || (flags.emailpw as string)
+            const profileUrl = flags['profile-url'] as string
+
+            if (!username) err('<username> (or --username) required')
+            if (!sessionid) err('--sessionid <hex> required.\n\n  How to get it:\n    1. Open tiktok.com in Chrome, log in\n    2. DevTools (F12) → Application → Cookies → https://www.tiktok.com\n    3. Copy the values of: sessionid, tt_csrf_token, tt_webid_v2\n    4. Run: agentos tiktok import <username> --sessionid <hex> --csrf <token> --webid <token>')
+
+            const creds: import('./social-vault.js').SocialCredentials = {
+              login: username,
+              password: password || 'unknown',   // TikTok doesn't need a password with cookie-injection
+              email,
+              email_password: emailPassword,
+              totp_seed: totpSeed,
+              profile_url: profileUrl,
+              tiktok_sessionid: sessionid,
+              tiktok_csrf: csrf,
+              tiktok_webid: webid,
+            }
+            const summary = sv.importAccount(platform, username, creds, { source: 'import' })
+            log(`tiktok import: ${summary.username} (${summary.id}) [cookies ${csrf && webid ? 'complete' : 'partial — login may fail until you add --csrf + --webid'}]`)
+            return print({ ...summary, has_csrf: !!csrf, has_webid: !!webid })
+          }
+
+          case 'list': {
+            const accounts = sv.listAccounts(platform)
+            return print({ accounts, count: accounts.length })
+          }
+
+          case 'info': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`tiktok account "${username}" not found locally`, EXIT.NOT_FOUND)
+            return print(acc!)
+          }
+
+          case 'rename': {
+            const oldUsername = positional[0] || (flags.username as string)
+            const newUsername = flags.to as string
+            if (!oldUsername) err('<old-username> required')
+            if (!newUsername) err('--to <new-username> required')
+            const summary = sv.renameAccount(platform, oldUsername, newUsername)
+            log(`tiktok rename: ${oldUsername} → ${newUsername}`)
+            return print(summary)
+          }
+
+          case 'remove': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            if (!flags.confirm) {
+              err(
+                `This deletes the local copy of "${username}". The TikTok account itself is NOT deleted.\n\n` +
+                `  Re-run with --confirm to proceed:\n` +
+                `  agentos tiktok remove ${username} --confirm`
+              )
+            }
+            sv.removeAccount(platform, username)
+            log(`tiktok remove: ${username}`)
+            return print({ success: true, platform, username })
+          }
+
+          case 'totp': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const creds = sv.unlockCredentials(platform, username)
+            if (!creds.totp_seed) err(`tiktok account "${username}" has no TOTP seed configured`, EXIT.NOT_FOUND)
+            const { code, secondsUntilNextCode } = await import('./totp.js')
+            return print({
+              platform,
+              username,
+              code: code(creds.totp_seed!),
+              expires_in_seconds: secondsUntilNextCode(),
+            })
+          }
+
+          case 'login': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`tiktok account "${username}" not found locally`, EXIT.NOT_FOUND)
+
+            const creds = sv.unlockCredentials(platform, username)
+            if (!creds.tiktok_sessionid) {
+              err('Account has no tiktok_sessionid. Re-import with --sessionid <hex>.', EXIT.BAD_INPUT)
+            }
+            const psid = sv.getProxySessionId(platform, username)
+
+            let data: any
+            try {
+              data = await ao.socialTiktokLogin(
+                acc!.id,
+                creds.tiktok_sessionid!,
+                creds.tiktok_csrf,
+                creds.tiktok_webid,
+                undefined,
+                psid,
+              )
+            } catch (e: any) {
+              err(`Login failed: ${e.message}`, EXIT.GENERAL)
+            }
+
+            if (!data?.success) {
+              err(
+                `Login failed: ${data?.error || 'unknown error'}` +
+                (data?.error_code ? ` [${data.error_code}]` : ''),
+                EXIT.GENERAL
+              )
+            }
+
+            sv.saveSession(acc!.id, platform, data.cookies || [])
+            sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+
+            return print({
+              success: true,
+              platform,
+              username,
+              observed_username: data.observed_username,
+              cookies_captured: (data.cookies || []).length,
+              captured_at: data.captured_at,
+            })
+          }
+
+          case 'session': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`tiktok account "${username}" not found locally`, EXIT.NOT_FOUND)
+            const sess = sv.loadSession(acc!.id)
+            if (!sess) {
+              return print({
+                platform,
+                username,
+                cached: false,
+                hint: `No cached session. Run: agentos tiktok login ${username}`,
+              })
+            }
+            const ageHours = sv.sessionAgeHours(acc!.id)
+            return print({
+              platform,
+              username,
+              cached: true,
+              cookies: sess.cookies.length,
+              captured_at: sess.captured_at,
+              age_hours: Number((ageHours || 0).toFixed(2)),
+              stale: (ageHours || 0) > 12,
+            })
+          }
+
+          case 'post':
+          case 'follow':
+          case 'like':
+          case 'delete':
+          case 'bio':
+          case 'name':
+          case 'pfp': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err(`<username> required`)
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`tiktok account "${username}" not found locally`, EXIT.NOT_FOUND)
+            const sess = sv.loadSession(acc!.id)
+            if (!sess || !sess.cookies || sess.cookies.length === 0) {
+              err(`No cached session for ${username}. Run 'tiktok login ${username}' first.`, EXIT.NOT_FOUND)
+            }
+            const psid = sv.getProxySessionId(platform, username)
+
+            let data: any
+            try {
+              if (subcommand === 'post') {
+                const caption = (flags.caption as string) || (flags.body as string) || (flags.text as string)
+                if (!caption) err('--caption "..." required')
+                const filePath = (flags.file as string) || (flags.path as string)
+                const videoUrl = flags.url as string
+                if (!filePath && !videoUrl) err('--file <local-path> or --url <https-url> required')
+                let media: { video_base64?: string; video_url?: string } = {}
+                if (filePath) {
+                  const { readFileSync, existsSync, statSync } = await import('fs')
+                  if (!existsSync(filePath)) err(`File not found: ${filePath}`, EXIT.NOT_FOUND)
+                  const size = statSync(filePath).size
+                  if (size > 100 * 1024 * 1024) err(`Video too large (${size} bytes, max 100 MB)`, EXIT.BAD_INPUT)
+                  const buf = readFileSync(filePath)
+                  media.video_base64 = `data:video/mp4;base64,${buf.toString('base64')}`
+                } else {
+                  media.video_url = videoUrl
+                }
+                const privacy = flags.privacy !== undefined ? Number(flags.privacy) as 0 | 1 | 2 : undefined
+                data = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy }, psid)
+              } else if (subcommand === 'follow') {
+                const target = (flags.user as string) || (flags.target as string)
+                if (!target) err('--user <@handle> required')
+                data = await ao.socialTiktokFollow(acc!.id, sess!.cookies, target, psid)
+              } else if (subcommand === 'like') {
+                const videoUrl = (flags.video as string) || (flags.url as string)
+                if (!videoUrl) err('--video <tiktok-url> required')
+                data = await ao.socialTiktokLike(acc!.id, sess!.cookies, videoUrl, psid)
+              } else if (subcommand === 'delete') {
+                const videoUrl = (flags.video as string) || (flags.url as string)
+                if (!videoUrl) err('--video <tiktok-url> required')
+                data = await ao.socialTiktokDelete(acc!.id, sess!.cookies, videoUrl, psid)
+              } else if (subcommand === 'bio') {
+                const text = (flags.text as string) || (flags.body as string)
+                if (text === undefined) err('--text "..." required (pass "" to clear)')
+                data = await ao.socialTiktokProfile(acc!.id, sess!.cookies, { bio: text }, psid)
+              } else if (subcommand === 'name') {
+                const text = (flags.display as string) || (flags.text as string) || (flags.name as string)
+                if (!text) err('--display "Display Name" required')
+                data = await ao.socialTiktokProfile(acc!.id, sess!.cookies, { display_name: text }, psid)
+              } else {
+                // pfp
+                const filePath = (flags.file as string) || (flags.path as string)
+                const imageUrl = flags.url as string
+                if (!filePath && !imageUrl) err('--file <local-path> or --url <https-url> required')
+                let image: { image_base64?: string; image_url?: string } = {}
+                if (filePath) {
+                  const { readFileSync, existsSync } = await import('fs')
+                  if (!existsSync(filePath)) err(`File not found: ${filePath}`, EXIT.NOT_FOUND)
+                  const buf = readFileSync(filePath)
+                  const ext = filePath.toLowerCase().match(/\.(png|jpg|jpeg|webp)$/)?.[1] || 'png'
+                  image.image_base64 = `data:image/${ext === 'jpg' ? 'jpeg' : ext};base64,${buf.toString('base64')}`
+                } else {
+                  image.image_url = imageUrl
+                }
+                data = await ao.socialTiktokAvatar(acc!.id, sess!.cookies, image, psid)
+              }
+            } catch (e: any) {
+              err(`${subcommand} failed: ${e.message}`, EXIT.GENERAL)
+            }
+
+            if (!data?.success) {
+              err(
+                `${subcommand} failed: ${data?.error || 'unknown'}` +
+                (data?.error_code ? ` [${data.error_code}]` : ''),
+                EXIT.GENERAL
+              )
+            }
+
+            sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+            return print({ success: true, platform, username, op: subcommand, ...(data?.data || {}) })
+          }
+
+          default:
+            err(`Unknown tiktok command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, follow, like, delete, bio, name, pfp`)
         }
         break
       }

@@ -26,24 +26,42 @@ import {
   updateBanner,
   changeUsername,
 } from "../services/social-operations";
+import { loginTikTok } from "../services/tiktok-login";
+import {
+  postVideo as tiktokPostVideo,
+  followUser as tiktokFollow,
+  likeVideo as tiktokLike,
+  deleteVideo as tiktokDelete,
+  updateProfile as tiktokUpdateProfile,
+  updateAvatar as tiktokUpdateAvatar,
+} from "../services/tiktok-operations";
 
 const router = Router();
 
-function requireXEnabled(
+/**
+ * Gate social routes on the one thing that actually has to be configured:
+ * the residential proxy. Without it, Playwright can't route any request and
+ * every operation would fail anyway. One clear precondition, no feature flag.
+ */
+function requireSocialReady(
   _req: AuthenticatedRequest,
   res: Response,
   next: () => void
 ): void {
-  if (process.env.SOCIAL_X_ENABLED !== "true") {
+  if (!process.env.IPROYAL_HOST || !process.env.IPROYAL_USERNAME || !process.env.IPROYAL_PASSWORD) {
     res.status(503).json({
-      error: "Social X is not enabled",
+      error: "Social operations not configured",
       message:
-        "Set SOCIAL_X_ENABLED=true along with IPROYAL_* env vars on the server to enable X login/post flows.",
+        "Server is missing IPROYAL_* env vars. Set IPROYAL_HOST, IPROYAL_PORT, IPROYAL_USERNAME, IPROYAL_PASSWORD to enable X and TikTok flows.",
     });
     return;
   }
   next();
 }
+
+// Back-compat aliases so all existing handler wiring keeps working.
+const requireXEnabled = requireSocialReady;
+const requireTikTokEnabled = requireSocialReady;
 
 /**
  * Pool-admin middleware — wallet-signature auth.
@@ -601,6 +619,180 @@ router.post(
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Username change failed" });
+    }
+  }
+);
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TikTok routes — same shape as Twitter: cookies travel in the body,
+   the server opens a Playwright session through the per-account proxy,
+   and the response carries the captured cookies or the operation result.
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | {
+  account_id: string;
+  proxy_session_id?: string;
+  cookies: any[];
+} {
+  const { account_id, cookies, proxy_session_id } = (req.body || {}) as {
+    account_id?: string;
+    proxy_session_id?: string;
+    cookies?: any[];
+  };
+  if (!account_id || !Array.isArray(cookies) || cookies.length === 0) {
+    res.status(400).json({
+      error: "Missing required fields",
+      message: "account_id and a non-empty cookies array are required.",
+    });
+    return null;
+  }
+  return { account_id, proxy_session_id, cookies };
+}
+
+router.post(
+  "/tiktok/login",
+  requireTikTokEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { account_id, proxy_session_id, sessionid, tt_csrf_token, tt_webid_v2, extra_cookies } =
+      (req.body || {}) as {
+        account_id?: string;
+        proxy_session_id?: string;
+        sessionid?: string;
+        tt_csrf_token?: string;
+        tt_webid_v2?: string;
+        extra_cookies?: Array<{ name: string; value: string; domain?: string; path?: string }>;
+      };
+
+    if (!account_id || !sessionid) {
+      res.status(400).json({ error: "account_id and sessionid required" });
+      return;
+    }
+
+    try {
+      const result = await loginTikTok({
+        account_id,
+        proxy_session_id,
+        sessionid,
+        tt_csrf_token,
+        tt_webid_v2,
+        extra_cookies,
+      });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "TikTok login failed" });
+    }
+  }
+);
+
+// Post is priced higher than other ops because the video upload takes longer
+// (and uses more proxy bandwidth). Follow / like / profile stay at $0.001.
+router.post(
+  "/tiktok/post",
+  requireTikTokEnabled,
+  requireAuth(0.01, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateTikTokOpBody(req, res);
+    if (!common) return;
+    const { caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch } = req.body as any;
+    if (!caption) { res.status(400).json({ error: "caption is required" }); return; }
+    if (!video_base64 && !video_url) { res.status(400).json({ error: "video_base64 or video_url is required" }); return; }
+    try {
+      const result = await tiktokPostVideo({
+        ...common, caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch,
+      });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "TikTok post failed" });
+    }
+  }
+);
+
+router.post(
+  "/tiktok/follow",
+  requireTikTokEnabled,
+  requireAuth(0.001, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateTikTokOpBody(req, res);
+    if (!common) return;
+    const { target_user } = req.body as { target_user?: string };
+    if (!target_user) { res.status(400).json({ error: "target_user required" }); return; }
+    try {
+      const result = await tiktokFollow({ ...common, target_user });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "TikTok follow failed" });
+    }
+  }
+);
+
+router.post(
+  "/tiktok/like",
+  requireTikTokEnabled,
+  requireAuth(0.001, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateTikTokOpBody(req, res);
+    if (!common) return;
+    const { video_url } = req.body as { video_url?: string };
+    if (!video_url) { res.status(400).json({ error: "video_url required" }); return; }
+    try {
+      const result = await tiktokLike({ ...common, video_url });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "TikTok like failed" });
+    }
+  }
+);
+
+router.post(
+  "/tiktok/delete",
+  requireTikTokEnabled,
+  requireAuth(0.001, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateTikTokOpBody(req, res);
+    if (!common) return;
+    const { video_url } = req.body as { video_url?: string };
+    if (!video_url) { res.status(400).json({ error: "video_url required" }); return; }
+    try {
+      const result = await tiktokDelete({ ...common, video_url });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "TikTok delete failed" });
+    }
+  }
+);
+
+router.post(
+  "/tiktok/profile",
+  requireTikTokEnabled,
+  requireAuth(0.001, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateTikTokOpBody(req, res);
+    if (!common) return;
+    const { bio, display_name } = req.body as { bio?: string; display_name?: string };
+    try {
+      const result = await tiktokUpdateProfile({ ...common, bio, display_name });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "TikTok profile update failed" });
+    }
+  }
+);
+
+router.post(
+  "/tiktok/avatar",
+  requireTikTokEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateTikTokOpBody(req, res);
+    if (!common) return;
+    const { image_base64, image_url } = req.body as { image_base64?: string; image_url?: string };
+    if (!image_base64 && !image_url) { res.status(400).json({ error: "image_base64 or image_url required" }); return; }
+    try {
+      const result = await tiktokUpdateAvatar({ ...common, image_base64, image_url });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "TikTok avatar update failed" });
     }
   }
 );

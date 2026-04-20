@@ -286,6 +286,73 @@ export class AgentOS {
     })
   }
 
+  // ── TikTok ──
+  async socialTiktokLogin(
+    accountId: string,
+    sessionid: string,
+    ttCsrfToken?: string,
+    ttWebidV2?: string,
+    extraCookies?: Array<{ name: string; value: string; domain?: string; path?: string }>,
+    proxySessionId?: string,
+  ): Promise<any> {
+    return this.request('POST', '/social/tiktok/login', {
+      account_id: accountId,
+      proxy_session_id: proxySessionId,
+      sessionid,
+      tt_csrf_token: ttCsrfToken,
+      tt_webid_v2: ttWebidV2,
+      extra_cookies: extraCookies,
+    })
+  }
+
+  async socialTiktokPost(
+    accountId: string,
+    cookies: any[],
+    caption: string,
+    media: { video_base64?: string; video_url?: string },
+    opts?: { privacy?: 0 | 1 | 2; allow_comments?: boolean; allow_duet?: boolean; allow_stitch?: boolean },
+    proxySessionId?: string,
+  ): Promise<any> {
+    return this.request('POST', '/social/tiktok/post', {
+      account_id: accountId,
+      proxy_session_id: proxySessionId,
+      cookies,
+      caption,
+      ...media,
+      ...(opts || {}),
+    })
+  }
+
+  async socialTiktokFollow(accountId: string, cookies: any[], targetUser: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/tiktok/follow', { account_id: accountId, proxy_session_id: proxySessionId, cookies, target_user: targetUser })
+  }
+
+  async socialTiktokLike(accountId: string, cookies: any[], videoUrl: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/tiktok/like', { account_id: accountId, proxy_session_id: proxySessionId, cookies, video_url: videoUrl })
+  }
+
+  async socialTiktokDelete(accountId: string, cookies: any[], videoUrl: string, proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/tiktok/delete', { account_id: accountId, proxy_session_id: proxySessionId, cookies, video_url: videoUrl })
+  }
+
+  async socialTiktokProfile(
+    accountId: string,
+    cookies: any[],
+    patch: { bio?: string; display_name?: string },
+    proxySessionId?: string,
+  ): Promise<any> {
+    return this.request('POST', '/social/tiktok/profile', { account_id: accountId, proxy_session_id: proxySessionId, cookies, ...patch })
+  }
+
+  async socialTiktokAvatar(
+    accountId: string,
+    cookies: any[],
+    image: { image_base64?: string; image_url?: string },
+    proxySessionId?: string,
+  ): Promise<any> {
+    return this.request('POST', '/social/tiktok/avatar', { account_id: accountId, proxy_session_id: proxySessionId, cookies, ...image })
+  }
+
   // ── Info ──
   async pricing(): Promise<any> {
     return this.request('GET', '/pricing')

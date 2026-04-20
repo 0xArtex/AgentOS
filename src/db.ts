@@ -455,6 +455,20 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_projects_user ON projects(user_id);
   `);
 
+  // Per-account action log — drives server-side velocity caps for platforms
+  // that suspend aggressively on high action rates (TikTok in particular).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_action_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      acted_at INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_social_action_log_acc_plat_at
+      ON social_action_log(account_id, platform, acted_at);
+  `);
+
   // Wallet-auth nonces (single-use, short-TTL challenges for /auth/wallet)
   db.exec(`
     CREATE TABLE IF NOT EXISTS wallet_auth_nonces (
