@@ -250,9 +250,28 @@ export async function loginTikTok(
           page.locator('[id*="captcha"], [class*="captcha-verify"], iframe[src*="captcha"]').first().waitFor({ state: "visible", timeout: 8000 }),
           page.locator('text=/verification code|check your email|SMS/i').first().waitFor({ state: "visible", timeout: 8000 }),
           page.locator('[data-e2e="profile-icon"], [data-e2e="upload-icon"]').first().waitFor({ state: "visible", timeout: 8000 }),
-          page.locator('text=/incorrect|does not match|wrong password/i').first().waitFor({ state: "visible", timeout: 8000 }),
+          page.locator('text=/incorrect|does not match|wrong password|Maximum number of attempts/i').first().waitFor({ state: "visible", timeout: 8000 }),
         ]).catch(() => null);
       } catch { /* noop */ }
+
+      // Rate-limit check — TikTok shows "Maximum number of attempts reached.
+      // Try again later." after too many failed login attempts from an IP or
+      // on an account. Cooldown is typically 15-60 minutes. Bail fast so the
+      // caller doesn't keep hammering and extending the lock.
+      const rateLimited = await page
+        .locator('text=/Maximum number of attempts|Try again later|too many attempts/i')
+        .first()
+        .isVisible({ timeout: 500 })
+        .catch(() => false);
+      if (rateLimited) {
+        const diag = await snapshot("tiktok-rate-limited");
+        return {
+          success: false,
+          error: "TikTok has rate-limited this account/IP: 'Maximum number of attempts reached. Try again later.' Wait 15-60 minutes before retrying, or try a different account.",
+          error_code: "ACCOUNT_BLOCKED",
+          diagnostics: diag,
+        };
+      }
 
       // Bad-credential check.
       const credError = await page
