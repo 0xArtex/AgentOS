@@ -292,18 +292,29 @@ export async function loginTikTok(
         };
       }
 
-      // After submit we can land in one of three places:
+      // After submit we can land in one of several places:
       //   a) Captcha — handle via CapSolver below
-      //   b) SMS verification page — bail out, not auto-solvable
+      //   b) SMS / email verification page — bail out, not auto-solvable
       //   c) Home feed — success, no captcha was needed
+      //   d) Inline error (bad creds, rate-limited)
       //
-      // We check for captcha first because it's the most common gate.
+      // Critical: TikTok's backend can take 30-60s on fresh residential IPs
+      // before responding — the submit button sits with a spinner until it
+      // does. Race the possible terminal states against a long (60s) timeout
+      // instead of giving up after 8s and reporting "no signal".
       try {
         await Promise.race([
-          page.locator('[id*="captcha"], [class*="captcha-verify"], iframe[src*="captcha"]').first().waitFor({ state: "visible", timeout: 8000 }),
-          page.locator('text=/verification code|check your email|SMS/i').first().waitFor({ state: "visible", timeout: 8000 }),
-          page.locator('[data-e2e="profile-icon"], [data-e2e="upload-icon"]').first().waitFor({ state: "visible", timeout: 8000 }),
-          page.locator('text=/incorrect|does not match|wrong password|Maximum number of attempts/i').first().waitFor({ state: "visible", timeout: 8000 }),
+          // URL left the login page (usually means success or challenge redirect)
+          page.waitForURL((u: any) => {
+            const s = typeof u === "string" ? u : u.toString();
+            return !s.includes("/login/phone-or-email") && !s.includes("/login/email");
+          }, { timeout: 60000 }),
+          // Captcha appeared
+          page.locator('[id*="captcha"], [class*="captcha-verify"], iframe[src*="captcha"]').first().waitFor({ state: "visible", timeout: 60000 }),
+          // Authed nav visible
+          page.locator('[data-e2e="profile-icon"], [data-e2e="upload-icon"]').first().waitFor({ state: "visible", timeout: 60000 }),
+          // Any known inline error
+          page.locator('text=/incorrect|does not match|wrong password|Maximum number of attempts|Too many attempts|verification code|check your email|SMS/i').first().waitFor({ state: "visible", timeout: 60000 }),
         ]).catch(() => null);
       } catch { /* noop */ }
 
@@ -439,24 +450,29 @@ export async function loginTikTok(
     // Positive signal — the profile/upload buttons only render when authed.
     // `[data-e2e="profile-icon"]` and `[data-e2e="upload-icon"]` are stable
     // identifiers used by TikTok's web UI for the top-nav auth buttons.
+    // Wait up to 30s because TikTok can redirect through an intermediate
+    // verification page before landing on /foryou.
     const authed = await Promise.race([
       page
         .locator('[data-e2e="profile-icon"], [data-e2e="upload-icon"], [data-e2e="nav-profile"]')
         .first()
-        .waitFor({ state: "visible", timeout: 15000 })
+        .waitFor({ state: "visible", timeout: 30000 })
         .then(() => true),
       page
         .locator('[data-e2e="top-login-button"], a[href*="/login"]')
         .first()
-        .waitFor({ state: "visible", timeout: 15000 })
+        .waitFor({ state: "visible", timeout: 30000 })
         .then(() => false),
     ]).catch(() => null);
 
     if (authed !== true) {
       const diag = await snapshot("no-auth-signal");
+      const pathMsg = hasCookies
+        ? "sessionid may be dead or the region is challenge-walled"
+        : "the form-login flow may have been blocked by an unhandled challenge (captcha variant, device verification, or geography mismatch)";
       return {
         success: false,
-        error: "Could not detect authenticated UI after cookie injection. sessionid may be dead or the region is challenge-walled.",
+        error: `Could not detect authenticated UI (${hasCookies ? "cookie" : "form"} path). ${pathMsg}. Check diagnostics.screenshot_path for the exact TikTok page state.`,
         error_code: "LOGIN_TIMEOUT",
         diagnostics: diag,
       };
