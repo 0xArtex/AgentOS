@@ -211,23 +211,42 @@ export async function loginTikTok(
     // Fill username + password, submit, handle captcha via CapSolver.
     if (!hasCookies) {
       try {
-        // TikTok's email-login page renders an email + password input pair.
-        // The selectors below have been stable since early 2025.
+        // TikTok's login form uses React with trusted-event validation — the
+        // Log in button stays `disabled` unless real keydown/keypress/keyup
+        // events fire. `fill()` sets the value via JS and bypasses them, so
+        // we type character-by-character with `pressSequentially`.
         const emailInput = page.locator('input[name="username"], input[type="text"]').first();
         await emailInput.waitFor({ state: "visible", timeout: 20000 });
         await emailInput.click();
-        await emailInput.fill(req.login!);
+        await emailInput.press("Control+A");
+        await emailInput.press("Delete");
+        await emailInput.pressSequentially(req.login!, { delay: 40 });
 
         const passwordInput = page.locator('input[type="password"]').first();
         await passwordInput.waitFor({ state: "visible", timeout: 10000 });
         await passwordInput.click();
-        await passwordInput.fill(req.password!);
+        await passwordInput.press("Control+A");
+        await passwordInput.press("Delete");
+        await passwordInput.pressSequentially(req.password!, { delay: 40 });
 
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(600);
 
         const loginButton = page
           .locator('button[data-e2e="login-button"], button[type="submit"]')
           .first();
+        // Wait for React to enable the button now that inputs have real values.
+        try {
+          await loginButton.waitFor({ state: "visible", timeout: 5000 });
+          // Poll for `disabled` attribute clearing (up to 10s) — covers the
+          // brief window after typing where React is still validating.
+          const enableStart = Date.now();
+          while (Date.now() - enableStart < 10000) {
+            const disabled = await loginButton.getAttribute("disabled").catch(() => null);
+            if (disabled === null) break;
+            await page.waitForTimeout(200);
+          }
+        } catch { /* noop */ }
+
         await loginButton.click({ timeout: 8000 });
       } catch (e: any) {
         const diag = await snapshot("form-fill-failed");
