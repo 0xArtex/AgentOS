@@ -649,23 +649,43 @@ function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | 
   return { account_id, proxy_session_id, cookies };
 }
 
+// Login is priced higher when it has to solve a captcha (~$0.02 vs $0.005).
+// We charge the higher rate up front and don't refund on captcha-less logins,
+// since the browser spin-up cost dominates either way.
 router.post(
   "/tiktok/login",
   requireTikTokEnabled,
-  requireAuth(0.005, "general"),
+  requireAuth(0.02, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
-    const { account_id, proxy_session_id, sessionid, tt_csrf_token, tt_webid_v2, extra_cookies } =
-      (req.body || {}) as {
-        account_id?: string;
-        proxy_session_id?: string;
-        sessionid?: string;
-        tt_csrf_token?: string;
-        tt_webid_v2?: string;
-        extra_cookies?: Array<{ name: string; value: string; domain?: string; path?: string }>;
-      };
+    const {
+      account_id,
+      proxy_session_id,
+      sessionid,
+      tt_csrf_token,
+      tt_webid_v2,
+      extra_cookies,
+      login,
+      password,
+    } = (req.body || {}) as {
+      account_id?: string;
+      proxy_session_id?: string;
+      sessionid?: string;
+      tt_csrf_token?: string;
+      tt_webid_v2?: string;
+      extra_cookies?: Array<{ name: string; value: string; domain?: string; path?: string }>;
+      login?: string;
+      password?: string;
+    };
 
-    if (!account_id || !sessionid) {
-      res.status(400).json({ error: "account_id and sessionid required" });
+    if (!account_id) {
+      res.status(400).json({ error: "account_id required" });
+      return;
+    }
+    if (!sessionid && !(login && password)) {
+      res.status(400).json({
+        error: "Missing credentials",
+        message: "Provide either { sessionid } for cookie-injection login, or { login, password } for form login.",
+      });
       return;
     }
 
@@ -677,6 +697,8 @@ router.post(
         tt_csrf_token,
         tt_webid_v2,
         extra_cookies,
+        login,
+        password,
       });
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {

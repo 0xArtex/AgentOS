@@ -1503,7 +1503,7 @@ async function main() {
             title: 'tiktok',
             subtitle: 'Automated TikTok account management',
             commands: [
-              { name: 'import',  description: 'Save a BYO TikTok account. Export cookies from DevTools → Application → Cookies → .tiktok.com', hint: '<username> --sessionid ... --csrf ... --webid ...' },
+              { name: 'import',  description: 'Save a BYO TikTok account. Pass --credentials-line "login:pw:email:email_pw" from a marketplace, or extract cookies from DevTools → Application → Cookies → .tiktok.com and pass --sessionid.', hint: '--credentials-line "..." OR <username> --sessionid ... --csrf ... --webid ...' },
               { name: 'list',    description: 'List all local TikTok accounts' },
               { name: 'info',    description: 'Show one account', hint: '<username>' },
               { name: 'rename',  description: 'Update the local handle', hint: '<old> --to <new>' },
@@ -1526,23 +1526,46 @@ async function main() {
 
         switch (subcommand) {
           case 'import': {
-            const username = (flags.username as string) || positional[0]
+            // Two formats:
+            //   --credentials-line "login:password:email:email_password"  (from AccsMarket etc.)
+            //   OR explicit flags --login / --password / --email / --sessionid / --csrf / --webid
+            const line = flags['credentials-line'] as string
+            let login: string | undefined
+            let password: string | undefined
+            let email: string | undefined
+            let emailPassword: string | undefined
+            let username = (flags.username as string) || positional[0]
+
+            if (line) {
+              const parts = line.split(':')
+              if (parts.length < 4) err(`--credentials-line must have at least 4 colon-separated fields, got ${parts.length}`)
+              login = parts[0]
+              password = parts[1]
+              email = parts[2]
+              emailPassword = parts[3]
+              if (!username) username = login
+            } else {
+              login = flags.login as string
+              password = flags.password as string
+              email = flags.email as string
+              emailPassword = (flags['email-password'] as string) || (flags.emailpw as string)
+            }
+
             const sessionid = flags.sessionid as string
             const csrf = (flags.csrf as string) || (flags['tt-csrf'] as string)
             const webid = (flags.webid as string) || (flags['tt-webid'] as string)
             const totpSeed = (flags['totp-seed'] as string) || (flags.totp as string)
-            const password = flags.password as string
-            const email = flags.email as string
-            const emailPassword = (flags['email-password'] as string) || (flags.emailpw as string)
             const profileUrl = flags['profile-url'] as string
 
-            if (!username) err('<username> (or --username) required')
-            if (!sessionid) err('--sessionid <hex> required.\n\n  How to get it:\n    1. Open tiktok.com in Chrome, log in\n    2. DevTools (F12) → Application → Cookies → https://www.tiktok.com\n    3. Copy the values of: sessionid, tt_csrf_token, tt_webid_v2\n    4. Run: agentos tiktok import <username> --sessionid <hex> --csrf <token> --webid <token>')
+            if (!username) err('<username> (or --username / --credentials-line) required')
+            if (!password && !sessionid) {
+              err('Provide either --sessionid <hex> for cookie-injection, or --password (via --credentials-line or --password flag) for password login.')
+            }
 
             const creds: import('./social-vault.js').SocialCredentials = {
-              login: username,
-              password: password || 'unknown',   // TikTok doesn't need a password with cookie-injection
-              email,
+              login: login || username,
+              password: password || 'unknown',
+              email: email || login,
               email_password: emailPassword,
               totp_seed: totpSeed,
               profile_url: profileUrl,
@@ -1550,9 +1573,12 @@ async function main() {
               tiktok_csrf: csrf,
               tiktok_webid: webid,
             }
-            const summary = sv.importAccount(platform, username, creds, { source: 'import' })
-            log(`tiktok import: ${summary.username} (${summary.id}) [cookies ${csrf && webid ? 'complete' : 'partial — login may fail until you add --csrf + --webid'}]`)
-            return print({ ...summary, has_csrf: !!csrf, has_webid: !!webid })
+            const summary = sv.importAccount(platform, username, creds, {
+              source: line ? 'marketplace-line' : 'import',
+            })
+            const loginPath = sessionid ? 'cookie-injection' : 'form-login (requires CAPSOLVER_API_KEY server-side)'
+            log(`tiktok import: ${summary.username} (${summary.id}) [login path: ${loginPath}]`)
+            return print({ ...summary, has_sessionid: !!sessionid, has_password: !!password, login_path: loginPath })
           }
 
           case 'list': {
@@ -1614,21 +1640,23 @@ async function main() {
             if (!acc) err(`tiktok account "${username}" not found locally`, EXIT.NOT_FOUND)
 
             const creds = sv.unlockCredentials(platform, username)
-            if (!creds.tiktok_sessionid) {
-              err('Account has no tiktok_sessionid. Re-import with --sessionid <hex>.', EXIT.BAD_INPUT)
+            const hasCookies = !!creds.tiktok_sessionid
+            const hasPassword = !!(creds.login && creds.password && creds.password !== 'unknown')
+            if (!hasCookies && !hasPassword) {
+              err('Account has no cookies and no password. Re-import with either --sessionid or --credentials-line.', EXIT.BAD_INPUT)
             }
             const psid = sv.getProxySessionId(platform, username)
 
             let data: any
             try {
-              data = await ao.socialTiktokLogin(
-                acc!.id,
-                creds.tiktok_sessionid!,
-                creds.tiktok_csrf,
-                creds.tiktok_webid,
-                undefined,
-                psid,
-              )
+              data = await ao.socialTiktokLogin(acc!.id, {
+                sessionid: creds.tiktok_sessionid,
+                ttCsrfToken: creds.tiktok_csrf,
+                ttWebidV2: creds.tiktok_webid,
+                login: hasCookies ? undefined : creds.login,
+                password: hasCookies ? undefined : creds.password,
+                proxySessionId: psid,
+              })
             } catch (e: any) {
               err(`Login failed: ${e.message}`, EXIT.GENERAL)
             }

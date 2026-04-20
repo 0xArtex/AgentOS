@@ -287,21 +287,34 @@ export class AgentOS {
   }
 
   // ── TikTok ──
+  /**
+   * Log a TikTok account in. Two paths:
+   *   - Cookie injection: pass `sessionid` (+ optional `tt_csrf_token`, `tt_webid_v2`).
+   *   - Form login:       pass `login` + `password` — server uses CapSolver
+   *                       to handle any captcha and harvests the cookies.
+   * Either path returns the full cookie jar for the caller to cache locally.
+   */
   async socialTiktokLogin(
     accountId: string,
-    sessionid: string,
-    ttCsrfToken?: string,
-    ttWebidV2?: string,
-    extraCookies?: Array<{ name: string; value: string; domain?: string; path?: string }>,
-    proxySessionId?: string,
+    opts: {
+      sessionid?: string
+      ttCsrfToken?: string
+      ttWebidV2?: string
+      extraCookies?: Array<{ name: string; value: string; domain?: string; path?: string }>
+      login?: string
+      password?: string
+      proxySessionId?: string
+    },
   ): Promise<any> {
     return this.request('POST', '/social/tiktok/login', {
       account_id: accountId,
-      proxy_session_id: proxySessionId,
-      sessionid,
-      tt_csrf_token: ttCsrfToken,
-      tt_webid_v2: ttWebidV2,
-      extra_cookies: extraCookies,
+      proxy_session_id: opts.proxySessionId,
+      sessionid: opts.sessionid,
+      tt_csrf_token: opts.ttCsrfToken,
+      tt_webid_v2: opts.ttWebidV2,
+      extra_cookies: opts.extraCookies,
+      login: opts.login,
+      password: opts.password,
     })
   }
 
