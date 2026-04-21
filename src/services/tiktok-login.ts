@@ -743,7 +743,21 @@ async function solveDeviceVerification(
     .first();
   await sendButton.click({ timeout: 3000 }).catch(() => { /* auto-sent */ });
 
+  await page.waitForTimeout(1500);
   await snapshot("verification-code-sent");
+
+  // Check for "Send code failed" — TikTok refusing to dispatch the email
+  // because this account/IP has been flagged for suspicious activity or
+  // hit an internal rate cap. No point polling IMAP if no email is coming.
+  const sendFailed = await page
+    .locator('text=/Send code failed|Failed to send|Too many requests|try again later/i')
+    .first()
+    .isVisible({ timeout: 500 })
+    .catch(() => false);
+  if (sendFailed) {
+    const diag = await snapshot("send-code-failed");
+    throw new Error(`TikTok refused to send the verification email ("Send code failed"). Account is likely flagged from prior failed attempts — wait several hours or try a fresh account. Diag: ${diag.screenshot_path}`);
+  }
 
   // 3. Poll the inbox for the code. Use the TikTok sender filter so we don't
   //    pick up unrelated mail that happens to contain digit sequences.
