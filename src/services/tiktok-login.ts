@@ -588,6 +588,7 @@ async function solveCaptcha(
   req: TikTokLoginRequest,
   snapshot: (tag: string) => Promise<any>
 ): Promise<void> {
+  await snapshot("captcha-start");
   // 1. Find the captcha container. TikTok uses different wrappers per variant:
   //    - Classic slider: `[id^="captcha_container"]`
   //    - 3D rotate ("Drag to fit the puzzle"): often a modal with the drag icon
@@ -652,6 +653,10 @@ async function solveCaptcha(
     pieceImage,
   });
 
+  // Log the solution so we can debug wrong angles / coordinates.
+  console.log(`[tiktok-captcha] CapSolver returned: ${JSON.stringify(solution)}`);
+  await snapshot("captcha-before-drag");
+
   // 4. Apply the solution. Slider = drag the piece `x` px right. Whirl = drag
   //    the rotation handle proportional to `angle`. Shape = click points.
   if (solution.type === "slider") {
@@ -712,7 +717,8 @@ async function solveCaptcha(
   }
 
   // 5. Wait a beat for the page to accept the solution.
-  await page.waitForTimeout(1500);
+  await page.waitForTimeout(2000);
+  await snapshot("captcha-after-drag");
 }
 
 /**
