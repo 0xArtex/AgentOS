@@ -160,7 +160,20 @@ export async function fetchVerificationCode(req: FetchCodeRequest): Promise<Fetc
       await client.connect();
     } catch (e: any) {
       const msg = String(e?.message || e);
-      const authFailed = /AUTH|authenticat|LOGIN/i.test(msg);
+      const authFailed = /AUTH|authenticat|LOGIN|basic auth|disabled/i.test(msg);
+
+      // Microsoft disabled basic IMAP auth for consumer hotmail/outlook/live
+      // accounts in late 2022. These providers now require OAuth2, which is
+      // a dedicated integration. Surface this as a specific error so the user
+      // knows to buy accounts with a different email provider.
+      if (endpoint.host.includes("outlook.office365.com")) {
+        return {
+          success: false,
+          error: `Microsoft disabled basic IMAP auth for consumer accounts (hotmail/outlook/live) in late 2022. This account needs OAuth2, which isn't wired yet. Recommendation: buy accounts with rambler.ru, mail.ru, or gmail (with app password) email — those use password auth.`,
+          error_code: "IMAP_AUTH_FAILED",
+        };
+      }
+
       return {
         success: false,
         error: `IMAP ${authFailed ? "auth" : "connect"} to ${endpoint.host}:${endpoint.port} failed: ${msg}`,
