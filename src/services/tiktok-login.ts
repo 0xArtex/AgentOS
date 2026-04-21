@@ -763,22 +763,38 @@ async function solveDeviceVerification(
     throw new Error(codeResult.error || "Could not retrieve verification code from email");
   }
 
-  // 4. Enter the code. TikTok's verification input is typically a single
-  //    text field; some variants split into 6 individual cells — handle both.
-  const singleInput = page
-    .locator('input[autocomplete="one-time-code"], input[inputmode="numeric"]:not([name="username"]), input[name="captcha_code"]')
-    .first();
-  const singleVisible = await singleInput.isVisible({ timeout: 2000 }).catch(() => false);
+  // 4. Enter the code. TikTok renders this as a single text input with a
+  //    placeholder like "Enter 6-digit code". Some older variants used a
+  //    multi-cell layout — handle both for resilience.
+  //
+  //    Wait up to 8s for the input to render — TikTok shows a loading
+  //    spinner while it's dispatching the email, and the input only appears
+  //    once the "Send code" call completes.
+  const singleInputSelectors = [
+    'input[placeholder*="digit" i]',
+    'input[placeholder*="code" i]',
+    'input[autocomplete="one-time-code"]',
+    'input[inputmode="numeric"]:not([name="username"]):not([name="password"])',
+    'input[name="captcha_code"]',
+  ].join(", ");
+
+  const singleInput = page.locator(singleInputSelectors).first();
+  const singleVisible = await singleInput
+    .waitFor({ state: "visible", timeout: 8000 })
+    .then(() => true)
+    .catch(() => false);
 
   if (singleVisible) {
     await singleInput.click();
+    await singleInput.press("Control+A");
+    await singleInput.press("Delete");
     await singleInput.pressSequentially(codeResult.code, { delay: 80 });
   } else {
-    // Multi-cell input — type digit by digit focusing each cell.
+    // Multi-cell fallback.
     const cells = page.locator('input[maxlength="1"][inputmode="numeric"]');
     const count = await cells.count();
     if (count < codeResult.code.length) {
-      throw new Error(`Expected ${codeResult.code.length} input cells, found ${count}`);
+      throw new Error(`Could not find verification code input — neither single-input nor multi-cell layout matched (found 0 cells, expected selector for single input: "${singleInputSelectors}")`);
     }
     for (let i = 0; i < codeResult.code.length; i++) {
       await cells.nth(i).fill(codeResult.code[i]);
@@ -786,12 +802,27 @@ async function solveDeviceVerification(
     }
   }
 
-  await page.waitForTimeout(400);
+  // Brief pause — TikTok's React re-renders + enables the submit button
+  // after receiving input events.
+  await page.waitForTimeout(500);
 
-  // 5. Submit — some variants auto-submit when the full code is entered;
-  //    others need an explicit Submit/Verify click.
+  // 5. Submit. The "Next" button enables once the 6-digit code is fully
+  //    entered; poll for it to be enabled before clicking.
   const submitBtn = page
-    .locator('button:has-text("Next"), button:has-text("Submit"), button:has-text("Verify"), button[type="submit"]:not([data-e2e="login-button"])')
+    .locator('button:has-text("Next"), button:has-text("Submit"), button:has-text("Verify"), button:has-text("Confirm"), button[type="submit"]:not([data-e2e="login-button"])')
     .first();
-  await submitBtn.click({ timeout: 3000 }).catch(() => { /* auto-submitted */ });
+
+  try {
+    await submitBtn.waitFor({ state: "visible", timeout: 5000 });
+    // Poll for the disabled attribute to clear (up to 5s).
+    const enableStart = Date.now();
+    while (Date.now() - enableStart < 5000) {
+      const disabled = await submitBtn.getAttribute("disabled").catch(() => null);
+      if (disabled === null) break;
+      await page.waitForTimeout(200);
+    }
+    await submitBtn.click({ timeout: 5000 });
+  } catch {
+    /* auto-submitted or locator changed — let the outer auth check decide */
+  }
 }
