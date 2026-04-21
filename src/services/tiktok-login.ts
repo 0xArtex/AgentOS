@@ -23,6 +23,63 @@ function humanDelay(min: number = 400, max: number = 1200): Promise<void> {
   return new Promise((r) => setTimeout(r, min + Math.random() * (max - min)));
 }
 
+/**
+ * Simulate a few seconds of human-style "looking around" on the page —
+ * random mouse movements and a small scroll. Anti-bot systems track
+ * pre-click mouse entropy; a cursor that teleports straight to the submit
+ * button gets flagged even if every other signal looks fine.
+ */
+async function humanBrowse(page: any, durationMs: number = 2000): Promise<void> {
+  const start = Date.now();
+  const viewport = page.viewportSize() || { width: 1920, height: 1080 };
+
+  while (Date.now() - start < durationMs) {
+    const x = Math.floor(Math.random() * viewport.width);
+    const y = Math.floor(Math.random() * viewport.height * 0.8);
+    await page.mouse.move(x, y, { steps: 5 + Math.floor(Math.random() * 15) });
+    await new Promise((r) => setTimeout(r, 120 + Math.random() * 280));
+  }
+  // Small scroll — humans usually scroll at least once before interacting.
+  await page.mouse.wheel(0, 40 + Math.floor(Math.random() * 120));
+  await new Promise((r) => setTimeout(r, 300 + Math.random() * 400));
+  await page.mouse.wheel(0, -(20 + Math.floor(Math.random() * 80)));
+  await new Promise((r) => setTimeout(r, 200 + Math.random() * 300));
+}
+
+/**
+ * Move the mouse towards a target element along a slightly-curved, variable-
+ * speed path, then click. Real humans don't straight-line-teleport the cursor.
+ */
+async function humanClick(page: any, locator: any, opts: { clickDelayMs?: number } = {}): Promise<void> {
+  const box = await locator.boundingBox();
+  if (!box) {
+    await locator.click();
+    return;
+  }
+  // Pick a click point slightly offset from center — real users never click dead center.
+  const targetX = box.x + box.width * (0.3 + Math.random() * 0.4);
+  const targetY = box.y + box.height * (0.3 + Math.random() * 0.4);
+
+  // Approach in 2-3 segments so the path has a slight curve.
+  const waypoints = 2 + Math.floor(Math.random() * 2);
+  for (let i = 1; i <= waypoints; i++) {
+    const progress = i / waypoints;
+    const jitterX = (Math.random() - 0.5) * 40;
+    const jitterY = (Math.random() - 0.5) * 40;
+    await page.mouse.move(
+      box.x + box.width / 2 + (targetX - box.x - box.width / 2) * progress + jitterX,
+      box.y + box.height / 2 + (targetY - box.y - box.height / 2) * progress + jitterY,
+      { steps: 5 + Math.floor(Math.random() * 10) },
+    );
+    await new Promise((r) => setTimeout(r, 30 + Math.random() * 80));
+  }
+  await page.mouse.move(targetX, targetY, { steps: 3 });
+  await new Promise((r) => setTimeout(r, (opts.clickDelayMs ?? 50) + Math.random() * 200));
+  await page.mouse.down();
+  await new Promise((r) => setTimeout(r, 40 + Math.random() * 80));
+  await page.mouse.up();
+}
+
 type Browser = any;
 
 export interface TikTokLoginRequest {
@@ -237,12 +294,15 @@ export async function loginTikTok(
         // Log in button stays `disabled` unless real keydown/keypress/keyup
         // events fire. `fill()` sets the value via JS and bypasses them, so
         // we type character-by-character with `pressSequentially`.
-        // Small wait after page load — a human reads the form before typing.
-        await humanDelay(800, 1600);
+        // Humans don't submit instantly after page load — they read, move the
+        // cursor around, scroll a bit. Simulate 2-3s of that before touching
+        // anything. Anti-bot systems (TikTok specifically) track pre-click
+        // mouse entropy; zero-entropy sessions get silently dropped.
+        await humanBrowse(page, 2500);
 
         const emailInput = page.locator('input[name="username"], input[type="text"]').first();
         await emailInput.waitFor({ state: "visible", timeout: 20000 });
-        await emailInput.click();
+        await humanClick(page, emailInput);
         await humanDelay(150, 350);
         await emailInput.press("Control+A");
         await emailInput.press("Delete");
@@ -250,11 +310,11 @@ export async function loginTikTok(
         await emailInput.pressSequentially(req.login!, { delay: 45 + Math.random() * 60 });
 
         // Pause between fields — humans don't tab instantly.
-        await humanDelay(500, 1100);
+        await humanDelay(800, 1800);
 
         const passwordInput = page.locator('input[type="password"]').first();
         await passwordInput.waitFor({ state: "visible", timeout: 10000 });
-        await passwordInput.click();
+        await humanClick(page, passwordInput);
         await humanDelay(150, 350);
         await passwordInput.press("Control+A");
         await passwordInput.press("Delete");
@@ -263,7 +323,7 @@ export async function loginTikTok(
         // Blur the password field so React runs its on-blur validators
         // (some TikTok variants only enable the submit button after blur).
         await page.keyboard.press("Tab");
-        await humanDelay(400, 900);
+        await humanDelay(600, 1400);
 
         const loginButton = page
           .locator('button[data-e2e="login-button"], button[type="submit"]')
@@ -292,7 +352,10 @@ export async function loginTikTok(
           };
         }
 
-        await loginButton.click({ timeout: 5000 });
+        // Pause + human-style click — stops the bot-classifier from seeing a
+        // fills-form-and-immediately-submits pattern.
+        await humanDelay(400, 900);
+        await humanClick(page, loginButton, { clickDelayMs: 100 });
       } catch (e: any) {
         const diag = await snapshot("form-fill-failed");
         return {
