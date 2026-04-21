@@ -222,7 +222,28 @@ export async function fetchVerificationCode(req: FetchCodeRequest): Promise<Fetc
     return { success: false, error: `ProtonMail / similar providers require a local Bridge — not supported server-side.`, error_code: "PROVIDER_UNKNOWN" };
   }
 
-  const codeRegex = new RegExp(`\\b(\\d{${minDigits},${maxDigits}})\\b`);
+  // Code extraction: try contextual patterns first (where "code" is adjacent
+  // to the digits) before falling back to any N-digit sequence. Avoids
+  // picking up tracking numbers / account IDs that happen to be 6 digits.
+  const digitRange = `${minDigits},${maxDigits}`;
+  const codePatterns = [
+    // "Your verification code is 123456"
+    new RegExp(`verification\\s*code[\\s:]*is[\\s:]*(\\d{${digitRange}})`, "i"),
+    // "Verification code: 123456" / "Verification code 123456"
+    new RegExp(`verification\\s*code[\\s:]+(\\d{${digitRange}})`, "i"),
+    // "Login code is 123456" / "Login code: 123456"
+    new RegExp(`login\\s*code[\\s:]+is?\\s*(\\d{${digitRange}})`, "i"),
+    // "Code: 123456" / "code is 123456"
+    new RegExp(`\\bcode[\\s:]+is[\\s:]*(\\d{${digitRange}})\\b`, "i"),
+    new RegExp(`\\bcode[\\s:]+(\\d{${digitRange}})\\b`, "i"),
+    // Code on its own line (very common in plain-text verification mails)
+    new RegExp(`(?:^|\\n)\\s*(\\d{${digitRange}})\\s*(?:\\n|$)`, "m"),
+    // Subject line "Your TikTok verification code is 123456"
+    new RegExp(`tiktok[^\\d]{0,50}(\\d{${digitRange}})`, "i"),
+    // Last-resort fallback — any N-digit sequence. Unreliable, only used if
+    // every contextual pattern failed.
+    new RegExp(`\\b(\\d{${digitRange}})\\b`),
+  ];
 
   const client = new ImapFlow({
     host: endpoint.host,
@@ -280,7 +301,7 @@ export async function fetchVerificationCode(req: FetchCodeRequest): Promise<Fetc
       const hit = await scanOnce(client, {
         sinceMs: Date.now() - lookbackMs,
         fromContains: req.fromContains,
-        codeRegex,
+        codePatterns,
       });
       if (hit) return { success: true, ...hit, matched_at: new Date().toISOString() };
       await new Promise((r) => setTimeout(r, pollIntervalMs));
@@ -304,16 +325,27 @@ export async function fetchVerificationCode(req: FetchCodeRequest): Promise<Fetc
  */
 async function scanOnce(
   client: ImapFlow,
-  opts: { sinceMs: number; fromContains?: string; codeRegex: RegExp }
+  opts: { sinceMs: number; fromContains?: string; codePatterns: RegExp[] }
 ): Promise<{ code: string; subject?: string; from?: string } | null> {
   const folders = ["INBOX", "Junk", "Junk Email", "Spam", "[Gmail]/Spam"];
+
+  // Collect candidate messages from all folders, then dedupe + sort by the
+  // actual envelope date — IMAP seq numbers are not reliably time-ordered
+  // across folders, so we need real dates to pick the newest mail.
+  interface Candidate {
+    subject: string;
+    from: string;
+    date: Date;
+    haystack: string;
+  }
+  const candidates: Candidate[] = [];
 
   for (const folder of folders) {
     let lock;
     try {
       lock = await client.getMailboxLock(folder);
     } catch {
-      continue; // folder doesn't exist on this provider
+      continue;
     }
 
     try {
@@ -321,11 +353,7 @@ async function scanOnce(
       const search = await client.search({ since });
       if (!search || search.length === 0) continue;
 
-      // Newest first — avoid returning stale codes if an older message happens
-      // to match the filter.
-      const ordered = [...search].sort((a, b) => Number(b) - Number(a));
-
-      for (const seq of ordered) {
+      for (const seq of search) {
         const message = await client.fetchOne(seq, {
           envelope: true,
           source: true,
@@ -338,22 +366,38 @@ async function scanOnce(
         if (opts.fromContains && !from.toLowerCase().includes(opts.fromContains.toLowerCase())) continue;
 
         const subject = (env?.subject as string) || "";
+        const date = env?.date ? new Date(env.date) : new Date(0);
+
         const rawSource = message.source?.toString("utf8") || "";
-        // Decode quoted-printable / base64 lazily — most verify emails are
-        // plain text, and if not, the digits are usually also in headers /
-        // subject or the fallback HTML text content.
         const bodyText = rawSource.replace(/=\r\n/g, "").replace(/=[0-9A-F]{2}/g, (m: string) =>
           String.fromCharCode(parseInt(m.slice(1), 16))
         );
-        const haystack = subject + "\n" + bodyText;
+        // Strip common HTML/formatting noise that hides the code patterns.
+        const cleaned = bodyText
+          .replace(/<[^>]+>/g, " ")   // strip HTML tags
+          .replace(/&nbsp;/g, " ")
+          .replace(/&#x?\w+;/g, " ")
+          .replace(/\s+/g, " ");
+        const haystack = subject + "\n" + cleaned;
 
-        const m = opts.codeRegex.exec(haystack);
-        if (m && m[1]) {
-          return { code: m[1], subject, from };
-        }
+        candidates.push({ subject, from, date, haystack });
       }
     } finally {
       lock.release();
+    }
+  }
+
+  if (candidates.length === 0) return null;
+
+  // Newest first — the most recently-issued code is the one the form accepts.
+  candidates.sort((a, b) => b.date.getTime() - a.date.getTime());
+
+  for (const cand of candidates) {
+    for (const pattern of opts.codePatterns) {
+      const m = pattern.exec(cand.haystack);
+      if (m && m[1]) {
+        return { code: m[1], subject: cand.subject, from: cand.from };
+      }
     }
   }
 
