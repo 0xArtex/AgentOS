@@ -59,6 +59,28 @@ const DEFAULT_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 /**
+ * Pool of real Chrome user agents. We hash the account's stable key into
+ * this pool so each account consistently uses the same UA (TikTok flags
+ * rapid UA rotation as bot-like) but different accounts get different UAs
+ * (so one-UA-for-everyone doesn't pattern-match either).
+ */
+const UA_POOL = [
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36",
+  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+];
+
+function uaForKey(key: string): string {
+  // Simple stable hash → UA index. Same account = same UA across sessions.
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = ((hash << 5) - hash + key.charCodeAt(i)) | 0;
+  return UA_POOL[Math.abs(hash) % UA_POOL.length];
+}
+
+/**
  * Country → browser profile mapping.
  *
  * Keeps the residential proxy exit IP, the browser locale, and the timezone
@@ -157,16 +179,47 @@ export async function openAuthenticatedSession(
   const chromium = await getStealthChromium();
   const sessionKey = opts.proxySessionId || opts.accountId;
   const proxy = buildProxyConfig(sessionKey, { country: opts.country });
-  const browser = await chromium.launch({ headless: true, proxy });
+
+  // The "new" headless mode ships the full real Chrome renderer — the legacy
+  // `headless: true` runs a stripped-down build that platform anti-bot
+  // systems (TikTok specifically) fingerprint. `headless: "new"` closes
+  // most of the easy tells. When `SOCIAL_HEADFUL=1` is set in env, we skip
+  // headless entirely — useful when running with Xvfb on the VPS to get
+  // indistinguishable-from-real-Chrome behavior.
+  const headless = process.env.SOCIAL_HEADFUL === "1" ? false : ("new" as any);
+  const browser = await chromium.launch({
+    headless,
+    proxy,
+    args: [
+      "--disable-blink-features=AutomationControlled",
+      "--disable-features=IsolateOrigins,site-per-process",
+      "--disable-dev-shm-usage",
+      "--no-sandbox",
+    ],
+  });
 
   // Derive locale + timezone from the account's country if the caller didn't
   // pin them explicitly. Keeps exit-IP geography aligned with the browser
   // environment — platforms flag mismatched triplets (IP: DE, locale: en-US).
   const profile = profileForCountry(opts.country);
 
+  // Pick a stable-per-account viewport from a small set of real sizes. 1920x1080
+  // is the single most common desktop resolution (easy to flag as "default").
+  const viewportKey = sessionKey + ":vp";
+  const viewports = [
+    { width: 1920, height: 1080 },
+    { width: 1536, height: 864 },
+    { width: 1440, height: 900 },
+    { width: 1366, height: 768 },
+    { width: 1680, height: 1050 },
+  ];
+  let vpHash = 0;
+  for (let i = 0; i < viewportKey.length; i++) vpHash = ((vpHash << 5) - vpHash + viewportKey.charCodeAt(i)) | 0;
+  const viewport = viewports[Math.abs(vpHash) % viewports.length];
+
   const ctx = await browser.newContext({
-    userAgent: opts.userAgent || DEFAULT_UA,
-    viewport: { width: 1920, height: 1080 },
+    userAgent: opts.userAgent || uaForKey(sessionKey),
+    viewport,
     locale: opts.locale || profile.locale,
     timezoneId: opts.timezoneId || profile.timezoneId,
     extraHTTPHeaders: {
