@@ -1566,6 +1566,54 @@ async function main() {
               err('--country <iso-2> required (e.g. --country de). Drives proxy exit + browser locale; without it TikTok flags geography mismatch.')
             }
 
+            // Pre-flight: check whether the email provider will actually work
+            // with our (password-based) IMAP reader. Blocks unsupported
+            // providers up front so you don't pay for marketplace accounts
+            // that can't be automated.
+            if (email && !sessionid && !flags['force-email']) {
+              const emailDomain = email.slice(email.lastIndexOf('@') + 1).toLowerCase()
+              const microsoftDomains = /^(hotmail|outlook|live|msn)\.com$/
+              const gmailDomains = /^(gmail|googlemail)\.com$/
+              const yahooDomains = /^(yahoo|ymail)\./
+              const protonDomains = /^(proton|protonmail)\./
+
+              if (microsoftDomains.test(emailDomain)) {
+                err(
+                  `This account's email is ${emailDomain}. Microsoft disabled password IMAP for consumer accounts in late 2022, and our OAuth2 integration isn't wired yet.\n\n` +
+                  `  Recommendation: buy a TikTok account with a rambler.ru, mail.ru, or yandex.ru email — those work out of the box.\n` +
+                  `  Override (not recommended): --force-email`,
+                  EXIT.BAD_INPUT,
+                )
+              }
+              if (gmailDomains.test(emailDomain)) {
+                const looksLikeAppPassword = typeof emailPassword === 'string' && /^[a-z]{16}$/.test(emailPassword)
+                if (!looksLikeAppPassword) {
+                  err(
+                    `This account's email is ${emailDomain}. Gmail needs a 16-char app-password (lowercase letters) for IMAP, not the regular account password.\n\n` +
+                    `  Your email_password looks like a regular password. It will fail at IMAP auth.\n` +
+                    `  Recommendation: buy accounts with rambler.ru or mail.ru email instead.\n` +
+                    `  Override: --force-email`,
+                    EXIT.BAD_INPUT,
+                  )
+                }
+              }
+              if (yahooDomains.test(emailDomain)) {
+                err(
+                  `This account's email is ${emailDomain}. Yahoo needs an app-password for IMAP and marketplace accounts rarely ship with one.\n\n` +
+                  `  Recommendation: buy accounts with rambler.ru or mail.ru email instead.\n` +
+                  `  Override: --force-email`,
+                  EXIT.BAD_INPUT,
+                )
+              }
+              if (protonDomains.test(emailDomain)) {
+                err(
+                  `This account's email is ${emailDomain}. ProtonMail IMAP requires a local Bridge app — not usable server-side.\n\n` +
+                  `  Recommendation: buy accounts with rambler.ru or mail.ru email instead.`,
+                  EXIT.BAD_INPUT,
+                )
+              }
+            }
+
             const creds: import('./social-vault.js').SocialCredentials = {
               login: login || username,
               password: password || 'unknown',

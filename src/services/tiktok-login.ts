@@ -747,13 +747,15 @@ async function solveDeviceVerification(
 
   // 3. Poll the inbox for the code. Use the TikTok sender filter so we don't
   //    pick up unrelated mail that happens to contain digit sequences.
+  //    Timeout 3 min — most mail arrives in 10-60s, but Russian providers
+  //    can be slow on spike hours. Retries are handled inside fetchVerificationCode.
   const codeResult = await fetchVerificationCode({
     email: req.email!,
     password: req.email_password!,
     minDigits: 4,
     maxDigits: 8,
     fromContains: "tiktok",
-    timeoutMs: 120 * 1000, // 2 minutes — verification mail usually within 30s
+    timeoutMs: 180 * 1000,
     pollIntervalMs: 4000,
   });
 

@@ -107,6 +107,79 @@ const PROVIDER_MAP: Record<string, ImapEndpoint> = {
   "gmx.net":       { host: "imap.gmx.net",          port: 993, secure: true },
 };
 
+/** Which auth method a provider currently supports server-side. */
+export type ProviderAuth = "password" | "oauth2-required" | "app-password-required" | "unsupported";
+
+/**
+ * Per-domain auth support. Determines whether an account with this email
+ * will work with our current (password-based) IMAP client. Callers use this
+ * at import time to warn or block unsupported providers up front — stops
+ * agents paying for marketplace accounts that can't be automated.
+ */
+export function providerAuthSupport(email: string): { provider: string; support: ProviderAuth; reason?: string } {
+  const at = email.lastIndexOf("@");
+  if (at === -1) return { provider: "unknown", support: "unsupported", reason: "Invalid email format" };
+  const domain = email.slice(at + 1).toLowerCase().trim();
+
+  // Microsoft consumer & work domains — OAuth2 required since late 2022.
+  if (/^(hotmail|outlook|live|msn)\.com$/.test(domain) || /\.onmicrosoft\.com$/.test(domain) || domain === "office365.com") {
+    return {
+      provider: "microsoft",
+      support: "oauth2-required",
+      reason: "Microsoft disabled password IMAP for consumer accounts in late 2022. OAuth2 integration isn't wired yet — see internal/ROADMAP_MICROSOFT_OAUTH.md.",
+    };
+  }
+
+  // Gmail — requires an app-password (16 lowercase chars) not the account password.
+  if (/^(gmail|googlemail)\.com$/.test(domain)) {
+    return {
+      provider: "google",
+      support: "app-password-required",
+      reason: "Gmail needs a 16-char app-password for IMAP (not the regular account password). Marketplace Gmail accounts rarely ship with one.",
+    };
+  }
+
+  // Yahoo — also requires app-password for most accounts since 2022.
+  if (/^(yahoo|ymail)\./.test(domain)) {
+    return {
+      provider: "yahoo",
+      support: "app-password-required",
+      reason: "Yahoo needs an app-password for IMAP. Buy accounts with rambler.ru / mail.ru if you want password-based auth.",
+    };
+  }
+
+  // ProtonMail — IMAP only via local Bridge, not usable server-side.
+  if (/^(proton|protonmail)\./.test(domain)) {
+    return {
+      provider: "proton",
+      support: "unsupported",
+      reason: "ProtonMail IMAP requires a local Bridge running alongside the user's client — not available server-side.",
+    };
+  }
+
+  // Known-good: password IMAP works out of the box.
+  if (/^(rambler|mail|inbox|bk|list|yandex)\.(ru|com)$/.test(domain) ||
+      /^icloud\.com$/.test(domain) || /^me\.com$/.test(domain) ||
+      /^(zoho|gmx)\.(com|net)$/.test(domain)) {
+    return { provider: domain, support: "password" };
+  }
+
+  // Unknown domain — we'll try `imap.<domain>:993` as a heuristic but warn.
+  return {
+    provider: domain,
+    support: "password",
+    reason: `Unknown provider. Will try imap.${domain}:993 — may fail if that endpoint doesn't exist.`,
+  };
+}
+
+/** Human-readable list of providers that work with today's CLI. */
+export const SUPPORTED_EMAIL_PROVIDERS = [
+  "rambler.ru", "mail.ru", "inbox.ru", "bk.ru", "list.ru",
+  "yandex.ru", "yandex.com",
+  "icloud.com", "me.com",
+  "zoho.com", "gmx.com", "gmx.net",
+];
+
 function resolveEndpoint(email: string, override?: ImapEndpoint): ImapEndpoint | null {
   if (override) return override;
   const at = email.lastIndexOf("@");
@@ -133,8 +206,13 @@ export async function fetchVerificationCode(req: FetchCodeRequest): Promise<Fetc
   const minDigits = req.minDigits ?? 4;
   const maxDigits = req.maxDigits ?? 8;
   const lookbackMs = req.lookbackMs ?? 5 * 60 * 1000;
-  const timeoutMs = req.timeoutMs ?? 90 * 1000;
+  // Default 3 minutes — TikTok verification emails usually arrive in 10-60s
+  // but Russian providers (rambler, mail.ru) can take up to 2 minutes on
+  // spike hours. Callers can pass `timeoutMs` to override.
+  const timeoutMs = req.timeoutMs ?? 180 * 1000;
   const pollIntervalMs = req.pollIntervalMs ?? 5 * 1000;
+  // How many times to retry a transient IMAP connect failure before giving up.
+  const connectRetries = 3;
 
   const endpoint = resolveEndpoint(req.email, req.endpoint);
   if (!endpoint) {
@@ -156,27 +234,42 @@ export async function fetchVerificationCode(req: FetchCodeRequest): Promise<Fetc
   });
 
   try {
-    try {
-      await client.connect();
-    } catch (e: any) {
-      const msg = String(e?.message || e);
-      const authFailed = /AUTH|authenticat|LOGIN|basic auth|disabled/i.test(msg);
+    // Retry transient network failures. Auth failures are returned immediately
+    // — no point retrying wrong credentials.
+    let connected = false;
+    let lastErr: any = null;
+    for (let attempt = 0; attempt < connectRetries; attempt++) {
+      try {
+        await client.connect();
+        connected = true;
+        break;
+      } catch (e: any) {
+        lastErr = e;
+        const msg = String(e?.message || e);
+        const authFailed = /AUTH|authenticat|LOGIN|basic auth|disabled|invalid credentials/i.test(msg);
+        if (authFailed) break;          // don't retry auth failures
+        await new Promise((r) => setTimeout(r, 1000 * (attempt + 1)));
+      }
+    }
+
+    if (!connected) {
+      const msg = String(lastErr?.message || lastErr);
+      const authFailed = /AUTH|authenticat|LOGIN|basic auth|disabled|invalid credentials/i.test(msg);
 
       // Microsoft disabled basic IMAP auth for consumer hotmail/outlook/live
-      // accounts in late 2022. These providers now require OAuth2, which is
-      // a dedicated integration. Surface this as a specific error so the user
-      // knows to buy accounts with a different email provider.
+      // accounts in late 2022. Surface this specifically so the user knows
+      // to buy accounts from a supported provider.
       if (endpoint.host.includes("outlook.office365.com")) {
         return {
           success: false,
-          error: `Microsoft disabled basic IMAP auth for consumer accounts (hotmail/outlook/live) in late 2022. This account needs OAuth2, which isn't wired yet. Recommendation: buy accounts with rambler.ru, mail.ru, or gmail (with app password) email — those use password auth.`,
+          error: `Microsoft disabled basic IMAP auth for consumer accounts (hotmail/outlook/live) in late 2022. This account needs OAuth2, which isn't wired yet. Recommendation: buy accounts with rambler.ru, mail.ru, or yandex.ru email — those use password auth.`,
           error_code: "IMAP_AUTH_FAILED",
         };
       }
 
       return {
         success: false,
-        error: `IMAP ${authFailed ? "auth" : "connect"} to ${endpoint.host}:${endpoint.port} failed: ${msg}`,
+        error: `IMAP ${authFailed ? "auth" : "connect"} to ${endpoint.host}:${endpoint.port} failed after ${connectRetries} attempts: ${msg}`,
         error_code: authFailed ? "IMAP_AUTH_FAILED" : "IMAP_CONNECT_FAILED",
       };
     }
