@@ -320,12 +320,14 @@ export async function loginTikTok(
             const s = typeof u === "string" ? u : u.toString();
             return !s.includes("/login/phone-or-email") && !s.includes("/login/email");
           }, { timeout: 60000 }),
-          // Captcha appeared
-          page.locator('[id*="captcha"], [class*="captcha-verify"], iframe[src*="captcha"]').first().waitFor({ state: "visible", timeout: 60000 }),
+          // Captcha appeared — all TikTok variants.
+          page.locator('text=/Drag the slider to fit the puzzle/i, text=/Slide the piece to complete the puzzle/i, [id*="captcha"], [class*="captcha-verify"], [class*="captcha_verify"], iframe[src*="captcha"], .secsdk-captcha-drag-icon').first().waitFor({ state: "visible", timeout: 60000 }),
           // Authed nav visible
           page.locator('[data-e2e="profile-icon"], [data-e2e="upload-icon"]').first().waitFor({ state: "visible", timeout: 60000 }),
+          // Device-verification modal
+          page.locator('text=/Verify it.?s really you|Verify identity/i').first().waitFor({ state: "visible", timeout: 60000 }),
           // Any known inline error
-          page.locator('text=/incorrect|does not match|wrong password|Maximum number of attempts|Too many attempts|verification code|check your email|SMS/i').first().waitFor({ state: "visible", timeout: 60000 }),
+          page.locator('text=/incorrect|does not match|wrong password|Maximum number of attempts|Too many attempts/i').first().waitFor({ state: "visible", timeout: 60000 }),
         ]).catch(() => null);
       } catch { /* noop */ }
 
@@ -408,8 +410,24 @@ export async function loginTikTok(
         ]).catch(() => null);
       }
 
-      // Captcha gate.
-      const captchaElement = page.locator('[id*="captcha"], [class*="captcha-verify"], iframe[src*="captcha"]').first();
+      // Captcha gate. TikTok has multiple variants:
+      //   - Classic slider ("Slide the piece to complete the puzzle")
+      //   - Whirl / 3D rotate ("Drag the slider to fit the puzzle")
+      //   - Shape-select ("Select the 2 [objects] that...")
+      // All three show up in the DOM without a `captcha` class/id — we detect
+      // by the visible prompt text OR by the drag-slider element that every
+      // variant shares.
+      const captchaSelectors = [
+        'text=/Drag the slider to fit the puzzle/i',
+        'text=/Slide the piece to complete the puzzle/i',
+        'text=/Select the .* that match/i',
+        '[id*="captcha"]',
+        '[class*="captcha-verify"]',
+        '[class*="captcha_verify"]',
+        'iframe[src*="captcha"]',
+        '.secsdk-captcha-drag-icon',
+      ].join(', ');
+      const captchaElement = page.locator(captchaSelectors).first();
       const captchaPresent = await captchaElement.isVisible({ timeout: 500 }).catch(() => false);
 
       if (captchaPresent) {
@@ -570,19 +588,30 @@ async function solveCaptcha(
   req: TikTokLoginRequest,
   snapshot: (tag: string) => Promise<any>
 ): Promise<void> {
-  // 1. Find the captcha container. TikTok uses different wrappers over time;
-  //    try the known ones in order.
-  const container = page
-    .locator('[id^="captcha_container"], [class*="captcha-verify-container"], .captcha_verify_container')
-    .first();
-
+  // 1. Find the captcha container. TikTok uses different wrappers per variant:
+  //    - Classic slider: `[id^="captcha_container"]`
+  //    - 3D rotate ("Drag to fit the puzzle"): often a modal with the drag icon
+  //    - Generic: anything containing `.secsdk-captcha-drag-icon`
+  const containerSelectors = [
+    '[id^="captcha_container"]',
+    '[class*="captcha-verify-container"]',
+    '.captcha_verify_container',
+    // 3D rotate variant lives inside the drag-icon's scroll container
+    '[class*="captcha-disable-scroll"]',
+    '[class*="captcha_verify"]',
+    // Last-resort: the outermost parent of the drag icon
+    '.secsdk-captcha-drag-icon',
+  ];
+  const container = page.locator(containerSelectors.join(", ")).first();
   await container.waitFor({ state: "visible", timeout: 10000 });
 
-  // 2. Extract the two images. `bodyImage` = background, `pieceImage` = the
-  //    moving slider piece. For whirl captchas the piece image may be null.
-  const images: { body?: string; piece?: string } = await page.evaluate(
+  // 2. Extract images. Different variants expose them differently:
+  //    - Classic slider: two <img> tags (background + piece)
+  //    - 3D rotate: one <img> with the rotatable disc; piece may be null
+  //    When no <img> is found, fall back to a screenshot of the captcha area.
+  let images: { body?: string; piece?: string } = await page.evaluate(
     `(() => {
-      const root = document.querySelector('[id^="captcha_container"], [class*="captcha-verify-container"], .captcha_verify_container');
+      const root = document.querySelector('${containerSelectors.join(", ")}');
       if (!root) return {};
       const imgs = root.querySelectorAll('img');
       const out = {};
@@ -592,8 +621,19 @@ async function solveCaptcha(
     })()`
   );
 
+  // Fallback: screenshot the captcha box if we couldn't find <img> src's.
+  // CapSolver accepts base64 images for its AntiTiktokTask.
   if (!images.body) {
-    throw new Error("Could not extract captcha background image from DOM");
+    const box = await container.boundingBox();
+    if (box) {
+      const shotBuf = await page.screenshot({ clip: box });
+      images.body = "data:image/png;base64," + shotBuf.toString("base64");
+    }
+  }
+
+  if (!images.body) {
+    const fallbackDiag = await snapshot("captcha-image-not-extracted");
+    throw new Error(`Could not extract captcha image from DOM or screenshot. Diag: ${fallbackDiag.screenshot_path}`);
   }
 
   // Images are usually https URLs — download them and re-base64 for the solver.
