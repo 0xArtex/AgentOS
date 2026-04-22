@@ -242,23 +242,55 @@ export async function settleSvmPayment(
     return { success: false, error: 'simulation_error: ' + String(e) };
   }
 
-  // Submit on-chain
+  // Submit on-chain. Once sendRawTransaction returns, the tx may have landed
+  // and moved USDC — we must not swallow that state. `confirmTransaction` with
+  // just a commitment argument polls indefinitely on public RPC, causing the
+  // edge (nginx/Cloudflare) to serve HTML while the server hangs. Use explicit
+  // getSignatureStatus polling with a hard 25s deadline so we stay under edge
+  // timeouts, and log unresolved signatures for manual reconciliation.
+  let sig: string;
   try {
-    const sig = await connection.sendRawTransaction(tx.serialize(), {
+    sig = await connection.sendRawTransaction(tx.serialize(), {
       skipPreflight: false,
       maxRetries: 3,
     });
-    
-    // Wait for confirmation
-    const confirmation = await connection.confirmTransaction(sig, 'confirmed');
-    if (confirmation.value.err) {
-      return { success: false, error: 'confirmation_failed: ' + JSON.stringify(confirmation.value.err) };
-    }
-    
-    console.log('[x402-svm] Settlement successful:', sig);
-    return { success: true, signature: sig };
   } catch (e: any) {
     console.error('[x402-svm] Submit error:', e);
     return { success: false, error: 'submit_error: ' + String(e) };
   }
+
+  const deadline = Date.now() + 25_000;
+  let lastErr: any = null;
+  while (Date.now() < deadline) {
+    try {
+      const st = await connection.getSignatureStatus(sig, { searchTransactionHistory: false });
+      const v = st.value;
+      if (v) {
+        if (v.err) {
+          return { success: false, error: 'confirmation_failed: ' + JSON.stringify(v.err), signature: sig };
+        }
+        if (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized') {
+          console.log('[x402-svm] Settlement successful:', sig);
+          return { success: true, signature: sig };
+        }
+      }
+    } catch (e: any) {
+      lastErr = e;
+    }
+    await new Promise(r => setTimeout(r, 1500));
+  }
+
+  // Timeout — tx was submitted but we didn't observe confirmation in time. The
+  // on-chain outcome is unknown: USDC may already have moved. Emit a marker so
+  // ops can reconcile by looking up the signature on an explorer.
+  console.error('[x402-svm] [RECONCILE NEEDED] settlement confirmation timeout', {
+    signature: sig,
+    rpc: RPC_URL,
+    lastPollError: lastErr?.message || null,
+  });
+  return {
+    success: false,
+    error: 'settlement_timeout: tx may still land — reconcile signature ' + sig,
+    signature: sig,
+  };
 }

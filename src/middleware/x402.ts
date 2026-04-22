@@ -187,10 +187,18 @@ async function handleSvmPayment(
     return { verified: false, settled: false, reason: verifyResult.invalidReason, payer: verifyResult.payer };
   }
 
-  // Settle: co-sign and submit
+  // Settle: co-sign and submit. Forward signature on failure too — if the tx
+  // was submitted but confirmation timed out, USDC may already have moved and
+  // the signature is needed for on-chain reconciliation.
   const settleResult = await settleSvmPayment(svmPayload.transaction);
   if (!settleResult.success) {
-    return { verified: true, settled: false, reason: settleResult.error, payer: verifyResult.payer };
+    return {
+      verified: true,
+      settled: false,
+      reason: settleResult.error,
+      signature: settleResult.signature,
+      payer: verifyResult.payer,
+    };
   }
 
   return { verified: true, settled: true, signature: settleResult.signature, payer: verifyResult.payer };
