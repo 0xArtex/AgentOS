@@ -426,24 +426,39 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       BillingPostalCode: '94102',
       BillingCountry: 'US',
       BillingPhone: '+1.4155551234',
-      BillingEmailAddress: 'agent@agntos.dev'
+      BillingEmailAddress: 'agent@agntos.dev',
+      // AuxBilling contact — required by Namecheap (error 2010218 without it).
+      AuxBillingFirstName: 'AgentOS',
+      AuxBillingLastName: 'Registry',
+      AuxBillingAddress1: '123 Agent Street',
+      AuxBillingCity: 'San Francisco',
+      AuxBillingStateProvince: 'CA',
+      AuxBillingPostalCode: '94102',
+      AuxBillingCountry: 'US',
+      AuxBillingPhone: '+1.4155551234',
+      AuxBillingEmailAddress: 'agent@agntos.dev'
     });
 
     if (!registerResult.success) {
       // Payment has already settled. Log everything needed to issue a manual
       // refund so the payer doesn't eat the cost of a registrar-side failure.
+      // Prefer the on-chain payer from the x402 payment (always populated for
+      // paid requests) over req.agentId (only set when an agent token is used).
       const rawSnippet = typeof registerResult.raw === 'string'
         ? registerResult.raw.slice(0, 600)
         : null;
       console.error('[domains] [REFUND NEEDED] Namecheap registration failed post-payment', {
         domain,
-        payer: req.agentId,
+        payer: req.payment?.payer || req.agentId || null,
+        paymentSignature: req.payment?.signature || null,
         chargedUsdc: finalPrice,
         namecheapOrderId: registerResult.orderId || null,
         namecheapRegistered: registerResult.registered ?? null,
         namecheapRaw: rawSnippet,
       });
-      return res.status(502).json({
+      // Use 422 instead of 502 — Cloudflare replaces origin 502 responses with
+      // its own branded error page, hiding this JSON body from the client.
+      return res.status(422).json({
         error: 'Registration failed at registrar — your payment has been logged for manual refund. Contact support with this domain name.',
         domain,
         registrar: {
