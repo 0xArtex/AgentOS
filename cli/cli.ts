@@ -1009,8 +1009,7 @@ async function main() {
             commands: [
               { name: 'run',         description: 'Generate a plan (and optionally execute it)', hint: '"launch a sneaker brand" --budget 50' },
               { name: 'resume',      description: 'Continue an existing session with a follow-up intent', hint: '<session_id> "now post 3 videos"' },
-              { name: 'status',      description: 'Inspect a session: artifacts, spend, history', hint: '<session_id>' },
-              { name: 'spend',       description: 'Show the escrow ledger for a session', hint: '<session_id>' },
+              { name: 'status',      description: 'Inspect a session: history, current status', hint: '<session_id>' },
               { name: 'cancel',      description: 'Halt execution and refund remaining escrow', hint: '<session_id>' },
               { name: 'sessions',    description: 'List your active sessions' },
               { name: 'capabilities', description: 'List the canonical capability classes' },
@@ -1074,7 +1073,7 @@ async function main() {
             if (autoExecute || plan.status === 'approved') {
               console.log(`${c.cyan}Executing plan${c.white} (streaming)...\n`)
               let spent = 0
-              for await (const event of ao.chatExecute(plan.session_id, plan.plan_id, { approve: true })) {
+              for await (const event of ao.chatExecute(plan)) {
                 switch (event.type) {
                   case 'session':
                   case 'plan':
@@ -1125,7 +1124,7 @@ async function main() {
               console.log(`${c.cyan}New plan in session${c.white} ${sessionId}`)
               console.log(`  plan_id: ${plan.plan_id}  cost: $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'}`)
               if (!autoExecute) break
-              for await (const event of ao.chatExecute(sessionId, plan.plan_id, { approve: true })) {
+              for await (const event of ao.chatExecute(plan)) {
                 if (event.type === 'step_result') console.log(`  ${c.green}✓${c.white} ${event.stepId} $${event.costChargedUsdc?.toFixed(2)}`)
                 if (event.type === 'step_error') console.log(`  ${c.red}✗${c.white} ${event.stepId} ${event.error}`)
                 if (event.type === 'summary') console.log(`${c.cyan}done${c.white}: ${event.status}  spent=$${event.spentUsdc?.toFixed(2)}`)
@@ -1133,13 +1132,10 @@ async function main() {
               break
             }
 
-            // No intent → execute an existing plan
-            if (!planId) err('pass a follow-up intent OR use --plan-id <id> --approve to execute an existing plan')
-            for await (const event of ao.chatExecute(sessionId, planId!, { approve: true })) {
-              if (event.type === 'step_result') console.log(`${c.green}✓${c.white} ${event.stepId} $${event.costChargedUsdc?.toFixed(2)}`)
-              if (event.type === 'step_error') console.log(`${c.red}✗${c.white} ${event.stepId} ${event.error}`)
-              if (event.type === 'summary') console.log(`${c.cyan}done${c.white}: ${event.status}  spent=$${event.spentUsdc?.toFixed(2)}`)
-            }
+            // No intent → we'd need to re-fetch the plan from the server.
+            // Not wired in this minimal CLI: generate a new plan with `chat run`
+            // or pass a follow-up intent to `chat resume <session> "..."`.
+            err('pass a follow-up intent to continue the session; direct re-execution of a stored plan by id is not yet wired')
             break
           }
 
@@ -1147,13 +1143,6 @@ async function main() {
             const sessionId = positional[0]
             if (!sessionId) err('session_id required')
             const data = await ao.chatGetSession(sessionId)
-            return print(data)
-          }
-
-          case 'spend': {
-            const sessionId = positional[0]
-            if (!sessionId) err('session_id required')
-            const data = await ao.chatGetSpend(sessionId)
             return print(data)
           }
 
@@ -1180,7 +1169,7 @@ async function main() {
             return print(data)
           }
 
-          default: err(`Unknown chat command: ${subcommand}. Try: run, resume, status, spend, cancel, sessions, capabilities, providers`)
+          default: err(`Unknown chat command: ${subcommand}. Try: run, resume, status, cancel, sessions, capabilities, providers`)
         }
         break
       }

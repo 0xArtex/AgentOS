@@ -1,21 +1,13 @@
 /**
- * Integration-ish tests for the /chat route.
+ * Integration tests for the /chat route in agent-side-only mode.
  *
- * Mounts only the agent-chat router on a minimal Express app (no global middleware,
- * no DB bootstrap beyond initDatabase) so we can test route-specific behavior in
- * isolation. LLM calls are stubbed via the `llm` adapter.
- *
- * What's covered here:
- *  - GET /chat/capabilities returns the canonical capability list
- *  - GET /chat/providers lists providers, filter by capability
+ * What this covers:
+ *  - GET /chat/capabilities returns the canonical list
+ *  - GET /chat/providers lists only x402-native providers (no API-key proxies)
  *  - GET /chat/providers?capability=unknown → 404
- *  - POST /chat without x402 payment → 402 (x402 discovery)
- *  - Service-level integration (generatePlan → updatePlanStatus(approved) → executePlanStream)
- *    exercises the full planner+executor pipeline with stubbed LLM and mocked StepHandlers
- *
- * Paid HTTP paths (POST /chat, POST /chat/:id/execute) require a signed x402 payment
- * that can't be produced without a real wallet, so their business logic is exercised
- * at the service layer above. Full HTTP exercise lives in the Tier B E2E plan.
+ *  - POST /chat without x402 → 402 (x402 discovery probe)
+ *  - Service-layer: generatePlan → persistence round trip with wallet-keyed
+ *    session resolution (no X-Session-Id header)
  */
 
 import { describe, it, before, beforeEach, after } from "node:test";
@@ -30,19 +22,9 @@ process.env.AGENTOS_API_BASE = "https://staging.agntos.dev";
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "test-key";
 
 import { db, initDatabase } from "../db";
-import {
-  seedAgentOSPrimitives,
-  registerProvider,
-  CAPABILITY_CLASSES,
-} from "../services/i402-providers";
-import { createSession } from "../services/i402-session";
-import { deposit, getLedger } from "../services/i402-escrow";
-import {
-  executePlanStream,
-  type StepHandler,
-  type ExecutorEvent,
-} from "../services/i402-executor";
-import { generatePlan, getPlan, updatePlanStatus } from "../services/i402-planner";
+import { seedAgentOSPrimitives, listProviders } from "../services/i402-providers";
+import { generatePlan, getPlan } from "../services/i402-planner";
+import { createSession, findActiveSessionForWallet } from "../services/i402-session";
 import { llm } from "../services/i402-llm";
 import agentChatRoutes from "../routes/agent-chat";
 import type { PlannerRequest } from "../services/i402-types";
@@ -51,21 +33,8 @@ import type { PlannerRequest } from "../services/i402-types";
 
 initDatabase();
 seedAgentOSPrimitives();
-registerProvider({
-  id: "external.backup_search",
-  source: "external",
-  capability: "web_search",
-  name: "Backup web search",
-  endpoint: "https://example.com/search",
-  authScheme: "x402-base",
-  inputSchema: CAPABILITY_CLASSES.web_search.inputSchema,
-  outputSchema: CAPABILITY_CLASSES.web_search.outputSchema,
-  costPerCallUsdc: 0.15,
-  p50LatencyMs: 2000,
-  reputationScore: 0.6,
-});
 
-function clearI402DynamicTables(): void {
+function clearI402Dynamic(): void {
   db.exec(`
     DELETE FROM i402_session_step_results;
     DELETE FROM i402_session_artifacts;
@@ -78,30 +47,20 @@ function clearI402DynamicTables(): void {
 
 const ORIGINAL_LLM = llm.completeStructured;
 
-// Build a minimal Express app that mounts the chat router only. We don't load the
-// full AgentOS middleware chain because most of it (rate limiting, x402 settle) is
-// out of scope for per-route testing.
-function buildTestServer(): { server: http.Server; port: number; close: () => Promise<void> } {
+async function launchTestServer(): Promise<{ port: number; close: () => Promise<void> }> {
   const app = express();
   app.use(express.json());
   app.use("/chat", agentChatRoutes);
-
-  return new Promise<{ server: http.Server; port: number; close: () => Promise<void> }>(resolve => {
+  return new Promise(resolve => {
     const server = app.listen(0, "127.0.0.1", () => {
       const addr = server.address();
-      if (!addr || typeof addr === "string") throw new Error("Failed to bind test server");
+      if (!addr || typeof addr === "string") throw new Error("bind failed");
       resolve({
-        server,
         port: addr.port,
-        close: () => new Promise<void>(done => server.close(() => done())),
+        close: () => new Promise<void>(r => server.close(() => r())),
       });
     });
-  }) as any; // the listen callback makes this synchronous-resolvable for tests
-}
-
-// The returned type of buildTestServer is actually a Promise, so we await it.
-async function launchTestServer(): Promise<{ server: http.Server; port: number; close: () => Promise<void> }> {
-  return await buildTestServer();
+  });
 }
 
 async function httpGet(port: number, path: string): Promise<{ status: number; body: any; headers: Record<string, string | string[] | undefined> }> {
@@ -113,11 +72,7 @@ async function httpGet(port: number, path: string): Promise<{ status: number; bo
         res.on("data", chunk => (buf += chunk));
         res.on("end", () => {
           let body: any = buf;
-          try {
-            body = JSON.parse(buf);
-          } catch {
-            /* non-JSON */
-          }
+          try { body = JSON.parse(buf); } catch { /* non-JSON */ }
           resolve({ status: res.statusCode ?? 0, body, headers: res.headers });
         });
       })
@@ -151,11 +106,7 @@ async function httpPostJson(
         res.on("data", c => (buf += c));
         res.on("end", () => {
           let parsed: any = buf;
-          try {
-            parsed = JSON.parse(buf);
-          } catch {
-            /* non-JSON */
-          }
+          try { parsed = JSON.parse(buf); } catch { /* non-JSON */ }
           resolve({ status: res.statusCode ?? 0, body: parsed, headers: res.headers });
         });
       }
@@ -166,24 +117,20 @@ async function httpPostJson(
   });
 }
 
-// -------------------- Discovery endpoints (free, no auth needed) --------------------
+// -------------------- Discovery (free) --------------------
 
 describe("GET /chat/capabilities", () => {
   let ctx: { port: number; close: () => Promise<void> };
-  before(async () => {
-    ctx = await launchTestServer();
-  });
-  after(async () => {
-    await ctx.close();
-  });
+  before(async () => { ctx = await launchTestServer(); });
+  after(async () => { await ctx.close(); });
 
-  it("returns the full capability list with version", async () => {
+  it("returns the full capability list with version header", async () => {
     const res = await httpGet(ctx.port, "/chat/capabilities");
     assert.equal(res.status, 200);
     assert.equal(res.body.version, "0.1");
     assert.ok(Array.isArray(res.body.capabilities));
     const names = new Set(res.body.capabilities.map((c: any) => c.name));
-    for (const required of ["web_search", "register_domain", "deploy_vps", "social_post", "launch_product"]) {
+    for (const required of ["register_domain", "deploy_vps", "social_post", "launch_product"]) {
       assert.ok(names.has(required), `missing capability ${required}`);
     }
     assert.equal(res.headers["x-i402-version"], "0.1");
@@ -192,237 +139,237 @@ describe("GET /chat/capabilities", () => {
 
 describe("GET /chat/providers", () => {
   let ctx: { port: number; close: () => Promise<void> };
-  before(async () => {
-    ctx = await launchTestServer();
-  });
-  after(async () => {
-    await ctx.close();
-  });
+  before(async () => { ctx = await launchTestServer(); });
+  after(async () => { await ctx.close(); });
 
-  it("returns all providers when no capability filter", async () => {
+  it("only returns x402-native providers (no API-key providers)", async () => {
     const res = await httpGet(ctx.port, "/chat/providers");
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body.providers));
-    assert.ok(res.body.providers.length > 0);
+    for (const p of res.body.providers) {
+      assert.ok(
+        p.payment_rail === "x402-solana" || p.payment_rail === "x402-base",
+        `provider ${p.id} has non-x402 auth: ${p.payment_rail}`
+      );
+    }
   });
 
-  it("filters providers by capability", async () => {
-    const res = await httpGet(ctx.port, "/chat/providers?capability=web_search");
+  it("filters by capability", async () => {
+    const res = await httpGet(ctx.port, "/chat/providers?capability=register_domain");
     assert.equal(res.status, 200);
-    const provs = res.body.providers;
-    assert.ok(provs.every((p: any) => p.capability === "web_search"));
+    assert.ok(res.body.providers.every((p: any) => p.capability === "register_domain"));
+    assert.ok(res.body.providers.length >= 1);
   });
 
-  it("returns 404 for unknown capability", async () => {
-    const res = await httpGet(ctx.port, "/chat/providers?capability=does_not_exist");
+  it("404 on unknown capability", async () => {
+    const res = await httpGet(ctx.port, "/chat/providers?capability=bogus");
     assert.equal(res.status, 404);
     assert.match(res.body.error, /Unknown Capability/i);
   });
 });
 
-// -------------------- Paid endpoint discovery (x402 probe) --------------------
+// -------------------- Payment discovery --------------------
 
-describe("POST /chat without x402 payment → 402", () => {
+describe("POST /chat without x402 payment", () => {
   let ctx: { port: number; close: () => Promise<void> };
-  before(async () => {
-    ctx = await launchTestServer();
-  });
-  after(async () => {
-    await ctx.close();
-  });
+  before(async () => { ctx = await launchTestServer(); });
+  after(async () => { await ctx.close(); });
 
-  it("emits 402 with PAYMENT-REQUIRED metadata for x402 discovery", async () => {
+  it("returns 402 to trigger x402 payment for the orchestration fee", async () => {
     const res = await httpPostJson(ctx.port, "/chat", {
       intent: "test",
       budget_usdc: 1,
     });
     assert.equal(res.status, 402);
-    // Canonical AgentOS 402 response — the existing auth middleware formats this.
     assert.ok(res.body.error);
   });
 });
 
-// -------------------- Full pipeline at service level (bypasses HTTP/auth) --------------------
+// -------------------- Service-level: wallet-keyed session resolution --------------------
 
-describe("End-to-end: generatePlan → approve → executePlanStream", () => {
-  before(clearI402DynamicTables);
-
+describe("generatePlan — wallet-keyed session resolution", () => {
   beforeEach(() => {
     llm.completeStructured = ORIGINAL_LLM;
-    clearI402DynamicTables();
+    clearI402Dynamic();
   });
 
   after(() => {
     llm.completeStructured = ORIGINAL_LLM;
   });
 
-  it("runs a full two-step plan end-to-end with mocked providers", async () => {
-    const session = createSession({ walletAddress: "WALLET_E2E", budgetUsdc: 50 });
+  it("creates a new session when wallet has none", async () => {
+    llm.completeStructured = (async () => ({
+      model: "claude-haiku-4-5-20251001",
+      content: { classification: "direct", detected_capability: "register_domain", reason: "single domain" },
+      usage: { tokensIn: 50, tokensOut: 20, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.001 },
+    })) as any;
 
-    // Stub LLM: first call = router (compound), second call = planner
+    const result = await generatePlan({
+      sessionId: "",
+      walletAddress: "NEW_WALLET_1",
+      intent: "Register example.com",
+      budgetUsdc: 20,
+    });
+    assert.ok("planId" in result);
+    const plan = result as any;
+    const session = findActiveSessionForWallet("NEW_WALLET_1");
+    assert.ok(session);
+    assert.equal(plan.sessionId, session!.id);
+  });
+
+  it("continues an active session when the new intent is related", async () => {
+    // First turn establishes a session
+    const firstSession = createSession({ walletAddress: "WALLET_CONT", budgetUsdc: 50 });
+
+    // Stub LLM to say: relatedness=continues, then direct capability
+    let call = 0;
+    llm.completeStructured = (async (input: any) => {
+      call++;
+      if (input.tool.name === "classify_session_relatedness") {
+        return {
+          model: "claude-haiku-4-5-20251001",
+          content: { verdict: "continues", reason: "same project" },
+          usage: { tokensIn: 50, tokensOut: 10, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.0005 },
+        };
+      }
+      if (input.tool.name === "classify_intent") {
+        return {
+          model: "claude-haiku-4-5-20251001",
+          content: { classification: "direct", detected_capability: "register_domain", reason: "single" },
+          usage: { tokensIn: 50, tokensOut: 20, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.001 },
+        };
+      }
+      throw new Error(`unexpected tool ${input.tool.name}`);
+    }) as any;
+
+    // Seed an agent message so the relatedness check has something to compare against
+    const { appendMessage } = await import("../services/i402-session");
+    appendMessage({ sessionId: firstSession.id, role: "agent", content: "Launch sneaker brand" });
+
+    const result = await generatePlan({
+      sessionId: "",
+      walletAddress: "WALLET_CONT",
+      intent: "Now register freshkicks.io",
+      budgetUsdc: 20,
+    });
+    assert.ok("planId" in result);
+    const plan = result as any;
+    assert.equal(plan.sessionId, firstSession.id, "should reuse the existing session");
+  });
+
+  it("starts a fresh session when new intent is unrelated to prior", async () => {
+    const priorSession = createSession({ walletAddress: "WALLET_SWITCH", budgetUsdc: 50 });
+    const { appendMessage } = await import("../services/i402-session");
+    appendMessage({ sessionId: priorSession.id, role: "agent", content: "Launch sneaker brand" });
+
+    llm.completeStructured = (async (input: any) => {
+      if (input.tool.name === "classify_session_relatedness") {
+        return {
+          model: "claude-haiku-4-5-20251001",
+          content: { verdict: "new_goal", reason: "unrelated topic" },
+          usage: { tokensIn: 50, tokensOut: 10, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.0005 },
+        };
+      }
+      if (input.tool.name === "classify_intent") {
+        return {
+          model: "claude-haiku-4-5-20251001",
+          content: { classification: "direct", detected_capability: "register_domain", reason: "single" },
+          usage: { tokensIn: 50, tokensOut: 20, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.001 },
+        };
+      }
+      throw new Error(`unexpected tool ${input.tool.name}`);
+    }) as any;
+
+    const result = await generatePlan({
+      sessionId: "",
+      walletAddress: "WALLET_SWITCH",
+      intent: "Start a coffee subscription business",
+      budgetUsdc: 20,
+    });
+    assert.ok("planId" in result);
+    const plan = result as any;
+    assert.notEqual(plan.sessionId, priorSession.id, "should create a fresh session for unrelated goal");
+
+    // Prior session should be auto-closed as 'completed'
+    const closed = db.prepare(`SELECT status FROM i402_agent_sessions WHERE id = ?`).get(priorSession.id) as { status: string };
+    assert.equal(closed.status, "completed");
+  });
+
+  it("forceNewSession=true always creates fresh regardless of active session", async () => {
+    const prior = createSession({ walletAddress: "WALLET_FORCE", budgetUsdc: 50 });
+    const { appendMessage } = await import("../services/i402-session");
+    appendMessage({ sessionId: prior.id, role: "agent", content: "whatever" });
+
+    llm.completeStructured = (async () => ({
+      model: "claude-haiku-4-5-20251001",
+      content: { classification: "direct", detected_capability: "register_domain", reason: "x" },
+      usage: { tokensIn: 50, tokensOut: 20, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.001 },
+    })) as any;
+
+    const result = await generatePlan(
+      { sessionId: "", walletAddress: "WALLET_FORCE", intent: "Do thing", budgetUsdc: 10 },
+      { forceNewSession: true }
+    );
+    assert.ok("planId" in result);
+    assert.notEqual((result as any).sessionId, prior.id);
+  });
+
+  it("every step in a generated plan has x402-native payment_rail", async () => {
     llm.completeStructured = (async (input: any) => {
       if (input.tool.name === "classify_intent") {
         return {
           model: "claude-haiku-4-5-20251001",
-          content: { classification: "compound", reason: "needs multi-step" },
-          usage: { tokensIn: 50, tokensOut: 20, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.001 },
+          content: { classification: "compound", reason: "multi-step" },
+          usage: { tokensIn: 50, tokensOut: 10, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.0005 },
         };
       }
       return {
         model: "claude-opus-4-7",
         content: {
-          interpreted_intent: "search + register a domain",
+          interpreted_intent: "domain + vps",
           steps: [
-            { step_id: "s1", capability: "web_search", provider_id: "agentos.web_search", input: { query: "agent infra trends 2026" } },
-            {
-              step_id: "s2",
-              capability: "register_domain",
-              provider_id: "agentos.register_domain",
-              input: { domain_preferences: ["agentlaunch.io"] },
-              depends_on: ["s1"],
-            },
+            { step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: { domain_preferences: ["test.io"] } },
+            { step_id: "s2", capability: "deploy_vps", provider_id: "agentos.deploy_vps", input: { plan: "cx23" }, depends_on: ["s1"] },
           ],
         },
-        usage: { tokensIn: 500, tokensOut: 200, cacheReadTokens: 2000, cacheCreationTokens: 0, costUsdc: 0.02 },
+        usage: { tokensIn: 500, tokensOut: 200, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.02 },
       };
     }) as any;
 
-    const plannerRequest: PlannerRequest = {
-      sessionId: session.id,
-      walletAddress: session.walletAddress,
-      intent: "Research agent infra and register a domain",
-      budgetUsdc: 50,
-      quality: "best",
-      autoApproveUnderUsdc: 50, // auto-approve since we're in test
-    };
-    const plan = await generatePlan(plannerRequest);
-    assert.ok("planId" in plan);
-    const p = plan as any;
-    assert.equal(p.status, "approved");
-    assert.equal(p.steps.length, 2);
-
-    // Deposit escrow (simulating x402 payment)
-    deposit({ sessionId: session.id, amountUsdc: p.totals.totalCostUsdc });
-
-    // Execute with mocked handlers
-    const handlers: Record<string, StepHandler> = {
-      "agentos.web_search": async () => ({ results: [{ title: "t", url: "https://x.com", snippet: "s" }] }),
-      "agentos.register_domain": async () => ({
-        domain_registered: "agentlaunch.io",
-        expires_at: "2027-04-22",
-        registrar: "namecheap",
-        dns_nameservers: ["ns1.cf.com"],
-      }),
-    };
-
-    const events: ExecutorEvent[] = [];
-    for await (const e of executePlanStream(p, session.walletAddress, { handlers, refundOnClose: false })) {
-      events.push(e);
+    const result = await generatePlan({
+      sessionId: "",
+      walletAddress: "WALLET_X402",
+      intent: "register domain and deploy vps",
+      budgetUsdc: 30,
+    });
+    assert.ok("planId" in result);
+    const plan = result as any;
+    for (const step of plan.steps) {
+      assert.ok(
+        step.x402.paymentRail === "x402-solana" || step.x402.paymentRail === "x402-base",
+        `step ${step.stepId} has non-x402 rail: ${step.x402.paymentRail}`
+      );
     }
-
-    // Confirm event order + outcome
-    assert.equal(events[0].type, "session");
-    assert.equal(events[1].type, "plan");
-    assert.equal(events[events.length - 1].type, "summary");
-
-    const summary = events[events.length - 1];
-    if (summary.type === "summary") {
-      assert.equal(summary.status, "completed");
-      assert.equal(summary.artifacts.length, 1);
-      assert.equal(summary.artifacts[0].type, "domain");
-    }
-
-    // Ledger reflects the debits
-    const ledger = getLedger(session.id);
-    const kinds = ledger.map(l => l.kind);
-    assert.ok(kinds.includes("deposit"));
-    assert.ok(kinds.includes("debit_orchestration_fee"));
-    assert.ok(kinds.includes("debit_step"));
   });
 
-  it("returns clarification when intent is ambiguous", async () => {
-    const session = createSession({ walletAddress: "WALLET_AMB", budgetUsdc: 50 });
-
+  it("persists plan to DB and is retrievable via getPlan", async () => {
     llm.completeStructured = (async () => ({
       model: "claude-haiku-4-5-20251001",
-      content: {
-        classification: "ambiguous",
-        reason: "no concrete target",
-        clarification_questions: ["What outcome?"],
-      },
-      usage: { tokensIn: 50, tokensOut: 30, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.001 },
+      content: { classification: "direct", detected_capability: "register_domain", reason: "single" },
+      usage: { tokensIn: 50, tokensOut: 20, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.001 },
     })) as any;
 
     const result = await generatePlan({
-      sessionId: session.id,
-      walletAddress: session.walletAddress,
-      intent: "help me",
-      budgetUsdc: 50,
+      sessionId: "",
+      walletAddress: "WALLET_PERSIST",
+      intent: "Register example.io",
+      budgetUsdc: 20,
     });
-    assert.equal((result as any).status, "clarification_needed");
-  });
-
-  it("approval + execution flow: plan is awaiting_approval → updatePlanStatus → execute", async () => {
-    const session = createSession({ walletAddress: "WALLET_APP", budgetUsdc: 50 });
-
-    llm.completeStructured = (async (input: any) => {
-      if (input.tool.name === "classify_intent") {
-        return {
-          model: "claude-haiku-4-5-20251001",
-          content: { classification: "direct", detected_capability: "web_search", reason: "single search" },
-          usage: { tokensIn: 50, tokensOut: 20, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.001 },
-        };
-      }
-      throw new Error("planner should not be called for direct");
-    }) as any;
-
-    const plan = await generatePlan({
-      sessionId: session.id,
-      walletAddress: session.walletAddress,
-      intent: "search for something",
-      params: { query: "test" },
-      budgetUsdc: 50,
-      // no auto_approve_under_usdc → should require manual approval
-    });
-    assert.ok("planId" in plan);
-    const p = plan as any;
-    assert.equal(p.status, "awaiting_approval");
-
-    // Manual approval
-    updatePlanStatus(p.planId, "approved");
-    const approved = getPlan(p.planId)!;
-    assert.equal(approved.status, "approved");
-
-    // Now execution should proceed
-    deposit({ sessionId: session.id, amountUsdc: approved.totalCostUsdc });
-
-    const handlers: Record<string, StepHandler> = {
-      "agentos.web_search": async () => ({ results: [] }),
-    };
-
-    const events: ExecutorEvent[] = [];
-    for await (const e of executePlanStream(
-      {
-        sessionId: session.id,
-        planId: approved.id,
-        status: "approved",
-        intent: { original: approved.intent, interpreted: approved.interpretedIntent },
-        steps: approved.steps,
-        totals: {
-          stepCostUsdc: approved.stepCostUsdc,
-          orchestrationFeeUsdc: approved.orchestrationFeeUsdc,
-          totalCostUsdc: approved.totalCostUsdc,
-          withinBudget: approved.withinBudget,
-          executionModes: ["server_side", "hybrid"],
-        },
-      },
-      session.walletAddress,
-      { handlers }
-    )) {
-      events.push(e);
-    }
-
-    const summary = events[events.length - 1];
-    assert.equal(summary.type === "summary" && summary.status, "completed");
+    assert.ok("planId" in result);
+    const plan = result as any;
+    const persisted = getPlan(plan.planId);
+    assert.ok(persisted);
+    assert.equal(persisted!.sessionId, plan.sessionId);
+    assert.equal(persisted!.status, "approved");
   });
 });

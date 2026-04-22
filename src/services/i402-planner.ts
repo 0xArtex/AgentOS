@@ -15,7 +15,14 @@ import {
   llm,
   type SystemBlock,
 } from "./i402-llm";
-import { listArtifacts, listMessages, appendMessage, getSession } from "./i402-session";
+import {
+  listMessages,
+  appendMessage,
+  getSession,
+  createSession,
+  findActiveSessionForWallet,
+  updateSessionStatus,
+} from "./i402-session";
 import type {
   Plan,
   PlanStep,
@@ -24,21 +31,17 @@ import type {
   PlanOrClarification,
   ClarificationResponse,
   ClarificationQuestion,
-  ExecutionMode,
   PlannerRequest,
-  PaymentRail,
 } from "./i402-types";
 
 // -------------------- Constants --------------------
 
 const I402_VERSION = "0.1";
-const APPROVAL_TTL_SECONDS = 900; // 15 min
-const DEFAULT_EXECUTION_MODES: ExecutionMode[] = ["server_side", "hybrid"];
 
 const ORCHESTRATION_FEE_PCT = () => parseFloat(process.env.I402_ORCHESTRATION_FEE_PCT ?? "0.15");
-const ORCHESTRATION_FEE_MIN = 0.01; // min flat fee even on tiny plans
+const ORCHESTRATION_FEE_MIN = 0.01;
 
-// -------------------- Router classification types --------------------
+// -------------------- Router classification --------------------
 
 interface RouterClassification {
   classification: "direct" | "compound" | "ambiguous";
@@ -54,31 +57,48 @@ const ROUTER_TOOL_SCHEMA = {
       type: "string",
       enum: ["direct", "compound", "ambiguous"],
       description:
-        "Classification: 'direct' = single capability, no composition; 'compound' = multi-step plan needed; 'ambiguous' = too vague, need clarification.",
+        "direct = a single capability satisfies it; compound = multi-step composition needed; ambiguous = too vague to plan safely.",
     },
     reason: { type: "string", description: "One-sentence justification." },
-    detected_capability: {
-      type: "string",
-      description:
-        "For 'direct' classification: the single capability class name (from the provided list). Omit otherwise.",
-    },
+    detected_capability: { type: "string", description: "For 'direct' only — capability class name." },
     clarification_questions: {
       type: "array",
       items: { type: "string" },
-      description: "For 'ambiguous' classification: the questions needed to proceed. Omit otherwise.",
+      description: "For 'ambiguous' only — the minimum questions needed to proceed.",
     },
   },
   required: ["classification", "reason"],
 };
 
-// -------------------- Planner plan output schema --------------------
+// -------------------- Session-relatedness classification --------------------
+
+interface RelatednessClassification {
+  verdict: "continues" | "new_goal";
+  reason: string;
+}
+
+const RELATEDNESS_TOOL_SCHEMA = {
+  type: "object" as const,
+  properties: {
+    verdict: {
+      type: "string",
+      enum: ["continues", "new_goal"],
+      description:
+        "continues = the new intent logically extends work from the prior session (same project, same brand, same goal); new_goal = unrelated to prior work.",
+    },
+    reason: { type: "string", description: "One-sentence justification." },
+  },
+  required: ["verdict", "reason"],
+};
+
+// -------------------- Planner output schema --------------------
 
 const PLAN_TOOL_SCHEMA = {
   type: "object" as const,
   properties: {
     interpreted_intent: {
       type: "string",
-      description: "One-sentence interpretation of what the agent is asking for, expanded.",
+      description: "One-sentence interpretation, expanded from the original intent.",
     },
     steps: {
       type: "array",
@@ -88,8 +108,8 @@ const PLAN_TOOL_SCHEMA = {
           step_id: { type: "string", description: "Unique within plan, e.g. 's1'." },
           capability: { type: "string", description: "Canonical capability class name." },
           provider_id: { type: "string", description: "Chosen provider ID from the candidate list." },
-          description: { type: "string", description: "Human-readable summary of what this step does." },
-          input: { type: "object", description: "Input object for the provider, matching its input schema." },
+          description: { type: "string" },
+          input: { type: "object", description: "Input object matching provider's input schema." },
           depends_on: {
             type: "array",
             items: { type: "string" },
@@ -115,16 +135,12 @@ interface LLMPlanOutput {
   }>;
 }
 
-// -------------------- Expansion templates for compound capabilities --------------------
+// -------------------- Expansion templates --------------------
 
 export interface ExpansionTemplate {
   capability: string;
   description: string;
-  steps: Array<{
-    capability: string;
-    description: string;
-    platform?: "x" | "tiktok" | "reddit" | "linkedin";
-  }>;
+  steps: Array<{ capability: string; description: string; platform?: "x" | "tiktok" | "reddit" | "linkedin" }>;
 }
 
 export const EXPANSION_TEMPLATES: Record<string, ExpansionTemplate> = {
@@ -132,8 +148,6 @@ export const EXPANSION_TEMPLATES: Record<string, ExpansionTemplate> = {
     capability: "launch_product",
     description: "Full end-to-end product launch.",
     steps: [
-      { capability: "web_search", description: "Research the target market and competitors." },
-      { capability: "summarize", description: "Distill findings into brand positioning." },
       { capability: "register_domain", description: "Register a product domain." },
       { capability: "deploy_vps", description: "Provision a VPS for the landing page." },
       { capability: "provision_email_inbox", description: "Create a branded email inbox." },
@@ -143,27 +157,17 @@ export const EXPANSION_TEMPLATES: Record<string, ExpansionTemplate> = {
       { capability: "social_post", description: "Launch post on TikTok.", platform: "tiktok" },
     ],
   },
-  research_topic: {
-    capability: "research_topic",
-    description: "Search + synthesize into a report.",
-    steps: [
-      { capability: "web_search", description: "Gather sources on the topic." },
-      { capability: "summarize", description: "Produce a structured report from the sources." },
-    ],
-  },
   grow_audience: {
     capability: "grow_audience",
-    description: "Trending analysis + cross-platform content.",
+    description: "Cross-platform content generation and posting.",
     steps: [
-      { capability: "web_search", description: "Find trending angles in the niche." },
-      { capability: "summarize", description: "Draft on-brand content variants." },
       { capability: "social_post", description: "Publish on X.", platform: "x" },
       { capability: "social_post", description: "Publish on TikTok.", platform: "tiktok" },
     ],
   },
 };
 
-// -------------------- System prompts (cacheable) --------------------
+// -------------------- System prompts --------------------
 
 function buildRouterSystem(): SystemBlock[] {
   const capList = Object.keys(CAPABILITY_CLASSES).join(", ");
@@ -171,19 +175,38 @@ function buildRouterSystem(): SystemBlock[] {
     {
       cache: true,
       text: [
-        "You are the i402 intent router. Your job is to classify incoming agent intents so the downstream planner knows how to handle them.",
+        "You are the i402 intent router. Classify incoming agent intents so the downstream planner knows how to handle them.",
         "",
-        "Classify each intent as one of:",
-        "- 'direct': a single well-known capability can satisfy it (e.g. 'register example.com', 'send an SMS to +1555...'). Include 'detected_capability' from the list.",
-        "- 'compound': multiple capabilities must compose to satisfy it (e.g. 'launch a product', 'research and summarize').",
-        "- 'ambiguous': the goal is too vague or missing critical context to plan safely. Include 'clarification_questions'.",
+        "Classifications:",
+        "  - 'direct': a single known capability satisfies it. Include 'detected_capability' from the list.",
+        "  - 'compound': multi-step composition needed.",
+        "  - 'ambiguous': too vague to plan safely. Include 'clarification_questions'.",
         "",
-        "Known capability classes:",
-        capList,
+        "Known capability classes: " + capList,
         "",
-        "Bias toward 'compound' over 'direct' when in doubt — a redundant multi-step plan is better than a missed step.",
-        "Bias toward 'ambiguous' only when a concrete plan would make major assumptions the agent likely did not intend.",
-        "Goals with known cultural templates ('launch a product', 'grow an audience', 'research X') are 'compound', not 'ambiguous' — they are well-understood expansions.",
+        "Bias toward 'compound' over 'direct' when in doubt. Bias toward 'ambiguous' only when a concrete plan would require major assumptions.",
+        "Goals with known cultural templates ('launch a product', 'grow an audience') are 'compound', not 'ambiguous'.",
+      ].join("\n"),
+    },
+  ];
+}
+
+function buildRelatednessSystem(): SystemBlock[] {
+  return [
+    {
+      cache: true,
+      text: [
+        "You are the i402 session router. You're told about a recent active session for a wallet (its last intent, and a short summary of what's been done) and a NEW incoming intent.",
+        "",
+        "Decide:",
+        "  - 'continues' if the new intent logically extends the same project/goal/brand. Examples:",
+        "      prior: 'launch a sneaker brand'    new: 'now post 3 TikTok videos'  → continues",
+        "      prior: 'research AI agent trends'  new: 'write a summary'            → continues",
+        "  - 'new_goal' if unrelated. Examples:",
+        "      prior: 'launch a sneaker brand'    new: 'research crypto'            → new_goal",
+        "      prior: 'send 10 SMS to customers'  new: 'launch a coffee subscription'→ new_goal",
+        "",
+        "When unsure, prefer 'new_goal' — a fresh session is safer than leaking unrelated context.",
       ].join("\n"),
     },
   ];
@@ -191,9 +214,9 @@ function buildRouterSystem(): SystemBlock[] {
 
 function buildPlannerSystem(args: {
   providers: I402Provider[];
-  artifacts: Array<{ type: string; name?: string; resourceRef: string }>;
   budgetUsdc: number;
   quality: I402Quality;
+  contextSummary?: string;
 }): SystemBlock[] {
   const capabilityCatalog = Object.values(CAPABILITY_CLASSES)
     .map(c => `  • ${c.name}${c.isCompound ? " (compound)" : ""} — ${c.description}`)
@@ -211,62 +234,54 @@ function buildPlannerSystem(args: {
     .join("\n");
 
   const expansionHints = Object.values(EXPANSION_TEMPLATES)
-    .map(t => `  • ${t.capability}: ${t.steps.map(s => s.capability + (s.platform ? `(${s.platform})` : "")).join(" → ")}`)
+    .map(
+      t =>
+        `  • ${t.capability}: ${t.steps.map(s => s.capability + (s.platform ? `(${s.platform})` : "")).join(" → ")}`
+    )
     .join("\n");
 
-  const artifactContext =
-    args.artifacts.length > 0
-      ? [
-          "",
-          "The agent's session already has these artifacts from prior plans. Reference them by name rather than re-provisioning:",
-          ...args.artifacts.map(a => `  • ${a.type}: ${a.name ?? a.resourceRef}`),
-        ].join("\n")
-      : "";
+  const contextBlock = args.contextSummary
+    ? ["", "Session context so far (from prior turns):", args.contextSummary].join("\n")
+    : "";
 
   return [
     {
       cache: true,
       text: [
-        "You are the i402 planner — the reference implementation of the i402 Intent Fulfillment Protocol.",
+        "You are the i402 planner. You produce an ordered sequence of x402-settled provider calls that fulfill an agent's intent.",
         "",
-        "You receive an agent's intent and produce an ordered sequence of x402-settled provider calls (a 'plan') that fulfill it. The plan is executed in-order; each step may depend on outputs of prior steps.",
+        "i402 v0.1 is agent-side-execution-only: the agent signs every x402 call itself. Your job is the composition — pick providers, wire inputs, order dependencies.",
         "",
         "Principles:",
-        "- Pick the best provider per step based on the quality hint (best = reputation, cheap = cost, fast = latency).",
-        "- Never plan a step whose cost is known to be zero unless the capability's catalog declares it free.",
-        "- Concrete inputs: each step must have concrete input values, never placeholders like '<TBD>'. For fields populated by prior step outputs, use the literal string '$STEPS.sN.output.FIELD' which the executor will resolve.",
-        "- Dependency graph: use 'depends_on' only when a later step needs an earlier step's output. Do not serialize steps that can run in parallel.",
-        "- Compound goals: expand into the full set of concrete steps (see expansion templates). Do not emit a single 'launch_product' step — emit the underlying sub-steps.",
-        "- Reuse artifacts: if an artifact already exists (see session context), reference it in subsequent step inputs instead of provisioning a duplicate.",
-        "- Budget discipline: the sum of step costs must fit within the agent's budget. If a reasonable plan cannot fit, reduce scope and explain in 'interpreted_intent' what was dropped.",
-        "- Never hallucinate providers: only use provider IDs from the candidate list given to you.",
+        "  - Concrete inputs only. Never placeholders like '<TBD>'. For fields populated by prior-step outputs, use literal strings of the form '$STEPS.sN.output.FIELD'; the executor resolves them.",
+        "  - Budget discipline: sum of step costs + orchestration fee must fit within the agent's budget.",
+        "  - Dependency graph: use 'depends_on' only when a later step needs an earlier step's output. Parallel-eligible steps should have no dependency link.",
+        "  - Compound goals: expand into concrete sub-steps (see templates). Do not emit a single 'launch_product' step.",
+        "  - Never hallucinate providers: only use IDs from the candidate list below.",
         "",
         "Capability catalog:",
         capabilityCatalog,
         "",
-        "Expansion template hints (compound → sub-steps):",
+        "Expansion template hints:",
         expansionHints,
       ].join("\n"),
     },
     {
       cache: true,
-      text: [
-        "Candidate providers for this request (narrowed via semantic retrieval + quality ranking):",
-        providerCatalog,
-      ].join("\n"),
+      text: ["Candidate providers for this request (narrowed by semantic retrieval):", providerCatalog].join("\n"),
     },
     {
       text: [
         `Current request context:`,
         `  budget: $${args.budgetUsdc.toFixed(2)} USDC`,
-        `  quality preference: ${args.quality}`,
-        artifactContext,
+        `  quality: ${args.quality}`,
+        contextBlock,
       ].join("\n"),
     },
   ];
 }
 
-// -------------------- Intent router --------------------
+// -------------------- LLM calls --------------------
 
 export async function classifyIntent(
   intent: string,
@@ -288,7 +303,35 @@ export async function classifyIntent(
     temperature: 0.0,
     maxTokens: 500,
   });
+  return res.content;
+}
 
+export async function classifySessionRelatedness(args: {
+  priorIntent: string;
+  priorSummary?: string;
+  newIntent: string;
+}): Promise<RelatednessClassification> {
+  const userMessage = [
+    `Prior session's most recent intent: "${args.priorIntent}"`,
+    args.priorSummary ? `Prior session summary: ${args.priorSummary}` : "",
+    ``,
+    `New intent: "${args.newIntent}"`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const res = await llm.completeStructured<RelatednessClassification>({
+    model: DEFAULT_ROUTER_MODEL(),
+    system: buildRelatednessSystem(),
+    messages: [{ role: "user", content: userMessage }],
+    tool: {
+      name: "classify_session_relatedness",
+      description: "Decide whether a new intent continues a prior session or starts a new goal.",
+      inputSchema: RELATEDNESS_TOOL_SCHEMA,
+    },
+    temperature: 0.0,
+    maxTokens: 200,
+  });
   return res.content;
 }
 
@@ -336,6 +379,13 @@ export function validatePlanSteps(
     if (constraints?.excludeProviders?.includes(provider.id)) {
       return { ok: false, reason: `Plan uses excluded provider: ${provider.id}` };
     }
+    // Agent-side-only: every provider MUST speak x402 natively.
+    if (provider.authScheme !== "x402-solana" && provider.authScheme !== "x402-base") {
+      return {
+        ok: false,
+        reason: `Provider ${provider.id} auth scheme '${provider.authScheme}' is not x402-native; agent-side execution requires direct x402.`,
+      };
+    }
 
     for (const dep of raw.depends_on ?? []) {
       if (!knownStepIds.has(dep)) {
@@ -355,12 +405,7 @@ export function validatePlanSteps(
       x402: {
         endpoint: provider.endpoint,
         method: provider.method,
-        paymentRail:
-          provider.authScheme === "x402-solana"
-            ? "x402-solana"
-            : provider.authScheme === "x402-base"
-              ? "x402-base"
-              : "internal",
+        paymentRail: provider.authScheme === "x402-solana" ? "x402-solana" : "x402-base",
       },
     });
   }
@@ -377,6 +422,8 @@ export function validatePlanSteps(
   return { ok: true, steps };
 }
 
+// -------------------- Totals --------------------
+
 export function computeTotals(steps: PlanStep[], budgetUsdc: number): PlanTotals {
   const stepCost = steps.reduce((sum, s) => sum + s.costUsdc, 0);
   const feePct = ORCHESTRATION_FEE_PCT();
@@ -390,33 +437,35 @@ export function computeTotals(steps: PlanStep[], budgetUsdc: number): PlanTotals
     totalCostUsdc: Math.round(total * 100) / 100,
     withinBudget: total <= budgetUsdc + 1e-9,
     etaSeconds: totalEta,
-    executionModes: DEFAULT_EXECUTION_MODES,
   };
 }
 
-// -------------------- Direct plan (single capability, routed by Haiku) --------------------
+// -------------------- Direct plan (single capability) --------------------
 
 async function directPlan(
   request: PlannerRequest,
   classification: RouterClassification
 ): Promise<PlanOrClarification> {
   const capability = classification.detected_capability;
-  if (!capability || !getCapability(capability)) {
-    // Router said direct but didn't give us a known capability — fall back to compound
-    return compoundPlan(request);
-  }
+  if (!capability || !getCapability(capability)) return compoundPlan(request);
 
   const ranked = scoreProviders(capability, request.quality ?? "best");
-  const usable = ranked.filter(p => !request.constraints?.excludeProviders?.includes(p.id));
+  const usable = ranked.filter(
+    p =>
+      !request.constraints?.excludeProviders?.includes(p.id) &&
+      (p.authScheme === "x402-solana" || p.authScheme === "x402-base")
+  );
   if (usable.length === 0) {
-    const err: ClarificationResponse = {
+    return {
       sessionId: request.sessionId,
       status: "clarification_needed",
       questions: [
-        { id: "q1", text: `No provider available for capability ${capability}. Adjust constraints or pick a different goal.` },
+        {
+          id: "q1",
+          text: `No x402-native provider available for capability '${capability}'. Adjust constraints or pick a different goal.`,
+        },
       ],
     };
-    return err;
   }
 
   const chosen = usable[0];
@@ -431,37 +480,23 @@ async function directPlan(
     x402: {
       endpoint: chosen.endpoint,
       method: chosen.method,
-      paymentRail:
-        chosen.authScheme === "x402-solana"
-          ? "x402-solana"
-          : chosen.authScheme === "x402-base"
-            ? "x402-base"
-            : "internal",
+      paymentRail: chosen.authScheme === "x402-solana" ? "x402-solana" : "x402-base",
     },
   };
 
   const steps = [step];
   const totals = computeTotals(steps, request.budgetUsdc);
-  const plan = buildPlan({
-    request,
-    interpretedIntent: classification.reason,
-    steps,
-    totals,
-  });
-  return plan;
+  return buildPlan({ request, interpretedIntent: classification.reason, steps, totals });
 }
 
-// -------------------- Compound plan (LLM-driven via Opus) --------------------
+// -------------------- Compound plan (LLM-driven) --------------------
 
 async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarification> {
-  // Narrow providers: top-N across all capabilities by semantic relevance
-  const narrowed = await narrowProvidersForIntent(request.intent);
-  let candidateProviders = narrowed;
+  let candidateProviders = await narrowProvidersForIntent(request.intent);
   if (candidateProviders.length === 0) {
     candidateProviders = listProviders({ enabledOnly: true });
   }
-  // Always include union of top-3-per-capability of relevant ones to ensure coverage for
-  // compound expansions that need multiple capability classes
+  // Ensure at least top-3 per capability are in the candidate pool for coverage
   const byCapability = new Map<string, I402Provider[]>();
   for (const p of listProviders({ enabledOnly: true })) {
     if (!byCapability.has(p.capability)) byCapability.set(p.capability, []);
@@ -473,7 +508,10 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
     }
   }
 
-  // Exclude providers listed in constraints
+  // Filter to x402-native + constraints
+  candidateProviders = candidateProviders.filter(
+    p => p.authScheme === "x402-solana" || p.authScheme === "x402-base"
+  );
   if (request.constraints?.excludeProviders?.length) {
     candidateProviders = candidateProviders.filter(
       p => !request.constraints!.excludeProviders!.includes(p.id)
@@ -486,13 +524,8 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
   }
 
   const session = getSession(request.sessionId);
-  const artifacts = listArtifacts(request.sessionId).map(a => ({
-    type: a.type,
-    name: a.name,
-    resourceRef: a.resourceRef,
-  }));
-
   const contextSummary = session?.contextSummary;
+
   const userMessageParts: string[] = [];
   if (contextSummary) userMessageParts.push(`Session summary so far:\n${contextSummary}`);
   userMessageParts.push(`Intent: ${request.intent}`);
@@ -504,15 +537,14 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
     model: DEFAULT_PLANNER_MODEL(),
     system: buildPlannerSystem({
       providers: candidateProviders,
-      artifacts,
       budgetUsdc: request.budgetUsdc,
       quality: request.quality ?? "best",
+      contextSummary,
     }),
     messages: [{ role: "user", content: userMessageParts.join("\n\n") }],
     tool: {
       name: "emit_plan",
-      description:
-        "Emit a structured plan of x402-settled steps that collectively fulfill the agent's intent.",
+      description: "Emit a structured plan of x402-settled steps.",
       inputSchema: PLAN_TOOL_SCHEMA,
     },
     temperature: 0.0,
@@ -520,21 +552,21 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
 
   const validated = validatePlanSteps(llmRes.content, candidateProviders, request.constraints);
   if (!validated.ok) {
-    // Retry once with the validation error fed back
+    // Retry once with validation feedback
     const retry = await llm.completeStructured<LLMPlanOutput>({
       model: DEFAULT_PLANNER_MODEL(),
       system: buildPlannerSystem({
         providers: candidateProviders,
-        artifacts,
         budgetUsdc: request.budgetUsdc,
         quality: request.quality ?? "best",
+        contextSummary,
       }),
       messages: [
         { role: "user", content: userMessageParts.join("\n\n") },
         { role: "assistant", content: JSON.stringify(llmRes.content) },
         {
           role: "user",
-          content: `Your previous plan failed validation: ${validated.reason}. Regenerate the plan fixing that issue. Use only providers from the candidate list.`,
+          content: `Your previous plan failed validation: ${validated.reason}. Regenerate fixing that issue. Use only providers from the candidate list.`,
         },
       ],
       tool: {
@@ -545,25 +577,13 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
       temperature: 0.0,
     });
     const validated2 = validatePlanSteps(retry.content, candidateProviders, request.constraints);
-    if (!validated2.ok) {
-      throw new Error(`Plan validation failed twice: ${validated2.reason}`);
-    }
+    if (!validated2.ok) throw new Error(`Plan validation failed twice: ${validated2.reason}`);
     const totals = computeTotals(validated2.steps, request.budgetUsdc);
-    return buildPlan({
-      request,
-      interpretedIntent: retry.content.interpreted_intent,
-      steps: validated2.steps,
-      totals,
-    });
+    return buildPlan({ request, interpretedIntent: retry.content.interpreted_intent, steps: validated2.steps, totals });
   }
 
   const totals = computeTotals(validated.steps, request.budgetUsdc);
-  return buildPlan({
-    request,
-    interpretedIntent: llmRes.content.interpreted_intent,
-    steps: validated.steps,
-    totals,
-  });
+  return buildPlan({ request, interpretedIntent: llmRes.content.interpreted_intent, steps: validated.steps, totals });
 }
 
 // -------------------- Plan assembly --------------------
@@ -577,56 +597,24 @@ function buildPlan(args: {
   const { request, interpretedIntent, steps, totals } = args;
   const planId = `plan_${crypto.randomBytes(6).toString("hex")}`;
 
-  let status: PlanStatus;
-  if (!totals.withinBudget) {
-    status = "budget_exceeded";
-  } else if (shouldAutoApprove(request, totals)) {
-    status = "approved";
-  } else {
-    status = "awaiting_approval";
-  }
+  // 'approved' status means "plan validated, within budget, ready for agent-side execution".
+  // The status name is retained for DB-schema compatibility; the semantic is agent-side.
+  const status: PlanStatus = !totals.withinBudget ? "budget_exceeded" : "approved";
 
   const plan: Plan = {
     sessionId: request.sessionId,
     planId,
     status,
-    intent: {
-      original: request.intent,
-      interpreted: interpretedIntent,
-    },
+    intent: { original: request.intent, interpreted: interpretedIntent },
     steps,
     totals,
-    approval: status === "awaiting_approval"
-      ? {
-          required: true,
-          expiresAt: new Date(Date.now() + APPROVAL_TTL_SECONDS * 1000).toISOString(),
-          hint: totals.withinBudget
-            ? undefined
-            : `Plan exceeds budget by $${(totals.totalCostUsdc - request.budgetUsdc).toFixed(2)}.`,
-          approveBody: {
-            session_id: request.sessionId,
-            plan_id: planId,
-            approve: true,
-            execution: "server_side",
-          },
-        }
-      : undefined,
   };
 
   persistPlan(plan, request);
   return plan;
 }
 
-export function shouldAutoApprove(request: PlannerRequest, totals: PlanTotals): boolean {
-  if (request.approve === true) return true;
-  if (typeof request.autoApproveUnderUsdc === "number" && totals.totalCostUsdc <= request.autoApproveUnderUsdc) {
-    return true;
-  }
-  return false;
-}
-
 function persistPlan(plan: Plan, request: PlannerRequest): void {
-  // Determine the message seq this plan was generated in response to
   const lastMessage = listMessages(plan.sessionId, 10_000).slice(-1)[0];
   const messageSeq = lastMessage ? lastMessage.seq : 0;
 
@@ -635,7 +623,7 @@ function persistPlan(plan: Plan, request: PlannerRequest): void {
        id, session_id, message_seq, intent, interpreted_intent, params, quality,
        steps, step_cost_usdc, orchestration_fee_usdc, total_cost_usdc, within_budget,
        execution_mode, status, approved_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`
   ).run(
     plan.planId,
     plan.sessionId,
@@ -649,27 +637,99 @@ function persistPlan(plan: Plan, request: PlannerRequest): void {
     plan.totals.orchestrationFeeUsdc,
     plan.totals.totalCostUsdc,
     plan.totals.withinBudget ? 1 : 0,
-    "server_side",
-    plan.status,
-    plan.status === "approved" ? new Date().toISOString() : null
+    "agent_side",
+    plan.status
   );
+}
+
+// -------------------- Session resolution --------------------
+
+/**
+ * Resolve which session this request belongs to given the wallet.
+ *
+ * Rules:
+ *   - If forceNewSession: always create fresh.
+ *   - If no active session for wallet: create fresh.
+ *   - If active session exists AND new intent continues it (per Haiku relatedness
+ *     classifier): return that session.
+ *   - Otherwise: close the prior active session as 'completed' and create fresh.
+ */
+async function resolveSessionForWallet(args: {
+  walletAddress: string;
+  intent: string;
+  budgetUsdc: number;
+  forceNewSession: boolean;
+}): Promise<{ sessionId: string; carriedContext: boolean }> {
+  if (args.forceNewSession) {
+    const fresh = createSession({ walletAddress: args.walletAddress, budgetUsdc: args.budgetUsdc });
+    return { sessionId: fresh.id, carriedContext: false };
+  }
+
+  const active = findActiveSessionForWallet(args.walletAddress);
+  if (!active) {
+    const fresh = createSession({ walletAddress: args.walletAddress, budgetUsdc: args.budgetUsdc });
+    return { sessionId: fresh.id, carriedContext: false };
+  }
+
+  const messages = listMessages(active.id, 1000);
+  const lastAgentMessage = [...messages].reverse().find(m => m.role === "agent");
+  if (!lastAgentMessage) {
+    // Active session but no prior agent intent — just use it
+    return { sessionId: active.id, carriedContext: true };
+  }
+
+  try {
+    const relatedness = await classifySessionRelatedness({
+      priorIntent: lastAgentMessage.content,
+      priorSummary: active.contextSummary,
+      newIntent: args.intent,
+    });
+    if (relatedness.verdict === "continues") {
+      return { sessionId: active.id, carriedContext: true };
+    }
+  } catch (err) {
+    // LLM failure shouldn't block; default to new session for safety.
+    console.warn("[i402 planner] session relatedness check failed, defaulting to new session:", err);
+  }
+
+  // New goal — close the prior as completed and create a fresh one
+  updateSessionStatus(active.id, "completed");
+  const fresh = createSession({ walletAddress: args.walletAddress, budgetUsdc: args.budgetUsdc });
+  return { sessionId: fresh.id, carriedContext: false };
 }
 
 // -------------------- Main entry --------------------
 
-export async function generatePlan(request: PlannerRequest): Promise<PlanOrClarification> {
-  if (!request.sessionId) throw new Error("sessionId is required");
+export interface GeneratePlanOptions {
+  forceNewSession?: boolean;
+}
+
+export async function generatePlan(
+  request: PlannerRequest,
+  options: GeneratePlanOptions = {}
+): Promise<PlanOrClarification> {
+  if (!request.walletAddress) throw new Error("walletAddress is required");
   if (!request.intent || request.intent.trim().length === 0) throw new Error("intent is required");
   if (request.budgetUsdc <= 0) throw new Error("budgetUsdc must be positive");
 
-  // Log the agent's request in the session message log for auditability
-  appendMessage({
-    sessionId: request.sessionId,
-    role: "agent",
-    content: request.intent,
-  });
+  // Resolve session: honor explicit sessionId if passed; otherwise find-or-create by wallet.
+  let sessionId = request.sessionId;
+  if (!sessionId) {
+    const resolved = await resolveSessionForWallet({
+      walletAddress: request.walletAddress,
+      intent: request.intent,
+      budgetUsdc: request.budgetUsdc,
+      forceNewSession: options.forceNewSession === true,
+    });
+    sessionId = resolved.sessionId;
+  }
 
-  const session = getSession(request.sessionId);
+  const bound: PlannerRequest = { ...request, sessionId };
+
+  // Log the agent's intent
+  appendMessage({ sessionId, role: "agent", content: request.intent });
+
+  const session = getSession(sessionId);
   const classification = await classifyIntent(request.intent, session?.contextSummary);
 
   if (classification.classification === "ambiguous") {
@@ -677,29 +737,25 @@ export async function generatePlan(request: PlannerRequest): Promise<PlanOrClari
       (q, i) => ({ id: `q${i + 1}`, text: q })
     );
     if (questions.length === 0) {
-      questions.push({ id: "q1", text: "Could you provide more detail on what outcome you're looking for?" });
+      questions.push({
+        id: "q1",
+        text: "Could you provide more detail on what outcome you're looking for?",
+      });
     }
+    appendMessage({ sessionId, role: "clarification", content: JSON.stringify(questions) });
     const response: ClarificationResponse = {
-      sessionId: request.sessionId,
+      sessionId,
       status: "clarification_needed",
       questions,
     };
-    appendMessage({
-      sessionId: request.sessionId,
-      role: "clarification",
-      content: JSON.stringify(questions),
-    });
     return response;
   }
 
-  if (classification.classification === "direct") {
-    return await directPlan(request, classification);
-  }
-
-  return await compoundPlan(request);
+  if (classification.classification === "direct") return directPlan(bound, classification);
+  return compoundPlan(bound);
 }
 
-// -------------------- Plan lookup for approval / execution --------------------
+// -------------------- Plan lookup --------------------
 
 export interface PersistedPlan {
   id: string;
@@ -760,13 +816,7 @@ export function getPlan(planId: string): PersistedPlan | undefined {
 }
 
 export function updatePlanStatus(planId: string, status: PlanStatus): void {
-  const extra: string[] = [];
-  if (status === "approved") extra.push("approved_at = datetime('now','utc')");
-  if (status === "completed" || status === "failed" || status === "cancelled") {
-    extra.push("completed_at = datetime('now','utc')");
-  }
-  const extraSql = extra.length ? `, ${extra.join(", ")}` : "";
-  db.prepare(`UPDATE i402_session_plans SET status = ?${extraSql} WHERE id = ?`).run(status, planId);
+  db.prepare(`UPDATE i402_session_plans SET status = ? WHERE id = ?`).run(status, planId);
 }
 
 // -------------------- Version --------------------
@@ -780,4 +830,4 @@ export type {
   PlanOrClarification,
   ClarificationResponse,
   PaymentRail,
-};
+} from "./i402-types";

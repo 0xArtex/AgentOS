@@ -4,6 +4,71 @@
 
 const DEFAULT_API = 'https://agntos.dev'
 
+// -------------------- Client-side executor helpers --------------------
+
+/** Topological order of plan steps using their `depends_on` arrays. */
+function topoOrderSteps(steps: any[]): any[] {
+  const byId = new Map<string, any>(steps.map(s => [s.step_id, s]))
+  const indegree = new Map<string, number>()
+  const outgoing = new Map<string, string[]>()
+  for (const s of steps) {
+    indegree.set(s.step_id, Array.isArray(s.depends_on) ? s.depends_on.length : 0)
+    for (const dep of s.depends_on ?? []) {
+      if (!byId.has(dep)) throw new Error(`step ${s.step_id} depends on unknown step ${dep}`)
+      if (!outgoing.has(dep)) outgoing.set(dep, [])
+      outgoing.get(dep)!.push(s.step_id)
+    }
+    if (!outgoing.has(s.step_id)) outgoing.set(s.step_id, [])
+  }
+  const order: any[] = []
+  const ready: string[] = []
+  for (const [id, deg] of indegree) if (deg === 0) ready.push(id)
+  while (ready.length > 0) {
+    const id = ready.shift()!
+    order.push(byId.get(id)!)
+    for (const dep of outgoing.get(id) ?? []) {
+      const next = (indegree.get(dep) ?? 0) - 1
+      indegree.set(dep, next)
+      if (next === 0) ready.push(dep)
+    }
+  }
+  if (order.length !== steps.length) throw new Error('plan has a dependency cycle')
+  return order
+}
+
+/** Resolve a single $STEPS.sN.output.path expression against prior outputs. */
+function resolveTemplateValue(value: any, priorOutputs: Record<string, any>): any {
+  if (typeof value !== 'string') return value
+  const m = value.match(/^\$STEPS\.([a-zA-Z0-9_]+)\.output(?:\.(.+))?$/)
+  if (!m) return value
+  const [, stepId, path] = m
+  const base = priorOutputs[stepId]
+  if (base === undefined) return value
+  if (!path) return base
+  const segments = path.split(/\.|\[(\d+)\]/).filter(s => s !== undefined && s !== '')
+  let cursor: any = base
+  for (const seg of segments) {
+    if (cursor === null || cursor === undefined) return value
+    if (/^\d+$/.test(seg) && Array.isArray(cursor)) cursor = cursor[parseInt(seg, 10)]
+    else if (typeof cursor === 'object') cursor = cursor[seg]
+    else return value
+  }
+  return cursor
+}
+
+/** Walk an input object deeply, resolving every templated string leaf. */
+function resolveStepInput(input: any, priorOutputs: Record<string, any>): any {
+  if (input === null || input === undefined) return input
+  if (typeof input === 'string') return resolveTemplateValue(input, priorOutputs)
+  if (Array.isArray(input)) return input.map(v => resolveStepInput(v, priorOutputs))
+  if (typeof input === 'object') {
+    const out: Record<string, any> = {}
+    for (const [k, v] of Object.entries(input)) out[k] = resolveStepInput(v, priorOutputs)
+    return out
+  }
+  return input
+}
+
 export class AgentOS {
   public api: string
   public token?: string
@@ -427,77 +492,112 @@ export class AgentOS {
   }
 
   /**
-   * Execute an approved i402 plan, yielding ExecutorEvents as they arrive via SSE.
-   * Auto-pays `plan.total_cost_usdc` (read from the server's 402 advertisement).
+   * Client-side executor for an i402 plan.
+   *
+   * i402 v0.1 is agent-side-execution-only: the server returns a plan and stops;
+   * this function iterates the plan's steps in topological order, signs a real
+   * x402 payment for each step (via paidRequest), calls the endpoint, resolves
+   * $STEPS.sN.output.field references into later-step inputs locally, and yields
+   * events to the caller so a CLI or agent framework can render progress.
+   *
+   * Every step's x402 payment is a real on-chain transaction signed by this
+   * client's wallet — no server-side escrow, no custodial proxy.
    *
    * Usage:
-   *   const plan = await ao.chat(...)
-   *   for await (const event of ao.chatExecute(plan.session_id, plan.plan_id)) {
+   *   const plan = await ao.chat("launch a brand", { budgetUsdc: 60 })
+   *   for await (const event of ao.chatExecute(plan)) {
    *     console.log(event.type, event)
    *   }
    */
   async *chatExecute(
-    sessionId: string,
-    planId: string,
-    options: { approve?: boolean; execution?: 'server_side' | 'agent_side' | 'hybrid' } = {},
+    plan: any,
+    options: { stopOnFailure?: boolean } = {},
   ): AsyncGenerator<any, void, undefined> {
-    const body: Record<string, unknown> = {
-      plan_id: planId,
-      approve: options.approve !== false,
-      execution: options.execution ?? 'server_side',
+    if (!plan?.plan_id || !Array.isArray(plan?.steps)) {
+      throw new Error('chatExecute requires a plan returned from chat()')
+    }
+    const stopOnFailure = options.stopOnFailure !== false
+
+    yield { type: 'session', sessionId: plan.session_id }
+    yield {
+      type: 'plan',
+      planId: plan.plan_id,
+      steps: plan.steps.map((s: any) => ({
+        stepId: s.step_id,
+        provider: s.provider,
+        capability: s.capability,
+        costUsdc: s.cost_usdc,
+      })),
+      totalCostUsdc: plan.totals?.total_cost_usdc,
     }
 
-    const { paidStreamRequest } = await import('./pay.js')
-    const { response } = await paidStreamRequest(this.api, 'POST', `/chat/${sessionId}/execute`, body, this.passphrase)
+    const ordered = topoOrderSteps(plan.steps)
+    const priorOutputs: Record<string, any> = {}
+    let encounteredFatal = false
+    let totalSpent = 0
 
-    if (!response.ok) {
-      const text = await response.text().catch(() => '')
-      throw new Error(`chatExecute failed (${response.status}): ${text.slice(0, 300)}`)
-    }
+    const { paidRequest } = await import('./pay.js')
 
-    const contentType = response.headers.get('content-type') ?? ''
-    if (!contentType.includes('text/event-stream')) {
-      // Server responded with JSON (e.g., immediate error). Yield once as a best-effort.
-      const data = await response.json().catch(() => ({}))
-      yield { type: 'step_error', stepId: '__unknown__', provider: 'i402_server', error: (data as any).error ?? 'non-stream response', fatal: true }
-      return
-    }
+    for (const step of ordered) {
+      const resolvedInput = resolveStepInput(step.input, priorOutputs)
 
-    // Parse SSE frames
-    const reader = (response.body as any)?.getReader?.()
-    if (!reader) throw new Error('Response body is not a readable stream')
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (true) {
-      const { value, done } = await reader.read()
-      if (done) break
-      buffer += decoder.decode(value, { stream: true })
-      const frames = buffer.split('\n\n')
-      buffer = frames.pop() ?? '' // last incomplete frame stays in buffer
-      for (const frame of frames) {
-        if (!frame.trim()) continue
-        const dataLine = frame.split('\n').find(line => line.startsWith('data:'))
-        if (!dataLine) continue
-        try {
-          const event = JSON.parse(dataLine.slice('data:'.length).trim())
-          yield event
-        } catch {
-          // skip malformed
-        }
+      yield {
+        type: 'step_start',
+        stepId: step.step_id,
+        provider: step.provider,
+        capability: step.capability,
+        costUsdc: step.cost_usdc,
       }
+
+      const startMs = Date.now()
+      try {
+        const url = new URL(step.x402?.endpoint ?? '')
+        const path = url.pathname + url.search
+        const api = `${url.protocol}//${url.host}`
+        const method = (step.x402?.method ?? 'POST').toUpperCase()
+        const result = await paidRequest(api, method, path, resolvedInput, this.passphrase)
+        const latencyMs = Date.now() - startMs
+        const output = result.data
+        priorOutputs[step.step_id] = output
+        totalSpent += Number(step.cost_usdc ?? 0)
+        yield {
+          type: 'step_result',
+          stepId: step.step_id,
+          provider: step.provider,
+          output,
+          latencyMs,
+          costChargedUsdc: step.cost_usdc,
+          txSignature: result.txHash,
+        }
+      } catch (err: any) {
+        const latencyMs = Date.now() - startMs
+        const message = err?.message ?? String(err)
+        encounteredFatal = true
+        yield {
+          type: 'step_error',
+          stepId: step.step_id,
+          provider: step.provider,
+          error: message,
+          latencyMs,
+          fatal: stopOnFailure,
+        }
+        if (stopOnFailure) break
+      }
+    }
+
+    yield {
+      type: 'summary',
+      spentUsdc: totalSpent,
+      status: encounteredFatal ? 'failed' : 'completed',
     }
   }
 
   async chatGetSession(sessionId: string): Promise<any> {
-    return this.requestWithHeaders('GET', `/chat/${sessionId}`, undefined, { 'X-Session-Id': sessionId })
-  }
-
-  async chatGetSpend(sessionId: string): Promise<any> {
-    return this.requestWithHeaders('GET', `/chat/${sessionId}/spend`, undefined, { 'X-Session-Id': sessionId })
+    return this.request('GET', `/chat/${sessionId}`)
   }
 
   async chatCancel(sessionId: string): Promise<any> {
-    return this.requestWithHeaders('POST', `/chat/${sessionId}/cancel`, undefined, { 'X-Session-Id': sessionId })
+    return this.request('POST', `/chat/${sessionId}/cancel`)
   }
 
   async chatListSessions(): Promise<any> {

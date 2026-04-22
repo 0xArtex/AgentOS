@@ -449,38 +449,17 @@ export function scoreProviders(capability: string, quality: I402Quality = "best"
 export function seedAgentOSPrimitives(): void {
   const base = process.env.AGENTOS_API_BASE ?? "https://agntos.dev";
 
+  // Purge legacy non-x402-native first-party rows left over from earlier seeds.
+  // Agent-side-only mode requires every provider to speak x402 directly; anything
+  // else is dropped so the planner can't select it.
+  db.prepare(`DELETE FROM i402_providers WHERE id IN ('exa.web_search', 'agentos.web_search', 'anthropic.summarize')`).run();
+  db.prepare(`DELETE FROM i402_providers WHERE auth_scheme NOT IN ('x402-solana', 'x402-base')`).run();
+
   const primitives: RegisterProviderInput[] = [
-    {
-      id: "agentos.web_search",
-      source: "agentos",
-      capability: "web_search",
-      name: "AgentOS fallback web search",
-      description: "First-party search fallback when no real external provider is configured.",
-      endpoint: `${base}/search`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.web_search.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.web_search.outputSchema,
-      costPerCallUsdc: 0.10,
-      p50LatencyMs: 2500,
-      p99LatencyMs: 8000,
-      reputationScore: 0.6,
-    },
-    {
-      id: "exa.web_search",
-      source: "external",
-      capability: "web_search",
-      name: "Exa web search",
-      description: "Real Exa-backed web search with semantic ranking. Requires EXA_API_KEY.",
-      endpoint: "https://api.exa.ai/search",
-      authScheme: "api_key",
-      inputSchema: CAPABILITY_CLASSES.web_search.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.web_search.outputSchema,
-      costPerCallUsdc: 0.10,
-      p50LatencyMs: 1800,
-      p99LatencyMs: 6000,
-      reputationScore: 0.9,
-      metadata: { vendor: "exa", env: "EXA_API_KEY" },
-    },
+    // web_search has no x402-native provider in v0.1.
+    // AgentOS doesn't operate a /search endpoint, and third-party API-key-backed
+    // search providers (Exa, Tavily, Perplexity) don't speak x402. They're
+    // expected to become available via Agentic Market federation once AM lands.
     {
       id: "agentos.provision_phone",
       source: "agentos",

@@ -1,5 +1,6 @@
 // Shared types across the i402 reference implementation.
-// Public protocol wire-format types live here alongside internal representations.
+// i402 v0.1 is agent-side-execution-only — server returns a plan of x402 calls;
+// the client (SDK, agent, or any i402-aware runtime) signs and executes them itself.
 
 import type { I402Provider, I402Quality } from "./i402-providers";
 
@@ -17,8 +18,11 @@ export interface I402Session {
   id: string;
   walletAddress: string;
   agentId?: string;
+  /** Agent-declared budget ceiling across the session (USDC). */
   budgetUsdc: number;
+  /** Kept for historical continuity; not actively updated in agent-side mode. */
   spentUsdc: number;
+  /** Kept for historical continuity; zero in agent-side mode. */
   escrowUsdc: number;
   status: SessionStatus;
   goalGraph?: Record<string, unknown>;
@@ -46,31 +50,19 @@ export interface I402Message {
   createdAt: string;
 }
 
-export interface I402Artifact {
-  id: string;
-  sessionId: string;
-  planId?: string;
-  stepId?: string;
-  type: string;
-  name?: string;
-  resourceRef: string;
-  metadata?: Record<string, unknown>;
-  createdAt: string;
-}
-
 // -------------------- Plan & Steps --------------------
 
+// In agent-side mode, 'approved' means "plan validated, within budget, ready for
+// the client to execute." The status name is retained for DB compatibility.
 export type PlanStatus =
-  | "awaiting_approval"
-  | "approved"
-  | "executing"
-  | "completed"
-  | "failed"
+  | "awaiting_approval"       // deprecated; kept for DB schema compat
+  | "approved"                // plan validated, agent may execute
+  | "executing"               // deprecated; kept for DB schema compat
+  | "completed"               // agent reported completion
+  | "failed"                  // agent reported failure
   | "cancelled"
   | "budget_exceeded"
   | "clarification_needed";
-
-export type ExecutionMode = "server_side" | "agent_side" | "hybrid";
 
 export type StepStatus = "pending" | "running" | "ok" | "error" | "timeout" | "skipped" | "cancelled";
 
@@ -87,10 +79,14 @@ export interface PlanStep {
   costUsdc: number;
   etaSeconds?: number;
   dependsOn?: string[];
+  /**
+   * The x402 call spec the agent signs + sends itself.
+   * `endpoint` is the URL; `method` is HTTP verb; `paymentRail` names the chain.
+   */
   x402: {
     endpoint: string;
     method: string;
-    paymentRail: PaymentRail | "internal";
+    paymentRail: PaymentRail;
   };
 }
 
@@ -100,7 +96,6 @@ export interface PlanTotals {
   totalCostUsdc: number;
   withinBudget: boolean;
   etaSeconds?: number;
-  executionModes: ExecutionMode[];
 }
 
 export interface Plan {
@@ -113,12 +108,6 @@ export interface Plan {
   };
   steps: PlanStep[];
   totals: PlanTotals;
-  approval?: {
-    required: boolean;
-    expiresAt: string;
-    hint?: string;
-    approveBody: Record<string, unknown>;
-  };
 }
 
 export interface ClarificationQuestion {
@@ -138,47 +127,10 @@ export function isPlan(result: PlanOrClarification): result is Plan {
   return (result as Plan).planId !== undefined;
 }
 
-// -------------------- Step execution results --------------------
-
-export interface StepResult {
-  planId: string;
-  stepId: string;
-  sessionId: string;
-  capability: string;
-  providerId: string;
-  input?: Record<string, unknown>;
-  output?: Record<string, unknown>;
-  status: StepStatus;
-  latencyMs?: number;
-  costChargedUsdc: number;
-  retryCount: number;
-  x402TxSignature?: string;
-  error?: string;
-  startedAt?: string;
-  completedAt?: string;
-}
-
-// -------------------- Escrow ledger --------------------
-
-export type EscrowKind = "deposit" | "debit_step" | "debit_orchestration_fee" | "refund";
-
-export interface EscrowLedgerEntry {
-  id: string;
-  sessionId: string;
-  planId?: string;
-  stepId?: string;
-  kind: EscrowKind;
-  amountUsdc: number;
-  balanceAfterUsdc: number;
-  txSignature?: string;
-  chain?: "solana" | "base";
-  notes?: string;
-  createdAt: string;
-}
-
-// -------------------- Planner request/response --------------------
+// -------------------- Planner input --------------------
 
 export interface PlannerRequest {
+  /** Empty string means "resolve by wallet" — see generatePlan. */
   sessionId: string;
   walletAddress: string;
   intent: string;
@@ -191,8 +143,6 @@ export interface PlannerRequest {
     excludeProviders?: string[];
     requireProviders?: string[];
   };
-  approve?: boolean;
-  autoApproveUnderUsdc?: number;
 }
 
 // -------------------- LLM wrapper --------------------

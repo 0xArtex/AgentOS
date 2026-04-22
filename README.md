@@ -94,33 +94,33 @@ curl -X POST https://agntos.dev/phone/numbers \
 
 Same wallet that provisions a resource is the only wallet that can access it. No API keys or tokens. Your agent wallet = your identity.
 
-### 2. Or ask for an outcome with i402 — plan + execute in one command
+### 2. Or ask for an outcome with i402 — plan + execute client-side
 
 ```bash
-# Tell AgentOS what you want, not how. It figures out which services to call.
+# Tell AgentOS what you want, not how. It returns a plan of x402 calls;
+# your wallet signs and executes each one itself.
 agentos chat run "Launch a sneaker resale brand for US teens" --budget 60 --execute
 
-# What you get back, streaming:
-#   Plan: 7 steps  $52.30 total
-#     s1 web_search → exa.web_search        $0.10
-#     s2 register_domain → agentos.register_domain  $9.99
-#     s3 deploy_vps → agentos.deploy_vps    $6.00
-#     s4 provision_email_inbox → agentos.provision_email_inbox  $1.00
-#     s5 social_account_provision → agentos.x_account  $15.00
-#     s6 social_account_provision → agentos.tiktok_account  $18.00
-#     s7 social_post → agentos.x_post       $0.50
-#   Executing plan (streaming)...
-#   ✓ s1 done in 2100ms   spent: $0.10
-#   ✓ s2 done in 18400ms  spent: $10.09
+# What you get back:
+#   Plan: 5 steps  $45.09 total
+#     s1 register_domain → agentos.register_domain  $9.99
+#     s2 deploy_vps → agentos.deploy_vps    $6.00
+#     s3 provision_email_inbox → agentos.provision_email_inbox  $1.00
+#     s4 social_account_provision → agentos.x_account  $15.00
+#     s5 social_post → agentos.x_post       $0.50
+#     orchestration fee (15%):  $3.75
+#   Executing plan (client-side, one x402 tx per step)...
+#   → s1 register_domain via agentos.register_domain ($9.99)
+#   ✓ s1 done in 18400ms
+#   → s2 deploy_vps via agentos.deploy_vps ($6.00)
+#   ✓ s2 done in 62000ms
 #   ...
-#   Summary: status=completed  spent=$52.30  refunded_escrow=$7.70
-#     artifact: domain — freshkicks.io
-#     artifact: vps — srv_ABC123
-#     artifact: email_inbox — contact@freshkicks.io
-#     artifact: social_account_x — @freshkicksdaily
+#   done: completed  spent=$45.09
 ```
 
-Multi-turn follow-ups inherit the session's artifacts — *"now post 3 TikTok videos about launch week"* references the same TikTok account, no re-provisioning. Full spec at [`spec/i402.md`](./spec/i402.md).
+Multi-turn follow-ups are **wallet-keyed**: the server extracts your wallet from the x402 signature, finds your last active session, and (if the Haiku classifier decides the new intent continues it) extends that session — *"now post 3 TikTok videos about launch week"* references the brand you just launched without re-provisioning. Full spec at [`spec/i402.md`](./spec/i402.md).
+
+**Architecture note:** i402 v0.1 is agent-side-execution-only. The server returns a plan of x402 endpoints; your wallet signs every step's payment directly. No custodial escrow, no server-held USDC.
 
 ### 3. Or use the dashboard
 [agntos.dev/dashboard](https://agntos.dev/dashboard) — visual node-based agent management.
