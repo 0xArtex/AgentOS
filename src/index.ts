@@ -720,6 +720,21 @@ app.use(errorHandler);
 import { startDepositMonitor } from "./services/deposit-monitor";
 import { seedAgentOSPrimitives } from "./services/i402-providers";
 import { ensureProviderEmbeddings, embeddingsAvailable } from "./services/i402-embeddings";
+import { refreshFederatedCatalogs } from "./services/i402-agentic-market";
+
+async function refreshI402Federations(): Promise<void> {
+  try {
+    const results = await refreshFederatedCatalogs();
+    for (const r of results) {
+      console.log(
+        `[i402] ingested ${r.source}: ${r.registered} registered, ${r.skipped_unknown_capability} skipped, ${r.errors.length} errors (of ${r.fetched} fetched)`
+      );
+      for (const err of r.errors.slice(0, 3)) console.warn(`   ⚠ ${err}`);
+    }
+  } catch (err: any) {
+    console.warn("[i402] federated catalog refresh failed:", err?.message ?? err);
+  }
+}
 
 app.listen(config.port, () => {
   startDepositMonitor();
@@ -729,6 +744,12 @@ app.listen(config.port, () => {
     ensureProviderEmbeddings().catch(err =>
       console.warn("[i402] provider embedding ensure failed:", err?.message ?? err)
     );
+  }
+  // Initial federation pull + periodic refresh. Errors never crash the server.
+  refreshI402Federations();
+  const refreshMinutes = parseInt(process.env.I402_AGENTIC_MARKET_REFRESH_MINUTES ?? "60", 10);
+  if (refreshMinutes > 0 && process.env.I402_AGENTIC_MARKET_CATALOG_URL) {
+    setInterval(refreshI402Federations, refreshMinutes * 60 * 1000).unref();
   }
   console.log(`⚡ AgentOS running on port ${config.port}`);
   console.log(`   Treasury: ${config.treasuryWallet}`);

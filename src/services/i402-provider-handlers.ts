@@ -1,4 +1,4 @@
-import type { StepHandler } from "./i402-executor";
+import type { StepHandler, StepExecutionContext } from "./i402-executor";
 import * as domainService from "./domain";
 import * as computeService from "./compute";
 import * as emailService from "./email";
@@ -6,6 +6,7 @@ import { poolBuy } from "./social-pool";
 import { postTweet } from "./social-operations";
 import { llm } from "./i402-llm";
 import { DEFAULT_ROUTER_MODEL } from "./i402-llm";
+import { externalHttpHandler } from "./i402-external-handlers";
 
 // -------------------- Helpers --------------------
 
@@ -130,21 +131,62 @@ function makeSocialPostHandler(platform: "x" | "tiktok"): StepHandler {
   };
 }
 
-export const webSearchHandler: StepHandler = async (input) => {
-  // v0.1: placeholder until Checkpoint 5 adds real Exa/Tavily/AgenticMarket integration.
-  // Returns a shape that satisfies the capability's output schema so downstream steps can template against it.
+/**
+ * Fallback AgentOS web search handler — used when no external provider
+ * (Exa, Tavily, AM) is available. Returns a minimal shape that downstream
+ * steps can template against, so a Tier B demo can still make progress in
+ * offline / unconfigured environments.
+ */
+export const webSearchFallbackHandler: StepHandler = async (input) => {
   const query = asString(input.query, "query");
   return {
     results: [
       {
-        title: `Placeholder search result for: ${query}`,
-        url: "https://example.com/placeholder",
+        title: `AgentOS fallback result: ${query}`,
+        url: "https://agntos.dev/search-fallback",
         snippet:
-          "This is a stub response from the i402 reference executor's web_search handler. Replace with real provider in Checkpoint 5 (Agentic Market federation + curated external APIs).",
+          "AgentOS fallback search. Configure EXA_API_KEY or enable Agentic Market federation for real search results.",
       },
     ],
   };
 };
+
+/**
+ * Real Exa-backed web search. Requires EXA_API_KEY.
+ *
+ * Exa API (https://docs.exa.ai/reference/search):
+ *   POST https://api.exa.ai/search
+ *   Header: x-api-key: <key>
+ *   Body: { query, numResults?, startPublishedDate?, useAutoprompt? }
+ *   Response: { results: [{ title, url, publishedDate?, text?, score? }] }
+ */
+export const exaWebSearchHandler: StepHandler = externalHttpHandler({
+  providerId: "exa.web_search",
+  endpoint: "https://api.exa.ai/search",
+  method: "POST",
+  auth: { kind: "api_key", header: "x-api-key", valueEnv: "EXA_API_KEY" },
+  transformInput: (input) => {
+    const out: Record<string, unknown> = { query: input.query };
+    if (typeof input.max_results === "number") out.numResults = input.max_results;
+    if (typeof input.freshness_days === "number") {
+      const cutoff = new Date(Date.now() - input.freshness_days * 86400 * 1000).toISOString().slice(0, 10);
+      out.startPublishedDate = cutoff;
+    }
+    out.type = "neural";
+    return out;
+  },
+  transformOutput: (raw) => {
+    const parsed = raw as { results?: Array<{ title?: string; url?: string; text?: string; publishedDate?: string }> };
+    return {
+      results: (parsed.results ?? []).map(r => ({
+        title: r.title ?? "(untitled)",
+        url: r.url ?? "",
+        snippet: (r.text ?? "").slice(0, 500),
+        published: r.publishedDate,
+      })),
+    };
+  },
+});
 
 export const summarizeHandler: StepHandler = async (input) => {
   const text = Array.isArray(input.text) ? (input.text as string[]).join("\n\n") : asString(input.text, "text");
@@ -189,7 +231,8 @@ function unimplementedHandler(providerId: string): StepHandler {
  */
 export function buildDefaultHandlers(): Record<string, StepHandler> {
   return {
-    "agentos.web_search": webSearchHandler,
+    "agentos.web_search": webSearchFallbackHandler,
+    "exa.web_search": exaWebSearchHandler,
     "agentos.register_domain": registerDomainHandler,
     "agentos.deploy_vps": deployVpsHandler,
     "agentos.provision_email_inbox": provisionEmailInboxHandler,
