@@ -345,7 +345,24 @@ export async function paidRequest(
     if (body) paidOpts.body = JSON.stringify(body)
 
     const paidRes = await fetch(api + path, paidOpts)
-    const paidData = await paidRes.json() as any
+
+    // Some edge layers (Cloudflare, nginx) serve HTML error pages for
+    // upstream timeouts/5xx. Detect that before JSON.parse so the user sees
+    // "Server returned 504" instead of "Unexpected token '<'". Payment has
+    // likely already settled on-chain at this point — flag for manual review.
+    const paidContentType = paidRes.headers.get('content-type') || ''
+    let paidData: any
+    if (paidContentType.includes('application/json')) {
+      paidData = await paidRes.json() as any
+    } else {
+      const text = await paidRes.text().catch(() => '')
+      throw new Error(
+        `Payment was submitted but server returned ${paidRes.status} ${paidRes.statusText} ` +
+        `with non-JSON body (${paidContentType || 'no content-type'}). ` +
+        `Your payment may have settled on-chain — check your wallet and contact support with this domain before retrying. ` +
+        `First 200 chars: ${text.slice(0, 200)}`
+      )
+    }
 
     if (paidData.error) {
       const detail = paidData.message && paidData.message !== paidData.error

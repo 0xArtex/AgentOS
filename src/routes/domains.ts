@@ -326,27 +326,33 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
   const basePrice = await getTldPrice(tld);
   const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
 
-  try {
-    const check = await namecheapRequest('namecheap.domains.check', { DomainList: domain });
-    if (!check.available) {
-      res.status(409).json({ error: 'Domain is not available for registration' });
-      return;
-    }
-  } catch (err: any) {
-    console.error('[domains] Preflight availability check failed:', err);
+  // Run both registrar preflight calls in parallel to stay well under edge
+  // timeouts (Cloudflare 100s / nginx 60s). Availability is hard-required;
+  // balance is best-effort — if it errors we proceed rather than block.
+  const [checkRes, balRes] = await Promise.allSettled([
+    namecheapRequest('namecheap.domains.check', { DomainList: domain }),
+    namecheapRequest('namecheap.users.getBalances'),
+  ]);
+
+  if (checkRes.status === 'rejected') {
+    console.error('[domains] Preflight availability check failed:', checkRes.reason);
     res.status(503).json({ error: 'Registrar unreachable — try again shortly' });
     return;
   }
+  if (!checkRes.value.available) {
+    res.status(409).json({ error: 'Domain is not available for registration' });
+    return;
+  }
 
-  try {
-    const bal = await namecheapRequest('namecheap.users.getBalances');
-    if (typeof bal.availableBalance === 'number' && bal.availableBalance < basePrice) {
-      console.error(`[domains] Registrar balance too low: have ${bal.availableBalance}, need ${basePrice} for ${domain}`);
+  if (balRes.status === 'fulfilled') {
+    const avail = balRes.value.availableBalance;
+    if (typeof avail === 'number' && avail < basePrice) {
+      console.error(`[domains] Registrar balance too low: have ${avail}, need ${basePrice} for ${domain}`);
       res.status(503).json({ error: 'Registrar temporarily cannot fulfill this registration — try again shortly' });
       return;
     }
-  } catch (err: any) {
-    console.warn('[domains] Balance preflight skipped:', err.message);
+  } else {
+    console.warn('[domains] Balance preflight skipped:', balRes.reason?.message || balRes.reason);
   }
 
   return requireAuth(finalPrice, 'general')(req, res, next);
