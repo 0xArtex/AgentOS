@@ -60,6 +60,7 @@ Visual node-based agent deployment: [agntos.dev/dashboard.html](https://agntos.d
 | **Wallet** | ✅ Live | Non-custodial smart wallets on Base + Solana |
 | **Skills** | ✅ Live | 3500+ from ClawHub, one-click install |
 | **Social Media Accounts** | ✅ Live (X) | Buy ready X accounts ($5), post / reply / like / follow / update bio, name, pfp, banner, username — sticky residential IP per account |
+| **i402 orchestrator** | ✅ Live | Tell AgentOS what you want, it plans + executes a sequence of x402 calls. See `spec/i402.md`. |
 | **Crypto Card** | 🟡 Pending | Visa debit linked to agent wallet |
 | **Address** | 🟡 Pending | Physical mailing address for the agent |
 | **Reddit / TikTok / LinkedIn** | 🟡 Pending | Same model as X — buy + operate from the CLI |
@@ -93,7 +94,35 @@ curl -X POST https://agntos.dev/phone/numbers \
 
 Same wallet that provisions a resource is the only wallet that can access it. No API keys or tokens. Your agent wallet = your identity.
 
-### 2. Or use the dashboard
+### 2. Or ask for an outcome with i402 — plan + execute in one command
+
+```bash
+# Tell AgentOS what you want, not how. It figures out which services to call.
+agentos chat run "Launch a sneaker resale brand for US teens" --budget 60 --execute
+
+# What you get back, streaming:
+#   Plan: 7 steps  $52.30 total
+#     s1 web_search → exa.web_search        $0.10
+#     s2 register_domain → agentos.register_domain  $9.99
+#     s3 deploy_vps → agentos.deploy_vps    $6.00
+#     s4 provision_email_inbox → agentos.provision_email_inbox  $1.00
+#     s5 social_account_provision → agentos.x_account  $15.00
+#     s6 social_account_provision → agentos.tiktok_account  $18.00
+#     s7 social_post → agentos.x_post       $0.50
+#   Executing plan (streaming)...
+#   ✓ s1 done in 2100ms   spent: $0.10
+#   ✓ s2 done in 18400ms  spent: $10.09
+#   ...
+#   Summary: status=completed  spent=$52.30  refunded_escrow=$7.70
+#     artifact: domain — freshkicks.io
+#     artifact: vps — srv_ABC123
+#     artifact: email_inbox — contact@freshkicks.io
+#     artifact: social_account_x — @freshkicksdaily
+```
+
+Multi-turn follow-ups inherit the session's artifacts — *"now post 3 TikTok videos about launch week"* references the same TikTok account, no re-provisioning. Full spec at [`spec/i402.md`](./spec/i402.md).
+
+### 3. Or use the dashboard
 [agntos.dev/dashboard](https://agntos.dev/dashboard) — visual node-based agent management.
 
 ## x402 Payment

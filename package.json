@@ -7,7 +7,7 @@
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node-dev --respawn src/index.ts",
-    "test": "node --require ts-node/register --test src/tests/*.test.ts",
+    "test": "node --require ts-node/register --test --test-concurrency=1 src/tests/*.test.ts",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
