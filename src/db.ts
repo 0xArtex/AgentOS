@@ -107,10 +107,18 @@ export function initDatabase(): void {
       created_at TEXT NOT NULL,
       dns_records TEXT
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain);
     CREATE INDEX IF NOT EXISTS idx_domains_owner ON domains(owner);
   `);
+
+  // Idempotent column backfill — CREATE TABLE IF NOT EXISTS leaves pre-existing
+  // tables untouched, so older prod DBs can be missing columns added later.
+  const domainsCols = db.prepare("PRAGMA table_info(domains)").all() as Array<{ name: string }>;
+  const have = new Set(domainsCols.map(c => c.name));
+  if (!have.has('registrar_id')) {
+    db.exec('ALTER TABLE domains ADD COLUMN registrar_id TEXT');
+  }
 
   // DNS Records table
   db.exec(`
