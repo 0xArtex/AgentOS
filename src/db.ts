@@ -503,6 +503,170 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_pool_sold_to ON social_account_pool(sold_to_wallet);
   `);
 
+  // i402 protocol — provider registry
+  // Federated across: AgentOS primitives, Agentic Market, curated external APIs, ClawHub.
+  // Every row is one callable x402 endpoint registered under one capability class.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS i402_providers (
+      id TEXT PRIMARY KEY,
+      source TEXT NOT NULL CHECK(source IN ('agentos', 'agentic_market', 'external', 'clawhub', 'agent_composed')),
+      capability TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT,
+      endpoint TEXT NOT NULL,
+      method TEXT NOT NULL DEFAULT 'POST',
+      auth_scheme TEXT NOT NULL CHECK(auth_scheme IN ('internal', 'x402-solana', 'x402-base', 'api_key', 'wallet_sig')),
+      input_schema TEXT NOT NULL,
+      output_schema TEXT NOT NULL,
+      cost_per_call_usdc REAL NOT NULL,
+      p50_latency_ms INTEGER,
+      p99_latency_ms INTEGER,
+      success_rate REAL NOT NULL DEFAULT 1.0,
+      reputation_score REAL NOT NULL DEFAULT 0.5,
+      embedding BLOB,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_i402_providers_capability ON i402_providers(capability, enabled);
+    CREATE INDEX IF NOT EXISTS idx_i402_providers_source ON i402_providers(source);
+    CREATE INDEX IF NOT EXISTS idx_i402_providers_reputation ON i402_providers(reputation_score DESC);
+  `);
+
+  // i402 protocol — agent sessions
+  // A session is a multi-turn conversation bound to one wallet, tracking goal state + escrow.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS i402_agent_sessions (
+      id TEXT PRIMARY KEY,
+      wallet_address TEXT NOT NULL,
+      agent_id TEXT,
+      budget_usdc REAL NOT NULL,
+      spent_usdc REAL NOT NULL DEFAULT 0,
+      escrow_usdc REAL NOT NULL DEFAULT 0,
+      status TEXT NOT NULL CHECK(status IN ('active', 'paused', 'completed', 'cancelled', 'budget_exhausted', 'expired')) DEFAULT 'active',
+      goal_graph TEXT,
+      context_summary TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      last_active_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      expires_at TEXT,
+      closed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_i402_sessions_wallet ON i402_agent_sessions(wallet_address, status);
+    CREATE INDEX IF NOT EXISTS idx_i402_sessions_status_active ON i402_agent_sessions(status, last_active_at);
+  `);
+
+  // i402 protocol — messages within a session (agent / orchestrator / tool / clarification)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS i402_session_messages (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('agent', 'orchestrator', 'tool', 'clarification', 'system')),
+      content TEXT NOT NULL,
+      model TEXT,
+      tokens_in INTEGER,
+      tokens_out INTEGER,
+      cache_read_tokens INTEGER,
+      cache_creation_tokens INTEGER,
+      llm_cost_usdc REAL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      FOREIGN KEY (session_id) REFERENCES i402_agent_sessions(id),
+      UNIQUE(session_id, seq)
+    );
+    CREATE INDEX IF NOT EXISTS idx_i402_messages_session ON i402_session_messages(session_id, seq);
+  `);
+
+  // i402 protocol — plans generated within a session
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS i402_session_plans (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      message_seq INTEGER NOT NULL,
+      intent TEXT NOT NULL,
+      interpreted_intent TEXT,
+      params TEXT,
+      quality TEXT CHECK(quality IN ('fast', 'cheap', 'best')),
+      steps TEXT NOT NULL,
+      step_cost_usdc REAL NOT NULL,
+      orchestration_fee_usdc REAL NOT NULL,
+      total_cost_usdc REAL NOT NULL,
+      within_budget INTEGER NOT NULL DEFAULT 1,
+      execution_mode TEXT CHECK(execution_mode IN ('server_side', 'agent_side', 'hybrid')),
+      status TEXT NOT NULL CHECK(status IN ('awaiting_approval', 'approved', 'executing', 'completed', 'failed', 'cancelled', 'budget_exceeded', 'clarification_needed')) DEFAULT 'awaiting_approval',
+      approved_at TEXT,
+      completed_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      FOREIGN KEY (session_id) REFERENCES i402_agent_sessions(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_i402_plans_session ON i402_session_plans(session_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_i402_plans_status ON i402_session_plans(status);
+  `);
+
+  // i402 protocol — per-step execution results
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS i402_session_step_results (
+      plan_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      session_id TEXT NOT NULL,
+      capability TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      input TEXT,
+      output TEXT,
+      status TEXT NOT NULL CHECK(status IN ('pending', 'running', 'ok', 'error', 'timeout', 'skipped', 'cancelled')),
+      latency_ms INTEGER,
+      cost_charged_usdc REAL NOT NULL DEFAULT 0,
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      x402_tx_signature TEXT,
+      error TEXT,
+      started_at TEXT,
+      completed_at TEXT,
+      PRIMARY KEY (plan_id, step_id),
+      FOREIGN KEY (plan_id) REFERENCES i402_session_plans(id),
+      FOREIGN KEY (session_id) REFERENCES i402_agent_sessions(id),
+      FOREIGN KEY (provider_id) REFERENCES i402_providers(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_i402_steps_session ON i402_session_step_results(session_id);
+    CREATE INDEX IF NOT EXISTS idx_i402_steps_provider ON i402_session_step_results(provider_id, status);
+  `);
+
+  // i402 protocol — artifacts produced by a session (domains, VPSes, accounts, inboxes)
+  // Follow-up messages in the same session reference these for context inheritance.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS i402_session_artifacts (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      plan_id TEXT,
+      step_id TEXT,
+      type TEXT NOT NULL,
+      name TEXT,
+      resource_ref TEXT NOT NULL,
+      metadata TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      FOREIGN KEY (session_id) REFERENCES i402_agent_sessions(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_i402_artifacts_session ON i402_session_artifacts(session_id, type);
+  `);
+
+  // i402 protocol — escrow ledger (pay-in, debit, refund) for per-session x402 bookkeeping
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS i402_escrow_ledger (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL,
+      plan_id TEXT,
+      step_id TEXT,
+      kind TEXT NOT NULL CHECK(kind IN ('deposit', 'debit_step', 'debit_orchestration_fee', 'refund')),
+      amount_usdc REAL NOT NULL,
+      balance_after_usdc REAL NOT NULL,
+      tx_signature TEXT,
+      chain TEXT CHECK(chain IN ('solana', 'base')),
+      notes TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      FOREIGN KEY (session_id) REFERENCES i402_agent_sessions(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_i402_escrow_session ON i402_escrow_ledger(session_id, created_at);
+  `);
+
   console.log('✅ Database initialized with all tables');
 }
 
