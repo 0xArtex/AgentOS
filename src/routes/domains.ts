@@ -1,4 +1,4 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { requireAuth } from "../middleware/auth";
 import { db } from "../db";
 import { v4 as uuid } from "uuid";
@@ -279,10 +279,35 @@ router.get('/pricing', async (_req: Request, res: Response) => {
 });
 
 /**
+ * Per-domain dynamic pricing gate for /register. The static
+ * requireAuth(20, …) that used to guard this route quoted every buyer 20 USDC
+ * regardless of TLD — so a $2.75 .xyz triggered a $20 payment. This wrapper
+ * reads req.body.domain, prices it the same way /check does (getTldPrice * 1.25,
+ * shared 1h cache so 402 and handler agree), then defers to requireAuth with
+ * that amount.
+ */
+async function requireDomainPayment(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  const domain = typeof req.body?.domain === 'string' ? req.body.domain : null;
+  if (!domain) {
+    res.status(400).json({ error: 'domain is required' });
+    return;
+  }
+  const parts = domain.split('.');
+  if (parts.length < 2) {
+    res.status(400).json({ error: 'Invalid domain format' });
+    return;
+  }
+  const tld = parts.slice(1).join('.');
+  const basePrice = await getTldPrice(tld);
+  const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
+  return requireAuth(finalPrice, 'general')(req, res, next);
+}
+
+/**
  * POST /domains/register
  * Register a new domain
  */
-router.post('/register', requireAuth(20.0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.body;
 
