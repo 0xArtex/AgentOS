@@ -116,8 +116,15 @@ export function initDatabase(): void {
   // tables untouched, so older prod DBs can be missing columns added later.
   const domainsCols = db.prepare("PRAGMA table_info(domains)").all() as Array<{ name: string }>;
   const have = new Set(domainsCols.map(c => c.name));
-  if (!have.has('registrar_id')) {
-    db.exec('ALTER TABLE domains ADD COLUMN registrar_id TEXT');
+  const additions: Array<[string, string]> = [
+    ['registrar_id', 'TEXT'],
+    ['status', "TEXT NOT NULL DEFAULT 'active'"],
+    ['expires_at', 'TEXT'],
+    ['created_at', 'TEXT'],
+    ['dns_records', 'TEXT'],
+  ];
+  for (const [name, spec] of additions) {
+    if (!have.has(name)) db.exec(`ALTER TABLE domains ADD COLUMN ${name} ${spec}`);
   }
 
   // DNS Records table
