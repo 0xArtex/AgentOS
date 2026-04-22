@@ -150,10 +150,11 @@ app.use("/wallet", walletRoutes);
 app.use("/wallet", walletPasskeyRoutes);
 
 // Social routes run a headless browser and can legitimately take 60-90s
-// through a residential proxy. Skip the default 30s timeout for them; the
-// route itself bounds execution via Playwright's own timeouts.
+// through a residential proxy. /chat (i402) streams multi-step plan execution
+// which can run 10-30 minutes for compound outcomes like a product launch.
+// Skip the default 30s timeout for both.
 app.use((req, res, next) => {
-  if (req.path.startsWith("/social")) return next();
+  if (req.path.startsWith("/social") || req.path.startsWith("/chat")) return next();
   return requestTimeout(30_000)(req, res, next);
 });
 app.use(rateLimit(200, 60_000));
@@ -200,6 +201,8 @@ app.use("/x", xAccountRoutes);
 app.use("/skills", skillsRoutes);
 app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
+import agentChatRoutes from "./routes/agent-chat";
+app.use("/chat", agentChatRoutes);
 import provisionRoutes from "./routes/provision";
 app.use("/provision", provisionRoutes);
 // wallet routes proxied to port 3002 (see above, before timeout middleware)
@@ -715,12 +718,23 @@ app.use(errorHandler);
 
 // ── Start ─────────────────────────────────────────────────────
 import { startDepositMonitor } from "./services/deposit-monitor";
+import { seedAgentOSPrimitives } from "./services/i402-providers";
+import { ensureProviderEmbeddings, embeddingsAvailable } from "./services/i402-embeddings";
+
 app.listen(config.port, () => {
   startDepositMonitor();
+  seedAgentOSPrimitives();
+  if (embeddingsAvailable()) {
+    // Non-blocking: compute any missing provider embeddings in the background.
+    ensureProviderEmbeddings().catch(err =>
+      console.warn("[i402] provider embedding ensure failed:", err?.message ?? err)
+    );
+  }
   console.log(`⚡ AgentOS running on port ${config.port}`);
   console.log(`   Treasury: ${config.treasuryWallet}`);
   console.log(`   Network:  Solana (${config.solanaRpcUrl})`);
   console.log(`   Email:    *@${config.emailDomain}`);
+  console.log(`   i402:     reference implementation wired at /chat`);
 });
 import agentSimulationRoute from "./routes/agent-simulation";
 import hackathonImpactRoute from "./routes/hackathon-impact";

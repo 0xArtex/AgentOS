@@ -17,6 +17,8 @@ export interface AuthenticatedRequest extends Request {
   payment?: PaymentProof;
   agentId?: string;
   isHackathonMode?: boolean;
+  /** Populated by the i402 session middleware when X-Session-Id is present and valid. */
+  i402Session?: import("./services/i402-types").I402Session;
 }
 
 // ── Phone Service ─────────────────────────────────────────────
