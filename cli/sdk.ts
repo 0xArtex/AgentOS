@@ -384,6 +384,169 @@ export class AgentOS {
   async health(): Promise<any> {
     return this.request('GET', '/health')
   }
+
+  // ── i402 — intent-fulfillment protocol ──
+
+  /**
+   * Generate an i402 plan from a natural-language intent.
+   * Returns the plan body (from the 402 response) or a clarification request.
+   * Auto-pays the $0.10 orchestration fee unless autoPay is disabled.
+   */
+  async chat(
+    intent: string,
+    options: {
+      budgetUsdc: number
+      quality?: 'fast' | 'cheap' | 'best'
+      params?: Record<string, unknown>
+      constraints?: {
+        excludeCapabilities?: string[]
+        excludeProviders?: string[]
+        requireProviders?: string[]
+      }
+      sessionId?: string
+      deadlineSeconds?: number
+      approve?: boolean
+      autoApproveUnderUsdc?: number
+    },
+  ): Promise<any> {
+    const body: Record<string, unknown> = {
+      intent,
+      budget_usdc: options.budgetUsdc,
+    }
+    if (options.quality) body.quality = options.quality
+    if (options.params) body.params = options.params
+    if (options.constraints) body.constraints = options.constraints
+    if (options.deadlineSeconds) body.deadline_seconds = options.deadlineSeconds
+    if (options.approve !== undefined) body.approve = options.approve
+    if (options.autoApproveUnderUsdc !== undefined) body.auto_approve_under_usdc = options.autoApproveUnderUsdc
+
+    const extraHeaders: Record<string, string> = {}
+    if (options.sessionId) extraHeaders['X-Session-Id'] = options.sessionId
+
+    return this.requestWithHeaders('POST', '/chat', body, extraHeaders)
+  }
+
+  /**
+   * Execute an approved i402 plan, yielding ExecutorEvents as they arrive via SSE.
+   * Auto-pays `plan.total_cost_usdc` (read from the server's 402 advertisement).
+   *
+   * Usage:
+   *   const plan = await ao.chat(...)
+   *   for await (const event of ao.chatExecute(plan.session_id, plan.plan_id)) {
+   *     console.log(event.type, event)
+   *   }
+   */
+  async *chatExecute(
+    sessionId: string,
+    planId: string,
+    options: { approve?: boolean; execution?: 'server_side' | 'agent_side' | 'hybrid' } = {},
+  ): AsyncGenerator<any, void, undefined> {
+    const body: Record<string, unknown> = {
+      plan_id: planId,
+      approve: options.approve !== false,
+      execution: options.execution ?? 'server_side',
+    }
+
+    const { paidStreamRequest } = await import('./pay.js')
+    const { response } = await paidStreamRequest(this.api, 'POST', `/chat/${sessionId}/execute`, body, this.passphrase)
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '')
+      throw new Error(`chatExecute failed (${response.status}): ${text.slice(0, 300)}`)
+    }
+
+    const contentType = response.headers.get('content-type') ?? ''
+    if (!contentType.includes('text/event-stream')) {
+      // Server responded with JSON (e.g., immediate error). Yield once as a best-effort.
+      const data = await response.json().catch(() => ({}))
+      yield { type: 'step_error', stepId: '__unknown__', provider: 'i402_server', error: (data as any).error ?? 'non-stream response', fatal: true }
+      return
+    }
+
+    // Parse SSE frames
+    const reader = (response.body as any)?.getReader?.()
+    if (!reader) throw new Error('Response body is not a readable stream')
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { value, done } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const frames = buffer.split('\n\n')
+      buffer = frames.pop() ?? '' // last incomplete frame stays in buffer
+      for (const frame of frames) {
+        if (!frame.trim()) continue
+        const dataLine = frame.split('\n').find(line => line.startsWith('data:'))
+        if (!dataLine) continue
+        try {
+          const event = JSON.parse(dataLine.slice('data:'.length).trim())
+          yield event
+        } catch {
+          // skip malformed
+        }
+      }
+    }
+  }
+
+  async chatGetSession(sessionId: string): Promise<any> {
+    return this.requestWithHeaders('GET', `/chat/${sessionId}`, undefined, { 'X-Session-Id': sessionId })
+  }
+
+  async chatGetSpend(sessionId: string): Promise<any> {
+    return this.requestWithHeaders('GET', `/chat/${sessionId}/spend`, undefined, { 'X-Session-Id': sessionId })
+  }
+
+  async chatCancel(sessionId: string): Promise<any> {
+    return this.requestWithHeaders('POST', `/chat/${sessionId}/cancel`, undefined, { 'X-Session-Id': sessionId })
+  }
+
+  async chatListSessions(): Promise<any> {
+    return this.request('GET', '/chat')
+  }
+
+  async chatListCapabilities(): Promise<any> {
+    return this.request('GET', '/chat/capabilities')
+  }
+
+  async chatListProviders(capability?: string): Promise<any> {
+    const qs = capability ? `?capability=${encodeURIComponent(capability)}` : ''
+    return this.request('GET', `/chat/providers${qs}`)
+  }
+
+  // ── Internal: variant of request() that supports extra headers ──
+  private async requestWithHeaders(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+    extraHeaders: Record<string, string> = {},
+  ): Promise<any> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', ...extraHeaders }
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+    const opts: RequestInit = { method, headers }
+    if (body) opts.body = JSON.stringify(body)
+    const res = await fetch(this.api + path, opts)
+
+    const contentType = res.headers.get('content-type') || ''
+    let data: any
+    if (contentType.includes('application/json')) {
+      data = await res.json().catch(() => ({}))
+    } else {
+      data = {}
+    }
+
+    if (res.status === 402 && this.autoPay) {
+      try {
+        const { paidRequest } = await import('./pay.js')
+        const result = await paidRequest(this.api, method, path, body, this.passphrase)
+        return result.data
+      } catch (e: any) {
+        throw new Error(e.message)
+      }
+    }
+
+    if (data.error && res.status >= 400) throw new Error(data.error)
+    return data
+  }
 }
 
 export default AgentOS

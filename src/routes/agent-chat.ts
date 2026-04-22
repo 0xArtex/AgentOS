@@ -1,5 +1,6 @@
 import { Router, Response } from "express";
 import { requireAuth } from "../middleware/auth";
+import { send402Response, x402 as requireX402Payment } from "../middleware/x402";
 import { resolveSession, requireSession } from "../middleware/i402-session";
 import type { AuthenticatedRequest } from "../types";
 
@@ -351,50 +352,61 @@ router.post(
 
 // -------------------- POST /chat/:id/execute — run an approved plan --------------------
 
+// Helper: promisify middleware so we can call x402 verification mid-handler.
+function runMiddleware(
+  mw: (req: any, res: any, next: (err?: any) => void) => void,
+  req: any,
+  res: any
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    mw(req, res, (err: any) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 router.post(
   "/:sessionId/execute",
-  requireAuth(0.01, "general", {
-    description:
-      "Execute an approved i402 plan. The x402 payment amount MUST be >= plan.total_cost_usdc; the full amount is deposited into session escrow and drawn down per step.",
-    category: "orchestration",
-    tags: ["i402", "executor", "stream"],
-  }),
-  resolveSession(),
-  requireSession(),
   async (req: AuthenticatedRequest, res: Response) => {
     try {
-      const session = req.i402Session!;
-      const walletAddress = req.payment?.payer ?? req.agentId;
-      if (!walletAddress) {
-        res.status(401).json({ error: "Unauthenticated" });
-        return;
-      }
-
-      const { plan_id: planId, approve, execution } = req.body as Record<string, unknown>;
+      // ── 1. Parse body ──
+      const { plan_id: planId, approve, execution } = (req.body ?? {}) as Record<string, unknown>;
       if (typeof planId !== "string") {
         res.status(400).json({ error: "Missing plan_id", message: "Request body must include 'plan_id'." });
         return;
       }
 
+      // ── 2. Load plan + session BEFORE auth so we can advertise the right cost ──
       const persisted = getPlan(planId);
       if (!persisted) {
         res.status(404).json({ error: "Plan Not Found", message: `plan ${planId} does not exist.` });
         return;
       }
-      if (persisted.sessionId !== session.id) {
+      if (persisted.sessionId !== req.params.sessionId) {
         res.status(403).json({
           error: "Plan Belongs To Another Session",
-          message: `plan ${planId} is not part of session ${session.id}.`,
+          message: `plan ${planId} is not part of session ${req.params.sessionId}.`,
+        });
+        return;
+      }
+      const session = getSession(req.params.sessionId);
+      if (!session) {
+        res.status(404).json({ error: "Session Not Found" });
+        return;
+      }
+      if (session.status === "expired" || session.status === "cancelled" || session.status === "completed") {
+        res.status(410).json({
+          error: "Session Closed",
+          message: `Session is ${session.status}.`,
         });
         return;
       }
 
-      // Upgrade to approved if caller explicitly approved
+      // ── 3. Upgrade plan status if caller approved ──
       if (persisted.status === "awaiting_approval" && approve === true) {
         updatePlanStatus(planId, "approved");
       }
-
-      // Refresh after possible status change
       const refreshed = getPlan(planId)!;
       if (refreshed.status !== "approved") {
         res.status(409).json({
@@ -404,20 +416,51 @@ router.post(
         return;
       }
 
-      // Verify the x402 payment covers the plan total
-      const paid = paymentAmountUsdc(req);
-      if (paid + 1e-9 < refreshed.totalCostUsdc) {
-        res.status(402).json({
-          error: "Insufficient Payment",
-          message: `x402 payment ${paid.toFixed(4)} USDC is less than plan total ${refreshed.totalCostUsdc.toFixed(4)} USDC.`,
-          required_usdc: refreshed.totalCostUsdc,
-          paid_usdc: paid,
-          hint: `Send an x402 payment of at least ${refreshed.totalCostUsdc.toFixed(2)} USDC on this endpoint.`,
+      const expectedCost = refreshed.totalCostUsdc;
+
+      // ── 4. Payment required — advertise the real amount so clients pay once ──
+      const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
+      const metadata = {
+        description: `Execute i402 plan ${planId}: ${refreshed.steps.length} steps`,
+        category: "orchestration",
+        tags: ["i402", "executor", "stream"],
+      };
+      if (!hasPayment) {
+        send402Response(res, req, expectedCost, `Pay ${expectedCost.toFixed(2)} USDC to execute this plan.`, metadata);
+        return;
+      }
+
+      // ── 5. Verify x402 payment against expectedCost ──
+      try {
+        await runMiddleware(requireX402Payment(expectedCost, metadata), req, res);
+      } catch {
+        // middleware already responded
+        return;
+      }
+      if (res.headersSent) return;
+
+      const walletAddress = req.payment?.payer;
+      if (!walletAddress) {
+        res.status(401).json({ error: "Unauthenticated" });
+        return;
+      }
+
+      // ── 6. Wallet ownership match ──
+      if (session.walletAddress !== walletAddress) {
+        res.status(403).json({
+          error: "Forbidden",
+          message: "Payment wallet does not match session owner.",
         });
         return;
       }
 
-      // Deposit the paid amount into session escrow
+      const paid = paymentAmountUsdc(req);
+      if (paid + 1e-9 < expectedCost) {
+        send402Response(res, req, expectedCost, "Insufficient payment — the facilitator verified a payment smaller than the plan total.", metadata);
+        return;
+      }
+
+      // ── 7. Deposit into session escrow ──
       deposit({
         sessionId: session.id,
         amountUsdc: paid,

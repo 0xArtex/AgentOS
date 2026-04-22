@@ -1000,6 +1000,191 @@ async function main() {
         break
       }
 
+      case 'chat': {
+        if (!subcommand || flags.help) {
+          render(React.createElement(MenuScreen, {
+            version: VERSION,
+            title: 'chat',
+            subtitle: 'i402 intent-fulfillment: tell AgentOS what you want, pay USDC, get the outcome',
+            commands: [
+              { name: 'run',         description: 'Generate a plan (and optionally execute it)', hint: '"launch a sneaker brand" --budget 50' },
+              { name: 'resume',      description: 'Continue an existing session with a follow-up intent', hint: '<session_id> "now post 3 videos"' },
+              { name: 'status',      description: 'Inspect a session: artifacts, spend, history', hint: '<session_id>' },
+              { name: 'spend',       description: 'Show the escrow ledger for a session', hint: '<session_id>' },
+              { name: 'cancel',      description: 'Halt execution and refund remaining escrow', hint: '<session_id>' },
+              { name: 'sessions',    description: 'List your active sessions' },
+              { name: 'capabilities', description: 'List the canonical capability classes' },
+              { name: 'providers',   description: 'List registered providers, optionally filtered', hint: '[--capability web_search]' },
+            ],
+            footerLeft: 'Powered by the i402 protocol — see spec/i402.md',
+          }))
+          break
+        }
+
+        switch (subcommand) {
+          case 'run': {
+            const intent = (positional.join(' ') || flags.intent as string || '').trim()
+            if (!intent) err('pass the intent as a positional arg or --intent "..."')
+            const budget = flags.budget ? parseFloat(flags.budget as string) : NaN
+            if (!isFinite(budget) || budget <= 0) err('--budget <USDC> is required and must be positive')
+            const quality = (flags.quality as string) || 'best'
+            if (!['fast', 'cheap', 'best'].includes(quality)) err('--quality must be fast | cheap | best')
+            const autoExecute = flags.execute === true || flags['auto-execute'] === true
+            const autoApprove = flags['auto-approve-under'] ? parseFloat(flags['auto-approve-under'] as string) : undefined
+
+            const spin = new Spinner()
+            spin.start('Generating i402 plan...')
+            const plan = await ao.chat(intent, {
+              budgetUsdc: budget,
+              quality: quality as 'fast' | 'cheap' | 'best',
+              autoApproveUnderUsdc: autoApprove,
+              approve: autoExecute,
+            })
+            spin.stop('Plan generated', true)
+
+            if (plan.status === 'clarification_needed') {
+              render(React.createElement(RecordsScreen, {
+                version: VERSION,
+                title: 'i402 — clarification needed',
+                subtitle: `session ${plan.session_id}`,
+                records: (plan.questions || []).map((q: any) => ({
+                  primary: q.text,
+                  secondary: `id: ${q.id}`,
+                })),
+                footerLeft: 'Re-run `agentos chat resume <session_id> "<your answer>"`',
+              }))
+              break
+            }
+
+            // Display the plan
+            console.log(`\n${c.cyan}Plan${c.white}: ${plan.intent?.interpreted ?? plan.intent?.original}`)
+            console.log(`${c.gray}session:${c.white} ${plan.session_id}   ${c.gray}plan:${c.white} ${plan.plan_id}   ${c.gray}status:${c.white} ${plan.status}`)
+            console.log(`${c.gray}steps:${c.white} ${plan.steps?.length ?? 0}   ${c.gray}total:${c.white} $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'}   ${c.gray}eta:${c.white} ${plan.totals?.eta_seconds ?? '?'}s`)
+            for (const s of plan.steps || []) {
+              console.log(`  ${c.gray}${s.step_id}${c.white} ${s.capability} → ${s.provider}  ${c.gray}$${s.cost_usdc?.toFixed(2)}${c.white}  ${s.description ?? ''}`)
+            }
+            console.log('')
+
+            if (!autoExecute && plan.status !== 'approved') {
+              console.log(`${c.yellow}Plan not auto-approved.${c.white} To execute:`)
+              console.log(`  ${c.cyan}agentos chat resume ${plan.session_id} --approve --plan-id ${plan.plan_id}${c.white}`)
+              break
+            }
+
+            if (autoExecute || plan.status === 'approved') {
+              console.log(`${c.cyan}Executing plan${c.white} (streaming)...\n`)
+              let spent = 0
+              for await (const event of ao.chatExecute(plan.session_id, plan.plan_id, { approve: true })) {
+                switch (event.type) {
+                  case 'session':
+                  case 'plan':
+                    // Already displayed
+                    break
+                  case 'step_start':
+                    console.log(`  ${c.gray}→${c.white} ${event.stepId} ${event.capability} via ${event.provider} ${c.gray}($${event.costUsdc?.toFixed(2)})${c.white}`)
+                    break
+                  case 'step_result':
+                    spent += Number(event.costChargedUsdc ?? 0)
+                    console.log(`  ${c.green}✓${c.white} ${event.stepId} done in ${event.latencyMs}ms  ${c.gray}spent: $${spent.toFixed(2)}${c.white}`)
+                    break
+                  case 'step_error':
+                    console.log(`  ${c.red}✗${c.white} ${event.stepId} ${event.fatal ? '(FATAL)' : `retry → ${event.retryWith ?? 'none'}`}: ${event.error}`)
+                    break
+                  case 'clarification_needed':
+                    console.log(`  ${c.yellow}?${c.white} clarification: ${JSON.stringify(event.questions)}`)
+                    break
+                  case 'summary':
+                    console.log(`\n${c.cyan}Summary${c.white}: status=${event.status}  spent=$${event.spentUsdc?.toFixed(2)}  refunded_escrow=$${event.remainingEscrowUsdc?.toFixed(2)}`)
+                    for (const a of event.artifacts || []) {
+                      console.log(`  ${c.gray}artifact:${c.white} ${a.type} — ${a.name ?? a.resourceRef}`)
+                    }
+                    break
+                }
+              }
+            }
+            break
+          }
+
+          case 'resume': {
+            const sessionId = positional[0]
+            const intentParts = positional.slice(1)
+            const intent = intentParts.join(' ').trim() || (flags.intent as string | undefined) || ''
+            const planId = flags['plan-id'] as string | undefined
+            if (!sessionId) err('session_id required: agentos chat resume <session_id> "follow-up intent"')
+
+            // If intent is provided, generate a new plan in this session
+            if (intent) {
+              const budget = flags.budget ? parseFloat(flags.budget as string) : 20
+              const autoExecute = flags.execute === true || flags['auto-execute'] === true
+              const plan = await ao.chat(intent, {
+                sessionId,
+                budgetUsdc: budget,
+                quality: (flags.quality as any) || 'best',
+                approve: autoExecute,
+              })
+              console.log(`${c.cyan}New plan in session${c.white} ${sessionId}`)
+              console.log(`  plan_id: ${plan.plan_id}  cost: $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'}`)
+              if (!autoExecute) break
+              for await (const event of ao.chatExecute(sessionId, plan.plan_id, { approve: true })) {
+                if (event.type === 'step_result') console.log(`  ${c.green}✓${c.white} ${event.stepId} $${event.costChargedUsdc?.toFixed(2)}`)
+                if (event.type === 'step_error') console.log(`  ${c.red}✗${c.white} ${event.stepId} ${event.error}`)
+                if (event.type === 'summary') console.log(`${c.cyan}done${c.white}: ${event.status}  spent=$${event.spentUsdc?.toFixed(2)}`)
+              }
+              break
+            }
+
+            // No intent → execute an existing plan
+            if (!planId) err('pass a follow-up intent OR use --plan-id <id> --approve to execute an existing plan')
+            for await (const event of ao.chatExecute(sessionId, planId!, { approve: true })) {
+              if (event.type === 'step_result') console.log(`${c.green}✓${c.white} ${event.stepId} $${event.costChargedUsdc?.toFixed(2)}`)
+              if (event.type === 'step_error') console.log(`${c.red}✗${c.white} ${event.stepId} ${event.error}`)
+              if (event.type === 'summary') console.log(`${c.cyan}done${c.white}: ${event.status}  spent=$${event.spentUsdc?.toFixed(2)}`)
+            }
+            break
+          }
+
+          case 'status': {
+            const sessionId = positional[0]
+            if (!sessionId) err('session_id required')
+            const data = await ao.chatGetSession(sessionId)
+            return print(data)
+          }
+
+          case 'spend': {
+            const sessionId = positional[0]
+            if (!sessionId) err('session_id required')
+            const data = await ao.chatGetSpend(sessionId)
+            return print(data)
+          }
+
+          case 'cancel': {
+            const sessionId = positional[0]
+            if (!sessionId) err('session_id required')
+            const data = await ao.chatCancel(sessionId)
+            return print(data)
+          }
+
+          case 'sessions': {
+            const data = await ao.chatListSessions()
+            return print(data)
+          }
+
+          case 'capabilities': {
+            const data = await ao.chatListCapabilities()
+            return print(data)
+          }
+
+          case 'providers': {
+            const capability = flags.capability as string | undefined
+            const data = await ao.chatListProviders(capability)
+            return print(data)
+          }
+
+          default: err(`Unknown chat command: ${subcommand}. Try: run, resume, status, spend, cancel, sessions, capabilities, providers`)
+        }
+        break
+      }
+
       case 'twitter': {
         const sv = await import('./social-vault.js')
         const platform = 'twitter' as const

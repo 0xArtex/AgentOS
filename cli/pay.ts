@@ -252,6 +252,86 @@ async function buildEvmPaymentAuthorization(
   }
 }
 
+/**
+ * Like paidRequest, but returns the raw Response from the final paid call
+ * so the caller can consume a streaming body (e.g. text/event-stream for i402).
+ *
+ * The probe request is always issued without a payment header to elicit the
+ * server's 402 with proper payment-required metadata — this lets the server
+ * advertise the exact amount due (critical for i402 /chat/:id/execute which
+ * charges plan.total_cost_usdc rather than a fixed fee).
+ */
+export async function paidStreamRequest(
+  api: string,
+  method: string,
+  path: string,
+  body?: Record<string, unknown>,
+  passphrase?: string,
+): Promise<{ response: Response; paid: boolean; amountUsdc: number; payer?: string }> {
+  const probeOpts: RequestInit = {
+    method,
+    headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+  }
+  if (body) probeOpts.body = JSON.stringify(body)
+
+  const probeRes = await fetch(api + path, probeOpts)
+  if (probeRes.status !== 402) {
+    return { response: probeRes, paid: false, amountUsdc: 0 }
+  }
+
+  const probeData: any = await probeRes.json().catch(() => ({}))
+  const options = parsePaymentRequired(probeData)
+  const cfg = loadConfig()
+  const preferredChain = ((cfg as any).defaultPayChain || 'solana') as 'solana' | 'base'
+  const selected = preferredChain === 'base' ? options.base : options.solana
+  if (!selected) {
+    throw new Error(
+      `Server did not offer ${preferredChain} payment for streaming endpoint. ` +
+        `Received: ${JSON.stringify(probeData).slice(0, 200)}`,
+    )
+  }
+
+  const amountUsdc = Number(selected.amount) / 1e6
+  let paymentPayload: any
+  let payer: string
+
+  if (preferredChain === 'base') {
+    const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
+    if (!auth) throw new Error('Failed to build EVM payment authorization')
+    paymentPayload = {
+      x402Version: 2,
+      scheme: 'exact',
+      network: selected.network,
+      payload: { signature: auth.signature, authorization: auth.authorization },
+      accepted: { scheme: 'exact', network: selected.network },
+    }
+    payer = auth.payer
+  } else {
+    const tx = await buildPaymentTransaction(selected.payTo, selected.amount, selected.feePayer, undefined, passphrase)
+    if (!tx) throw new Error('Failed to build Solana payment transaction')
+    paymentPayload = {
+      x402Version: 2,
+      payload: { transaction: tx.transaction },
+      accepted: { scheme: 'exact', network: selected.network },
+    }
+    payer = tx.payer
+  }
+
+  const paidOpts: RequestInit = {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      'Payment-Signature': Buffer.from(JSON.stringify(paymentPayload)).toString('base64'),
+    },
+  }
+  if (body) paidOpts.body = JSON.stringify(body)
+
+  const paidRes = await fetch(api + path, paidOpts)
+  log(`stream payment: ${amountUsdc} USDC → ${path} on ${preferredChain} (payer: ${payer})`)
+  return { response: paidRes, paid: true, amountUsdc, payer }
+}
+
 export async function paidRequest(
   api: string,
   method: string,
