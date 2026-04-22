@@ -469,15 +469,19 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       });
     }
 
-    // Store in database
+    // Store in database. Owner is always the wallet address that paid — the
+    // x402 payer is authoritative because they just spent USDC for this domain.
+    // Fall back to req.agentId (also a wallet after the auth cleanup) for
+    // non-paid code paths or legacy callers.
+    const owner = req.payment?.payer || req.agentId;
     const domainId = uuid();
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year from now
-    
+
     db.prepare(`
       INSERT INTO domains (id, domain, owner, registrar_id, status, expires_at, created_at, dns_records)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(domainId, domain, req.agentId, registerResult.orderId, 'active', expiresAt, now, '[]');
+    `).run(domainId, domain, owner, registerResult.orderId, 'active', expiresAt, now, '[]');
 
     res.status(201).json({
       domain,
