@@ -496,15 +496,23 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
   }
 });
 
+// Ownership proof via x402 micro-payment — the payer's signature on the USDC
+// transfer cryptographically proves they control the owner wallet. 0.0001 USDC
+// keeps the bar symbolic while avoiding zero-amount edge cases.
+const OWNERSHIP_PROOF_USDC = 0.0001;
+const ownerFromRequest = (req: AuthenticatedRequest): string | undefined =>
+  req.payment?.payer || req.agentId;
+
 /**
  * GET /domains/:domain
- * Get domain information
+ * Get domain information. Requires x402 ownership proof.
  */
-router.get('/:domain', requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/:domain', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
 
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, req.agentId) as DomainDbRecord | undefined;
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
     if (!domainRecord) {
       return res.status(404).json({ error: 'Domain not found or not owned by you' });
     }
@@ -526,13 +534,14 @@ router.get('/:domain', requireAuth(0, 'general'), async (req: AuthenticatedReque
 
 /**
  * GET /domains/:domain/dns
- * Get current DNS records
+ * Get current DNS records. Requires x402 ownership proof.
  */
-router.get('/:domain/dns', requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/:domain/dns', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
 
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, req.agentId) as DomainDbRecord | undefined;
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
     if (!domainRecord) {
       return res.status(404).json({ error: 'Domain not found or not owned by you' });
     }
@@ -569,9 +578,9 @@ router.get('/:domain/dns', requireAuth(0, 'general'), async (req: AuthenticatedR
 
 /**
  * POST /domains/:domain/dns
- * Set DNS records
+ * Set DNS records. Requires x402 ownership proof.
  */
-router.post('/:domain/dns', requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:domain/dns', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
     const { records } = req.body;
@@ -580,7 +589,8 @@ router.post('/:domain/dns', requireAuth(0, 'general'), async (req: Authenticated
       return res.status(400).json({ error: 'records array is required' });
     }
 
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, req.agentId) as DomainDbRecord | undefined;
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
     if (!domainRecord) {
       return res.status(404).json({ error: 'Domain not found or not owned by you' });
     }
@@ -636,13 +646,14 @@ router.post('/:domain/dns', requireAuth(0, 'general'), async (req: Authenticated
 
 /**
  * POST /domains/:domain/transfer
- * Initiate domain transfer out
+ * Initiate domain transfer out. Requires x402 ownership proof.
  */
-router.post('/:domain/transfer', requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:domain/transfer', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
 
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, req.agentId) as DomainDbRecord | undefined;
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
     if (!domainRecord) {
       return res.status(404).json({ error: 'Domain not found or not owned by you' });
     }
