@@ -525,10 +525,21 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
     const now = new Date().toISOString();
     const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year from now
 
-    db.prepare(`
-      INSERT INTO domains (id, domain, owner, registrar_id, status, expires_at, created_at, dns_records)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(domainId, domain, owner, registerResult.orderId, 'active', expiresAt, now, '[]');
+    // `tld` is a legacy NOT NULL column on older prod DBs; fresh DBs don't
+    // have it. Populate only if the column exists, so both shapes work.
+    const domainsCols = db.prepare("PRAGMA table_info(domains)").all() as Array<{ name: string }>;
+    const hasLegacyTld = domainsCols.some(c => c.name === 'tld');
+    if (hasLegacyTld) {
+      db.prepare(`
+        INSERT INTO domains (id, domain, tld, owner, registrar_id, status, expires_at, created_at, dns_records)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(domainId, domain, tld, owner, registerResult.orderId, 'active', expiresAt, now, '[]');
+    } else {
+      db.prepare(`
+        INSERT INTO domains (id, domain, owner, registrar_id, status, expires_at, created_at, dns_records)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(domainId, domain, owner, registerResult.orderId, 'active', expiresAt, now, '[]');
+    }
 
     res.status(201).json({
       domain,
