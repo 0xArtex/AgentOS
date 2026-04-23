@@ -128,6 +128,10 @@ export class AgentOS {
     return this.request('GET', `/domains/${domain}/dns`)
   }
 
+  async domainTransferOwnership(domain: string, newOwner: string): Promise<any> {
+    return this.request('POST', `/domains/${domain}/transfer-ownership`, { new_owner: newOwner })
+  }
+
   // ── Wallet ──
   async walletCreate(label?: string, chains?: string[], mode?: 'unmanaged' | 'managed'): Promise<any> {
     return this.request('POST', '/wallet', { label, chains, mode })

@@ -597,6 +597,7 @@ async function main() {
               { name: 'pricing', description: 'Get TLD pricing', hint: '--name example' },
               { name: 'buy', description: 'Register a domain', hint: '--name example.dev' },
               { name: 'dns', description: 'Get DNS records', hint: '--name example.dev' },
+              { name: 'transfer-ownership', description: 'Transfer domain to another wallet', hint: '--name example.dev --to <wallet>' },
             ],
             interactive: fromHome,
             onBack: fromHome ? () => {
@@ -670,6 +671,14 @@ async function main() {
             log(`domain buy: ${data.domain || name}`)
             break
           }
+          case 'transfer-ownership': {
+            const name = flags.name as string || positional[0]
+            const to = flags.to as string || positional[1]
+            if (!name) err('--name domain.dev required')
+            if (!to) err('--to <wallet> required')
+            const data = await ao.domainTransferOwnership(name, to)
+            return print(data)
+          }
           case 'dns': {
             const name = flags.name as string || positional[0]
             if (!name) err('--name domain.dev required')
@@ -687,7 +696,7 @@ async function main() {
             }))
             break
           }
-          default: err(`Unknown domain command: ${subcommand}. Try: check, pricing, buy, dns`)
+          default: err(`Unknown domain command: ${subcommand}. Try: check, pricing, buy, dns, transfer-ownership`)
         }
         break
       }
