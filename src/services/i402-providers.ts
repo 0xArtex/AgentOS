@@ -97,193 +97,436 @@ function rowToProvider(row: ProviderRow): I402Provider {
 
 // -------------------- Canonical capability classes (v0.1) --------------------
 
+// Capability classes are the canonical action taxonomy the planner chooses from.
+// Every capability here maps to one or more x402-native AgentOS endpoints.
+// Non-x402 capabilities (web_search, summarize, image_gen, video_gen, tts, stt,
+// embed, web_scrape) are intentionally absent until Agentic Market lands.
 export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
-  web_search: {
-    name: "web_search",
-    description: "Search the web and return ranked results.",
-    inputSchema: {
-      query: { type: "string", required: true },
-      max_results: { type: "number", default: 10, max: 50 },
-      freshness_days: { type: "number", optional: true },
-    },
-    outputSchema: {
-      results: {
-        type: "array",
-        items: { title: "string", url: "string", snippet: "string", published: "iso8601?" },
-      },
-    },
+  // ── Phone / SMS ──
+  provision_phone: {
+    name: "provision_phone",
+    description: "Provision a new phone number in a specified country. Returns phone_number_id + E.164 number.",
+    inputSchema: { country: "string (ISO-2)", areaCode: "string?" },
+    outputSchema: { id: "string (phone_number_id)", phoneNumber: "string (E.164)", country: "string" },
   },
-  web_scrape: {
-    name: "web_scrape",
-    description: "Fetch and extract content from a URL.",
-    inputSchema: {
-      url: { type: "string", required: true },
-      selector: { type: "string", optional: true },
-    },
-    outputSchema: { content: "string", title: "string?", meta: "object?" },
-  },
-  summarize: {
-    name: "summarize",
-    description: "Produce a summary of input text or documents.",
-    inputSchema: {
-      text: { type: "string|string[]", required: true },
-      style: { type: "enum", values: ["brief", "detailed", "bullets"], default: "brief" },
-      max_tokens: { type: "number", default: 500 },
-    },
-    outputSchema: { summary: "string", token_count: "number" },
-  },
-  embed: {
-    name: "embed",
-    description: "Produce vector embeddings for text.",
-    inputSchema: { text: "string|string[]" },
-    outputSchema: { embeddings: "number[][]", dim: "number" },
-  },
-  image_gen: {
-    name: "image_gen",
-    description: "Generate an image from a text prompt.",
-    inputSchema: {
-      prompt: { type: "string", required: true },
-      aspect_ratio: { type: "string", default: "1:1" },
-      style: { type: "string", optional: true },
-    },
-    outputSchema: { url: "string", width: "number", height: "number" },
-  },
-  video_gen: {
-    name: "video_gen",
-    description: "Generate a short video from a text prompt.",
-    inputSchema: { prompt: "string", duration_seconds: "number" },
-    outputSchema: { url: "string", duration_seconds: "number" },
-  },
-  tts: {
-    name: "tts",
-    description: "Synthesize speech audio from text.",
-    inputSchema: { text: "string", voice: "string?", language: "string?" },
-    outputSchema: { audio_url: "string", duration_ms: "number" },
-  },
-  stt: {
-    name: "stt",
-    description: "Transcribe speech audio to text.",
-    inputSchema: { audio_url: "string", language: "string?" },
-    outputSchema: { text: "string", duration_ms: "number" },
+  release_phone: {
+    name: "release_phone",
+    description: "Release (deactivate) a provisioned phone number.",
+    inputSchema: { phone_number_id: "string" },
+    outputSchema: { ok: "boolean" },
   },
   send_sms: {
     name: "send_sms",
-    description: "Send an SMS from a provisioned phone number.",
-    inputSchema: { from: "string", to: "string", body: "string" },
+    description: "Send an SMS from an owned phone number.",
+    inputSchema: { phone_number_id: "string (path)", to: "string (E.164)", body: "string" },
     outputSchema: { message_id: "string", status: "string" },
   },
-  voice_call: {
-    name: "voice_call",
-    description: "Initiate an outbound voice call.",
-    inputSchema: { from: "string", to: "string", script: "string?" },
-    outputSchema: { call_id: "string", status: "string" },
+  read_sms: {
+    name: "read_sms",
+    description: "Retrieve SMS messages received on an owned phone number.",
+    inputSchema: { phone_number_id: "string (path)", limit: "number?", since: "iso8601?" },
+    outputSchema: { messages: "object[]" },
   },
-  provision_phone: {
-    name: "provision_phone",
-    description: "Provision a new phone number from a registrar.",
-    inputSchema: { country: "string", capabilities: "string[]?" },
-    outputSchema: { phone_number: "string", country: "string", capabilities: "string[]" },
+
+  // ── Voice ──
+  start_voice_call: {
+    name: "start_voice_call",
+    description: "Initiate an outbound voice call from an owned number. Returns call_control_id for subsequent ops.",
+    inputSchema: { phone_number_id: "string (path)", to: "string (E.164)", script: "string?" },
+    outputSchema: { call_control_id: "string", status: "string" },
   },
+  list_calls: {
+    name: "list_calls",
+    description: "List call history for an owned phone number.",
+    inputSchema: { phone_number_id: "string (path)" },
+    outputSchema: { calls: "object[]" },
+  },
+  get_call_details: {
+    name: "get_call_details",
+    description: "Retrieve call details and recordings by call_control_id.",
+    inputSchema: { call_control_id: "string (path)" },
+    outputSchema: { call: "object", recordings: "object[]?" },
+  },
+  voice_speak: {
+    name: "voice_speak",
+    description: "Text-to-speech into an active call.",
+    inputSchema: { call_control_id: "string (path)", text: "string", voice: "string?", language: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  voice_play: {
+    name: "voice_play",
+    description: "Play an audio clip into an active call.",
+    inputSchema: { call_control_id: "string (path)", audio_url: "string" },
+    outputSchema: { ok: "boolean" },
+  },
+  voice_dtmf: {
+    name: "voice_dtmf",
+    description: "Send a sequence of DTMF tones into an active call.",
+    inputSchema: { call_control_id: "string (path)", digits: "string" },
+    outputSchema: { ok: "boolean" },
+  },
+  voice_gather: {
+    name: "voice_gather",
+    description: "Gather DTMF input from the caller with a prompt.",
+    inputSchema: { call_control_id: "string (path)", prompt: "string", timeout_s: "number?", max_digits: "number?" },
+    outputSchema: { digits: "string" },
+  },
+  voice_record_start: {
+    name: "voice_record_start",
+    description: "Start recording an active call.",
+    inputSchema: { call_control_id: "string (path)" },
+    outputSchema: { recording_id: "string" },
+  },
+  voice_record_stop: {
+    name: "voice_record_stop",
+    description: "Stop recording an active call.",
+    inputSchema: { call_control_id: "string (path)" },
+    outputSchema: { recording_url: "string" },
+  },
+  voice_hangup: {
+    name: "voice_hangup",
+    description: "Disconnect an active call.",
+    inputSchema: { call_control_id: "string (path)" },
+    outputSchema: { ok: "boolean" },
+  },
+  voice_answer: {
+    name: "voice_answer",
+    description: "Answer an incoming call.",
+    inputSchema: { call_control_id: "string (path)" },
+    outputSchema: { ok: "boolean" },
+  },
+  voice_transfer: {
+    name: "voice_transfer",
+    description: "Transfer an active call to another number.",
+    inputSchema: { call_control_id: "string (path)", to: "string (E.164)" },
+    outputSchema: { ok: "boolean" },
+  },
+
+  // ── Email ──
   provision_email_inbox: {
     name: "provision_email_inbox",
-    description: "Create an email inbox, optionally at a custom domain.",
-    inputSchema: { local_part: "string?", domain: "string?" },
-    outputSchema: { address: "string", inbox_id: "string" },
+    description: "Provision a new E2E-encrypted email inbox keyed to the wallet.",
+    inputSchema: { name: "string (local-part)", walletAddress: "string (Solana pubkey)" },
+    outputSchema: { id: "string (inbox_id)", address: "string" },
   },
   send_email: {
     name: "send_email",
     description: "Send an email from an owned inbox.",
-    inputSchema: { from: "string", to: "string|string[]", subject: "string", body: "string", html: "string?" },
+    inputSchema: { inbox_id: "string (path)", to: "string|string[]", subject: "string", body: "string", html: "string?" },
     outputSchema: { message_id: "string" },
   },
   read_email: {
     name: "read_email",
-    description: "Read messages from an owned inbox.",
-    inputSchema: { inbox_id: "string", limit: "number?", since: "iso8601?" },
+    description: "List / read messages in an owned inbox.",
+    inputSchema: { inbox_id: "string (path)", limit: "number?", since: "iso8601?" },
     outputSchema: { messages: "object[]" },
   },
-  deploy_vps: {
-    name: "deploy_vps",
-    description: "Provision a cloud VPS with cloud-init and SSH access.",
-    inputSchema: {
-      plan: { type: "string", values: ["cx23", "cx33", "cx43", "cx53", "cpx11", "cpx21", "cpx31", "cpx41", "cpx51"] },
-      region: "string?",
-      ssh_public_key: "string?",
-      cloud_init: "string?",
-    },
-    outputSchema: { server_id: "string", ipv4: "string", ipv6: "string?", status: "string" },
+  list_email_threads: {
+    name: "list_email_threads",
+    description: "List email conversation threads in an owned inbox.",
+    inputSchema: { inbox_id: "string (path)" },
+    outputSchema: { threads: "object[]" },
   },
+  read_email_thread: {
+    name: "read_email_thread",
+    description: "Get all messages in an email thread.",
+    inputSchema: { thread_id: "string (path)" },
+    outputSchema: { messages: "object[]" },
+  },
+
+  // ── Domain ──
   register_domain: {
     name: "register_domain",
-    description: "Register a new domain name via a registrar.",
-    inputSchema: {
-      domain_preferences: "string[]",
-      tld_preference: "string[]?",
-      years: { type: "number", default: 1, max: 10 },
-    },
-    outputSchema: { domain_registered: "string", expires_at: "iso8601", registrar: "string", dns_nameservers: "string[]" },
+    description: "Register a new domain via the registrar. Pricing is dynamic per TLD.",
+    inputSchema: { domain: "string (fqdn)", years: "number? (default 1)" },
+    outputSchema: { id: "string (domain_id)", domain: "string", expires_at: "iso8601", registrar_id: "string" },
+  },
+  list_domains: {
+    name: "list_domains",
+    description: "List domains owned by the calling wallet.",
+    inputSchema: {},
+    outputSchema: { domains: "object[]" },
+  },
+  get_domain: {
+    name: "get_domain",
+    description: "Get the status + metadata for a single owned domain.",
+    inputSchema: { domain: "string (path, fqdn)" },
+    outputSchema: { domain: "object" },
   },
   dns_manage: {
     name: "dns_manage",
-    description: "Create, update, or delete DNS records on an owned domain.",
-    inputSchema: { domain: "string", action: { type: "enum", values: ["create", "update", "delete"] }, record: "object" },
-    outputSchema: { record_id: "string" },
+    description: "Read or write DNS records on an owned domain.",
+    inputSchema: { domain: "string (path)", records: "object[]? (write when present)" },
+    outputSchema: { records: "object[]" },
   },
-  social_account_provision: {
-    name: "social_account_provision",
-    description: "Provision a social media account from the pool, transferred to the agent's wallet.",
+  transfer_domain_ownership: {
+    name: "transfer_domain_ownership",
+    description: "Transfer a domain's ownership to a new wallet address (Solana or EVM).",
+    inputSchema: { domain: "string (path, fqdn)", new_owner: "string (wallet address)" },
+    outputSchema: { ok: "boolean", new_owner: "string" },
+  },
+  transfer_domain_out: {
+    name: "transfer_domain_out",
+    description: "Initiate an IANA registrar transfer for an owned domain.",
+    inputSchema: { domain: "string (path, fqdn)" },
+    outputSchema: { auth_code: "string", status: "string" },
+  },
+
+  // ── Compute / VPS ──
+  create_ssh_key: {
+    name: "create_ssh_key",
+    description: "Create an SSH keypair associated with the wallet.",
+    inputSchema: { name: "string?" },
+    outputSchema: { id: "string (ssh_key_id)", public_key: "string", private_key: "string" },
+  },
+  list_ssh_keys: {
+    name: "list_ssh_keys",
+    description: "List SSH keys owned by the wallet.",
+    inputSchema: {},
+    outputSchema: { keys: "object[]" },
+  },
+  delete_ssh_key: {
+    name: "delete_ssh_key",
+    description: "Delete an SSH key.",
+    inputSchema: { ssh_key_id: "string (path)" },
+    outputSchema: { ok: "boolean" },
+  },
+  deploy_vps: {
+    name: "deploy_vps",
+    description: "Provision a new cloud VPS with cloud-init + SSH key. Returns server_id + public IPs.",
     inputSchema: {
-      platform: { type: "enum", values: ["x", "tiktok", "reddit", "linkedin"] },
-      country: "string?",
-      handle_preference: "string[]?",
+      name: "string",
+      serverType: "string (cx23|cx33|cx43|cx53|cpx11|cpx21|cpx31|cpx41|cpx51)",
+      image: "string? (default ubuntu-24.04)",
+      sshKeyIds: "number[]?",
+      installOpenClaw: "boolean? (default true)",
     },
-    outputSchema: { platform: "string", handle: "string", account_id: "string", warming_status: "string" },
+    outputSchema: { id: "string (server_id)", ipv4: "string", ipv6: "string?", status: "string" },
   },
-  social_post: {
-    name: "social_post",
-    description: "Publish a post to an owned social account.",
+  list_vps: {
+    name: "list_vps",
+    description: "List VPS instances owned by the wallet.",
+    inputSchema: {},
+    outputSchema: { servers: "object[]" },
+  },
+  get_vps: {
+    name: "get_vps",
+    description: "Get details for a single VPS.",
+    inputSchema: { server_id: "string (path)" },
+    outputSchema: { server: "object" },
+  },
+  vps_action: {
+    name: "vps_action",
+    description: "Execute a lifecycle action on a VPS: reboot / poweron / poweroff / rebuild / reset.",
     inputSchema: {
-      platform: { type: "enum", values: ["x", "tiktok", "reddit", "linkedin"] },
-      account_id: "string",
-      content: "string",
-      media_urls: "string[]?",
-      schedule_at: "iso8601?",
+      server_id: "string (path)",
+      action: "string (reboot|poweron|poweroff|rebuild|reset)",
     },
-    outputSchema: { post_id: "string", url: "string", posted_at: "iso8601" },
+    outputSchema: { ok: "boolean" },
   },
-  code_exec: {
-    name: "code_exec",
-    description: "Execute code on an owned VPS and return output.",
-    inputSchema: { server_id: "string", language: "string", source: "string", timeout_ms: "number?" },
-    outputSchema: { stdout: "string", stderr: "string", exit_code: "number" },
+  vps_resize: {
+    name: "vps_resize",
+    description: "Resize a VPS to a new server-type tier.",
+    inputSchema: { server_id: "string (path)", serverType: "string" },
+    outputSchema: { ok: "boolean" },
   },
-  file_store: {
-    name: "file_store",
-    description: "Store a file in object storage and return a signed URL.",
-    inputSchema: { content_base64: "string", content_type: "string", name: "string?" },
-    outputSchema: { url: "string", key: "string", size_bytes: "number" },
+  vps_delete: {
+    name: "vps_delete",
+    description: "Terminate a VPS.",
+    inputSchema: { server_id: "string (path)" },
+    outputSchema: { ok: "boolean" },
   },
-  // Compound capabilities — expand into sub-plans via the planner.
+  install_skill: {
+    name: "install_skill",
+    description: "Install a single agent skill on a VPS.",
+    inputSchema: { server_id: "string (path)", skill_id: "string" },
+    outputSchema: { ok: "boolean" },
+  },
+  install_skills_bulk: {
+    name: "install_skills_bulk",
+    description: "Install a batch of skills on a VPS.",
+    inputSchema: { server_id: "string (path)", skill_ids: "string[]" },
+    outputSchema: { installed: "string[]", failed: "string[]" },
+  },
+  remove_skill: {
+    name: "remove_skill",
+    description: "Remove an installed skill from a VPS.",
+    inputSchema: { server_id: "string (path)", skill_id: "string" },
+    outputSchema: { ok: "boolean" },
+  },
+  configure_openclaw: {
+    name: "configure_openclaw",
+    description: "Configure the OpenClaw agent runtime on a VPS.",
+    inputSchema: { server_id: "string (path)", config: "object" },
+    outputSchema: { ok: "boolean" },
+  },
+  configure_vps_wallet: {
+    name: "configure_vps_wallet",
+    description: "Wire a wallet into the agent runtime on a VPS (for signing x402 from within the VPS).",
+    inputSchema: { server_id: "string (path)", wallet_config: "object" },
+    outputSchema: { ok: "boolean" },
+  },
+
+  // ── Social: Twitter / X ──
+  twitter_login: {
+    name: "twitter_login",
+    description: "Authenticate a Twitter account session (required before posting).",
+    inputSchema: { account_id: "string", proxy_session_id: "string?", cookies: "object?", login: "string?", password: "string?", totp_seed: "string?" },
+    outputSchema: { ok: "boolean", cookies: "object[]?" },
+  },
+  twitter_post: {
+    name: "twitter_post",
+    description: "Post a tweet from an owned X account.",
+    inputSchema: { account_id: "string", cookies: "object[]", text: "string", proxy_session_id: "string?" },
+    outputSchema: { tweet_id: "string", tweet_url: "string" },
+  },
+  twitter_reply: {
+    name: "twitter_reply",
+    description: "Reply to a tweet.",
+    inputSchema: { account_id: "string", cookies: "object[]", tweet_url: "string", text: "string", proxy_session_id: "string?" },
+    outputSchema: { tweet_id: "string", tweet_url: "string" },
+  },
+  twitter_like: {
+    name: "twitter_like",
+    description: "Like a tweet.",
+    inputSchema: { account_id: "string", cookies: "object[]", tweet_url: "string", proxy_session_id: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  twitter_retweet: {
+    name: "twitter_retweet",
+    description: "Retweet.",
+    inputSchema: { account_id: "string", cookies: "object[]", tweet_url: "string", proxy_session_id: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  twitter_follow: {
+    name: "twitter_follow",
+    description: "Follow a user on X.",
+    inputSchema: { account_id: "string", cookies: "object[]", target_user: "string (handle)", proxy_session_id: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  twitter_unfollow: {
+    name: "twitter_unfollow",
+    description: "Unfollow a user on X.",
+    inputSchema: { account_id: "string", cookies: "object[]", target_user: "string (handle)", proxy_session_id: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  twitter_delete_post: {
+    name: "twitter_delete_post",
+    description: "Delete an own tweet.",
+    inputSchema: { account_id: "string", cookies: "object[]", tweet_url: "string", proxy_session_id: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  twitter_update_profile: {
+    name: "twitter_update_profile",
+    description: "Update profile fields (bio, display name, location, website).",
+    inputSchema: { account_id: "string", cookies: "object[]", bio: "string?", display_name: "string?", location: "string?", website: "string?", proxy_session_id: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  twitter_update_avatar: {
+    name: "twitter_update_avatar",
+    description: "Update profile picture.",
+    inputSchema: { account_id: "string", cookies: "object[]", image_base64: "string?", image_url: "string?", proxy_session_id: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  twitter_update_banner: {
+    name: "twitter_update_banner",
+    description: "Update X profile banner image.",
+    inputSchema: { account_id: "string", cookies: "object[]", image_base64: "string?", image_url: "string?", proxy_session_id: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  twitter_change_username: {
+    name: "twitter_change_username",
+    description: "Change the Twitter handle (requires account password).",
+    inputSchema: { account_id: "string", cookies: "object[]", new_username: "string", password: "string", proxy_session_id: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  twitter_buy_account: {
+    name: "twitter_buy_account",
+    description: "Buy a warmed X account from the AgentOS pool.",
+    inputSchema: { country: "string?", age_category: "string?" },
+    outputSchema: { account_id: "string", handle: "string", credentials: "object" },
+  },
+
+  // ── Social: TikTok ──
+  tiktok_login: {
+    name: "tiktok_login",
+    description: "Authenticate a TikTok account session.",
+    inputSchema: { account_id: "string", sessionid: "string?", login: "string?", password: "string?", email: "string?", email_password: "string?", proxy_session_id: "string?", country: "string?" },
+    outputSchema: { ok: "boolean", cookies: "object[]?" },
+  },
+  tiktok_post: {
+    name: "tiktok_post",
+    description: "Post a video to TikTok.",
+    inputSchema: { account_id: "string", cookies: "object[]", caption: "string", video_base64: "string?", video_url: "string?", privacy: "number?", allow_comments: "boolean?", allow_duet: "boolean?", allow_stitch: "boolean?", proxy_session_id: "string?", country: "string?" },
+    outputSchema: { video_id: "string", url: "string" },
+  },
+  tiktok_follow: {
+    name: "tiktok_follow",
+    description: "Follow a TikTok user.",
+    inputSchema: { account_id: "string", cookies: "object[]", target_user: "string", proxy_session_id: "string?", country: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  tiktok_like: {
+    name: "tiktok_like",
+    description: "Like a TikTok video.",
+    inputSchema: { account_id: "string", cookies: "object[]", video_url: "string", proxy_session_id: "string?", country: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  tiktok_delete_post: {
+    name: "tiktok_delete_post",
+    description: "Delete an own TikTok video.",
+    inputSchema: { account_id: "string", cookies: "object[]", video_url: "string", proxy_session_id: "string?", country: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  tiktok_update_profile: {
+    name: "tiktok_update_profile",
+    description: "Update TikTok profile (bio, display name).",
+    inputSchema: { account_id: "string", cookies: "object[]", bio: "string?", display_name: "string?", proxy_session_id: "string?", country: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+  tiktok_update_avatar: {
+    name: "tiktok_update_avatar",
+    description: "Update TikTok avatar.",
+    inputSchema: { account_id: "string", cookies: "object[]", image_base64: "string?", image_url: "string?", proxy_session_id: "string?", country: "string?" },
+    outputSchema: { ok: "boolean" },
+  },
+
+  // ── API keys ──
+  issue_api_key: {
+    name: "issue_api_key",
+    description: "Issue an API key for a third-party service, wallet-scoped.",
+    inputSchema: { provider: "string (brave_search|helius|openai|anthropic|elevenlabs|custom)", label: "string?" },
+    outputSchema: { id: "string", secret: "string", provider: "string" },
+  },
+
+  // ── Compound capabilities ──
   launch_product: {
     name: "launch_product",
-    description: "End-to-end: market research, branding, domain, landing page, social presence, email.",
+    description: "End-to-end product launch: domain, landing page on a VPS, email inbox, social presence, and launch posts.",
     isCompound: true,
     inputSchema: { niche: "string", target_audience: "string?", region: "string?" },
     outputSchema: { artifacts: "object[]" },
   },
-  research_topic: {
-    name: "research_topic",
-    description: "Compound: search + summarize + synthesize into a structured report.",
-    isCompound: true,
-    inputSchema: { topic: "string", depth: { type: "enum", values: ["brief", "detailed"] } },
-    outputSchema: { report: "string", citations: "string[]" },
-  },
   grow_audience: {
     name: "grow_audience",
-    description: "Compound: trending analysis + content generation + scheduled posting across owned socials.",
+    description: "Publish coordinated content across owned social accounts.",
     isCompound: true,
     inputSchema: { topic: "string", platforms: "string[]", cadence: "string?" },
-    outputSchema: { scheduled_posts: "object[]" },
+    outputSchema: { posts: "object[]" },
+  },
+
+  // ── Social account provisioning (legacy-named, platform-dispatch) ──
+  social_account_provision: {
+    name: "social_account_provision",
+    description: "Provision a pre-warmed social account from the pool, transferred to the caller's wallet.",
+    inputSchema: { platform: "string (x|tiktok|reddit|linkedin)", country: "string?", age_category: "string?" },
+    outputSchema: { account_id: "string", platform: "string", handle: "string" },
+  },
+  social_post: {
+    name: "social_post",
+    description: "Publish a post to an owned social account. Routes to platform-specific provider under the hood.",
+    inputSchema: { platform: "string (x|tiktok)", account_id: "string", cookies: "object[]", content: "string", media_urls: "string[]?", proxy_session_id: "string?" },
+    outputSchema: { post_id: "string", url: "string" },
   },
 };
 
@@ -449,237 +692,355 @@ export function scoreProviders(capability: string, quality: I402Quality = "best"
 export function seedAgentOSPrimitives(): void {
   const base = process.env.AGENTOS_API_BASE ?? "https://agntos.dev";
 
-  // Purge legacy non-x402-native first-party rows left over from earlier seeds.
-  // Agent-side-only mode requires every provider to speak x402 directly; anything
-  // else is dropped so the planner can't select it.
-  db.prepare(`DELETE FROM i402_providers WHERE id IN ('exa.web_search', 'agentos.web_search', 'anthropic.summarize')`).run();
+  // Wipe ALL AgentOS-source rows before re-seeding. The seed is authoritative
+  // for endpoint URLs, capabilities, and costs — stale rows from earlier seeds
+  // (different base URL, renamed capability, old cost) would otherwise win via
+  // INSERT OR IGNORE. Metrics for AgentOS-owned providers reset at each seed;
+  // federated / external providers are untouched.
+  db.prepare(`DELETE FROM i402_providers WHERE source = 'agentos'`).run();
   db.prepare(`DELETE FROM i402_providers WHERE auth_scheme NOT IN ('x402-solana', 'x402-base')`).run();
 
+  // (Intentionally unreachable — preserved in case a future iteration wants to
+  //  selectively keep rows rather than wholesale wipe.)
+  const _keepOnlyListed = `
+    DELETE FROM i402_providers
+     WHERE source = 'agentos'
+       AND id NOT IN (
+         'agentos.provision_phone', 'agentos.release_phone', 'agentos.send_sms', 'agentos.read_sms',
+         'agentos.start_voice_call', 'agentos.list_calls', 'agentos.get_call_details',
+         'agentos.voice_speak', 'agentos.voice_play', 'agentos.voice_dtmf', 'agentos.voice_gather',
+         'agentos.voice_record_start', 'agentos.voice_record_stop', 'agentos.voice_hangup',
+         'agentos.voice_answer', 'agentos.voice_transfer',
+         'agentos.provision_email_inbox', 'agentos.send_email', 'agentos.read_email',
+         'agentos.list_email_threads', 'agentos.read_email_thread',
+         'agentos.register_domain', 'agentos.list_domains', 'agentos.get_domain',
+         'agentos.dns_read', 'agentos.dns_write',
+         'agentos.transfer_domain_ownership', 'agentos.transfer_domain_out',
+         'agentos.create_ssh_key', 'agentos.list_ssh_keys', 'agentos.delete_ssh_key',
+         'agentos.deploy_vps', 'agentos.list_vps', 'agentos.get_vps',
+         'agentos.vps_action', 'agentos.vps_resize', 'agentos.vps_delete',
+         'agentos.install_skill', 'agentos.install_skills_bulk', 'agentos.remove_skill',
+         'agentos.configure_openclaw', 'agentos.configure_vps_wallet',
+         'agentos.twitter_login', 'agentos.twitter_post', 'agentos.twitter_reply',
+         'agentos.twitter_like', 'agentos.twitter_retweet', 'agentos.twitter_follow',
+         'agentos.twitter_unfollow', 'agentos.twitter_delete_post',
+         'agentos.twitter_update_profile', 'agentos.twitter_update_avatar',
+         'agentos.twitter_update_banner', 'agentos.twitter_change_username',
+         'agentos.twitter_buy_account',
+         'agentos.tiktok_login', 'agentos.tiktok_post', 'agentos.tiktok_follow',
+         'agentos.tiktok_like', 'agentos.tiktok_delete_post',
+         'agentos.tiktok_update_profile', 'agentos.tiktok_update_avatar',
+         'agentos.issue_api_key',
+         'agentos.x_post', 'agentos.tiktok_post_legacy', 'agentos.x_account'
+       )`;
+  void _keepOnlyListed;
+
+  // Build a provider row from a capability + endpoint. Endpoints with path
+  // parameters use {field_name} placeholders; the client substitutes them at
+  // execution time from the step's input. Fields consumed by substitution are
+  // stripped from the body before POSTing.
+  const p = (
+    id: string,
+    capability: string,
+    endpointPath: string,
+    options: {
+      method?: "POST" | "GET" | "DELETE" | "PUT";
+      costUsdc: number;
+      p50?: number;
+      p99?: number;
+      reputation?: number;
+      name?: string;
+      description?: string;
+      metadata?: Record<string, unknown>;
+    }
+  ): RegisterProviderInput => ({
+    id,
+    source: "agentos",
+    capability,
+    name: options.name ?? `AgentOS ${capability}`,
+    description: options.description,
+    endpoint: `${base}${endpointPath}`,
+    method: options.method ?? "POST",
+    authScheme: "x402-solana",
+    inputSchema: CAPABILITY_CLASSES[capability].inputSchema,
+    outputSchema: CAPABILITY_CLASSES[capability].outputSchema,
+    costPerCallUsdc: options.costUsdc,
+    p50LatencyMs: options.p50,
+    p99LatencyMs: options.p99,
+    reputationScore: options.reputation ?? 0.9,
+    metadata: options.metadata,
+  });
+
   const primitives: RegisterProviderInput[] = [
-    // web_search has no x402-native provider in v0.1.
-    // AgentOS doesn't operate a /search endpoint, and third-party API-key-backed
-    // search providers (Exa, Tavily, Perplexity) don't speak x402. They're
-    // expected to become available via Agentic Market federation once AM lands.
+    // ── Phone / SMS ──
+    p("agentos.provision_phone", "provision_phone", "/phone/numbers", {
+      costUsdc: 3.0, p50: 4000, p99: 15000,
+      description: "Provision a real phone number via Telnyx (150+ countries).",
+    }),
+    p("agentos.release_phone", "release_phone", "/phone/numbers/{phone_number_id}", {
+      method: "DELETE", costUsdc: 0.01, p50: 500, p99: 2000,
+      description: "Release a phone number.",
+    }),
+    p("agentos.send_sms", "send_sms", "/phone/numbers/{phone_number_id}/send", {
+      costUsdc: 0.05, p50: 800, p99: 3000,
+      description: "Send an SMS from an owned phone number.",
+    }),
+    p("agentos.read_sms", "read_sms", "/phone/numbers/{phone_number_id}/messages", {
+      method: "GET", costUsdc: 0.02, p50: 400, p99: 1500,
+    }),
+
+    // ── Voice ──
+    p("agentos.start_voice_call", "start_voice_call", "/phone/numbers/{phone_number_id}/call", {
+      costUsdc: 0.10, p50: 2000, p99: 10000,
+    }),
+    p("agentos.list_calls", "list_calls", "/phone/numbers/{phone_number_id}/calls", {
+      method: "GET", costUsdc: 0.02, p50: 400,
+    }),
+    p("agentos.get_call_details", "get_call_details", "/phone/calls/{call_control_id}", {
+      method: "GET", costUsdc: 0.02, p50: 400,
+    }),
+    p("agentos.voice_speak", "voice_speak", "/phone/calls/{call_control_id}/speak", {
+      costUsdc: 0.08, p50: 500,
+    }),
+    p("agentos.voice_play", "voice_play", "/phone/calls/{call_control_id}/play", {
+      costUsdc: 0.08, p50: 500,
+    }),
+    p("agentos.voice_dtmf", "voice_dtmf", "/phone/calls/{call_control_id}/dtmf", {
+      costUsdc: 0.02, p50: 300,
+    }),
+    p("agentos.voice_gather", "voice_gather", "/phone/calls/{call_control_id}/gather", {
+      costUsdc: 0.08, p50: 5000,
+    }),
+    p("agentos.voice_record_start", "voice_record_start", "/phone/calls/{call_control_id}/record", {
+      costUsdc: 0.10, p50: 400,
+    }),
+    p("agentos.voice_record_stop", "voice_record_stop", "/phone/calls/{call_control_id}/record/stop", {
+      costUsdc: 0.02, p50: 400,
+    }),
+    p("agentos.voice_hangup", "voice_hangup", "/phone/calls/{call_control_id}/hangup", {
+      costUsdc: 0.02, p50: 300,
+    }),
+    p("agentos.voice_answer", "voice_answer", "/phone/calls/{call_control_id}/answer", {
+      costUsdc: 0.02, p50: 300,
+    }),
+    p("agentos.voice_transfer", "voice_transfer", "/phone/calls/{call_control_id}/transfer", {
+      costUsdc: 0.10, p50: 1500,
+    }),
+
+    // ── Email ──
+    p("agentos.provision_email_inbox", "provision_email_inbox", "/email/inboxes", {
+      costUsdc: 2.0, p50: 1500, p99: 4000,
+      description: "E2E-encrypted inbox at {name}@agntos.dev, keyed to the caller's Solana pubkey.",
+    }),
+    p("agentos.send_email", "send_email", "/email/inboxes/{inbox_id}/send", {
+      costUsdc: 0.08, p50: 900, p99: 3000,
+    }),
+    p("agentos.read_email", "read_email", "/email/inboxes/{inbox_id}/messages", {
+      method: "GET", costUsdc: 0.02, p50: 400,
+    }),
+    p("agentos.list_email_threads", "list_email_threads", "/email/inboxes/{inbox_id}/threads", {
+      method: "GET", costUsdc: 0.02, p50: 400,
+    }),
+    p("agentos.read_email_thread", "read_email_thread", "/email/threads/{thread_id}/messages", {
+      method: "GET", costUsdc: 0.02, p50: 400,
+    }),
+
+    // ── Domain ──
+    p("agentos.register_domain", "register_domain", "/domains/register", {
+      costUsdc: 10.0, p50: 20000, p99: 90000,
+      description: "Register a domain via Namecheap (dynamic per-TLD pricing; $10 is a typical .io/.co).",
+    }),
+    p("agentos.list_domains", "list_domains", "/domains", {
+      method: "GET", costUsdc: 0.0001, p50: 300,
+      description: "List domains owned by the calling wallet (wallet-keyed).",
+    }),
+    p("agentos.get_domain", "get_domain", "/domains/{domain}", {
+      method: "GET", costUsdc: 0.0001, p50: 300,
+    }),
+    p("agentos.dns_read", "dns_manage", "/domains/{domain}/dns", {
+      method: "GET", costUsdc: 0.0001, p50: 500,
+      name: "AgentOS DNS read",
+    }),
+    p("agentos.dns_write", "dns_manage", "/domains/{domain}/dns", {
+      method: "POST", costUsdc: 0.0001, p50: 1500,
+      name: "AgentOS DNS write",
+    }),
+    p("agentos.transfer_domain_ownership", "transfer_domain_ownership", "/domains/{domain}/transfer-ownership", {
+      costUsdc: 0.0001, p50: 500,
+      description: "Transfer a domain's ownership to a new wallet (Solana or EVM).",
+    }),
+    p("agentos.transfer_domain_out", "transfer_domain_out", "/domains/{domain}/transfer", {
+      costUsdc: 0.0001, p50: 2000,
+    }),
+
+    // ── Compute / VPS ──
+    p("agentos.create_ssh_key", "create_ssh_key", "/compute/ssh-keys", {
+      costUsdc: 0.10, p50: 500,
+    }),
+    p("agentos.list_ssh_keys", "list_ssh_keys", "/compute/ssh-keys", {
+      method: "GET", costUsdc: 0.01, p50: 300,
+    }),
+    p("agentos.delete_ssh_key", "delete_ssh_key", "/compute/ssh-keys/{ssh_key_id}", {
+      method: "DELETE", costUsdc: 0.01, p50: 400,
+    }),
+    p("agentos.deploy_vps", "deploy_vps", "/compute/servers", {
+      costUsdc: 6.0, p50: 60000, p99: 180000,
+      description: "Hetzner VPS with cloud-init hardening + Node.js 22 + OpenClaw pre-installed.",
+    }),
+    p("agentos.list_vps", "list_vps", "/compute/servers", {
+      method: "GET", costUsdc: 0.01, p50: 400,
+    }),
+    p("agentos.get_vps", "get_vps", "/compute/servers/{server_id}", {
+      method: "GET", costUsdc: 0.01, p50: 400,
+    }),
+    p("agentos.vps_action", "vps_action", "/compute/servers/{server_id}/actions", {
+      costUsdc: 0.10, p50: 3000, p99: 15000,
+      description: "Lifecycle action: reboot / poweron / poweroff / rebuild / reset.",
+    }),
+    p("agentos.vps_resize", "vps_resize", "/compute/servers/{server_id}/resize", {
+      costUsdc: 0.10, p50: 10000, p99: 40000,
+    }),
+    p("agentos.vps_delete", "vps_delete", "/compute/servers/{server_id}", {
+      method: "DELETE", costUsdc: 0.10, p50: 5000,
+    }),
+    p("agentos.install_skill", "install_skill", "/compute/servers/{server_id}/install-skill", {
+      costUsdc: 0.01, p50: 3000,
+    }),
+    p("agentos.install_skills_bulk", "install_skills_bulk", "/compute/servers/{server_id}/install-skills-bulk", {
+      costUsdc: 0.01, p50: 15000, p99: 60000,
+    }),
+    p("agentos.remove_skill", "remove_skill", "/compute/servers/{server_id}/remove-skill", {
+      costUsdc: 0.01, p50: 2000,
+    }),
+    p("agentos.configure_openclaw", "configure_openclaw", "/compute/servers/{server_id}/configure-openclaw", {
+      costUsdc: 0.01, p50: 3000,
+    }),
+    p("agentos.configure_vps_wallet", "configure_vps_wallet", "/compute/servers/{server_id}/configure-wallet", {
+      costUsdc: 0.01, p50: 2000,
+    }),
+
+    // ── Social: Twitter / X ──
+    p("agentos.twitter_login", "twitter_login", "/social/twitter/login", {
+      costUsdc: 0.005, p50: 15000, p99: 60000, reputation: 0.75,
+    }),
+    p("agentos.twitter_post", "twitter_post", "/social/twitter/post", {
+      costUsdc: 0.001, p50: 5000, p99: 30000, reputation: 0.8,
+    }),
+    p("agentos.twitter_reply", "twitter_reply", "/social/twitter/reply", {
+      costUsdc: 0.001, p50: 5000, p99: 30000, reputation: 0.8,
+    }),
+    p("agentos.twitter_like", "twitter_like", "/social/twitter/like", {
+      costUsdc: 0.001, p50: 3000, reputation: 0.85,
+    }),
+    p("agentos.twitter_retweet", "twitter_retweet", "/social/twitter/retweet", {
+      costUsdc: 0.001, p50: 3000, reputation: 0.85,
+    }),
+    p("agentos.twitter_follow", "twitter_follow", "/social/twitter/follow", {
+      costUsdc: 0.001, p50: 3000, reputation: 0.85,
+    }),
+    p("agentos.twitter_unfollow", "twitter_unfollow", "/social/twitter/unfollow", {
+      costUsdc: 0.001, p50: 3000, reputation: 0.85,
+    }),
+    p("agentos.twitter_delete_post", "twitter_delete_post", "/social/twitter/delete", {
+      costUsdc: 0.001, p50: 3000, reputation: 0.85,
+    }),
+    p("agentos.twitter_update_profile", "twitter_update_profile", "/social/twitter/profile", {
+      costUsdc: 0.001, p50: 4000, reputation: 0.8,
+    }),
+    p("agentos.twitter_update_avatar", "twitter_update_avatar", "/social/twitter/avatar", {
+      costUsdc: 0.005, p50: 5000, reputation: 0.8,
+    }),
+    p("agentos.twitter_update_banner", "twitter_update_banner", "/social/twitter/banner", {
+      costUsdc: 0.005, p50: 5000, reputation: 0.8,
+    }),
+    p("agentos.twitter_change_username", "twitter_change_username", "/social/twitter/username", {
+      costUsdc: 0.005, p50: 5000, reputation: 0.75,
+    }),
+    p("agentos.twitter_buy_account", "twitter_buy_account", "/social/twitter/buy", {
+      costUsdc: 5.0, p50: 3000, p99: 10000, reputation: 0.85,
+      description: "Buy a pre-warmed Twitter/X account from the AgentOS pool.",
+    }),
+
+    // ── Social: TikTok ──
+    p("agentos.tiktok_login", "tiktok_login", "/social/tiktok/login", {
+      costUsdc: 0.02, p50: 30000, p99: 120000, reputation: 0.65,
+      description: "TikTok session — subject to captcha / DOM churn; may fail transiently.",
+    }),
+    p("agentos.tiktok_post", "tiktok_post", "/social/tiktok/post", {
+      costUsdc: 0.01, p50: 30000, p99: 120000, reputation: 0.7,
+    }),
+    p("agentos.tiktok_follow", "tiktok_follow", "/social/tiktok/follow", {
+      costUsdc: 0.001, p50: 5000, reputation: 0.75,
+    }),
+    p("agentos.tiktok_like", "tiktok_like", "/social/tiktok/like", {
+      costUsdc: 0.001, p50: 5000, reputation: 0.75,
+    }),
+    p("agentos.tiktok_delete_post", "tiktok_delete_post", "/social/tiktok/delete", {
+      costUsdc: 0.001, p50: 5000, reputation: 0.75,
+    }),
+    p("agentos.tiktok_update_profile", "tiktok_update_profile", "/social/tiktok/profile", {
+      costUsdc: 0.001, p50: 5000, reputation: 0.7,
+    }),
+    p("agentos.tiktok_update_avatar", "tiktok_update_avatar", "/social/tiktok/avatar", {
+      costUsdc: 0.005, p50: 8000, reputation: 0.7,
+    }),
+
+    // ── API keys ──
+    p("agentos.issue_api_key", "issue_api_key", "/apikeys", {
+      costUsdc: 1.0, p50: 400,
+    }),
+
+    // ── Legacy platform-dispatch providers kept for the existing social_post/social_account_provision capability classes ──
     {
-      id: "agentos.provision_phone",
+      id: "agentos.x_post",
       source: "agentos",
-      capability: "provision_phone",
-      name: "AgentOS phone provisioning (Telnyx)",
-      description: "Provision a real phone number in any of 150+ countries.",
-      endpoint: `${base}/phone/numbers`,
+      capability: "social_post",
+      name: "AgentOS X post (platform-dispatch wrapper)",
+      description: "Dispatches to /social/twitter/post under the hood.",
+      endpoint: `${base}/social/twitter/post`,
+      method: "POST",
       authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.provision_phone.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.provision_phone.outputSchema,
-      costPerCallUsdc: 2.00,
-      p50LatencyMs: 4000,
-      p99LatencyMs: 15000,
-      reputationScore: 0.9,
+      inputSchema: CAPABILITY_CLASSES.social_post.inputSchema,
+      outputSchema: CAPABILITY_CLASSES.social_post.outputSchema,
+      costPerCallUsdc: 0.001,
+      p50LatencyMs: 5000,
+      p99LatencyMs: 30000,
+      reputationScore: 0.8,
+      metadata: { platform: "x" },
     },
     {
-      id: "agentos.send_sms",
+      id: "agentos.tiktok_post_legacy",
       source: "agentos",
-      capability: "send_sms",
-      name: "AgentOS SMS (Telnyx)",
-      endpoint: `${base}/phone/sms`,
+      capability: "social_post",
+      name: "AgentOS TikTok post (platform-dispatch wrapper)",
+      description: "Dispatches to /social/tiktok/post under the hood.",
+      endpoint: `${base}/social/tiktok/post`,
+      method: "POST",
       authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.send_sms.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.send_sms.outputSchema,
-      costPerCallUsdc: 0.05,
-      p50LatencyMs: 800,
-      p99LatencyMs: 3000,
-      reputationScore: 0.9,
-    },
-    {
-      id: "agentos.voice_call",
-      source: "agentos",
-      capability: "voice_call",
-      name: "AgentOS voice calls (Telnyx)",
-      endpoint: `${base}/voice/calls`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.voice_call.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.voice_call.outputSchema,
-      costPerCallUsdc: 0.10,
-      p50LatencyMs: 2000,
-      p99LatencyMs: 10000,
-      reputationScore: 0.85,
-    },
-    {
-      id: "agentos.provision_email_inbox",
-      source: "agentos",
-      capability: "provision_email_inbox",
-      name: "AgentOS email inbox",
-      description: "Create a wallet-owned inbox at agntos.dev with E2E encryption.",
-      endpoint: `${base}/email/inboxes`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.provision_email_inbox.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.provision_email_inbox.outputSchema,
-      costPerCallUsdc: 1.00,
-      p50LatencyMs: 1500,
-      p99LatencyMs: 4000,
-      reputationScore: 0.9,
-    },
-    {
-      id: "agentos.send_email",
-      source: "agentos",
-      capability: "send_email",
-      name: "AgentOS email send",
-      endpoint: `${base}/email/send`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.send_email.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.send_email.outputSchema,
-      costPerCallUsdc: 0.08,
-      p50LatencyMs: 900,
-      p99LatencyMs: 3000,
-      reputationScore: 0.9,
-    },
-    {
-      id: "agentos.read_email",
-      source: "agentos",
-      capability: "read_email",
-      name: "AgentOS email read",
-      endpoint: `${base}/email/messages`,
-      method: "GET",
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.read_email.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.read_email.outputSchema,
-      costPerCallUsdc: 0.02,
-      p50LatencyMs: 400,
-      p99LatencyMs: 1500,
-      reputationScore: 0.9,
-    },
-    {
-      id: "agentos.deploy_vps",
-      source: "agentos",
-      capability: "deploy_vps",
-      name: "AgentOS VPS provisioning (Hetzner)",
-      description: "Cloud-init hardened VPS with Node.js 22 and OpenClaw pre-installed.",
-      endpoint: `${base}/compute/servers`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.deploy_vps.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.deploy_vps.outputSchema,
-      costPerCallUsdc: 6.00,
-      p50LatencyMs: 60000,
-      p99LatencyMs: 180000,
-      reputationScore: 0.92,
-    },
-    {
-      id: "agentos.register_domain",
-      source: "agentos",
-      capability: "register_domain",
-      name: "AgentOS domain registration (Namecheap + Cloudflare)",
-      description: "Register a domain with dynamic pricing and Cloudflare DNS.",
-      endpoint: `${base}/domain/register`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.register_domain.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.register_domain.outputSchema,
-      costPerCallUsdc: 9.99,
-      p50LatencyMs: 20000,
-      p99LatencyMs: 90000,
-      reputationScore: 0.9,
-    },
-    {
-      id: "agentos.dns_manage",
-      source: "agentos",
-      capability: "dns_manage",
-      name: "AgentOS DNS management (Cloudflare)",
-      endpoint: `${base}/domain/dns`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.dns_manage.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.dns_manage.outputSchema,
-      costPerCallUsdc: 0.00,
-      p50LatencyMs: 1500,
-      p99LatencyMs: 5000,
-      reputationScore: 0.9,
+      inputSchema: CAPABILITY_CLASSES.social_post.inputSchema,
+      outputSchema: CAPABILITY_CLASSES.social_post.outputSchema,
+      costPerCallUsdc: 0.01,
+      p50LatencyMs: 30000,
+      p99LatencyMs: 120000,
+      reputationScore: 0.7,
+      metadata: { platform: "tiktok" },
     },
     {
       id: "agentos.x_account",
       source: "agentos",
       capability: "social_account_provision",
       name: "AgentOS X account provisioning",
-      description: "Transfer a warmed X account from the pool to the agent's wallet.",
-      endpoint: `${base}/social/accounts`,
+      description: "Buy a warmed X account from the pool. Maps to /social/twitter/buy.",
+      endpoint: `${base}/social/twitter/buy`,
+      method: "POST",
       authScheme: "x402-solana",
       inputSchema: CAPABILITY_CLASSES.social_account_provision.inputSchema,
       outputSchema: CAPABILITY_CLASSES.social_account_provision.outputSchema,
-      costPerCallUsdc: 15.00,
-      p50LatencyMs: 4000,
-      p99LatencyMs: 20000,
-      reputationScore: 0.8,
-      metadata: { platform: "x" },
-    },
-    {
-      id: "agentos.tiktok_account",
-      source: "agentos",
-      capability: "social_account_provision",
-      name: "AgentOS TikTok account provisioning",
-      description: "Transfer a warmed TikTok account from the pool to the agent's wallet.",
-      endpoint: `${base}/social/accounts`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.social_account_provision.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.social_account_provision.outputSchema,
-      costPerCallUsdc: 18.00,
-      p50LatencyMs: 5000,
-      p99LatencyMs: 30000,
-      reputationScore: 0.75,
-      metadata: { platform: "tiktok" },
-    },
-    {
-      id: "agentos.x_post",
-      source: "agentos",
-      capability: "social_post",
-      name: "AgentOS X post",
-      endpoint: `${base}/social/post`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.social_post.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.social_post.outputSchema,
-      costPerCallUsdc: 0.50,
+      costPerCallUsdc: 5.0,
       p50LatencyMs: 3000,
-      p99LatencyMs: 15000,
-      reputationScore: 0.8,
+      p99LatencyMs: 10000,
+      reputationScore: 0.85,
       metadata: { platform: "x" },
-    },
-    {
-      id: "agentos.tiktok_post",
-      source: "agentos",
-      capability: "social_post",
-      name: "AgentOS TikTok post",
-      endpoint: `${base}/social/post`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.social_post.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.social_post.outputSchema,
-      costPerCallUsdc: 0.50,
-      p50LatencyMs: 4000,
-      p99LatencyMs: 25000,
-      reputationScore: 0.75,
-      metadata: { platform: "tiktok" },
-    },
-    {
-      id: "agentos.code_exec",
-      source: "agentos",
-      capability: "code_exec",
-      name: "AgentOS code execution on owned VPS",
-      endpoint: `${base}/compute/exec`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.code_exec.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.code_exec.outputSchema,
-      costPerCallUsdc: 0.05,
-      p50LatencyMs: 2000,
-      p99LatencyMs: 30000,
-      reputationScore: 0.85,
-    },
-    {
-      id: "agentos.file_store",
-      source: "agentos",
-      capability: "file_store",
-      name: "AgentOS file storage",
-      endpoint: `${base}/storage/files`,
-      authScheme: "x402-solana",
-      inputSchema: CAPABILITY_CLASSES.file_store.inputSchema,
-      outputSchema: CAPABILITY_CLASSES.file_store.outputSchema,
-      costPerCallUsdc: 0.02,
-      p50LatencyMs: 800,
-      p99LatencyMs: 3000,
-      reputationScore: 0.85,
     },
   ];
 

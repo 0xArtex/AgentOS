@@ -69,6 +69,28 @@ function resolveStepInput(input: any, priorOutputs: Record<string, any>): any {
   return input
 }
 
+/**
+ * Substitute {field_name} placeholders in an endpoint URL from the step's input.
+ * Fields consumed into the path are REMOVED from the returned body so they
+ * don't get sent twice. If a placeholder has no matching input, throws — the
+ * executor surfaces that as a step_error.
+ */
+function substitutePathParams(
+  endpoint: string,
+  input: Record<string, any>,
+): { url: string; body: Record<string, any> } {
+  const body: Record<string, any> = { ...input }
+  const url = endpoint.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_match, field) => {
+    if (!(field in body)) {
+      throw new Error(`endpoint ${endpoint} requires path param '${field}' but step input has no such field`)
+    }
+    const value = body[field]
+    delete body[field]
+    return encodeURIComponent(String(value))
+  })
+  return { url, body }
+}
+
 export class AgentOS {
   public api: string
   public token?: string
@@ -559,11 +581,16 @@ export class AgentOS {
 
       const startMs = Date.now()
       try {
-        const url = new URL(step.x402?.endpoint ?? '')
+        // Substitute {placeholder} path params from input → concrete URL + pruned body
+        const { url: concreteUrl, body: postBody } = substitutePathParams(
+          step.x402?.endpoint ?? '',
+          resolvedInput as Record<string, any>,
+        )
+        const url = new URL(concreteUrl)
         const path = url.pathname + url.search
         const api = `${url.protocol}//${url.host}`
         const method = (step.x402?.method ?? 'POST').toUpperCase()
-        const result = await paidRequest(api, method, path, resolvedInput, this.passphrase)
+        const result = await paidRequest(api, method, path, postBody, this.passphrase)
         const latencyMs = Date.now() - startMs
         const output = result.data
         priorOutputs[step.step_id] = output
