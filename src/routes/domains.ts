@@ -445,11 +445,15 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
   // Step 1: INSERT a 'pending' row BEFORE we call the registrar. If the INSERT
   // fails (schema drift, constraint bug), we'll know before spending money at
   // Namecheap — the user is owed only the x402 payment, not the registrar fee.
+  // We build the column list dynamically to accommodate older prod schemas
+  // that still have extra NOT NULL columns (tld, registrar, registered_at).
   const domainsCols = db.prepare("PRAGMA table_info(domains)").all() as Array<{ name: string }>;
   const have = new Set(domainsCols.map(c => c.name));
   const cols: string[] = ['id', 'domain', 'owner', 'status', 'expires_at', 'created_at', 'dns_records'];
   const vals: any[] = [domainId, domain, owner, 'pending', expiresAt, now, '[]'];
-  if (have.has('tld')) { cols.splice(2, 0, 'tld'); vals.splice(2, 0, tld); }
+  if (have.has('tld')) { cols.push('tld'); vals.push(tld); }
+  if (have.has('registrar')) { cols.push('registrar'); vals.push('namecheap'); }
+  if (have.has('registered_at')) { cols.push('registered_at'); vals.push(now); }
   if (have.has('payment_signature')) { cols.push('payment_signature'); vals.push(paymentSignature); }
   const placeholders = vals.map(() => '?').join(', ');
 
