@@ -596,6 +596,7 @@ async function main() {
               { name: 'check', description: 'Check availability', hint: '--name example.dev' },
               { name: 'pricing', description: 'Get TLD pricing', hint: '--name example' },
               { name: 'buy', description: 'Register a domain', hint: '--name example.dev' },
+              { name: 'list', description: 'List domains owned by your wallet', hint: '' },
               { name: 'dns', description: 'Get DNS records', hint: '--name example.dev' },
               { name: 'transfer-ownership', description: 'Transfer domain to another wallet', hint: '--name example.dev --to <wallet>' },
             ],
@@ -686,6 +687,25 @@ async function main() {
             log(`domain buy: ${data.domain || name}`)
             break
           }
+          case 'list': {
+            const data = await ao.domainList()
+            if (!process.stdout.isTTY) return print(data)
+            const domains = data?.domains || []
+            console.log(`\n  ${t.accent}your domains${t.reset} — ${t.muted}${data.owner}${t.reset}\n`)
+            if (domains.length === 0) {
+              console.log(`  ${t.muted}No domains yet. Try: agentos domain buy --name example.xyz${t.reset}\n`)
+              return
+            }
+            const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length))
+            const dLen = Math.max(...domains.map((r: any) => r.domain.length), 6)
+            for (const r of domains) {
+              const exp = (r.expires_at || '').slice(0, 10)
+              const statusColor = r.status === 'active' ? t.success : r.status === 'pending' ? t.warn : t.error
+              console.log(`  ${pad(r.domain, dLen + 2)} ${statusColor}${pad(r.status, 8)}${t.reset} ${t.muted}expires ${exp}${t.reset}`)
+            }
+            console.log(`\n  ${t.muted}${domains.length} domain(s)${t.reset}\n`)
+            return
+          }
           case 'transfer-ownership': {
             const name = flags.name as string || positional[0]
             const to = flags.to as string || positional[1]
@@ -711,7 +731,7 @@ async function main() {
             }))
             break
           }
-          default: err(`Unknown domain command: ${subcommand}. Try: check, pricing, buy, dns, transfer-ownership`)
+          default: err(`Unknown domain command: ${subcommand}. Try: check, pricing, buy, list, dns, transfer-ownership`)
         }
         break
       }

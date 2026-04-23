@@ -603,6 +603,28 @@ const ownerFromRequest = (req: AuthenticatedRequest): string | undefined =>
   req.payment?.payer || req.agentId;
 
 /**
+ * GET /domains
+ * List all domains owned by the calling wallet. Requires x402 ownership
+ * proof — the payer's signature implicitly identifies which wallet to
+ * filter by, so wallets can't enumerate each other's portfolios for free.
+ */
+router.get('/', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const owner = ownerFromRequest(req);
+    if (!owner) {
+      return res.status(400).json({ error: 'No wallet identity on request' });
+    }
+    const rows = db.prepare(
+      'SELECT domain, status, registrar_id, expires_at, created_at FROM domains WHERE owner = ? ORDER BY created_at DESC'
+    ).all(owner) as Array<{ domain: string; status: string; registrar_id: string | null; expires_at: string; created_at: string }>;
+    res.json({ owner, count: rows.length, domains: rows });
+  } catch (error: any) {
+    console.error('[domains] List error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /domains/:domain
  * Get domain information. Requires x402 ownership proof.
  */

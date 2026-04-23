@@ -116,6 +116,10 @@ export class AgentOS {
     return this.request('GET', `/domains/check?domain=${domain}`)
   }
 
+  async domainList(): Promise<any> {
+    return this.request('GET', '/domains')
+  }
+
   async domainPricing(domain: string): Promise<any> {
     return this.request('GET', `/domains/pricing?domain=${domain}`)
   }
