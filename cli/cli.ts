@@ -613,6 +613,21 @@ async function main() {
             const name = flags.name as string || positional[0]
             if (!name) err('--name domain.com required')
             const data = await ao.domainCheck(name)
+            // Multi-TLD response: render a table when interactive, JSON otherwise.
+            if (Array.isArray(data?.results)) {
+              if (!process.stdout.isTTY) return print(data)
+              console.log(`\n  ${t.accent}domain check${t.reset} — ${t.info}${data.query}${t.reset}\n`)
+              const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length))
+              const dLen = Math.max(...data.results.map((r: any) => r.domain.length), 6)
+              for (const r of data.results) {
+                const mark = r.available ? `${t.success}✓${t.reset}` : `${t.error}✗${t.reset}`
+                const status = r.available ? `${t.success}available${t.reset}` : `${t.muted}taken${t.reset}    `
+                const price = r.available ? `${t.warn}$${r.price}${t.reset}` : `${t.muted}—${t.reset}`
+                console.log(`  ${mark}  ${pad(r.domain, dLen + 2)} ${status}   ${price}`)
+              }
+              console.log('')
+              return
+            }
             return print(data)
             render(React.createElement(DomainCheckScreen, {
               version: VERSION,

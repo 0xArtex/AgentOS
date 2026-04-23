@@ -87,13 +87,31 @@ async function namecheapRequest(command: string, params: Record<string, string> 
       throw new Error(errorMatch ? errorMatch[2] : 'Namecheap API error');
     }
 
-    // Parse domain check response
+    // Parse domain check response — batch calls return one DomainCheckResult
+    // per domain. We expose both shapes: `results[]` for callers that pass a
+    // list, and top-level fields for the single-domain caller.
     if (command === 'namecheap.domains.check') {
-      const domainMatch = xmlText.match(/<DomainCheckResult Domain="([^"]*)" Available="([^"]*)".*?\/>/);
-      if (domainMatch) {
-        result.domain = domainMatch[1];
-        result.available = domainMatch[2].toLowerCase() === 'true';
-        result.isPremiumName = xmlText.includes('IsPremiumName="true"');
+      const rows: Array<{ domain: string; available: boolean; premium: boolean }> = [];
+      const rx = /<DomainCheckResult\s+([^>]*?)\/?>/g;
+      let m: RegExpExecArray | null;
+      while ((m = rx.exec(xmlText)) !== null) {
+        const attrs = m[1];
+        const d = attrs.match(/Domain="([^"]*)"/);
+        const a = attrs.match(/Available="([^"]*)"/);
+        const p = attrs.match(/IsPremiumName="([^"]*)"/);
+        if (d && a) {
+          rows.push({
+            domain: d[1],
+            available: a[1].toLowerCase() === 'true',
+            premium: (p?.[1] || '').toLowerCase() === 'true'
+          });
+        }
+      }
+      result.results = rows;
+      if (rows[0]) {
+        result.domain = rows[0].domain;
+        result.available = rows[0].available;
+        result.isPremiumName = rows[0].premium;
       }
     }
 
@@ -209,14 +227,43 @@ async function getTldPrice(tld: string): Promise<number> {
 
 /**
  * GET /domains/check?domain=example.com
- * Check domain availability and pricing
+ * Check domain availability and pricing. If `domain` has no TLD, expands
+ * across popular TLDs in a single batch call and returns a list.
  */
+const POPULAR_TLDS = ['xyz', 'com', 'dev', 'io', 'ai', 'app', 'net', 'org'];
 router.get('/check', async (req: Request, res: Response) => {
   try {
     const { domain } = req.query;
 
     if (!domain || typeof domain !== 'string') {
       return res.status(400).json({ error: 'domain parameter is required' });
+    }
+
+    // Bare-name path: expand across popular TLDs and batch-check via Namecheap.
+    if (!domain.includes('.')) {
+      if (!/^[a-zA-Z0-9-]{1,63}$/.test(domain)) {
+        return res.status(400).json({ error: 'Invalid name — use alphanumerics and hyphens only' });
+      }
+      const candidates = POPULAR_TLDS.map(t => `${domain}.${t}`);
+      try {
+        const [checkResult, ...priceResults] = await Promise.all([
+          namecheapRequest('namecheap.domains.check', { DomainList: candidates.join(',') }),
+          ...POPULAR_TLDS.map(t => getTldPrice(t))
+        ]);
+        const priceByTld: Record<string, number> = {};
+        POPULAR_TLDS.forEach((t, i) => {
+          priceByTld[t] = Math.round((priceResults[i] as number) * 1.25 * 100) / 100;
+        });
+        const rows = (checkResult.results || []) as Array<{ domain: string; available: boolean; premium: boolean }>;
+        const results = rows.map(r => {
+          const tld = r.domain.split('.').slice(1).join('.');
+          return { domain: r.domain, available: r.available, premium: r.premium, price: priceByTld[tld] };
+        });
+        return res.json({ query: domain, results });
+      } catch (apiError) {
+        console.warn('[domains] Batch check failed:', apiError);
+        return res.status(503).json({ error: 'Registrar unreachable — try again shortly' });
+      }
     }
 
     const domainParts = domain.split('.');
