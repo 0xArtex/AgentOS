@@ -410,28 +410,66 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
  * Register a new domain
  */
 router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest, res: Response) => {
+  const { domain } = req.body || {};
+
+  if (!domain || typeof domain !== 'string') {
+    return res.status(400).json({ error: 'domain is required' });
+  }
+
+  // Payment has already settled by the time we're here. Capture everything we
+  // need to trace or refund this specific x402 transfer, independent of what
+  // happens with the registrar below.
+  const owner = req.payment?.payer || req.agentId;
+  const paymentSignature = req.payment?.signature || null;
+  const domainId = uuid();
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  const domainParts = domain.split('.');
+  const tld = domainParts.slice(1).join('.');
+  const basePrice = await getTldPrice(tld);
+  const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
+
+  // Race check: another paid caller may have registered this domain between
+  // preflight and settlement.
+  const existing = db.prepare('SELECT id FROM domains WHERE domain = ?').get(domain);
+  if (existing) {
+    console.error('[domains] [REFUND NEEDED] Domain claimed between preflight and settlement', {
+      domain, owner, signature: paymentSignature, chargedUsdc: finalPrice
+    });
+    return res.status(409).json({
+      error: 'Domain was registered by another caller after you paid. Your payment has been logged for refund.',
+      refund_signature: paymentSignature
+    });
+  }
+
+  // Step 1: INSERT a 'pending' row BEFORE we call the registrar. If the INSERT
+  // fails (schema drift, constraint bug), we'll know before spending money at
+  // Namecheap — the user is owed only the x402 payment, not the registrar fee.
+  const domainsCols = db.prepare("PRAGMA table_info(domains)").all() as Array<{ name: string }>;
+  const have = new Set(domainsCols.map(c => c.name));
+  const cols: string[] = ['id', 'domain', 'owner', 'status', 'expires_at', 'created_at', 'dns_records'];
+  const vals: any[] = [domainId, domain, owner, 'pending', expiresAt, now, '[]'];
+  if (have.has('tld')) { cols.splice(2, 0, 'tld'); vals.splice(2, 0, tld); }
+  if (have.has('payment_signature')) { cols.push('payment_signature'); vals.push(paymentSignature); }
+  const placeholders = vals.map(() => '?').join(', ');
+
   try {
-    const { domain } = req.body;
+    db.prepare(`INSERT INTO domains (${cols.join(', ')}) VALUES (${placeholders})`).run(...vals);
+  } catch (insertError: any) {
+    console.error('[domains] [REFUND NEEDED] Pre-registration INSERT failed', {
+      domain, owner, signature: paymentSignature, chargedUsdc: finalPrice, error: insertError.message
+    });
+    return res.status(500).json({
+      error: 'Could not reserve domain record. Nothing was registered; your payment has been logged for refund.',
+      refund_signature: paymentSignature
+    });
+  }
 
-    if (!domain || typeof domain !== 'string') {
-      return res.status(400).json({ error: 'domain is required' });
-    }
-
-    // Availability, duplicate-owner, and registrar balance are pre-verified in
-    // requireDomainPayment before payment settles. Re-check the DB once more
-    // in case of a race between preflight and settlement.
-    const existing = db.prepare('SELECT id FROM domains WHERE domain = ?').get(domain);
-    if (existing) {
-      return res.status(409).json({ error: 'Domain already registered in AgentOS' });
-    }
-
-    const domainParts = domain.split('.');
-    const tld = domainParts.slice(1).join('.');
-    const basePrice = await getTldPrice(tld);
-    const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
-
-    // Register domain via Namecheap
-    const registerResult = await namecheapRequest('namecheap.domains.create', {
+  // Step 2: call the registrar. Any failure from here on must UPDATE the
+  // pending row so the registrar charge (if any) is traceable.
+  let registerResult: NamecheapResponse;
+  try {
+    registerResult = await namecheapRequest('namecheap.domains.create', {
       DomainName: domain,
       Years: '1',
       // Use generic registrant info
@@ -485,73 +523,72 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       AuxBillingPhone: '+1.4155551234',
       AuxBillingEmailAddress: 'agent@agntos.dev'
     });
-
-    if (!registerResult.success) {
-      // Payment has already settled. Log everything needed to issue a manual
-      // refund so the payer doesn't eat the cost of a registrar-side failure.
-      // Prefer the on-chain payer from the x402 payment (always populated for
-      // paid requests) over req.agentId (only set when an agent token is used).
-      const rawSnippet = typeof registerResult.raw === 'string'
-        ? registerResult.raw.slice(0, 600)
-        : null;
-      console.error('[domains] [REFUND NEEDED] Namecheap registration failed post-payment', {
-        domain,
-        payer: req.payment?.payer || req.agentId || null,
-        paymentSignature: req.payment?.signature || null,
-        chargedUsdc: finalPrice,
-        namecheapOrderId: registerResult.orderId || null,
-        namecheapRegistered: registerResult.registered ?? null,
-        namecheapRaw: rawSnippet,
-      });
-      // Use 422 instead of 502 — Cloudflare replaces origin 502 responses with
-      // its own branded error page, hiding this JSON body from the client.
-      return res.status(422).json({
-        error: 'Registration failed at registrar — your payment has been logged for manual refund. Contact support with this domain name.',
-        domain,
-        registrar: {
-          registered: registerResult.registered ?? false,
-          orderId: registerResult.orderId || null,
-          rawSnippet,
-        },
-      });
-    }
-
-    // Store in database. Owner is always the wallet address that paid — the
-    // x402 payer is authoritative because they just spent USDC for this domain.
-    // Fall back to req.agentId (also a wallet after the auth cleanup) for
-    // non-paid code paths or legacy callers.
-    const owner = req.payment?.payer || req.agentId;
-    const domainId = uuid();
-    const now = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year from now
-
-    // `tld` is a legacy NOT NULL column on older prod DBs; fresh DBs don't
-    // have it. Populate only if the column exists, so both shapes work.
-    const domainsCols = db.prepare("PRAGMA table_info(domains)").all() as Array<{ name: string }>;
-    const hasLegacyTld = domainsCols.some(c => c.name === 'tld');
-    if (hasLegacyTld) {
-      db.prepare(`
-        INSERT INTO domains (id, domain, tld, owner, registrar_id, status, expires_at, created_at, dns_records)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(domainId, domain, tld, owner, registerResult.orderId, 'active', expiresAt, now, '[]');
-    } else {
-      db.prepare(`
-        INSERT INTO domains (id, domain, owner, registrar_id, status, expires_at, created_at, dns_records)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(domainId, domain, owner, registerResult.orderId, 'active', expiresAt, now, '[]');
-    }
-
-    res.status(201).json({
-      domain,
-      status: 'active',
-      expiresAt,
-      dnsManagement: true,
-      cost: finalPrice
+  } catch (regError: any) {
+    // Registrar call itself threw (network, timeout, parse error). Registrar
+    // either never received the request or we can't tell — mark failed and
+    // log loudly so ops can verify before refunding.
+    const reason = `registrar_call_threw: ${regError.message || regError}`;
+    const failureSet = have.has('failure_reason') ? ", failure_reason = ?" : '';
+    const failureArgs = have.has('failure_reason') ? [reason, domainId] : [domainId];
+    db.prepare(`UPDATE domains SET status = 'failed'${failureSet} WHERE id = ?`).run(...failureArgs);
+    console.error('[domains] [REFUND NEEDED] Registrar call threw', {
+      domain, owner, signature: paymentSignature, chargedUsdc: finalPrice, error: regError.message
     });
-  } catch (error: any) {
-    console.error('[domains] Register error:', error);
-    res.status(500).json({ error: error.message });
+    return res.status(502).json({
+      error: `Registrar error: ${regError.message || regError}. Your payment has been logged for refund.`,
+      refund_signature: paymentSignature
+    });
   }
+
+  // Step 3: check registration outcome.
+  const rawSnippet = typeof registerResult.raw === 'string' ? registerResult.raw.slice(0, 600) : null;
+  if (!registerResult.success) {
+    const reason = `registrar_rejected: registered=${registerResult.registered ?? 'null'} orderId=${registerResult.orderId || 'null'}`;
+    const failureSet = have.has('failure_reason') ? ", failure_reason = ?" : '';
+    const failureArgs = have.has('failure_reason') ? [reason, domainId] : [domainId];
+    db.prepare(`UPDATE domains SET status = 'failed'${failureSet} WHERE id = ?`).run(...failureArgs);
+    console.error('[domains] [REFUND NEEDED] Registrar declined post-payment', {
+      domain, owner, signature: paymentSignature, chargedUsdc: finalPrice,
+      namecheapOrderId: registerResult.orderId || null,
+      namecheapRegistered: registerResult.registered ?? null,
+      namecheapRaw: rawSnippet,
+    });
+    // 422 not 502 — Cloudflare overwrites origin 502 with its own page.
+    return res.status(422).json({
+      error: 'Registration failed at registrar — your payment has been logged for manual refund. Contact support with this domain name.',
+      domain,
+      refund_signature: paymentSignature,
+      registrar: {
+        registered: registerResult.registered ?? false,
+        orderId: registerResult.orderId || null,
+        rawSnippet,
+      },
+    });
+  }
+
+  // Step 4: registrar confirmed. Finalize the row. If this UPDATE fails we
+  // have an orphan (registered at registrar, no clean DB state) — return
+  // success to the payer anyway since they do own the domain, and log
+  // loudly for manual reconciliation.
+  try {
+    db.prepare(`UPDATE domains SET status = 'active', registrar_id = ? WHERE id = ?`)
+      .run(registerResult.orderId, domainId);
+  } catch (finalizeError: any) {
+    console.error('[domains] [ORPHAN] Finalize UPDATE failed — user owns domain at registrar', {
+      domain, owner, signature: paymentSignature,
+      registrarOrderId: registerResult.orderId,
+      error: finalizeError.message,
+    });
+    // Do not fail the response — user paid and got the domain. Reconcile async.
+  }
+
+  res.status(201).json({
+    domain,
+    status: 'active',
+    expiresAt,
+    dnsManagement: true,
+    cost: finalPrice
+  });
 });
 
 // Ownership proof via x402 micro-payment — the payer's signature on the USDC

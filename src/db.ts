@@ -105,7 +105,9 @@ export function initDatabase(): void {
       status TEXT NOT NULL CHECK(status IN ('pending', 'active', 'failed', 'expired')),
       expires_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      dns_records TEXT
+      dns_records TEXT,
+      payment_signature TEXT,
+      failure_reason TEXT
     );
 
     CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain);
@@ -122,9 +124,27 @@ export function initDatabase(): void {
     ['expires_at', 'TEXT'],
     ['created_at', 'TEXT'],
     ['dns_records', 'TEXT'],
+    // x402 settlement signature for every registration — enables refunds
+    // and reconciliation when registrar vs DB disagree.
+    ['payment_signature', 'TEXT'],
+    // Captures why a registration moved to 'failed' so ops can refund with context.
+    ['failure_reason', 'TEXT'],
   ];
   for (const [name, spec] of additions) {
     if (!have.has(name)) db.exec(`ALTER TABLE domains ADD COLUMN ${name} ${spec}`);
+  }
+
+  // Reconciliation log — any 'pending' row at startup means the server
+  // crashed mid-registration. Ops should verify with the registrar whether
+  // each row is actually registered and finalize or refund.
+  try {
+    const pending = db.prepare("SELECT id, domain, owner, created_at FROM domains WHERE status = 'pending'").all() as Array<{ id: string; domain: string; owner: string; created_at: string }>;
+    if (pending.length > 0) {
+      console.warn(`[db] [RECONCILE] ${pending.length} domain(s) left in 'pending' status — verify with registrar:`);
+      for (const row of pending) console.warn('[db] [RECONCILE]', row);
+    }
+  } catch {
+    // Pre-migration DB without status column — nothing to reconcile.
   }
 
   // DNS Records table
