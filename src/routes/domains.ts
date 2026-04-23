@@ -697,14 +697,20 @@ router.post('/:domain/dns', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async 
  * only the DB owner changes. Current owner proves control via x402 payment
  * signature — the payer pubkey must match the current owner row.
  */
-const BASE58_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+// Owners are wallet addresses on either chain x402 settles on:
+//   Solana: base58, 32–44 chars
+//   EVM (Base): 0x + 40 hex chars
+const SOL_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const EVM_ADDR = /^0x[a-fA-F0-9]{40}$/;
+const isWalletAddress = (s: string) => SOL_PUBKEY.test(s) || EVM_ADDR.test(s);
+
 router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
     const { new_owner } = req.body || {};
 
-    if (!new_owner || typeof new_owner !== 'string' || !BASE58_PUBKEY.test(new_owner)) {
-      return res.status(400).json({ error: 'new_owner must be a base58 Solana wallet address' });
+    if (!new_owner || typeof new_owner !== 'string' || !isWalletAddress(new_owner)) {
+      return res.status(400).json({ error: 'new_owner must be a Solana (base58) or EVM (0x…) wallet address' });
     }
 
     const owner = ownerFromRequest(req);
