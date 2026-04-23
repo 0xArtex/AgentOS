@@ -181,6 +181,10 @@ export class AgentOS {
     return this.request('GET', `/domains/check?domain=${domain}`)
   }
 
+  async domainList(): Promise<any> {
+    return this.request('GET', '/domains')
+  }
+
   async domainPricing(domain: string): Promise<any> {
     return this.request('GET', `/domains/pricing?domain=${domain}`)
   }
@@ -191,6 +195,10 @@ export class AgentOS {
 
   async domainDns(domain: string): Promise<any> {
     return this.request('GET', `/domains/${domain}/dns`)
+  }
+
+  async domainTransferOwnership(domain: string, newOwner: string): Promise<any> {
+    return this.request('POST', `/domains/${domain}/transfer-ownership`, { new_owner: newOwner })
   }
 
   // ── Wallet ──

@@ -25,7 +25,10 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
     if (apiKey && (apiKey.startsWith("aos_") || apiKey.startsWith("agt_"))) {
       const agent = db.prepare("SELECT * FROM agents WHERE token = ?").get(apiKey) as any;
       if (agent) {
-        req.agentId = agent.colosseum_id || agent.wallet_address || agent.id;
+        // Identity is the wallet address (your wallet = your identity).
+        // Fall back to the agent row id only if the row has no wallet for some
+        // legacy reason — new rows always have one.
+        req.agentId = agent.wallet_address || agent.id;
 
         // Free endpoints (minUsdc === 0) — identified agents pass through.
         // Paid endpoints ALWAYS require x402 payment, regardless of serviceType.
@@ -44,15 +47,17 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
       }
     }
 
-    // Method 2: X-Agent-Id header
+    // Method 2: X-Agent-Id header. Accept any identifier the caller has for the
+    // agent row (wallet, name, or id) but resolve the effective identity to the
+    // wallet address so downstream ownership checks are consistent.
     if (req.headers["x-agent-id"]) {
       const agentId = req.headers["x-agent-id"] as string;
       const agent = db.prepare(
-        "SELECT * FROM agents WHERE colosseum_id = ? OR name = ? OR id = ?"
+        "SELECT * FROM agents WHERE wallet_address = ? OR name = ? OR id = ?"
       ).get(agentId, agentId, agentId) as any;
 
       if (agent) {
-        req.agentId = agent.colosseum_id || agent.wallet_address || agent.id;
+        req.agentId = agent.wallet_address || agent.id;
 
         if (minUsdc === 0) {
           next();

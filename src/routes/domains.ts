@@ -87,13 +87,31 @@ async function namecheapRequest(command: string, params: Record<string, string> 
       throw new Error(errorMatch ? errorMatch[2] : 'Namecheap API error');
     }
 
-    // Parse domain check response
+    // Parse domain check response — batch calls return one DomainCheckResult
+    // per domain. We expose both shapes: `results[]` for callers that pass a
+    // list, and top-level fields for the single-domain caller.
     if (command === 'namecheap.domains.check') {
-      const domainMatch = xmlText.match(/<DomainCheckResult Domain="([^"]*)" Available="([^"]*)".*?\/>/);
-      if (domainMatch) {
-        result.domain = domainMatch[1];
-        result.available = domainMatch[2].toLowerCase() === 'true';
-        result.isPremiumName = xmlText.includes('IsPremiumName="true"');
+      const rows: Array<{ domain: string; available: boolean; premium: boolean }> = [];
+      const rx = /<DomainCheckResult\s+([^>]*?)\/?>/g;
+      let m: RegExpExecArray | null;
+      while ((m = rx.exec(xmlText)) !== null) {
+        const attrs = m[1];
+        const d = attrs.match(/Domain="([^"]*)"/);
+        const a = attrs.match(/Available="([^"]*)"/);
+        const p = attrs.match(/IsPremiumName="([^"]*)"/);
+        if (d && a) {
+          rows.push({
+            domain: d[1],
+            available: a[1].toLowerCase() === 'true',
+            premium: (p?.[1] || '').toLowerCase() === 'true'
+          });
+        }
+      }
+      result.results = rows;
+      if (rows[0]) {
+        result.domain = rows[0].domain;
+        result.available = rows[0].available;
+        result.isPremiumName = rows[0].premium;
       }
     }
 
@@ -106,13 +124,30 @@ async function namecheapRequest(command: string, params: Record<string, string> 
       }
     }
 
-    // Parse domain creation response
+    // Parse domain creation response. Match attributes in any order —
+    // Namecheap sometimes returns Registered="false" (registration rejected,
+    // no DomainID/OrderID) where the old strict regex silently set success=false.
     if (command === 'namecheap.domains.create') {
-      const orderIdMatch = xmlText.match(/<DomainCreateResult Domain="[^"]*" ChargedAmount="[^"]*" DomainID="[^"]*" OrderID="([^"]*)".*?\/>/);
-      if (orderIdMatch) {
-        result.orderId = orderIdMatch[1];
-        result.success = true;
+      const tagMatch = xmlText.match(/<DomainCreateResult\s+([^>]*?)\/?>/);
+      if (tagMatch) {
+        const attrs = tagMatch[1];
+        const attr = (name: string): string | null => {
+          const m = attrs.match(new RegExp(`${name}="([^"]*)"`));
+          return m ? m[1] : null;
+        };
+        const registered = (attr('Registered') || '').toLowerCase() === 'true';
+        const orderId = attr('OrderID');
+        result.registered = registered;
+        result.orderId = orderId || undefined;
+        result.chargedAmount = attr('ChargedAmount');
+        result.success = registered && !!orderId;
       }
+    }
+
+    // Parse account balance response (AvailableBalance is in USD)
+    if (command === 'namecheap.users.getBalances') {
+      const balMatch = xmlText.match(/AvailableBalance="([^"]+)"/);
+      if (balMatch) result.availableBalance = parseFloat(balMatch[1]);
     }
 
     // Parse DNS hosts response
@@ -192,14 +227,43 @@ async function getTldPrice(tld: string): Promise<number> {
 
 /**
  * GET /domains/check?domain=example.com
- * Check domain availability and pricing
+ * Check domain availability and pricing. If `domain` has no TLD, expands
+ * across popular TLDs in a single batch call and returns a list.
  */
+const POPULAR_TLDS = ['xyz', 'com', 'dev', 'io', 'ai', 'app', 'net', 'org'];
 router.get('/check', async (req: Request, res: Response) => {
   try {
     const { domain } = req.query;
 
     if (!domain || typeof domain !== 'string') {
       return res.status(400).json({ error: 'domain parameter is required' });
+    }
+
+    // Bare-name path: expand across popular TLDs and batch-check via Namecheap.
+    if (!domain.includes('.')) {
+      if (!/^[a-zA-Z0-9-]{1,63}$/.test(domain)) {
+        return res.status(400).json({ error: 'Invalid name — use alphanumerics and hyphens only' });
+      }
+      const candidates = POPULAR_TLDS.map(t => `${domain}.${t}`);
+      try {
+        const [checkResult, ...priceResults] = await Promise.all([
+          namecheapRequest('namecheap.domains.check', { DomainList: candidates.join(',') }),
+          ...POPULAR_TLDS.map(t => getTldPrice(t))
+        ]);
+        const priceByTld: Record<string, number> = {};
+        POPULAR_TLDS.forEach((t, i) => {
+          priceByTld[t] = Math.round((priceResults[i] as number) * 1.25 * 100) / 100;
+        });
+        const rows = (checkResult.results || []) as Array<{ domain: string; available: boolean; premium: boolean }>;
+        const results = rows.map(r => {
+          const tld = r.domain.split('.').slice(1).join('.');
+          return { domain: r.domain, available: r.available, premium: r.premium, price: priceByTld[tld] };
+        });
+        return res.json({ query: domain, results });
+      } catch (apiError) {
+        console.warn('[domains] Batch check failed:', apiError);
+        return res.status(503).json({ error: 'Registrar unreachable — try again shortly' });
+      }
     }
 
     const domainParts = domain.split('.');
@@ -279,12 +343,13 @@ router.get('/pricing', async (_req: Request, res: Response) => {
 });
 
 /**
- * Per-domain dynamic pricing gate for /register. The static
- * requireAuth(20, …) that used to guard this route quoted every buyer 20 USDC
- * regardless of TLD — so a $2.75 .xyz triggered a $20 payment. This wrapper
- * reads req.body.domain, prices it the same way /check does (getTldPrice * 1.25,
- * shared 1h cache so 402 and handler agree), then defers to requireAuth with
- * that amount.
+ * Per-domain dynamic pricing gate + preflight for /register. Runs before
+ * requireAuth so a doomed registration never consumes the payer's USDC:
+ *   - Correct per-TLD price for the 402 response
+ *   - Domain still available at Namecheap (races with another registrant)
+ *   - Already in our DB (paid by someone else already)
+ *   - Namecheap account has enough balance to actually register
+ * Only after those checks pass do we defer to requireAuth for the x402 cycle.
  */
 async function requireDomainPayment(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const domain = typeof req.body?.domain === 'string' ? req.body.domain : null;
@@ -297,9 +362,46 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
     res.status(400).json({ error: 'Invalid domain format' });
     return;
   }
+
+  const existing = db.prepare('SELECT id FROM domains WHERE domain = ?').get(domain);
+  if (existing) {
+    res.status(409).json({ error: 'Domain already registered in AgentOS' });
+    return;
+  }
+
   const tld = parts.slice(1).join('.');
   const basePrice = await getTldPrice(tld);
   const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
+
+  // Run both registrar preflight calls in parallel to stay well under edge
+  // timeouts (Cloudflare 100s / nginx 60s). Availability is hard-required;
+  // balance is best-effort — if it errors we proceed rather than block.
+  const [checkRes, balRes] = await Promise.allSettled([
+    namecheapRequest('namecheap.domains.check', { DomainList: domain }),
+    namecheapRequest('namecheap.users.getBalances'),
+  ]);
+
+  if (checkRes.status === 'rejected') {
+    console.error('[domains] Preflight availability check failed:', checkRes.reason);
+    res.status(503).json({ error: 'Registrar unreachable — try again shortly' });
+    return;
+  }
+  if (!checkRes.value.available) {
+    res.status(409).json({ error: 'Domain is not available for registration' });
+    return;
+  }
+
+  if (balRes.status === 'fulfilled') {
+    const avail = balRes.value.availableBalance;
+    if (typeof avail === 'number' && avail < basePrice) {
+      console.error(`[domains] Registrar balance too low: have ${avail}, need ${basePrice} for ${domain}`);
+      res.status(503).json({ error: 'Registrar temporarily cannot fulfill this registration — try again shortly' });
+      return;
+    }
+  } else {
+    console.warn('[domains] Balance preflight skipped:', balRes.reason?.message || balRes.reason);
+  }
+
   return requireAuth(finalPrice, 'general')(req, res, next);
 }
 
@@ -308,36 +410,70 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
  * Register a new domain
  */
 router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { domain } = req.body;
+  const { domain } = req.body || {};
 
-    if (!domain || typeof domain !== 'string') {
-      return res.status(400).json({ error: 'domain is required' });
-    }
+  if (!domain || typeof domain !== 'string') {
+    return res.status(400).json({ error: 'domain is required' });
+  }
 
-    // Check if domain is already registered in our DB
-    const existing = db.prepare('SELECT id FROM domains WHERE domain = ?').get(domain);
-    if (existing) {
-      return res.status(409).json({ error: 'Domain already registered in AgentOS' });
-    }
+  // Payment has already settled by the time we're here. Capture everything we
+  // need to trace or refund this specific x402 transfer, independent of what
+  // happens with the registrar below.
+  const owner = req.payment?.payer || req.agentId;
+  const paymentSignature = req.payment?.signature || null;
+  const domainId = uuid();
+  const now = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+  const domainParts = domain.split('.');
+  const tld = domainParts.slice(1).join('.');
+  const basePrice = await getTldPrice(tld);
+  const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
 
-    // Verify availability first
-    const checkResult = await namecheapRequest('namecheap.domains.check', {
-      DomainList: domain
+  // Race check: another paid caller may have registered this domain between
+  // preflight and settlement.
+  const existing = db.prepare('SELECT id FROM domains WHERE domain = ?').get(domain);
+  if (existing) {
+    console.error('[domains] [REFUND NEEDED] Domain claimed between preflight and settlement', {
+      domain, owner, signature: paymentSignature, chargedUsdc: finalPrice
     });
+    return res.status(409).json({
+      error: 'Domain was registered by another caller after you paid. Your payment has been logged for refund.',
+      refund_signature: paymentSignature
+    });
+  }
 
-    if (!checkResult.available) {
-      return res.status(409).json({ error: 'Domain is not available for registration' });
-    }
+  // Step 1: INSERT a 'pending' row BEFORE we call the registrar. If the INSERT
+  // fails (schema drift, constraint bug), we'll know before spending money at
+  // Namecheap — the user is owed only the x402 payment, not the registrar fee.
+  // We build the column list dynamically to accommodate older prod schemas
+  // that still have extra NOT NULL columns (tld, registrar, registered_at).
+  const domainsCols = db.prepare("PRAGMA table_info(domains)").all() as Array<{ name: string }>;
+  const have = new Set(domainsCols.map(c => c.name));
+  const cols: string[] = ['id', 'domain', 'owner', 'status', 'expires_at', 'created_at', 'dns_records'];
+  const vals: any[] = [domainId, domain, owner, 'pending', expiresAt, now, '[]'];
+  if (have.has('tld')) { cols.push('tld'); vals.push(tld); }
+  if (have.has('registrar')) { cols.push('registrar'); vals.push('namecheap'); }
+  if (have.has('registered_at')) { cols.push('registered_at'); vals.push(now); }
+  if (have.has('payment_signature')) { cols.push('payment_signature'); vals.push(paymentSignature); }
+  const placeholders = vals.map(() => '?').join(', ');
 
-    // Get actual cost for verification
-    const domainParts = domain.split('.');
-    const tld = domainParts.slice(1).join('.');
-    const basePrice = await getTldPrice(tld);
-    const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
+  try {
+    db.prepare(`INSERT INTO domains (${cols.join(', ')}) VALUES (${placeholders})`).run(...vals);
+  } catch (insertError: any) {
+    console.error('[domains] [REFUND NEEDED] Pre-registration INSERT failed', {
+      domain, owner, signature: paymentSignature, chargedUsdc: finalPrice, error: insertError.message
+    });
+    return res.status(500).json({
+      error: 'Could not reserve domain record. Nothing was registered; your payment has been logged for refund.',
+      refund_signature: paymentSignature
+    });
+  }
 
-    // Register domain via Namecheap
-    const registerResult = await namecheapRequest('namecheap.domains.create', {
+  // Step 2: call the registrar. Any failure from here on must UPDATE the
+  // pending row so the registrar charge (if any) is traceable.
+  let registerResult: NamecheapResponse;
+  try {
+    registerResult = await namecheapRequest('namecheap.domains.create', {
       DomainName: domain,
       Years: '1',
       // Use generic registrant info
@@ -379,45 +515,125 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       BillingPostalCode: '94102',
       BillingCountry: 'US',
       BillingPhone: '+1.4155551234',
-      BillingEmailAddress: 'agent@agntos.dev'
+      BillingEmailAddress: 'agent@agntos.dev',
+      // AuxBilling contact — required by Namecheap (error 2010218 without it).
+      AuxBillingFirstName: 'AgentOS',
+      AuxBillingLastName: 'Registry',
+      AuxBillingAddress1: '123 Agent Street',
+      AuxBillingCity: 'San Francisco',
+      AuxBillingStateProvince: 'CA',
+      AuxBillingPostalCode: '94102',
+      AuxBillingCountry: 'US',
+      AuxBillingPhone: '+1.4155551234',
+      AuxBillingEmailAddress: 'agent@agntos.dev'
     });
+  } catch (regError: any) {
+    // Registrar call itself threw (network, timeout, parse error). Registrar
+    // either never received the request or we can't tell — mark failed and
+    // log loudly so ops can verify before refunding.
+    const reason = `registrar_call_threw: ${regError.message || regError}`;
+    const failureSet = have.has('failure_reason') ? ", failure_reason = ?" : '';
+    const failureArgs = have.has('failure_reason') ? [reason, domainId] : [domainId];
+    db.prepare(`UPDATE domains SET status = 'failed'${failureSet} WHERE id = ?`).run(...failureArgs);
+    console.error('[domains] [REFUND NEEDED] Registrar call threw', {
+      domain, owner, signature: paymentSignature, chargedUsdc: finalPrice, error: regError.message
+    });
+    return res.status(502).json({
+      error: `Registrar error: ${regError.message || regError}. Your payment has been logged for refund.`,
+      refund_signature: paymentSignature
+    });
+  }
 
-    if (!registerResult.success) {
-      return res.status(500).json({ error: 'Failed to register domain with Namecheap' });
-    }
-
-    // Store in database
-    const domainId = uuid();
-    const now = new Date().toISOString();
-    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(); // 1 year from now
-    
-    db.prepare(`
-      INSERT INTO domains (id, domain, owner, registrar_id, status, expires_at, created_at, dns_records)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(domainId, domain, req.agentId, registerResult.orderId, 'active', expiresAt, now, '[]');
-
-    res.status(201).json({
+  // Step 3: check registration outcome.
+  const rawSnippet = typeof registerResult.raw === 'string' ? registerResult.raw.slice(0, 600) : null;
+  if (!registerResult.success) {
+    const reason = `registrar_rejected: registered=${registerResult.registered ?? 'null'} orderId=${registerResult.orderId || 'null'}`;
+    const failureSet = have.has('failure_reason') ? ", failure_reason = ?" : '';
+    const failureArgs = have.has('failure_reason') ? [reason, domainId] : [domainId];
+    db.prepare(`UPDATE domains SET status = 'failed'${failureSet} WHERE id = ?`).run(...failureArgs);
+    console.error('[domains] [REFUND NEEDED] Registrar declined post-payment', {
+      domain, owner, signature: paymentSignature, chargedUsdc: finalPrice,
+      namecheapOrderId: registerResult.orderId || null,
+      namecheapRegistered: registerResult.registered ?? null,
+      namecheapRaw: rawSnippet,
+    });
+    // 422 not 502 — Cloudflare overwrites origin 502 with its own page.
+    return res.status(422).json({
+      error: 'Registration failed at registrar — your payment has been logged for manual refund. Contact support with this domain name.',
       domain,
-      status: 'active',
-      expiresAt,
-      dnsManagement: true,
-      cost: finalPrice
+      refund_signature: paymentSignature,
+      registrar: {
+        registered: registerResult.registered ?? false,
+        orderId: registerResult.orderId || null,
+        rawSnippet,
+      },
     });
+  }
+
+  // Step 4: registrar confirmed. Finalize the row. If this UPDATE fails we
+  // have an orphan (registered at registrar, no clean DB state) — return
+  // success to the payer anyway since they do own the domain, and log
+  // loudly for manual reconciliation.
+  try {
+    db.prepare(`UPDATE domains SET status = 'active', registrar_id = ? WHERE id = ?`)
+      .run(registerResult.orderId, domainId);
+  } catch (finalizeError: any) {
+    console.error('[domains] [ORPHAN] Finalize UPDATE failed — user owns domain at registrar', {
+      domain, owner, signature: paymentSignature,
+      registrarOrderId: registerResult.orderId,
+      error: finalizeError.message,
+    });
+    // Do not fail the response — user paid and got the domain. Reconcile async.
+  }
+
+  res.status(201).json({
+    domain,
+    status: 'active',
+    expiresAt,
+    dnsManagement: true,
+    cost: finalPrice
+  });
+});
+
+// Ownership proof via x402 micro-payment — the payer's signature on the USDC
+// transfer cryptographically proves they control the owner wallet. 0.0001 USDC
+// keeps the bar symbolic while avoiding zero-amount edge cases.
+const OWNERSHIP_PROOF_USDC = 0.0001;
+const ownerFromRequest = (req: AuthenticatedRequest): string | undefined =>
+  req.payment?.payer || req.agentId;
+
+/**
+ * GET /domains
+ * List all domains owned by the calling wallet. Requires x402 ownership
+ * proof — the payer's signature implicitly identifies which wallet to
+ * filter by, so wallets can't enumerate each other's portfolios for free.
+ */
+router.get('/', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const owner = ownerFromRequest(req);
+    if (!owner) {
+      return res.status(400).json({ error: 'No wallet identity on request' });
+    }
+    const rows = db.prepare(
+      'SELECT domain, status, registrar_id, expires_at, created_at FROM domains WHERE owner = ? ORDER BY created_at DESC'
+    ).all(owner) as Array<{ domain: string; status: string; registrar_id: string | null; expires_at: string; created_at: string }>;
+    res.json({ owner, count: rows.length, domains: rows });
   } catch (error: any) {
-    console.error('[domains] Register error:', error);
+    console.error('[domains] List error:', error);
     res.status(500).json({ error: error.message });
   }
 });
 
 /**
  * GET /domains/:domain
- * Get domain information
+ * Get domain information. Requires x402 ownership proof.
  */
-router.get('/:domain', requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/:domain', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
 
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, req.agentId) as DomainDbRecord | undefined;
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
     if (!domainRecord) {
       return res.status(404).json({ error: 'Domain not found or not owned by you' });
     }
@@ -439,13 +655,14 @@ router.get('/:domain', requireAuth(0, 'general'), async (req: AuthenticatedReque
 
 /**
  * GET /domains/:domain/dns
- * Get current DNS records
+ * Get current DNS records. Requires x402 ownership proof.
  */
-router.get('/:domain/dns', requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.get('/:domain/dns', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
 
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, req.agentId) as DomainDbRecord | undefined;
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
     if (!domainRecord) {
       return res.status(404).json({ error: 'Domain not found or not owned by you' });
     }
@@ -482,9 +699,9 @@ router.get('/:domain/dns', requireAuth(0, 'general'), async (req: AuthenticatedR
 
 /**
  * POST /domains/:domain/dns
- * Set DNS records
+ * Set DNS records. Requires x402 ownership proof.
  */
-router.post('/:domain/dns', requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:domain/dns', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
     const { records } = req.body;
@@ -493,7 +710,8 @@ router.post('/:domain/dns', requireAuth(0, 'general'), async (req: Authenticated
       return res.status(400).json({ error: 'records array is required' });
     }
 
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, req.agentId) as DomainDbRecord | undefined;
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
     if (!domainRecord) {
       return res.status(404).json({ error: 'Domain not found or not owned by you' });
     }
@@ -548,14 +766,61 @@ router.post('/:domain/dns', requireAuth(0, 'general'), async (req: Authenticated
 });
 
 /**
- * POST /domains/:domain/transfer
- * Initiate domain transfer out
+ * POST /domains/:domain/transfer-ownership
+ * Transfer domain ownership to another wallet. Domain stays with our registrar;
+ * only the DB owner changes. Current owner proves control via x402 payment
+ * signature — the payer pubkey must match the current owner row.
  */
-router.post('/:domain/transfer', requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+// Owners are wallet addresses on either chain x402 settles on:
+//   Solana: base58, 32–44 chars
+//   EVM (Base): 0x + 40 hex chars
+const SOL_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const EVM_ADDR = /^0x[a-fA-F0-9]{40}$/;
+const isWalletAddress = (s: string) => SOL_PUBKEY.test(s) || EVM_ADDR.test(s);
+
+router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { domain } = req.params;
+    const { new_owner } = req.body || {};
+
+    if (!new_owner || typeof new_owner !== 'string' || !isWalletAddress(new_owner)) {
+      return res.status(400).json({ error: 'new_owner must be a Solana (base58) or EVM (0x…) wallet address' });
+    }
+
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
+    if (!domainRecord) {
+      return res.status(404).json({ error: 'Domain not found or not owned by you' });
+    }
+
+    if (new_owner === owner) {
+      return res.status(400).json({ error: 'new_owner is already the current owner' });
+    }
+
+    db.prepare('UPDATE domains SET owner = ? WHERE id = ?').run(new_owner, domainRecord.id);
+
+    res.json({
+      message: 'Ownership transferred',
+      domain: domainRecord.domain,
+      previous_owner: owner,
+      new_owner
+    });
+  } catch (error: any) {
+    console.error('[domains] Transfer ownership error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /domains/:domain/transfer
+ * Initiate domain transfer out. Requires x402 ownership proof.
+ */
+router.post('/:domain/transfer', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
 
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, req.agentId) as DomainDbRecord | undefined;
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
     if (!domainRecord) {
       return res.status(404).json({ error: 'Domain not found or not owned by you' });
     }

@@ -322,7 +322,7 @@ export function HealthScreen(props: HealthScreenProps & ScreenControls) {
 
 export function MenuScreen(props: MenuScreenProps & ScreenControls) {
   return <Screen title={props.title} version={props.version} interactive={props.interactive} onBack={props.onBack} footer={props.footerLeft} rows={
-    props.commands.slice(0, 8).map(c => ({ label: c.name, value: [c.description, c.hint].filter(Boolean).join(' · ') }))
+    props.commands.map(c => ({ label: c.name, value: [c.description, c.hint].filter(Boolean).join(' · ') }))
   } />
 }
 

@@ -105,12 +105,97 @@ export function initDatabase(): void {
       status TEXT NOT NULL CHECK(status IN ('pending', 'active', 'failed', 'expired')),
       expires_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
-      dns_records TEXT
+      dns_records TEXT,
+      payment_signature TEXT,
+      failure_reason TEXT
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain);
     CREATE INDEX IF NOT EXISTS idx_domains_owner ON domains(owner);
   `);
+
+  // Idempotent column backfill — CREATE TABLE IF NOT EXISTS leaves pre-existing
+  // tables untouched, so older prod DBs can be missing columns added later.
+  const domainsCols = db.prepare("PRAGMA table_info(domains)").all() as Array<{ name: string }>;
+  const have = new Set(domainsCols.map(c => c.name));
+  const additions: Array<[string, string]> = [
+    ['registrar_id', 'TEXT'],
+    ['status', "TEXT NOT NULL DEFAULT 'active'"],
+    ['expires_at', 'TEXT'],
+    ['created_at', 'TEXT'],
+    ['dns_records', 'TEXT'],
+    // x402 settlement signature for every registration — enables refunds
+    // and reconciliation when registrar vs DB disagree.
+    ['payment_signature', 'TEXT'],
+    // Captures why a registration moved to 'failed' so ops can refund with context.
+    ['failure_reason', 'TEXT'],
+  ];
+  for (const [name, spec] of additions) {
+    if (!have.has(name)) db.exec(`ALTER TABLE domains ADD COLUMN ${name} ${spec}`);
+  }
+
+  // One-shot rebuild for older prod DBs that have legacy NOT NULL columns
+  // (tld, registrar, registered_at) the current code doesn't know about.
+  // Those columns used to cause INSERT failures whenever the code evolved.
+  // Rebuild the table to match the clean schema, preserving all data.
+  // Idempotent — does nothing on DBs that don't have the legacy columns.
+  const legacyCols = ['tld', 'registrar', 'registered_at'];
+  const presentLegacy = legacyCols.filter(c => have.has(c));
+  if (presentLegacy.length > 0) {
+    console.warn(`[db] Rebuilding domains table to drop legacy columns: ${presentLegacy.join(', ')}`);
+    db.exec('PRAGMA foreign_keys = OFF');
+    try {
+      const createdAtExpr = have.has('registered_at')
+        ? "COALESCE(created_at, registered_at, datetime('now'))"
+        : "COALESCE(created_at, datetime('now'))";
+      const rebuild = db.transaction(() => {
+        db.exec(`
+          CREATE TABLE domains_new (
+            id TEXT PRIMARY KEY,
+            domain TEXT UNIQUE NOT NULL,
+            owner TEXT NOT NULL,
+            registrar_id TEXT,
+            status TEXT NOT NULL CHECK(status IN ('pending', 'active', 'failed', 'expired')),
+            expires_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            dns_records TEXT,
+            payment_signature TEXT,
+            failure_reason TEXT
+          );
+        `);
+        db.exec(`
+          INSERT INTO domains_new (id, domain, owner, registrar_id, status, expires_at, created_at, dns_records, payment_signature, failure_reason)
+          SELECT id, domain, owner, registrar_id, status, expires_at, ${createdAtExpr}, dns_records, payment_signature, failure_reason
+          FROM domains
+        `);
+        db.exec('DROP TABLE domains');
+        db.exec('ALTER TABLE domains_new RENAME TO domains');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain)');
+        db.exec('CREATE INDEX IF NOT EXISTS idx_domains_owner ON domains(owner)');
+      });
+      rebuild();
+      const fkIssues = db.prepare('PRAGMA foreign_key_check').all();
+      if (fkIssues.length > 0) {
+        console.error('[db] [WARNING] FK check reported issues after rebuild:', fkIssues);
+      }
+      console.log('[db] domains table rebuild complete');
+    } finally {
+      db.exec('PRAGMA foreign_keys = ON');
+    }
+  }
+
+  // Reconciliation log — any 'pending' row at startup means the server
+  // crashed mid-registration. Ops should verify with the registrar whether
+  // each row is actually registered and finalize or refund.
+  try {
+    const pending = db.prepare("SELECT id, domain, owner, created_at FROM domains WHERE status = 'pending'").all() as Array<{ id: string; domain: string; owner: string; created_at: string }>;
+    if (pending.length > 0) {
+      console.warn(`[db] [RECONCILE] ${pending.length} domain(s) left in 'pending' status — verify with registrar:`);
+      for (const row of pending) console.warn('[db] [RECONCILE]', row);
+    }
+  } catch {
+    // Pre-migration DB without status column — nothing to reconcile.
+  }
 
   // DNS Records table
   db.exec(`
