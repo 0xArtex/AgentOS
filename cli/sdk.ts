@@ -36,24 +36,51 @@ function topoOrderSteps(steps: any[]): any[] {
   return order
 }
 
-/** Resolve a single $STEPS.sN.output.path expression against prior outputs. */
-function resolveTemplateValue(value: any, priorOutputs: Record<string, any>): any {
-  if (typeof value !== 'string') return value
-  const m = value.match(/^\$STEPS\.([a-zA-Z0-9_]+)\.output(?:\.(.+))?$/)
-  if (!m) return value
-  const [, stepId, path] = m
+/**
+ * Resolve a $STEPS.sN.output.path expression against prior outputs.
+ * Two modes:
+ *   - whole-field: "$STEPS.s1.output.field" → returns the resolved value verbatim
+ *     (could be any type — object, array, string, number)
+ *   - embedded: "hello $STEPS.s1.output.field" → scans and substitutes the match
+ *     (resolved values are coerced to strings)
+ */
+function resolveOne(stepId: string, path: string | undefined, priorOutputs: Record<string, any>): any {
   const base = priorOutputs[stepId]
-  if (base === undefined) return value
+  if (base === undefined) return undefined
   if (!path) return base
   const segments = path.split(/\.|\[(\d+)\]/).filter(s => s !== undefined && s !== '')
   let cursor: any = base
   for (const seg of segments) {
-    if (cursor === null || cursor === undefined) return value
+    if (cursor === null || cursor === undefined) return undefined
     if (/^\d+$/.test(seg) && Array.isArray(cursor)) cursor = cursor[parseInt(seg, 10)]
     else if (typeof cursor === 'object') cursor = cursor[seg]
-    else return value
+    else return undefined
   }
   return cursor
+}
+
+function resolveTemplateValue(value: any, priorOutputs: Record<string, any>): any {
+  if (typeof value !== 'string') return value
+
+  // Whole-field match: the string is *only* a template expression. Return the
+  // resolved value verbatim (may be non-string).
+  const whole = value.match(/^\$STEPS\.([a-zA-Z0-9_]+)\.output(?:\.(.+))?$/)
+  if (whole) {
+    const resolved = resolveOne(whole[1], whole[2], priorOutputs)
+    return resolved === undefined ? value : resolved
+  }
+
+  // Embedded match: substitute every $STEPS.X.output(.path) occurrence with its
+  // string-coerced resolved value. Path is a sequence of .name or [n] segments.
+  const embeddedPattern = /\$STEPS\.([a-zA-Z0-9_]+)\.output((?:\.[a-zA-Z0-9_]+|\[\d+\])*)/g
+  if (!embeddedPattern.test(value)) return value
+  // Re-run since test() advances lastIndex on /g patterns
+  return value.replace(/\$STEPS\.([a-zA-Z0-9_]+)\.output((?:\.[a-zA-Z0-9_]+|\[\d+\])*)/g, (match, stepId, pathChain) => {
+    const path = pathChain.replace(/^\./, '') || undefined
+    const resolved = resolveOne(stepId, path, priorOutputs)
+    if (resolved === undefined) return match
+    return typeof resolved === 'string' ? resolved : JSON.stringify(resolved)
+  })
 }
 
 /** Walk an input object deeply, resolving every templated string leaf. */
