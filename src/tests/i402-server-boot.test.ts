@@ -163,9 +163,9 @@ describe("full-server boot smoke test", () => {
   });
 
   it("filters /chat/providers by capability", async () => {
-    const res = await httpGetJson(port, "/chat/providers?capability=web_search");
+    const res = await httpGetJson(port, "/chat/providers?capability=register_domain");
     assert.equal(res.status, 200);
-    assert.ok(res.body.providers.every((p: any) => p.capability === "web_search"));
+    assert.ok(res.body.providers.every((p: any) => p.capability === "register_domain"));
     assert.ok(res.body.providers.length >= 1);
   });
 
