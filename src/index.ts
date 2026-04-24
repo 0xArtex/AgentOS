@@ -203,6 +203,8 @@ app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
 import agentChatRoutes from "./routes/agent-chat";
 app.use("/chat", agentChatRoutes);
+import discoverRoutes from "./routes/discover";
+app.use("/discover", discoverRoutes);
 import provisionRoutes from "./routes/provision";
 app.use("/provision", provisionRoutes);
 // wallet routes proxied to port 3002 (see above, before timeout middleware)
