@@ -31,19 +31,28 @@ const ALLOWED_PROGRAMS = new Set([
 
 function loadFeePayer(): Keypair {
   if (feePayerKeypair) return feePayerKeypair;
-  
-  try {
-    const envContent = readFileSync('/root/x402-facilitator/examples/facilitator-server/.env', 'utf8');
-    const match = envContent.match(/SVM_PRIVATE_KEY=(\S+)/);
-    if (match) {
-      feePayerKeypair = Keypair.fromSecretKey(bs58.decode(match[1]));
-    }
-  } catch {}
-  
-  if (!feePayerKeypair) {
-    throw new Error('No SVM fee payer key configured');
+
+  // 1. Env var (preferred — works on dev and prod)
+  const envKey = process.env.SVM_PRIVATE_KEY;
+  if (envKey) {
+    feePayerKeypair = Keypair.fromSecretKey(bs58.decode(envKey));
   }
-  
+
+  // 2. Legacy fallback: production server's facilitator .env file
+  if (!feePayerKeypair) {
+    try {
+      const envContent = readFileSync('/root/x402-facilitator/examples/facilitator-server/.env', 'utf8');
+      const match = envContent.match(/SVM_PRIVATE_KEY=(\S+)/);
+      if (match) {
+        feePayerKeypair = Keypair.fromSecretKey(bs58.decode(match[1]));
+      }
+    } catch {}
+  }
+
+  if (!feePayerKeypair) {
+    throw new Error('No SVM fee payer key configured (set SVM_PRIVATE_KEY env var)');
+  }
+
   console.log('[x402-svm] Fee payer loaded:', feePayerKeypair.publicKey.toBase58());
   return feePayerKeypair;
 }
