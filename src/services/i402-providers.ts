@@ -155,7 +155,7 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   },
   voice_speak: {
     name: "voice_speak",
-    description: "Text-to-speech into an active call.",
+    description: "Speak text into an ALREADY-ANSWERED call. DO NOT use for the initial message of a fresh call — pass `tts` to start_voice_call instead, which auto-speaks on answer. This capability 422s on un-answered calls. Only use it for ADDITIONAL speech after the call is established.",
     inputSchema: { call_control_id: "string (path)", text: "string", voice: "string?", language: "string?" },
     outputSchema: { success: "boolean", message: "string" },
   },

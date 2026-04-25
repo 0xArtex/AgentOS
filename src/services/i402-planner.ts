@@ -446,6 +446,24 @@ export function validatePlanSteps(
     }
   }
 
+  // Reject the start_voice_call → voice_speak anti-pattern. Telnyx 422s on
+  // unanswered calls; the plan must use the call's `tts` parameter for the
+  // first message (server queues a webhook handler that fires on answer).
+  for (const step of steps) {
+    if (step.capability !== "voice_speak") continue;
+    const sourceStepId = step.dependsOn?.[0];
+    if (!sourceStepId) continue;
+    const sourceStep = steps.find(s => s.stepId === sourceStepId);
+    if (sourceStep?.capability !== "start_voice_call") continue;
+    const callInput = (sourceStep.input ?? {}) as Record<string, unknown>;
+    if (!callInput.tts && !callInput.audioUrl) {
+      return {
+        ok: false,
+        reason: `voice_speak (${step.stepId}) cannot follow a fresh start_voice_call (${sourceStep.stepId}) — the call may still be ringing. Move the speech text into start_voice_call's "tts" input instead and remove ${step.stepId}.`,
+      };
+    }
+  }
+
   return { ok: true, steps };
 }
 
