@@ -211,8 +211,8 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   // ── Email ──
   provision_email_inbox: {
     name: "provision_email_inbox",
-    description: "Provision a new E2E-encrypted email inbox keyed to the wallet.",
-    inputSchema: { name: "string (local-part)", walletAddress: "string (Solana pubkey)" },
+    description: "Provision a new E2E-encrypted email inbox at {name}@agntos.dev. Keyed to the caller's wallet by default; pass walletAddress only when delegating encryption to a different wallet.",
+    inputSchema: { name: "string (local-part)", walletAddress: "string? (Solana pubkey — defaults to caller's wallet; only set when encrypting for a third party)" },
     outputSchema: { inbox: "object ({ id, address, walletAddress })" },
   },
   send_email: {

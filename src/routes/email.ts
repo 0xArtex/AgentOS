@@ -79,26 +79,29 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
 
   const { name, walletAddress, solanaPublicKey: spk } = req.body || {};
   const key = walletAddress || spk;
-  if (!name || !key) {
-    res.status(400).json({ error: "Missing 'name' and 'walletAddress'" });
+  if (!name) {
+    res.status(400).json({ error: "Missing 'name'" });
     return;
   }
   if (!/^[a-z0-9\-_.]+$/i.test(String(name).toLowerCase().replace(/[^a-z0-9\-_.]/g, ''))) {
     res.status(400).json({ error: "Invalid inbox name" });
     return;
   }
-  // Pre-flight Solana pubkey check — catches EVM addresses before taking payment
-  try {
-    const bs58 = require('bs58');
-    const decoded = bs58.decode(String(key));
-    if (decoded.length !== 32) throw new Error();
-  } catch {
-    res.status(400).json({
-      error: "Invalid walletAddress",
-      message: "Email inboxes require a Solana public key (base58, 32 bytes). EVM addresses are not supported for this endpoint because the E2E encryption uses Ed25519→X25519.",
-      hint: "Pass your wallet's Solana address, e.g. 6mqej25Y32ZWGk3VydUAU4iFr74ripzSURKzYH39SzLy",
-    });
-    return;
+  // walletAddress is optional — defaults to the x402 payer in the route handler.
+  // Only validate if explicitly provided (to catch EVM addresses before taking payment).
+  if (key) {
+    try {
+      const bs58 = require('bs58');
+      const decoded = bs58.decode(String(key));
+      if (decoded.length !== 32) throw new Error();
+    } catch {
+      res.status(400).json({
+        error: "Invalid walletAddress",
+        message: "Email inboxes require a Solana public key (base58, 32 bytes). EVM addresses are not supported for this endpoint because the E2E encryption uses Ed25519→X25519.",
+        hint: "Omit walletAddress to default to your paying wallet, or pass a Solana base58 address.",
+      });
+      return;
+    }
   }
   next();
 }
@@ -110,8 +113,15 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
 }), async (req: AuthenticatedRequest, res: Response) => {
   const { name, walletAddress, solanaPublicKey: spk } = req.body;
   const owner = req.agentId || req.payment?.payer || "unknown";
+  // Default the encryption key to the paying wallet — agent owns its own inbox in 99% of cases.
+  // Explicit walletAddress only needed for delegation (encrypt for a different wallet).
+  const encryptionKey = walletAddress || spk || req.payment?.payer;
+  if (!encryptionKey) {
+    res.status(401).json({ error: "Could not determine encryption key (no walletAddress provided and no x402 payer)" });
+    return;
+  }
   try {
-    const result = emailService.createInbox(name, owner, walletAddress || spk);
+    const result = emailService.createInbox(name, owner, encryptionKey);
     res.status(201).json({ inbox: { id: result.id, address: result.address, walletAddress: result.solanaPublicKey } });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
