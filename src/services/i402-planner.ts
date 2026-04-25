@@ -300,7 +300,6 @@ export async function classifyIntent(
       description: "Classify an agent intent as direct, compound, or ambiguous.",
       inputSchema: ROUTER_TOOL_SCHEMA,
     },
-    temperature: 0.0,
     maxTokens: 500,
   });
   return res.content;
@@ -329,7 +328,6 @@ export async function classifySessionRelatedness(args: {
       description: "Decide whether a new intent continues a prior session or starts a new goal.",
       inputSchema: RELATEDNESS_TOOL_SCHEMA,
     },
-    temperature: 0.0,
     maxTokens: 200,
   });
   return res.content;
@@ -547,7 +545,6 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
       description: "Emit a structured plan of x402-settled steps.",
       inputSchema: PLAN_TOOL_SCHEMA,
     },
-    temperature: 0.0,
   });
 
   const validated = validatePlanSteps(llmRes.content, candidateProviders, request.constraints);
@@ -574,7 +571,6 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
         description: "Emit a structured plan of x402-settled steps.",
         inputSchema: PLAN_TOOL_SCHEMA,
       },
-      temperature: 0.0,
     });
     const validated2 = validatePlanSteps(retry.content, candidateProviders, request.constraints);
     if (!validated2.ok) throw new Error(`Plan validation failed twice: ${validated2.reason}`);

@@ -113,15 +113,16 @@ export interface TextCompletionInput {
 }
 
 export async function completeText(input: TextCompletionInput): Promise<LLMResponse<string>> {
-  const response = await withRetry(async () =>
-    anthropic().messages.create({
+  const response = await withRetry(async () => {
+    const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
       model: input.model,
       max_tokens: input.maxTokens ?? MAX_OUTPUT_TOKENS(),
-      temperature: input.temperature ?? 0.2,
       system: buildSystemBlocks(input.system),
       messages: input.messages,
-    })
-  );
+    };
+    if (input.temperature !== undefined) params.temperature = input.temperature;
+    return anthropic().messages.create(params);
+  });
 
   const text = response.content
     .filter((b): b is Anthropic.Messages.TextBlock => b.type === "text")
@@ -160,11 +161,10 @@ export interface StructuredCompletionInput<T> {
 export async function completeStructured<T = unknown>(
   input: StructuredCompletionInput<T>
 ): Promise<LLMResponse<T>> {
-  const response = await withRetry(async () =>
-    anthropic().messages.create({
+  const response = await withRetry(async () => {
+    const params: Anthropic.Messages.MessageCreateParamsNonStreaming = {
       model: input.model,
       max_tokens: input.maxTokens ?? MAX_OUTPUT_TOKENS(),
-      temperature: input.temperature ?? 0.0,
       system: buildSystemBlocks(input.system),
       tools: [
         {
@@ -175,8 +175,10 @@ export async function completeStructured<T = unknown>(
       ],
       tool_choice: { type: "tool", name: input.tool.name },
       messages: input.messages,
-    })
-  );
+    };
+    if (input.temperature !== undefined) params.temperature = input.temperature;
+    return anthropic().messages.create(params);
+  });
 
   const toolUse = response.content.find(
     (b): b is Anthropic.Messages.ToolUseBlock => b.type === "tool_use"
