@@ -137,8 +137,8 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   // ── Voice ──
   start_voice_call: {
     name: "start_voice_call",
-    description: "Initiate an outbound voice call from an owned number. Returns callControlId for subsequent ops.",
-    inputSchema: { phone_number_id: "string (path)", to: "string (E.164)", script: "string?" },
+    description: "Place an outbound voice call. If you also pass `tts` (or `audioUrl`), it will play automatically when the recipient answers — prefer this over chaining a separate voice_speak step. Use voice_speak only for mid-call additional speech after the answer event.",
+    inputSchema: { phone_number_id: "string (path)", to: "string (E.164)", tts: "string? (text spoken on answer via TTS — single-shot)", ttsVoice: "string? (default 'female')", audioUrl: "string? (audio clip URL played on answer instead of TTS)", record: "boolean? (start recording on answer)", timeoutSecs: "number? (ring timeout)" },
     outputSchema: { id: "string", callControlId: "string", callLegId: "string", phoneNumberId: "string", from: "string (E.164)", to: "string (E.164)", direction: "string", status: "string", startedAt: "iso8601", message: "string", hint: "string" },
   },
   list_calls: {
