@@ -266,6 +266,7 @@ function buildPlannerSystem(args: {
         "Principles:",
         "  - Concrete inputs only. Never placeholders like '<TBD>'. For fields populated by prior-step outputs, use literal strings of the form '$STEPS.sN.output.FIELD'; the executor resolves them.",
         "  - **Path params are inputs too**: any input field annotated '(path)' MUST appear in the step's input object. The executor moves it from input → URL automatically; if you omit it the step fails before it runs.",
+        "  - **Indexing into list outputs**: list_* capabilities return an array (e.g. list_phones → { numbers: [{ id, ... }] }). To use the first item's id in a downstream step, write $STEPS.sN.output.numbers[0].id. Both `[N]` and `.N` syntaxes are supported.",
         "  - **Chain prior-step outputs**: when a downstream step needs an ID created by an earlier step, ALWAYS reference it via $STEPS.sN.output.FIELD. Common chains:",
         "      · provision_phone returns { id } → use as phone_number_id in send_sms / read_sms / start_voice_call / list_calls",
         "      · provision_email_inbox returns { id } → use as inbox_id in send_email / read_email / list_email_threads",
