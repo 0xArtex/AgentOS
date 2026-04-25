@@ -109,7 +109,12 @@ function substitutePathParams(
   const body: Record<string, any> = { ...input }
   const url = endpoint.replace(/\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g, (_match, field) => {
     if (!(field in body)) {
-      throw new Error(`endpoint ${endpoint} requires path param '${field}' but step input has no such field`)
+      const present = Object.keys(input).join(', ') || '(empty)'
+      throw new Error(
+        `endpoint ${endpoint} requires path param '${field}' but step input has no such field. ` +
+        `Input fields present: ${present}. ` +
+        `If '${field}' should come from a prior step, the planner must include it as "$STEPS.sN.output.FIELD".`
+      )
     }
     const value = body[field]
     delete body[field]

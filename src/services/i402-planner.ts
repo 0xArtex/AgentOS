@@ -219,7 +219,18 @@ function buildPlannerSystem(args: {
   contextSummary?: string;
 }): SystemBlock[] {
   const capabilityCatalog = Object.values(CAPABILITY_CLASSES)
-    .map(c => `  • ${c.name}${c.isCompound ? " (compound)" : ""} — ${c.description}`)
+    .map(c => {
+      const fmt = (schema: unknown): string => {
+        if (!schema || typeof schema !== "object") return "{}";
+        const entries = Object.entries(schema as Record<string, unknown>).map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`);
+        return `{ ${entries.join(", ")} }`;
+      };
+      return [
+        `  • ${c.name}${c.isCompound ? " (compound)" : ""} — ${c.description}`,
+        `      input:  ${fmt(c.inputSchema)}`,
+        `      output: ${fmt(c.outputSchema)}`,
+      ].join("\n");
+    })
     .join("\n");
 
   const providerCatalog = args.providers
@@ -254,8 +265,18 @@ function buildPlannerSystem(args: {
         "",
         "Principles:",
         "  - Concrete inputs only. Never placeholders like '<TBD>'. For fields populated by prior-step outputs, use literal strings of the form '$STEPS.sN.output.FIELD'; the executor resolves them.",
+        "  - **Path params are inputs too**: any input field annotated '(path)' MUST appear in the step's input object. The executor moves it from input → URL automatically; if you omit it the step fails before it runs.",
+        "  - **Chain prior-step outputs**: when a downstream step needs an ID created by an earlier step, ALWAYS reference it via $STEPS.sN.output.FIELD. Common chains:",
+        "      · provision_phone returns { id } → use as phone_number_id in send_sms / read_sms / start_voice_call / list_calls",
+        "      · provision_email_inbox returns { id } → use as inbox_id in send_email / read_email / list_email_threads",
+        "      · register_domain returns { id, domain } → use 'domain' as path param in get_domain / dns_manage / transfer_domain_*",
+        "      · create_ssh_key returns { id } → include in sshKeyIds array of deploy_vps",
+        "      · deploy_vps returns { id } → use as server_id in vps_action / vps_resize / vps_delete / install_skill / get_vps",
+        "      · start_voice_call returns { call_control_id } → use as call_control_id in voice_speak / voice_play / voice_hangup / voice_record_*",
+        "      · twitter_login / twitter_buy_account returns { cookies } → use as cookies in twitter_post / twitter_reply / twitter_like / etc.",
+        "      · tiktok_login returns { cookies } → use as cookies in tiktok_post / tiktok_follow / etc.",
+        "  - When chaining, ALWAYS add depends_on: [\"sN\"] for the parent step, otherwise the executor may run them in parallel and the reference will be unresolved.",
         "  - Budget discipline: sum of step costs + orchestration fee must fit within the agent's budget.",
-        "  - Dependency graph: use 'depends_on' only when a later step needs an earlier step's output. Parallel-eligible steps should have no dependency link.",
         "  - Compound goals: expand into concrete sub-steps (see templates). Do not emit a single 'launch_product' step.",
         "  - Never hallucinate providers: only use IDs from the candidate list below.",
         "",
