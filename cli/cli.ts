@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+// Load .env from CWD if present so users only maintain one config file for both
+// the server and the CLI. Process env (set in shell) still wins over .env.
+import 'dotenv/config'
+
 // Silence the noisy `bigint: Failed to load bindings, pure JS will be used`
 // warning from bigint-buffer (transitive dep of @solana/web3.js). The pure JS
 // fallback is fine for CLI one-shot use — the warning is cosmetic noise.
