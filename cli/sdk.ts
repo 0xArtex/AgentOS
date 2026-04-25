@@ -52,9 +52,23 @@ function resolveOne(stepId: string, path: string | undefined, priorOutputs: Reco
   let cursor: any = base
   for (const seg of segments) {
     if (cursor === null || cursor === undefined) return undefined
-    if (/^\d+$/.test(seg) && Array.isArray(cursor)) cursor = cursor[parseInt(seg, 10)]
-    else if (typeof cursor === 'object') cursor = cursor[seg]
-    else return undefined
+    if (/^\d+$/.test(seg) && Array.isArray(cursor)) {
+      cursor = cursor[parseInt(seg, 10)]
+    } else if (typeof cursor === 'object') {
+      // Try exact, then camelCase, then snake_case — schemas drift from
+      // actual server responses; the resolver shouldn't punish either side.
+      if (seg in cursor) {
+        cursor = cursor[seg]
+      } else {
+        const camel = seg.replace(/_([a-zA-Z0-9])/g, (_, c) => c.toUpperCase())
+        const snake = seg.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '')
+        if (camel in cursor) cursor = cursor[camel]
+        else if (snake in cursor) cursor = cursor[snake]
+        else return undefined
+      }
+    } else {
+      return undefined
+    }
   }
   return cursor
 }
