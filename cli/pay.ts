@@ -343,7 +343,8 @@ export async function paidRequest(
     method,
     headers: { 'Content-Type': 'application/json' },
   }
-  if (body) opts.body = JSON.stringify(body)
+  const allowsBody = method !== 'GET' && method !== 'HEAD'
+  if (body && allowsBody) opts.body = JSON.stringify(body)
 
   // First attempt
   const res = await fetch(api + path, opts)
@@ -422,7 +423,7 @@ export async function paidRequest(
         'Payment-Signature': Buffer.from(JSON.stringify(paymentPayload)).toString('base64'),
       },
     }
-    if (body) paidOpts.body = JSON.stringify(body)
+    if (body && allowsBody) paidOpts.body = JSON.stringify(body)
 
     const paidRes = await fetch(api + path, paidOpts)
 
