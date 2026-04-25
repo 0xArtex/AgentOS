@@ -69,14 +69,14 @@ async function main(): Promise<void> {
   checkEnv("NAMECHEAP_API_USER");
   checkEnv("NAMECHEAP_API_KEY");
   checkEnv("CLOUDFLARE_API_TOKEN");
-  checkEnv("SENDGRID_API_KEY");
   checkEnv("TELNYX_API_KEY");
   checkEnv("CAPSOLVER_API_KEY", true);
   checkEnv("EXA_API_KEY", true);
   checkEnv("OPENAI_API_KEY", true);
   checkEnv("TREASURY_WALLET");
   checkEnv("SOLANA_RPC_URL");
-  checkEnv("USDC_MINT");
+  checkEnv("USDC_MINT", true); // optional — config.ts defaults to mainnet USDC mint
+  checkEnv("NAMECHEAP_CLIENT_IP", true); // optional — falls back to auto-detect via api.ipify.org
 
   // 2. Anthropic reachability
   if (process.env.ANTHROPIC_API_KEY) {
@@ -124,14 +124,30 @@ async function main(): Promise<void> {
     });
   }
 
-  // 5. Namecheap availability
+  // 5. Namecheap availability — needs a real IP that's whitelisted on the account.
   if (process.env.NAMECHEAP_API_KEY && process.env.NAMECHEAP_API_USER) {
     await ping("Namecheap domains.check", async () => {
-      const url = `https://api.namecheap.com/xml.response?ApiUser=${process.env.NAMECHEAP_API_USER!}&ApiKey=${process.env.NAMECHEAP_API_KEY!}&UserName=${process.env.NAMECHEAP_API_USER!}&ClientIp=127.0.0.1&Command=namecheap.domains.check&DomainList=preflight-test-${Date.now()}.com`;
+      let clientIp = process.env.NAMECHEAP_CLIENT_IP;
+      if (!clientIp) {
+        try {
+          const ipRes = await fetch("https://api.ipify.org?format=json");
+          const ipData: any = await ipRes.json();
+          clientIp = ipData?.ip;
+        } catch { /* ignore — error message below will explain */ }
+      }
+      if (!clientIp) {
+        return { ok: false, detail: "could not detect public IP (set NAMECHEAP_CLIENT_IP)" };
+      }
+      const url = `https://api.namecheap.com/xml.response?ApiUser=${process.env.NAMECHEAP_API_USER!}&ApiKey=${process.env.NAMECHEAP_API_KEY!}&UserName=${process.env.NAMECHEAP_API_USER!}&ClientIp=${clientIp}&Command=namecheap.domains.check&DomainList=preflight-test-${Date.now()}.com`;
       const res = await fetch(url);
       const text = await res.text();
+      // Extract the embedded error if Namecheap returned one inside an HTTP 200
+      const errMatch = text.match(/<Error\s+Number="(\d+)">([^<]+)<\/Error>/);
+      if (errMatch) {
+        return { ok: false, detail: `HTTP ${res.status} — Namecheap error ${errMatch[1]}: ${errMatch[2]} (clientIp=${clientIp})` };
+      }
       const ok = res.ok && !text.includes("<Errors") && !text.includes("<Error ");
-      return { ok, detail: `HTTP ${res.status}` };
+      return { ok, detail: `HTTP ${res.status} (clientIp=${clientIp})` };
     });
   }
 
@@ -145,15 +161,7 @@ async function main(): Promise<void> {
     });
   }
 
-  // 7. SendGrid
-  if (process.env.SENDGRID_API_KEY) {
-    await ping("SendGrid /user/account", async () => {
-      const res = await fetch("https://api.sendgrid.com/v3/user/account", {
-        headers: { Authorization: `Bearer ${process.env.SENDGRID_API_KEY!}` },
-      });
-      return { ok: res.ok, detail: `HTTP ${res.status}` };
-    });
-  }
+  // 7. (SendGrid check removed — email send path uses MailChannels via src/services/email.ts)
 
   // 8. Telnyx
   if (process.env.TELNYX_API_KEY) {
@@ -200,7 +208,6 @@ async function main(): Promise<void> {
     seedAgentOSPrimitives();
     const providers = listProviders({ enabledOnly: true });
     const requiredCaps = new Set([
-      "web_search",
       "register_domain",
       "deploy_vps",
       "provision_email_inbox",
