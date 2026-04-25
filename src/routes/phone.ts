@@ -76,7 +76,7 @@ router.get("/numbers", requireAuth(0.01, "general", {
   category: "communications",
   tags: ["phone", "list"],
 }), async (req: AuthenticatedRequest, res: Response) => {
-  const owner = req.payment?.payer || req.agentId;
+  const owner = req.agentId || req.payment?.payer;
   if (!owner) return res.status(401).json({ error: "Unauthenticated" });
   const numbers = phoneService.listNumbers(owner);
   res.json({ numbers });
