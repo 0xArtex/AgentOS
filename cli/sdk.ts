@@ -67,7 +67,14 @@ function resolveTemplateValue(value: any, priorOutputs: Record<string, any>): an
   const whole = value.match(/^\$STEPS\.([a-zA-Z0-9_]+)\.output(?:\.(.+))?$/)
   if (whole) {
     const resolved = resolveOne(whole[1], whole[2], priorOutputs)
-    return resolved === undefined ? value : resolved
+    if (resolved === undefined) {
+      const stepOutput = priorOutputs[whole[1]]
+      const detail = stepOutput === undefined
+        ? `step '${whole[1]}' has not run yet (missing depends_on?)`
+        : `step '${whole[1]}' produced ${JSON.stringify(stepOutput)} which has no '${whole[2]}' field`
+      throw new Error(`Could not resolve template "${value}" — ${detail}`)
+    }
+    return resolved
   }
 
   // Embedded match: substitute every $STEPS.X.output(.path) occurrence with its
@@ -78,7 +85,13 @@ function resolveTemplateValue(value: any, priorOutputs: Record<string, any>): an
   return value.replace(/\$STEPS\.([a-zA-Z0-9_]+)\.output((?:\.[a-zA-Z0-9_]+|\[\d+\])*)/g, (match, stepId, pathChain) => {
     const path = pathChain.replace(/^\./, '') || undefined
     const resolved = resolveOne(stepId, path, priorOutputs)
-    if (resolved === undefined) return match
+    if (resolved === undefined) {
+      const stepOutput = priorOutputs[stepId]
+      const detail = stepOutput === undefined
+        ? `step '${stepId}' has not run yet`
+        : `step '${stepId}' has no '${path}' field`
+      throw new Error(`Could not resolve template "${match}" inside "${value}" — ${detail}`)
+    }
     return typeof resolved === 'string' ? resolved : JSON.stringify(resolved)
   })
 }
