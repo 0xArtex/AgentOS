@@ -115,6 +115,12 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     inputSchema: { phone_number_id: "string" },
     outputSchema: { ok: "boolean" },
   },
+  list_phones: {
+    name: "list_phones",
+    description: "List phone numbers owned by the calling wallet.",
+    inputSchema: {},
+    outputSchema: { numbers: "object[] (each: { id, phoneNumber, country, provisionedAt, active })" },
+  },
   send_sms: {
     name: "send_sms",
     description: "Send an SMS from an owned phone number.",
@@ -780,6 +786,10 @@ export function seedAgentOSPrimitives(): void {
     p("agentos.release_phone", "release_phone", "/phone/numbers/{phone_number_id}", {
       method: "DELETE", costUsdc: 0.01, p50: 500, p99: 2000,
       description: "Release a phone number.",
+    }),
+    p("agentos.list_phones", "list_phones", "/phone/numbers", {
+      method: "GET", costUsdc: 0.01, p50: 200,
+      description: "List phone numbers owned by the calling wallet.",
     }),
     p("agentos.send_sms", "send_sms", "/phone/numbers/{phone_number_id}/send", {
       costUsdc: 0.05, p50: 800, p99: 3000,

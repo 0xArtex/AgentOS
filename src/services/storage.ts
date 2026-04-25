@@ -20,7 +20,7 @@ class Storage {
     const stmt = db.prepare('SELECT * FROM phone_numbers WHERE id = ?');
     const row = stmt.get(id) as any;
     if (!row) return undefined;
-    
+
     return {
       id: row.id,
       phoneNumber: row.phone_number,
@@ -29,6 +29,19 @@ class Storage {
       provisionedAt: row.provisioned_at,
       active: Boolean(row.active)
     };
+  }
+
+  getPhoneNumbersByOwner(owner: string): PhoneNumber[] {
+    const stmt = db.prepare('SELECT * FROM phone_numbers WHERE owner = ? ORDER BY provisioned_at DESC');
+    const rows = stmt.all(owner) as any[];
+    return rows.map(row => ({
+      id: row.id,
+      phoneNumber: row.phone_number,
+      country: row.country,
+      owner: row.owner,
+      provisionedAt: row.provisioned_at,
+      active: Boolean(row.active),
+    }));
   }
 
   findPhoneByNumber(phoneNumber: string): [string, PhoneNumber] | undefined {

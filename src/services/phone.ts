@@ -195,8 +195,7 @@ export function getNumber(id: string): PhoneNumber | undefined {
  * List all phone numbers for an owner.
  */
 export function listNumbers(owner: string): PhoneNumber[] {
-  // TODO: add listPhoneNumbersByOwner to storage layer
-  return [];
+  return storage.getPhoneNumbersByOwner(owner);
 }
 
 /**

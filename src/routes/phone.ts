@@ -71,6 +71,17 @@ async function preflightProvisionNumber(req: Request, res: Response, next: NextF
  * POST /phone/numbers — Provision a new phone number
  * Cost: 3.00 USDC (or free during hackathon with agent limits)
  */
+router.get("/numbers", requireAuth(0.01, "general", {
+  description: "List all phone numbers owned by the calling wallet.",
+  category: "communications",
+  tags: ["phone", "list"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  const owner = req.payment?.payer || req.agentId;
+  if (!owner) return res.status(401).json({ error: "Unauthenticated" });
+  const numbers = phoneService.listNumbers(owner);
+  res.json({ numbers });
+});
+
 router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone", {
   description: "Provision a real phone number (SMS + voice) for your agent. Body: { country: ISO-2, areaCode? }",
   category: "communications",
