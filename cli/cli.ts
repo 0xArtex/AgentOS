@@ -231,7 +231,7 @@ async function main() {
   const startTime = Date.now()
 
   // No first-time banner — agent-first CLI should never pollute output.
-  const url = flags.url as string || config.api
+  const url = (flags.url as string) || process.env.AGENTOS_API || config.api
   const token = (flags.token as string) || config.apiKey || process.env.AGENTOS_TOKEN || process.env.AGENTOS_API_KEY
   const passphrase = (flags.passphrase as string) || process.env.AGENTOS_WALLET_PASSPHRASE
   const ao = new AgentOS(url, true, token, passphrase)
