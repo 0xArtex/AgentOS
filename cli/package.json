@@ -1,6 +1,6 @@
 {
   "name": "@agntos/agentos",
-  "version": "0.6.10",
+  "version": "0.7.1",
   "description": "CLI for AgentOS — everything your AI agent needs. Phone, email, compute, domains, wallets, and more.",
   "type": "module",
   "main": "./dist/sdk.js",
