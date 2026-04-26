@@ -106,6 +106,17 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
   next();
 }
 
+router.get("/inboxes", requireAuth(0.01, "general", {
+  description: "List all email inboxes owned by the calling wallet.",
+  category: "communications",
+  tags: ["email", "inbox", "list"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  const owner = req.agentId || req.payment?.payer;
+  if (!owner) return res.status(401).json({ error: "Unauthenticated" });
+  const inboxes = emailService.listInboxes(owner);
+  res.json({ inboxes: inboxes.map(i => ({ id: i.id, address: i.address, walletAddress: i.solanaPublicKey })) });
+});
+
 router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
   description: "Create an end-to-end encrypted email inbox at {name}@agntos.dev, keyed to your Solana wallet.",
   category: "communications",

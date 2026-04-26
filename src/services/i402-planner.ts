@@ -266,6 +266,7 @@ function buildPlannerSystem(args: {
         "Principles:",
         "  - **Use-existing first, provision last.** When the user's intent uses possessive or definite language — 'my X', 'the X I have', 'an existing X', 'already have', 'use my', 'with that X I bought' — they ALREADY OWN one. ALWAYS start with the corresponding list_* capability and chain from there. Never emit a provision_* / register_* / create_* step for a resource the user implied they already own. Examples:",
         "      · 'send SMS from my US number' → list_phones → send_sms (NOT provision_phone)",
+        "      · 'send email from my hello@... inbox' / 'from my X inbox' → list_inboxes → send_email (NOT provision_email_inbox). Match the user-supplied address against the address field of each inbox.",
         "      · 'deploy to my existing VPS' → list_vps → install_skill (NOT deploy_vps)",
         "      · 'update DNS for my domain' → list_domains → dns_manage (NOT register_domain)",
         "      · 'post from my X account' → (cookies already in session, skip provision)",

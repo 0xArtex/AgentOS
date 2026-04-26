@@ -215,6 +215,12 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     inputSchema: { name: "string (local-part)", walletAddress: "string? (Solana pubkey — defaults to caller's wallet; only set when encrypting for a third party)" },
     outputSchema: { inbox: "object ({ id, address, walletAddress })" },
   },
+  list_inboxes: {
+    name: "list_inboxes",
+    description: "List email inboxes owned by the calling wallet.",
+    inputSchema: {},
+    outputSchema: { inboxes: "object[] (each: { id, address, walletAddress })" },
+  },
   send_email: {
     name: "send_email",
     description: "Send an email from an owned inbox.",
@@ -845,6 +851,10 @@ export function seedAgentOSPrimitives(): void {
     p("agentos.provision_email_inbox", "provision_email_inbox", "/email/inboxes", {
       costUsdc: 2.0, p50: 1500, p99: 4000,
       description: "E2E-encrypted inbox at {name}@agntos.dev, keyed to the caller's Solana pubkey.",
+    }),
+    p("agentos.list_inboxes", "list_inboxes", "/email/inboxes", {
+      method: "GET", costUsdc: 0.01, p50: 200,
+      description: "List email inboxes owned by the calling wallet.",
     }),
     p("agentos.send_email", "send_email", "/email/inboxes/{inbox_id}/send", {
       costUsdc: 0.08, p50: 900, p99: 3000,
