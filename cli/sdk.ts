@@ -539,7 +539,7 @@ export class AgentOS {
     return this.request('GET', '/health')
   }
 
-  // ── i402 — intent-fulfillment protocol ──
+  // ── i402 — intent layer for x402 ──
 
   /**
    * Generate an i402 plan from a natural-language intent.

@@ -1053,7 +1053,7 @@ async function main() {
           render(React.createElement(MenuScreen, {
             version: VERSION,
             title: 'chat',
-            subtitle: 'i402 intent-fulfillment: tell AgentOS what you want, pay USDC, get the outcome',
+            subtitle: 'i402 (intent layer for x402): tell AgentOS what you want, pay USDC, get the outcome',
             commands: [
               { name: 'run',         description: 'Generate a plan (and optionally execute it)', hint: '"launch a sneaker brand" --budget 50' },
               { name: 'resume',      description: 'Continue an existing session with a follow-up intent', hint: '<session_id> "now post 3 videos"' },
