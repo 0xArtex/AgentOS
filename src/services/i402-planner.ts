@@ -495,6 +495,17 @@ async function directPlan(
   const capability = classification.detected_capability;
   if (!capability || !getCapability(capability)) return compoundPlan(request);
 
+  // If the matched capability needs path params and the caller didn't bundle
+  // them, the user only knows the resource by attribute (e.g. email address,
+  // not inbox_id). Fall through to compound so the planner adds a list_* step.
+  const cap = getCapability(capability)!;
+  const params = (request.params as Record<string, unknown>) ?? {};
+  const missingPathParams = Object.entries(cap.inputSchema ?? {})
+    .filter(([, v]) => typeof v === "string" && v.includes("(path)"))
+    .map(([k]) => k)
+    .filter(k => !(k in params));
+  if (missingPathParams.length > 0) return compoundPlan(request);
+
   const ranked = scoreProviders(capability, request.quality ?? "best");
   const usable = ranked.filter(
     p =>
