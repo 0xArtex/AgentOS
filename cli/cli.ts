@@ -196,8 +196,8 @@ function formatStepOutput(output: any): string {
     const i = output.inbox
     const flags: string[] = []
     if (output.dnsApplied === true) flags.push('dns ✓')
-    if (output.resendRegistered === true) flags.push(`resend=${output.resendStatus ?? 'pending'}`)
-    if (output.sendingStatus) flags.push(`send: ${output.sendingStatus.split(' — ')[0]}`)
+    if (output.sesRegistered === true) flags.push(`ses=${output.sesStatus ?? 'pending'}`)
+    if (output.sendingStatus) flags.push(`send: ${output.sendingStatus.split(/ [—-] /)[0]}`)
     return `${i.address} (id ${i.id})${flags.length ? '  ' + flags.join('  ') : ''}`
   }
   if (Array.isArray(output.inboxes)) return `${output.inboxes.length} inbox(es)`
@@ -450,8 +450,8 @@ async function main() {
             commands: [
               { name: 'create', description: 'Create an inbox', hint: '--name agent [--domain example.com]' },
               { name: 'list', description: 'List inboxes owned by your wallet' },
-              { name: 'status', description: 'Domain verification status (Resend)', hint: '<domain>' },
-              { name: 'register', description: 'Register / re-register a wallet-owned domain with Resend', hint: '<domain>' },
+              { name: 'status', description: 'Domain verification status (AWS SES)', hint: '<domain>' },
+              { name: 'register', description: 'Register / re-register a wallet-owned domain with AWS SES', hint: '<domain>' },
               { name: 'read', description: 'Read inbox messages', hint: '--id INBOX_ID' },
               { name: 'send', description: 'Send an email', hint: '--id ID --to x@y.com --subject ... --body ...' },
               { name: 'threads', description: 'List threads', hint: '--id INBOX_ID' },

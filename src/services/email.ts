@@ -401,10 +401,9 @@ export async function sendEmail(
 }
 
 /**
- * Outbound email backend. Resend is primary; if RESEND_API_KEY is unset and
- * MAIL_WORKER_URL is set, fall back to the legacy Cloudflare-Worker proxy.
- * No more direct MailChannels API calls — that path was deprecated for
- * non-Worker traffic mid-2024.
+ * Outbound email backend: AWS SES. Domains are auto-registered as SES email
+ * identities when an inbox is provisioned on a custom domain (see
+ * src/routes/email.ts), with DKIM CNAMEs written via Namecheap.
  */
 async function sendOutboundEmail(
   from: string,
@@ -413,36 +412,11 @@ async function sendOutboundEmail(
   body: string,
   html?: string
 ): Promise<void> {
-  const { isResendConfigured, sendEmailViaResend } = await import("./resend");
-  if (isResendConfigured()) {
-    await sendEmailViaResend({ from, to, subject, body, html });
-    return;
+  const { isSesConfigured, sendEmailViaSes } = await import("./ses");
+  if (!isSesConfigured()) {
+    throw new Error("Email send unavailable: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in env (SES backend)");
   }
-
-  // Legacy fallback: a Cloudflare Worker that proxies to MailChannels.
-  // Only used when RESEND_API_KEY is unset AND a worker URL is configured.
-  const workerUrl = config.mailWorkerUrl;
-  if (workerUrl) {
-    const payload = {
-      personalizations: [{ to: [{ email: to }] }],
-      from: { email: from, name: "AgentOS" },
-      subject,
-      content: [
-        { type: "text/plain", value: body },
-        ...(html ? [{ type: "text/html", value: html }] : []),
-      ],
-    };
-    const resp = await fetch(workerUrl, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (resp.ok) return;
-    const text = await resp.text();
-    throw new Error(`Email worker send failed: ${resp.status} — ${text.slice(0, 200)}`);
-  }
-
-  throw new Error("Email send unavailable: set RESEND_API_KEY in env (or MAIL_WORKER_URL for the legacy CF-Worker fallback)");
+  await sendEmailViaSes({ from, to, subject, body, html });
 }
 
 export function getInbox(id: string): EmailInbox | undefined {
