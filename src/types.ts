@@ -159,7 +159,9 @@ export interface UpdateDnsRequest {
 
 // ── Compute Service ───────────────────────────────────────────
 
-export type ServerType = "cx22" | "cx32" | "cx42" | "cx52" | "cpx11" | "cpx21" | "cpx31" | "cpx41" | "cpx51";
+export type ServerType =
+  | "cpx11" | "cpx21" | "cpx31" | "cpx41" | "cpx51"
+  | "cax11" | "cax21" | "cax31" | "cax41";
 
 export interface ServerPlan {
   type: ServerType;
@@ -173,12 +175,14 @@ export interface ServerPlan {
 }
 
 export const SERVER_PLANS: ServerPlan[] = [
-  // Shared vCPU (CX line, Intel) - current Hetzner Cloud generation
-  { type: "cx22",  vcpu: 2,  ram: 4,   disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 3.79,  priceUsdc: "5.00" },
-  { type: "cx32",  vcpu: 4,  ram: 8,   disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 6.49,  priceUsdc: "9.00" },
-  { type: "cx42",  vcpu: 8,  ram: 16,  disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 11.49, priceUsdc: "15.00" },
-  { type: "cx52",  vcpu: 16, ram: 32,  disk: 320, traffic: 20, arch: "x86", hetznerMonthly: 23.49, priceUsdc: "28.00" },
-  // Shared vCPU (CPX line) — performance
+  // ARM (Ampere Altra) - cheapest, current. Available in fsn1/hel1/nbg1.
+  // Best $/perf for typical web workloads (coming-soon pages, small APIs, etc.)
+  { type: "cax11", vcpu: 2,  ram: 4,   disk: 40,  traffic: 20, arch: "arm", hetznerMonthly: 3.79,  priceUsdc: "5.00" },
+  { type: "cax21", vcpu: 4,  ram: 8,   disk: 80,  traffic: 20, arch: "arm", hetznerMonthly: 6.49,  priceUsdc: "9.00" },
+  { type: "cax31", vcpu: 8,  ram: 16,  disk: 160, traffic: 20, arch: "arm", hetznerMonthly: 12.49, priceUsdc: "17.00" },
+  { type: "cax41", vcpu: 16, ram: 32,  disk: 320, traffic: 20, arch: "arm", hetznerMonthly: 24.49, priceUsdc: "33.00" },
+  // AMD (CPX line) - x86, available in EVERY Hetzner location worldwide.
+  // Pick this for x86-only Docker images or when ARM compatibility is uncertain.
   { type: "cpx11", vcpu: 2,  ram: 2,   disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 4.99,  priceUsdc: "7.00" },
   { type: "cpx21", vcpu: 3,  ram: 4,   disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 9.99,  priceUsdc: "15.00" },
   { type: "cpx31", vcpu: 4,  ram: 8,   disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 17.99, priceUsdc: "26.00" },
