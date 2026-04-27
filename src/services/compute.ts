@@ -97,7 +97,8 @@ export async function createServer(
   image: string,
   owner: string,
   sshKeyIds?: number[],
-  installOpenClaw?: boolean
+  installOpenClaw?: boolean,
+  location?: string
 ): Promise<Server> {
   const pricing = SERVER_PRICING[serverType];
   if (!pricing) throw new Error(`Unknown server type: ${serverType}`);
@@ -106,7 +107,7 @@ export async function createServer(
     name,
     server_type: serverType,
     image,
-    location: config.hcloudLocation,
+    location: location || config.hcloudLocation,
     labels: { managed_by: "agentos" },
   };
 

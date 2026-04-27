@@ -159,7 +159,7 @@ export interface UpdateDnsRequest {
 
 // ── Compute Service ───────────────────────────────────────────
 
-export type ServerType = "cx23" | "cx33" | "cx43" | "cx53" | "cpx11" | "cpx21" | "cpx31" | "cpx41" | "cpx51";
+export type ServerType = "cx22" | "cx32" | "cx42" | "cx52" | "cpx11" | "cpx21" | "cpx31" | "cpx41" | "cpx51";
 
 export interface ServerPlan {
   type: ServerType;
@@ -173,11 +173,11 @@ export interface ServerPlan {
 }
 
 export const SERVER_PLANS: ServerPlan[] = [
-  // Shared vCPU (CX line) — best value
-  { type: "cx23",  vcpu: 2,  ram: 4,   disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 3.49,  priceUsdc: "5.00" },
-  { type: "cx33",  vcpu: 4,  ram: 8,   disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 5.99,  priceUsdc: "9.00" },
-  { type: "cx43",  vcpu: 8,  ram: 16,  disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 9.99,  priceUsdc: "15.00" },
-  { type: "cx53",  vcpu: 16, ram: 32,  disk: 320, traffic: 20, arch: "x86", hetznerMonthly: 18.99, priceUsdc: "28.00" },
+  // Shared vCPU (CX line, Intel) - current Hetzner Cloud generation
+  { type: "cx22",  vcpu: 2,  ram: 4,   disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 3.79,  priceUsdc: "5.00" },
+  { type: "cx32",  vcpu: 4,  ram: 8,   disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 6.49,  priceUsdc: "9.00" },
+  { type: "cx42",  vcpu: 8,  ram: 16,  disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 11.49, priceUsdc: "15.00" },
+  { type: "cx52",  vcpu: 16, ram: 32,  disk: 320, traffic: 20, arch: "x86", hetznerMonthly: 23.49, priceUsdc: "28.00" },
   // Shared vCPU (CPX line) — performance
   { type: "cpx11", vcpu: 2,  ram: 2,   disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 4.99,  priceUsdc: "7.00" },
   { type: "cpx21", vcpu: 3,  ram: 4,   disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 9.99,  priceUsdc: "15.00" },

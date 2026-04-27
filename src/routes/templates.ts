@@ -7,9 +7,9 @@ const router = Router();
 
 // Service base costs (USDC) — what it actually costs us to provision
 const SERVICE_COSTS: Record<string, number> = {
-  compute_cx23: 5,    // 2 vCPU, 4GB RAM
-  compute_cx33: 10,   // 4 vCPU, 8GB RAM
-  compute_cx43: 20,   // 8 vCPU, 16GB RAM
+  compute_cx22: 5,    // 2 vCPU, 4GB RAM
+  compute_cx32: 10,   // 4 vCPU, 8GB RAM
+  compute_cx42: 20,   // 8 vCPU, 16GB RAM
   compute_cpx21: 12,  // 3 AMD vCPU, 4GB RAM
   compute_cpx31: 24,  // 4 AMD vCPU, 8GB RAM
   wallet_base: 0,     // Free (gas funded from factory)
@@ -126,7 +126,7 @@ router.post("/", requireDashboardAuth, (req: DashboardRequest, res: Response) =>
       services.push({ type: "wallet_base" });
       services.push({ type: "wallet_solana" });
     } else if (node.type === "compute" || node.type === "server") {
-      services.push({ type: "compute", spec: node.config?.spec || "cx23" });
+      services.push({ type: "compute", spec: node.config?.spec || "cx22" });
     } else if (node.type === "phone") {
       services.push({ type: "phone" });
     } else if (node.type === "email") {
@@ -340,7 +340,7 @@ async function provisionTemplate(
     // Step 1: Provision compute (VPS)
     const computeServices = services.filter((s: any) => s.type === "compute");
     if (computeServices.length > 0) {
-      const spec = computeServices[0].spec || "cx23";
+      const spec = computeServices[0].spec || "cx22";
       logStep("compute", "running", `Provisioning ${spec} VPS...`);
 
       // Call our compute API internally

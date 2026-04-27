@@ -312,7 +312,7 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     description: "Provision a new cloud VPS with cloud-init + SSH key. Returns server_id + public IPs.",
     inputSchema: {
       name: "string",
-      serverType: "string (cx23|cx33|cx43|cx53|cpx11|cpx21|cpx31|cpx41|cpx51)",
+      serverType: "string (cx22|cx32|cx42|cx52|cpx11|cpx21|cpx31|cpx41|cpx51)",
       image: "string? (default ubuntu-24.04)",
       sshKeyIds: "number[]?",
       installOpenClaw: "boolean? (default true)",
