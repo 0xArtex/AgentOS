@@ -8,6 +8,7 @@ import { trackHackathonUsage } from "../middleware/hackathon";
 import { db } from "../db";
 import { setDomainDnsRecords, type DnsHostRecord } from "../services/namecheap";
 import { config } from "../config";
+import { extractClaimedSvmPayer } from "../middleware/x402-svm-verify";
 
 const router = Router();
 
@@ -77,10 +78,10 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
   // Skip when request has no payment header so x402 discovery probes (CDP Bazaar
   // crawler) receive 402, not 400. Anyone without a payment header can't be charged
   // yet, so there's nothing to protect against here.
-  const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
-  if (!hasPayment) { next(); return; }
+  const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
+  if (!paymentHeader) { next(); return; }
 
-  const { name, walletAddress, solanaPublicKey: spk } = req.body || {};
+  const { name, walletAddress, solanaPublicKey: spk, domain } = req.body || {};
   const key = walletAddress || spk;
   if (!name) {
     res.status(400).json({ error: "Missing 'name'" });
@@ -106,6 +107,37 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
       return;
     }
   }
+
+  // Pre-payment domain ownership check: if the caller is requesting a custom
+  // domain, verify the *claimed* payer in their unsigned payment header owns
+  // it. This rejects typos / wrong-wallet attempts BEFORE charging. If the
+  // claim is spoofed, the full x402 verifier in requireAuth still catches it
+  // and refuses settlement, so spoofing gains nothing.
+  if (domain) {
+    const normalized = String(domain).toLowerCase().trim();
+    if (normalized && normalized !== config.emailDomain) {
+      const claimedPayer = extractClaimedSvmPayer(String(paymentHeader));
+      if (!claimedPayer) {
+        res.status(400).json({
+          error: "Could not parse payment header",
+          message: "Domain ownership cannot be verified before charging — refusing to proceed. Your wallet has NOT been charged.",
+        });
+        return;
+      }
+      const owns = db
+        .prepare("SELECT 1 FROM domains WHERE domain = ? AND owner = ? AND status != ?")
+        .get(normalized, claimedPayer, "expired");
+      if (!owns) {
+        res.status(403).json({
+          error: "Domain not owned by this wallet",
+          message: `Wallet ${claimedPayer} does not own '${normalized}'. Register it first via POST /domains/register, or omit 'domain' to default to ${config.emailDomain}.`,
+          hint: "Your wallet has NOT been charged — this check ran before payment.",
+        });
+        return;
+      }
+    }
+  }
+
   next();
 }
 
