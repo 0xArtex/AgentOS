@@ -149,8 +149,16 @@ export function send402Response(res: Response, req: Request, minUsdc: number, me
   const paymentRequired = buildPaymentRequired(req, minUsdc, metadata);
   const encoded = encodePaymentRequiredHeader(paymentRequired);
 
+  // Strip non-ASCII from the JSON header value: HTTP header values must be
+  // RFC 7230-conformant (printable ASCII, 0x20-0x7E) and Node throws
+  // ERR_INVALID_CHAR on setHeader otherwise. Route descriptions sometimes
+  // contain em dashes / curly quotes / other Unicode that would crash the
+  // server. The full payload is still in the JSON response body and in the
+  // base64-encoded PAYMENT-REQUIRED header above.
+  const headerJson = JSON.stringify(paymentRequired).replace(/[^\x20-\x7E]/g, "");
+
   res.setHeader("PAYMENT-REQUIRED", encoded);
-  res.setHeader("X-Payment-Required", JSON.stringify(paymentRequired));
+  res.setHeader("X-Payment-Required", headerJson);
   res.setHeader("Access-Control-Expose-Headers", "PAYMENT-REQUIRED, X-Payment-Required, Payment-Response, PAYMENT-RESPONSE");
 
   res.status(402).json({
