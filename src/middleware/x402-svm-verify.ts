@@ -29,6 +29,42 @@ const ALLOWED_PROGRAMS = new Set([
   'Memo1UhkJBfCR6MNB9bFzAdXsqM6wFAMicSTQ8GFAT8',  // Memo v1
 ]);
 
+/**
+ * Pull the claimed payer out of an x402 Payment-Signature header WITHOUT
+ * doing on-chain verification. Lets pre-paywall route logic do cheap checks
+ * (e.g. domain ownership) before charging the user. Spoofing the claim
+ * gains nothing — the full verifier in `verifySvmPayment` still runs and
+ * catches signature mismatches before settlement.
+ *
+ * Returns null on any decode failure (treat as unauthenticated).
+ */
+export function extractClaimedSvmPayer(paymentSignatureB64: string): string | null {
+  try {
+    const json = JSON.parse(Buffer.from(paymentSignatureB64, 'base64').toString('utf8'));
+    const txB64 = json?.payload?.transaction;
+    if (typeof txB64 !== 'string') return null;
+    const tx = VersionedTransaction.deserialize(Buffer.from(txB64, 'base64'));
+    const accountKeys = tx.message.getAccountKeys();
+    for (const ix of tx.message.compiledInstructions) {
+      const programId = accountKeys.get(ix.programIdIndex);
+      if (!programId) continue;
+      const programStr = programId.toBase58();
+      const isSplToken = programStr === 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA'
+        || programStr === 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+      if (!isSplToken) continue;
+      // TransferChecked discriminator is 12; account index 3 is the authority
+      // (the wallet that owns the source token account, i.e. the actual payer).
+      if (ix.data.length > 0 && ix.data[0] === 12 && ix.accountKeyIndexes.length >= 4) {
+        const authorityKey = accountKeys.get(ix.accountKeyIndexes[3]);
+        if (authorityKey) return authorityKey.toBase58();
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 function loadFeePayer(): Keypair {
   if (feePayerKeypair) return feePayerKeypair;
 
