@@ -414,7 +414,8 @@ async function main() {
             subtitle: 'Inbox operations',
             footerLeft: 'Email operations',
             commands: [
-              { name: 'create', description: 'Create an inbox', hint: '--name agent --wallet SOL_PUB' },
+              { name: 'create', description: 'Create an inbox', hint: '--name agent [--domain example.com]' },
+              { name: 'list', description: 'List inboxes owned by your wallet' },
               { name: 'read', description: 'Read inbox messages', hint: '--id INBOX_ID' },
               { name: 'send', description: 'Send an email', hint: '--id ID --to x@y.com --subject ... --body ...' },
               { name: 'threads', description: 'List threads', hint: '--id INBOX_ID' },
@@ -424,27 +425,19 @@ async function main() {
         }
         switch (subcommand) {
           case 'create': {
-            const name = flags.name as string; const wallet = flags.wallet as string
-            if (!name || !wallet) err('--name, --wallet required')
+            const name = flags.name as string || positional[0]
+            const wallet = flags.wallet as string | undefined
+            const domain = flags.domain as string | undefined
+            if (!name) err('--name required (e.g. agentos email create --name hello [--domain example.com])')
             const spin = new Spinner()
             spin.start('Creating inbox...')
-            const data = await ao.emailCreate(name, wallet)
+            const data = await ao.emailCreate(name, wallet, domain)
             spin.stop('Inbox created', true)
             return print(data)
-            const address = data.address || `${name}@agntos.dev`
-            render(React.createElement(SuccessScreen, {
-              version: VERSION,
-              title: 'Inbox created',
-              subtitle: address,
-              footerLeft: 'Inbox ready',
-              details: [
-                { label: 'ID', value: String(data.id || '') },
-                { label: 'E2E', value: data.e2eEnabled ? 'enabled' : 'disabled' },
-              ],
-            }))
-            addInbox({ id: data.id, address, createdAt: new Date().toISOString() })
-            log(`email create: ${data.address || name}`)
-            break
+          }
+          case 'list': {
+            const data = await ao.emailListInboxes()
+            return print(data)
           }
           case 'read': {
             const id = flags.id as string || positional[0]
