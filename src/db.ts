@@ -104,29 +104,62 @@ export function initDatabase(): void {
     }
   }
   if (hasLegacyUniqueLocalPart) {
-    db.exec(`
-      BEGIN;
-      CREATE TABLE email_inboxes_new (
-        id TEXT PRIMARY KEY,
-        address TEXT UNIQUE NOT NULL,
-        local_part TEXT NOT NULL,
-        owner TEXT NOT NULL,
-        public_key TEXT,
-        solana_public_key TEXT,
-        e2e_enabled INTEGER DEFAULT 1,
-        created_at TEXT NOT NULL,
-        active INTEGER DEFAULT 1
-      );
-      INSERT INTO email_inboxes_new (id, address, local_part, owner, public_key, solana_public_key, e2e_enabled, created_at, active)
-        SELECT id, address, local_part, owner, public_key, solana_public_key,
-               COALESCE(e2e_enabled, 1), created_at, active
-        FROM email_inboxes;
-      DROP TABLE email_inboxes;
-      ALTER TABLE email_inboxes_new RENAME TO email_inboxes;
-      CREATE INDEX IF NOT EXISTS idx_email_inboxes_local_part ON email_inboxes(local_part);
-      CREATE INDEX IF NOT EXISTS idx_email_inboxes_owner ON email_inboxes(owner);
-      COMMIT;
-    `);
+    // Discover the actual columns the existing table has — older prod DBs
+    // may be missing optional columns (public_key, solana_public_key) and
+    // INSERT ... SELECT would error trying to read them.
+    const existingCols = new Set(
+      (db.prepare("PRAGMA table_info(email_inboxes)").all() as Array<{ name: string }>).map(c => c.name)
+    );
+    const pickCol = (col: string, fallback: string) =>
+      existingCols.has(col) ? col : fallback;
+
+    // Disable foreign-key enforcement for the duration of the rebuild so the
+    // DROP TABLE doesn't fail when email_messages.inbox_id has rows pointing
+    // at the table being rebuilt. SQLite re-evaluates FKs on COMMIT (or when
+    // foreign_keys is re-enabled), so the new table — same name, same id PK
+    // values — keeps every reference valid.
+    const fkBefore = db.prepare("PRAGMA foreign_keys").get() as { foreign_keys: number };
+    db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      db.exec("BEGIN");
+      db.exec(`
+        CREATE TABLE email_inboxes_new (
+          id TEXT PRIMARY KEY,
+          address TEXT UNIQUE NOT NULL,
+          local_part TEXT NOT NULL,
+          owner TEXT NOT NULL,
+          public_key TEXT,
+          solana_public_key TEXT,
+          e2e_enabled INTEGER DEFAULT 1,
+          created_at TEXT NOT NULL,
+          active INTEGER DEFAULT 1
+        )
+      `);
+      db.exec(`
+        INSERT INTO email_inboxes_new (id, address, local_part, owner, public_key, solana_public_key, e2e_enabled, created_at, active)
+          SELECT
+            id,
+            address,
+            local_part,
+            owner,
+            ${pickCol('public_key', 'NULL')},
+            ${pickCol('solana_public_key', 'NULL')},
+            ${existingCols.has('e2e_enabled') ? "COALESCE(e2e_enabled, 1)" : "1"},
+            created_at,
+            ${pickCol('active', '1')}
+          FROM email_inboxes
+      `);
+      db.exec("DROP TABLE email_inboxes");
+      db.exec("ALTER TABLE email_inboxes_new RENAME TO email_inboxes");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_email_inboxes_local_part ON email_inboxes(local_part)");
+      db.exec("CREATE INDEX IF NOT EXISTS idx_email_inboxes_owner ON email_inboxes(owner)");
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      if (fkBefore?.foreign_keys === 1) db.exec("PRAGMA foreign_keys = ON");
+      throw err;
+    }
+    if (fkBefore?.foreign_keys === 1) db.exec("PRAGMA foreign_keys = ON");
   }
 
   // Email Messages table
