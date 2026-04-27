@@ -224,8 +224,15 @@ export class AgentOS {
   }
 
   // ── Email ──
-  async emailCreate(name: string, walletAddress: string): Promise<any> {
-    return this.request('POST', '/email/inboxes', { name, walletAddress })
+  async emailCreate(name: string, walletAddress?: string, domain?: string): Promise<any> {
+    const body: Record<string, unknown> = { name }
+    if (walletAddress) body.walletAddress = walletAddress
+    if (domain) body.domain = domain
+    return this.request('POST', '/email/inboxes', body)
+  }
+
+  async emailListInboxes(): Promise<any> {
+    return this.request('GET', '/email/inboxes')
   }
 
   async emailRead(inboxId: string): Promise<any> {
