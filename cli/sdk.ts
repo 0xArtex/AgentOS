@@ -239,6 +239,10 @@ export class AgentOS {
     return this.request('GET', `/email/domains/${encodeURIComponent(domain)}/status`)
   }
 
+  async emailRegisterDomain(domain: string): Promise<any> {
+    return this.request('POST', `/email/domains/${encodeURIComponent(domain)}/register`)
+  }
+
   async emailRead(inboxId: string): Promise<any> {
     return this.request('GET', `/email/inboxes/${inboxId}/messages`)
   }
