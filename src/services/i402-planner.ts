@@ -278,7 +278,7 @@ function buildPlannerSystem(args: {
         "  - **Chain prior-step outputs**: when a downstream step needs an ID created by an earlier step, ALWAYS reference it via $STEPS.sN.output.FIELD. Common chains:",
         "      · provision_phone returns { id } → use as phone_number_id in send_sms / read_sms / start_voice_call / list_calls",
         "      · provision_email_inbox returns { id } → use as inbox_id in send_email / read_email / list_email_threads",
-        "      · register_domain returns { id, domain } → use 'domain' as path param in get_domain / dns_manage / transfer_domain_*",
+        "      · register_domain returns { id, domain } → use 'domain' as path param in get_domain / dns_manage / transfer_domain_*, and pass into provision_email_inbox's `domain` field to create branded inboxes (hello@example.com) with auto-DNS setup",
         "      · create_ssh_key returns { id } → include in sshKeyIds array of deploy_vps",
         "      · deploy_vps returns { id } → use as server_id in vps_action / vps_resize / vps_delete / install_skill / get_vps",
         "      · start_voice_call returns { call_control_id } → use as call_control_id in voice_speak / voice_play / voice_hangup / voice_record_*",

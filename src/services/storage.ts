@@ -132,6 +132,11 @@ class Storage {
     return Boolean(stmt.get(localPart));
   }
 
+  hasEmailAddress(address: string): boolean {
+    const stmt = db.prepare('SELECT 1 FROM email_inboxes WHERE address = ? LIMIT 1');
+    return Boolean(stmt.get(address));
+  }
+
   getEmailInboxesByOwner(owner: string): EmailInbox[] {
     const stmt = db.prepare('SELECT * FROM email_inboxes WHERE owner = ?');
     const rows = stmt.all(owner) as any[];

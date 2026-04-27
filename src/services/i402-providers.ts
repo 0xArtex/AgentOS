@@ -211,9 +211,13 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   // ── Email ──
   provision_email_inbox: {
     name: "provision_email_inbox",
-    description: "Provision a new E2E-encrypted email inbox at {name}@agntos.dev. Keyed to the caller's wallet by default; pass walletAddress only when delegating encryption to a different wallet.",
-    inputSchema: { name: "string (local-part)", walletAddress: "string? (Solana pubkey — defaults to caller's wallet; only set when encrypting for a third party)" },
-    outputSchema: { inbox: "object ({ id, address, walletAddress })" },
+    description: "Provision a new E2E-encrypted email inbox keyed to the caller's wallet. Defaults to {name}@agntos.dev. To provision on a domain the wallet just registered (e.g. hello@stealthkicks.xyz), pass `domain` chained from register_domain's output — the route validates ownership and auto-sets MX/SPF/_mailchannels DNS records on that domain via Namecheap.",
+    inputSchema: {
+      name: "string (local-part)",
+      domain: "string? (fqdn — defaults to agntos.dev; must be a Namecheap domain registered to this wallet, e.g. $STEPS.s1.output.domain)",
+      walletAddress: "string? (Solana pubkey — defaults to caller's wallet; only set when encrypting for a third party)",
+    },
+    outputSchema: { inbox: "object ({ id, address, walletAddress })", dnsApplied: "boolean? (true when DNS records were successfully written to a custom domain)" },
   },
   list_inboxes: {
     name: "list_inboxes",
