@@ -369,7 +369,7 @@ export async function sendEmail(
   if (!inbox) throw new Error(`Inbox ${inboxId} not found`);
   if (!inbox.active) throw new Error("Inbox is deactivated");
 
-  await sendViaMailChannels(inbox.address, to, subject, body, html);
+  await sendOutboundEmail(inbox.address, to, subject, body, html);
 
   // Encrypt sent content at rest (same mode as inbound)
   const useE2E = inbox.publicKey && inbox.e2eEnabled;
@@ -400,43 +400,49 @@ export async function sendEmail(
   return msg;
 }
 
-async function sendViaMailChannels(
+/**
+ * Outbound email backend. Resend is primary; if RESEND_API_KEY is unset and
+ * MAIL_WORKER_URL is set, fall back to the legacy Cloudflare-Worker proxy.
+ * No more direct MailChannels API calls — that path was deprecated for
+ * non-Worker traffic mid-2024.
+ */
+async function sendOutboundEmail(
   from: string,
   to: string,
   subject: string,
   body: string,
   html?: string
 ): Promise<void> {
-  const payload = {
-    personalizations: [{ to: [{ email: to }] }],
-    from: { email: from, name: "AgentOS" },
-    subject,
-    content: [
-      { type: "text/plain", value: body },
-      ...(html ? [{ type: "text/html", value: html }] : []),
-    ],
-  };
+  const { isResendConfigured, sendEmailViaResend } = await import("./resend");
+  if (isResendConfigured()) {
+    await sendEmailViaResend({ from, to, subject, body, html });
+    return;
+  }
 
+  // Legacy fallback: a Cloudflare Worker that proxies to MailChannels.
+  // Only used when RESEND_API_KEY is unset AND a worker URL is configured.
   const workerUrl = config.mailWorkerUrl;
   if (workerUrl) {
+    const payload = {
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: from, name: "AgentOS" },
+      subject,
+      content: [
+        { type: "text/plain", value: body },
+        ...(html ? [{ type: "text/html", value: html }] : []),
+      ],
+    };
     const resp = await fetch(workerUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     if (resp.ok) return;
-  }
-
-  const resp = await fetch("https://api.mailchannels.net/tx/v1/send", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  });
-
-  if (!resp.ok) {
     const text = await resp.text();
-    throw new Error(`MailChannels send failed: ${resp.status} — ${text}`);
+    throw new Error(`Email worker send failed: ${resp.status} — ${text.slice(0, 200)}`);
   }
+
+  throw new Error("Email send unavailable: set RESEND_API_KEY in env (or MAIL_WORKER_URL for the legacy CF-Worker fallback)");
 }
 
 export function getInbox(id: string): EmailInbox | undefined {

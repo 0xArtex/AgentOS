@@ -196,13 +196,25 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
   try {
     const result = emailService.createInbox(name, owner, encryptionKey, resolvedDomain);
 
-    // For custom domains, auto-emit the DNS records the inbox needs to send
-    // and receive mail through AgentOS infrastructure. Failure here is logged
-    // but doesn't roll back the inbox — the user can retry via dns_manage.
+    // For custom domains, register the domain with our email backend (Resend)
+    // and write the SPF + DKIM CNAME records it asks for to the user's Namecheap
+    // DNS. Resend auto-verifies once DNS propagates (typically 5-30 min).
+    // Failure here is logged but doesn't roll back the inbox — the user can
+    // re-trigger the auto-verify by calling provision_email_inbox again.
     let dnsApplied = false;
+    let resendStatus: string | undefined;
     if (resolvedDomain) {
       try {
-        await setDomainDnsRecords(resolvedDomain, defaultMailDnsRecords());
+        const { registerDomainWithResend, isResendConfigured } = await import("../services/resend");
+        let records: DnsHostRecord[] = [];
+        if (isResendConfigured()) {
+          const reg = await registerDomainWithResend(resolvedDomain);
+          records = reg.records;
+          resendStatus = reg.status;
+        }
+        // Always include an inbound MX so future receive paths land somewhere.
+        records.push({ type: 'MX', name: '@', value: 'mx.agntos.dev', ttl: 1800, mxPref: 10 });
+        await setDomainDnsRecords(resolvedDomain, records);
         dnsApplied = true;
       } catch (dnsErr: any) {
         console.error(`[email] auto-DNS for ${resolvedDomain} failed:`, dnsErr?.message || dnsErr);
@@ -216,6 +228,11 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         walletAddress: result.solanaPublicKey,
       },
       dnsApplied: resolvedDomain ? dnsApplied : undefined,
+      sendingStatus: resolvedDomain
+        ? (resendStatus === 'verified'
+          ? 'ready'
+          : 'pending_verification — DNS propagating; sending will work once Resend verifies the domain (typically 5–30 min)')
+        : undefined,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -223,9 +240,9 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
 });
 
 /**
- * The minimum DNS record set we apply to a wallet-owned domain when an
- * inbox is provisioned on it. MX routes inbound mail at our infra; SPF +
- * _mailchannels TXT authorize outbound through MailChannels' relay.
+ * Legacy default DNS record set kept for the fallback path where Resend is
+ * not configured. Production uses `registerDomainWithResend()` instead which
+ * returns the canonical record set (DKIM + SPF) that Resend requires.
  */
 function defaultMailDnsRecords(): DnsHostRecord[] {
   const cfid = process.env.MAILCHANNELS_CFID || '';
