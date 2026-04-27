@@ -57,10 +57,11 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS email_inboxes (
       id TEXT PRIMARY KEY,
       address TEXT UNIQUE NOT NULL,
-      local_part TEXT UNIQUE NOT NULL,
+      local_part TEXT NOT NULL,
       owner TEXT NOT NULL,
       public_key TEXT,
       solana_public_key TEXT,
+      e2e_enabled INTEGER DEFAULT 1,
       created_at TEXT NOT NULL,
       active INTEGER DEFAULT 1
     );
@@ -74,6 +75,48 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_email_inboxes_local_part ON email_inboxes(local_part);
     CREATE INDEX IF NOT EXISTS idx_email_inboxes_owner ON email_inboxes(owner);
   `);
+
+  // Idempotent migration: add e2e_enabled column if a pre-existing DB lacks it
+  // (multi-domain inbox feature shipped against a schema that already
+  // referenced this column, so older DBs without it would break setEmailInbox).
+  const inboxCols = db.prepare("PRAGMA table_info(email_inboxes)").all() as Array<{ name: string }>;
+  if (!inboxCols.some(c => c.name === 'e2e_enabled')) {
+    db.exec("ALTER TABLE email_inboxes ADD COLUMN e2e_enabled INTEGER DEFAULT 1");
+  }
+
+  // Idempotent migration: drop the legacy UNIQUE constraint on local_part so
+  // the same local-part can exist on different domains (hello@brand-a.com +
+  // hello@brand-b.com). SQLite can't drop constraints in place — rebuild the
+  // table when the unique index is detected.
+  const inboxIndexes = db.prepare("PRAGMA index_list(email_inboxes)").all() as Array<{ name: string; unique: number; origin: string }>;
+  const hasLegacyUniqueLocalPart = inboxIndexes.some(idx =>
+    idx.unique === 1 && idx.origin === 'u' && /local_part/i.test(idx.name)
+  );
+  if (hasLegacyUniqueLocalPart) {
+    db.exec(`
+      BEGIN;
+      CREATE TABLE email_inboxes_new (
+        id TEXT PRIMARY KEY,
+        address TEXT UNIQUE NOT NULL,
+        local_part TEXT NOT NULL,
+        owner TEXT NOT NULL,
+        public_key TEXT,
+        solana_public_key TEXT,
+        e2e_enabled INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        active INTEGER DEFAULT 1
+      );
+      INSERT INTO email_inboxes_new (id, address, local_part, owner, public_key, solana_public_key, e2e_enabled, created_at, active)
+        SELECT id, address, local_part, owner, public_key, solana_public_key,
+               COALESCE(e2e_enabled, 1), created_at, active
+        FROM email_inboxes;
+      DROP TABLE email_inboxes;
+      ALTER TABLE email_inboxes_new RENAME TO email_inboxes;
+      CREATE INDEX IF NOT EXISTS idx_email_inboxes_local_part ON email_inboxes(local_part);
+      CREATE INDEX IF NOT EXISTS idx_email_inboxes_owner ON email_inboxes(owner);
+      COMMIT;
+    `);
+  }
 
   // Email Messages table
   db.exec(`
