@@ -1,6 +1,7 @@
 import { config } from "../config";
 import { storage } from "./storage";
-import { Server, ServerType, ServerAction, SERVER_PRICING, SERVER_PLANS } from "../types";
+import { Server, ServerType, ServerAction } from "../types";
+import { getServerPlans, getServerPricing, isValidServerType } from "./hcloud-types";
 import crypto from "crypto";
 
 const HCLOUD_API = "https://api.hetzner.cloud/v1";
@@ -100,8 +101,11 @@ export async function createServer(
   installOpenClaw?: boolean,
   location?: string
 ): Promise<Server> {
-  const pricing = SERVER_PRICING[serverType];
-  if (!pricing) throw new Error(`Unknown server type: ${serverType}`);
+  if (!isValidServerType(serverType)) {
+    const valid = getServerPlans().map(p => p.type).join(", ");
+    throw new Error(`Unknown or deprecated server type '${serverType}'. Valid types right now: ${valid}`);
+  }
+  const pricing = getServerPricing()[serverType] ?? "0.00";
 
   const payload: any = {
     name,
@@ -221,7 +225,7 @@ export async function resizeServer(id: string, serverType: ServerType, upgradeDi
   });
 
   // Update local record
-  const pricing = SERVER_PRICING[serverType];
+  const pricing = getServerPricing()[serverType];
   if (pricing) {
     server.serverType = serverType;
     server.priceMonthly = pricing;
@@ -232,7 +236,7 @@ export async function resizeServer(id: string, serverType: ServerType, upgradeDi
 }
 
 export function getPlans() {
-  return SERVER_PLANS.map(p => ({
+  return getServerPlans().map(p => ({
     type: p.type,
     vcpu: p.vcpu,
     ramGb: p.ram,
