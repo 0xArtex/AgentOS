@@ -1141,7 +1141,7 @@ async function main() {
                     console.log(`  ${c.yellow}?${c.white} clarification: ${JSON.stringify(event.questions)}`)
                     break
                   case 'summary':
-                    console.log(`\n${c.cyan}Summary${c.white}: status=${event.status}  spent=$${event.spentUsdc?.toFixed(2)}  refunded_escrow=$${event.remainingEscrowUsdc?.toFixed(2)}`)
+                    console.log(`\n${c.cyan}Summary${c.white}: status=${event.status}  spent=$${event.spentUsdc?.toFixed(2)}`)
                     for (const a of event.artifacts || []) {
                       console.log(`  ${c.gray}artifact:${c.white} ${a.type} — ${a.name ?? a.resourceRef}`)
                     }

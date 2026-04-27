@@ -39,35 +39,135 @@ export const icon = {
 // ─── Spinner ───
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
+// Hide / show the terminal cursor. The blinking cursor sitting at the end of
+// the spinner line otherwise looks like flicker.
+const HIDE_CURSOR = '\x1b[?25l'
+const SHOW_CURSOR = '\x1b[?25h'
+
+// One-time exit hook so a Ctrl+C / unexpected exit while a spinner is active
+// doesn't leave the user's terminal with a hidden cursor.
+let cursorRestoreInstalled = false
+function installCursorRestoreOnce() {
+  if (cursorRestoreInstalled) return
+  cursorRestoreInstalled = true
+  const restore = () => process.stdout.write(SHOW_CURSOR)
+  process.on('exit', restore)
+  process.on('SIGINT', () => { restore(); process.exit(130) })
+  process.on('SIGTERM', () => { restore(); process.exit(143) })
+}
+
 export class Spinner {
+  // Module-level stack of currently-running spinners. When a new spinner
+  // starts, it pauses whatever was on top; when it stops/cancels, the parent
+  // resumes. Prevents two spinners from stomping on each other's stdout
+  // (the classic "outer + inner spinner flashing back and forth" bug).
+  private static stack: Spinner[] = []
+
   private interval: ReturnType<typeof setInterval> | null = null
   private frame = 0
   private label = ''
+  private active = false
+  private stopped = false
+
+  private render() {
+    if (!this.active) return
+    const f = SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length]
+    // \r returns to col 0; \x1b[2K erases the entire line so a shorter label
+    // doesn't leave the previous label's tail visible.
+    process.stdout.write(`\r\x1b[2K  ${theme.info}${f}${theme.reset} ${theme.text}${this.label}${theme.reset}`)
+  }
+
+  private terminateRender() {
+    if (this.interval) clearInterval(this.interval)
+    this.interval = null
+    this.active = false
+    process.stdout.write(`\r\x1b[2K`)
+  }
+
+  private pause() {
+    // Suspend animation but stay registered as the (paused) parent that will
+    // resume once the child stops. Don't show the cursor — the child is
+    // about to take over.
+    if (this.interval) clearInterval(this.interval)
+    this.interval = null
+    this.active = false
+    process.stdout.write(`\r\x1b[2K`)
+  }
+
+  private resume() {
+    if (this.stopped) return
+    this.active = true
+    process.stdout.write(HIDE_CURSOR)
+    this.render()
+    this.interval = setInterval(() => {
+      this.frame++
+      this.render()
+    }, 80)
+  }
+
+  private popAndResume() {
+    const idx = Spinner.stack.indexOf(this)
+    if (idx >= 0) Spinner.stack.splice(idx, 1)
+    const next = Spinner.stack[Spinner.stack.length - 1]
+    if (next) {
+      next.resume()
+    } else {
+      // No parent to resume — really done; restore the cursor.
+      process.stdout.write(SHOW_CURSOR)
+    }
+  }
 
   start(label: string) {
+    // Reuse path: already-running spinner just gets a new label.
+    if (this.active) { this.update(label); return }
+    installCursorRestoreOnce()
     this.label = label
     this.frame = 0
-    process.stdout.write('\n')
+    this.active = true
+    this.stopped = false
+
+    const parent = Spinner.stack[Spinner.stack.length - 1]
+    if (parent) parent.pause()
+    Spinner.stack.push(this)
+
+    // Only add a leading newline if we're the topmost spinner. Nested
+    // spinners render in place on the line the parent just cleared.
+    if (Spinner.stack.length === 1) process.stdout.write('\n')
+    process.stdout.write(HIDE_CURSOR)
+    this.render()
     this.interval = setInterval(() => {
-      const f = SPINNER_FRAMES[this.frame % SPINNER_FRAMES.length]
-      process.stdout.write(`\r  ${theme.info}${f}${theme.reset} ${theme.text}${this.label}${theme.reset}`)
       this.frame++
+      this.render()
     }, 80)
   }
 
   update(label: string) {
     this.label = label
+    // Repaint immediately so label changes don't feel laggy waiting for the
+    // next tick.
+    this.render()
   }
 
   stop(label: string, success = true) {
-    if (this.interval) clearInterval(this.interval)
-    this.interval = null
-    process.stdout.write(`\r\x1b[2K`)
+    if (this.stopped) return
+    this.stopped = true
+    this.terminateRender()
     if (success) {
       console.log(`  ${icon.success} ${label}`)
     } else {
       console.log(`  ${icon.error} ${label}`)
     }
+    this.popAndResume()
+  }
+
+  // Stop the animation without printing anything. Use when the caller will
+  // surface the error via a different channel (e.g. throwing, so the wrapper
+  // can format the user-facing message itself).
+  cancel() {
+    if (this.stopped) return
+    this.stopped = true
+    this.terminateRender()
+    this.popAndResume()
   }
 }
 
@@ -155,7 +255,9 @@ export function progress(current: number, total: number, label?: string) {
   const filled = Math.round((current / total) * width)
   const bar = '█'.repeat(filled) + '░'.repeat(width - filled)
   const pct = Math.round((current / total) * 100)
-  process.stdout.write(`\r  ${theme.info}${bar}${theme.reset} ${theme.muted}${pct}%${label ? ' ' + label : ''}${theme.reset}`)
+  // \x1b[2K clears the line so a shorter label doesn't leave the previous
+  // label's tail visible — same fix as the spinner redraw.
+  process.stdout.write(`\r\x1b[2K  ${theme.info}${bar}${theme.reset} ${theme.muted}${pct}%${label ? ' ' + label : ''}${theme.reset}`)
   if (current >= total) console.log()
 }
 

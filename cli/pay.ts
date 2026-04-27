@@ -449,8 +449,8 @@ export async function paidRequest(
       const detail = paidData.message && paidData.message !== paidData.error
         ? `${paidData.error}: ${paidData.message}`
         : paidData.error
-      if (spinner) spinner.stop(detail, false)
-      throw new Error(detail)
+      if (spinner) spinner.cancel()
+      throw new Error(summarizeUpstreamError(detail))
     }
 
     if (spinner) spinner.stop(`Paid ${amountUsdc} USDC on ${chainLabel}`, true)
@@ -458,7 +458,25 @@ export async function paidRequest(
 
     return { data: paidData, paid: true, txHash: paidData.txHash }
   } catch (e) {
-    if (spinner) spinner.stop(`Payment failed`, false)
+    if (spinner) spinner.cancel()
     throw e
   }
+}
+
+// Trim noisy upstream error bodies (HTML pages, multi-line stack-traces) into
+// a single human-readable line. The full body is still available in logs.
+function summarizeUpstreamError(raw: string | undefined): string {
+  if (!raw) return 'unknown error'
+  const s = String(raw)
+  // HTML page (e.g. nginx 401 / Cloudflare 502): extract <title> if present,
+  // otherwise strip tags and collapse whitespace.
+  if (/<html|<body/i.test(s)) {
+    const title = s.match(/<title>([^<]+)<\/title>/i)
+    if (title) return title[1].trim()
+    const stripped = s.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+    return stripped.length > 200 ? stripped.slice(0, 197) + '...' : stripped
+  }
+  // Plain-text but excessively long: truncate.
+  if (s.length > 300) return s.slice(0, 297) + '...'
+  return s
 }
