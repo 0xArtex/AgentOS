@@ -92,6 +92,56 @@ describe("hasEmailAddress — multi-domain dedup", () => {
   });
 });
 
+describe("schema migration — drop legacy UNIQUE(local_part)", () => {
+  it("detects + drops the auto-named UNIQUE index from the original CREATE TABLE", () => {
+    // Simulate a pre-migration DB by re-creating the email_inboxes table
+    // with the legacy schema (UNIQUE on local_part inline).
+    db.exec("DROP TABLE IF EXISTS email_inboxes");
+    db.exec(`
+      CREATE TABLE email_inboxes (
+        id TEXT PRIMARY KEY,
+        address TEXT UNIQUE NOT NULL,
+        local_part TEXT UNIQUE NOT NULL,
+        owner TEXT NOT NULL,
+        public_key TEXT,
+        solana_public_key TEXT,
+        e2e_enabled INTEGER DEFAULT 1,
+        created_at TEXT NOT NULL,
+        active INTEGER DEFAULT 1
+      );
+    `);
+
+    // Confirm the legacy unique index actually exists before migration.
+    const before = db.prepare("PRAGMA index_list(email_inboxes)").all() as Array<{ name: string; unique: number; origin: string }>;
+    const legacyUnique = before.find(idx => {
+      if (idx.unique !== 1 || idx.origin !== 'u') return false;
+      const cols = db.prepare(`PRAGMA index_info("${idx.name}")`).all() as Array<{ name: string }>;
+      return cols.length === 1 && cols[0].name === 'local_part';
+    });
+    assert.ok(legacyUnique, "test setup invalid — legacy UNIQUE on local_part not present");
+
+    // Re-run migrations.
+    initDatabase();
+
+    // After migration, no UNIQUE index on local_part should exist.
+    const after = db.prepare("PRAGMA index_list(email_inboxes)").all() as Array<{ name: string; unique: number; origin: string }>;
+    const stillUnique = after.find(idx => {
+      if (idx.unique !== 1 || idx.origin !== 'u') return false;
+      const cols = db.prepare(`PRAGMA index_info("${idx.name}")`).all() as Array<{ name: string }>;
+      return cols.length === 1 && cols[0].name === 'local_part';
+    });
+    assert.equal(stillUnique, undefined, "migration failed — UNIQUE on local_part still present");
+
+    // Sanity check: same local-part on different domains can now coexist.
+    db.prepare(`INSERT INTO email_inboxes (id, address, local_part, owner, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .run("i1", "hello@one.xyz", "hello", WALLET_A, new Date().toISOString());
+    db.prepare(`INSERT INTO email_inboxes (id, address, local_part, owner, created_at) VALUES (?, ?, ?, ?, ?)`)
+      .run("i2", "hello@two.xyz", "hello", WALLET_A, new Date().toISOString());
+    const rows = db.prepare("SELECT address FROM email_inboxes WHERE local_part = ?").all("hello") as Array<{ address: string }>;
+    assert.equal(rows.length, 2);
+  });
+});
+
 describe("domain-ownership SQL — the route's security check", () => {
   // The route uses:
   //   SELECT 1 FROM domains WHERE domain = ? AND owner = ? AND status != 'expired'

@@ -96,8 +96,12 @@ class Storage {
   // ── Email ─────────────────────────────────────────────────
 
   setEmailInbox(id: string, inbox: EmailInbox): void {
+    // Plain INSERT (not OR REPLACE) — duplicate detection is the caller's
+    // responsibility (`hasEmailAddress` / `hasEmailLocalPart`). OR REPLACE
+    // would silently delete a conflicting row on any UNIQUE conflict, which
+    // is data-loss waiting to happen.
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO email_inboxes (id, address, local_part, owner, public_key, solana_public_key, e2e_enabled, created_at, active)
+      INSERT INTO email_inboxes (id, address, local_part, owner, public_key, solana_public_key, e2e_enabled, created_at, active)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     stmt.run(id, inbox.address, inbox.localPart, inbox.owner, inbox.publicKey, inbox.solanaPublicKey, inbox.e2eEnabled ? 1 : 0, inbox.createdAt, inbox.active ? 1 : 0);
