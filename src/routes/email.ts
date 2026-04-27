@@ -196,32 +196,32 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
   try {
     const result = emailService.createInbox(name, owner, encryptionKey, resolvedDomain);
 
-    // For custom domains, register the domain with our email backend (Resend)
-    // and write the SPF + DKIM CNAME records it asks for to the user's Namecheap
-    // DNS. Resend auto-verifies once DNS propagates (typically 5-30 min).
+    // For custom domains, register the domain with our email backend (AWS SES)
+    // and write the DKIM CNAME + SPF records it asks for to the user's Namecheap
+    // DNS. SES auto-verifies once DNS propagates (typically 5-30 min).
     let dnsApplied = false;
-    let resendStatus: string | undefined;
-    let resendDomainId: string | undefined;
-    let resendRegistered = false;
-    let resendError: string | undefined;
+    let sesStatus: string | undefined;
+    let sesIdentity: string | undefined;
+    let sesRegistered = false;
+    let sesError: string | undefined;
     if (resolvedDomain) {
       try {
-        const { registerDomainWithResend, isResendConfigured } = await import("../services/resend");
+        const { registerDomainWithSes, isSesConfigured } = await import("../services/ses");
         let records: DnsHostRecord[] = [];
-        if (isResendConfigured()) {
+        if (isSesConfigured()) {
           try {
-            const reg = await registerDomainWithResend(resolvedDomain);
+            const reg = await registerDomainWithSes(resolvedDomain);
             records = reg.records;
-            resendStatus = reg.status;
-            resendDomainId = reg.id;
-            resendRegistered = true;
-            console.log(`[email] resend registered ${resolvedDomain} (id=${reg.id}, status=${reg.status}, ${reg.records.length} dns records)`);
-          } catch (resErr: any) {
-            resendError = resErr?.message || String(resErr);
-            console.error(`[email] resend register ${resolvedDomain} failed:`, resendError);
+            sesStatus = reg.status;
+            sesIdentity = reg.id;
+            sesRegistered = true;
+            console.log(`[email] ses registered ${resolvedDomain} (status=${reg.status}, ${reg.records.length} dns records)`);
+          } catch (sesErr: any) {
+            sesError = sesErr?.message || String(sesErr);
+            console.error(`[email] ses register ${resolvedDomain} failed:`, sesError);
           }
         } else {
-          console.warn(`[email] RESEND_API_KEY not set — skipping resend domain registration for ${resolvedDomain}`);
+          console.warn(`[email] AWS SES not configured (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY missing) - skipping domain registration for ${resolvedDomain}`);
         }
         // Always include an inbound MX so future receive paths land somewhere.
         records.push({ type: 'MX', name: '@', value: 'mx.agntos.dev', ttl: 1800, mxPref: 10 });
@@ -239,16 +239,16 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         walletAddress: result.solanaPublicKey,
       },
       dnsApplied: resolvedDomain ? dnsApplied : undefined,
-      resendRegistered: resolvedDomain ? resendRegistered : undefined,
-      resendDomainId,
-      resendStatus,
-      resendError,
+      sesRegistered: resolvedDomain ? sesRegistered : undefined,
+      sesIdentity,
+      sesStatus,
+      sesError,
       sendingStatus: resolvedDomain
-        ? (resendStatus === 'verified'
+        ? (sesStatus === 'verified'
           ? 'ready'
-          : resendRegistered
-            ? 'pending_verification — DNS propagating; sending will work once Resend verifies the domain (typically 5–30 min). Poll with: agentos email status <domain>'
-            : 'unverified — Resend not configured on server; outbound send unavailable until RESEND_API_KEY is set')
+          : sesRegistered
+            ? 'pending_verification - DNS propagating; sending will work once SES verifies the domain (typically 5-30 min). Poll with: agentos email status <domain>'
+            : 'unverified - AWS SES not configured on server; outbound send unavailable until AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are set')
         : undefined,
     });
   } catch (err: any) {
@@ -257,20 +257,20 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
 });
 
 /**
- * POST /email/domains/:domain/register — explicitly register a wallet-owned
- * domain with Resend + write the required DKIM/SPF DNS records via Namecheap.
+ * POST /email/domains/:domain/register - explicitly register a wallet-owned
+ * domain with AWS SES and write the required DKIM/SPF DNS records via Namecheap.
  *
  * Use case: recover from a failed auto-registration during provision_email_inbox
- * (e.g. wrong API key scope, transient Resend error) without paying $2 to
- * provision another inbox just to retry.
+ * (e.g. transient SES error) without paying $2 to provision another inbox just
+ * to retry.
  *
- * Idempotent — Resend re-registration on an already-registered domain returns
- * the existing record set; DNS setHosts is also idempotent (replaces all).
+ * Idempotent - SES re-registration on an existing identity returns the existing
+ * DKIM tokens; DNS setHosts is also idempotent (replaces all).
  */
 router.post("/domains/:domain/register", requireAuth(0.05, "email", {
-  description: "Register a wallet-owned domain with Resend and write its DKIM/SPF DNS records. Idempotent - safe to retry.",
+  description: "Register a wallet-owned domain with AWS SES and write its DKIM/SPF DNS records. Idempotent - safe to retry.",
   category: "communications",
-  tags: ["email", "domain", "resend", "register"],
+  tags: ["email", "domain", "ses", "register"],
 }), async (req: AuthenticatedRequest, res: Response) => {
   const owner = req.agentId || req.payment?.payer;
   if (!owner) return res.status(401).json({ error: "Unauthenticated" });
@@ -285,23 +285,23 @@ router.post("/domains/:domain/register", requireAuth(0.05, "email", {
   }
 
   try {
-    const { registerDomainWithResend, isResendConfigured } = await import("../services/resend");
-    if (!isResendConfigured()) {
-      return res.status(503).json({ error: "RESEND_API_KEY not set on server" });
+    const { registerDomainWithSes, isSesConfigured } = await import("../services/ses");
+    if (!isSesConfigured()) {
+      return res.status(503).json({ error: "AWS SES not configured on server (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY missing)" });
     }
-    const reg = await registerDomainWithResend(domain);
+    const reg = await registerDomainWithSes(domain);
     const records: DnsHostRecord[] = [...reg.records];
     records.push({ type: 'MX', name: '@', value: 'mx.agntos.dev', ttl: 1800, mxPref: 10 });
     await setDomainDnsRecords(domain, records);
     res.json({
       domain,
-      resendDomainId: reg.id,
+      sesIdentity: reg.id,
       status: reg.status,
       records: reg.records,
       dnsApplied: true,
       message: reg.status === 'verified'
         ? 'Domain is verified and ready to send from.'
-        : 'Domain registered. DNS records set on Namecheap. Resend will auto-verify within 5–30 min — poll with: agentos email status ' + domain,
+        : 'Domain registered with SES. DNS records set on Namecheap. SES will auto-verify within 5-30 min - poll with: agentos email status ' + domain,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || String(err) });
@@ -309,14 +309,14 @@ router.post("/domains/:domain/register", requireAuth(0.05, "email", {
 });
 
 /**
- * GET /email/domains/:domain/status — verification status of a wallet-owned
- * domain in Resend. Used to poll after inbox provisioning while DNS
+ * GET /email/domains/:domain/status - verification status of a wallet-owned
+ * domain in AWS SES. Used to poll after inbox provisioning while DNS
  * propagates. Wallet must own the domain.
  */
 router.get("/domains/:domain/status", requireAuth(0.01, "general", {
-  description: "Get the Resend verification status of a wallet-owned domain (use to poll while DNS propagates).",
+  description: "Get the SES verification status of a wallet-owned domain (use to poll while DNS propagates).",
   category: "communications",
-  tags: ["email", "domain", "resend", "verification"],
+  tags: ["email", "domain", "ses", "verification"],
 }), async (req: AuthenticatedRequest, res: Response) => {
   const owner = req.agentId || req.payment?.payer;
   if (!owner) return res.status(401).json({ error: "Unauthenticated" });
@@ -331,21 +331,21 @@ router.get("/domains/:domain/status", requireAuth(0.01, "general", {
   }
 
   try {
-    const { getResendDomainStatus, isResendConfigured } = await import("../services/resend");
-    if (!isResendConfigured()) {
-      return res.json({ domain, status: "resend_not_configured", message: "RESEND_API_KEY not set on server" });
+    const { getSesDomainStatus, isSesConfigured } = await import("../services/ses");
+    if (!isSesConfigured()) {
+      return res.json({ domain, status: "ses_not_configured", message: "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set on server" });
     }
-    const result = await getResendDomainStatus(domain);
+    const result = await getSesDomainStatus(domain);
     if (!result.found) {
       return res.json({
         domain,
         status: "not_registered",
-        message: "Domain has not been registered with Resend yet — re-run provision_email_inbox to trigger auto-registration.",
+        message: "Domain has not been registered with SES yet - re-run provision_email_inbox to trigger auto-registration.",
       });
     }
     res.json({
       domain,
-      resendDomainId: result.id,
+      sesIdentity: result.id,
       status: result.status,
       records: result.records,
       ready: result.status === "verified",
