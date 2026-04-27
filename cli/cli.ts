@@ -451,6 +451,7 @@ async function main() {
               { name: 'create', description: 'Create an inbox', hint: '--name agent [--domain example.com]' },
               { name: 'list', description: 'List inboxes owned by your wallet' },
               { name: 'status', description: 'Domain verification status (Resend)', hint: '<domain>' },
+              { name: 'register', description: 'Register / re-register a wallet-owned domain with Resend', hint: '<domain>' },
               { name: 'read', description: 'Read inbox messages', hint: '--id INBOX_ID' },
               { name: 'send', description: 'Send an email', hint: '--id ID --to x@y.com --subject ... --body ...' },
               { name: 'threads', description: 'List threads', hint: '--id INBOX_ID' },
@@ -478,6 +479,12 @@ async function main() {
             const domain = (flags.domain as string) || positional[0]
             if (!domain) err('domain required: agentos email status <domain>')
             const data = await ao.emailDomainStatus(domain)
+            return print(data)
+          }
+          case 'register': {
+            const domain = (flags.domain as string) || positional[0]
+            if (!domain) err('domain required: agentos email register <domain>')
+            const data = await ao.emailRegisterDomain(domain)
             return print(data)
           }
           case 'read': {

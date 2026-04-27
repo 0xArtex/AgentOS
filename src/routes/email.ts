@@ -257,6 +257,58 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
 });
 
 /**
+ * POST /email/domains/:domain/register — explicitly register a wallet-owned
+ * domain with Resend + write the required DKIM/SPF DNS records via Namecheap.
+ *
+ * Use case: recover from a failed auto-registration during provision_email_inbox
+ * (e.g. wrong API key scope, transient Resend error) without paying $2 to
+ * provision another inbox just to retry.
+ *
+ * Idempotent — Resend re-registration on an already-registered domain returns
+ * the existing record set; DNS setHosts is also idempotent (replaces all).
+ */
+router.post("/domains/:domain/register", requireAuth(0.05, "email", {
+  description: "Register a wallet-owned domain with Resend + write its DKIM/SPF DNS records. Idempotent — safe to retry.",
+  category: "communications",
+  tags: ["email", "domain", "resend", "register"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  const owner = req.agentId || req.payment?.payer;
+  if (!owner) return res.status(401).json({ error: "Unauthenticated" });
+  const domain = String(req.params.domain || "").toLowerCase().trim();
+  if (!domain) return res.status(400).json({ error: "domain path param required" });
+
+  const owns = db
+    .prepare("SELECT 1 FROM domains WHERE domain = ? AND owner = ? AND status != ?")
+    .get(domain, owner, "expired");
+  if (!owns) {
+    return res.status(403).json({ error: `Domain '${domain}' is not registered to this wallet` });
+  }
+
+  try {
+    const { registerDomainWithResend, isResendConfigured } = await import("../services/resend");
+    if (!isResendConfigured()) {
+      return res.status(503).json({ error: "RESEND_API_KEY not set on server" });
+    }
+    const reg = await registerDomainWithResend(domain);
+    const records: DnsHostRecord[] = [...reg.records];
+    records.push({ type: 'MX', name: '@', value: 'mx.agntos.dev', ttl: 1800, mxPref: 10 });
+    await setDomainDnsRecords(domain, records);
+    res.json({
+      domain,
+      resendDomainId: reg.id,
+      status: reg.status,
+      records: reg.records,
+      dnsApplied: true,
+      message: reg.status === 'verified'
+        ? 'Domain is verified and ready to send from.'
+        : 'Domain registered. DNS records set on Namecheap. Resend will auto-verify within 5–30 min — poll with: agentos email status ' + domain,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || String(err) });
+  }
+});
+
+/**
  * GET /email/domains/:domain/status — verification status of a wallet-owned
  * domain in Resend. Used to poll after inbox provisioning while DNS
  * propagates. Wallet must own the domain.
