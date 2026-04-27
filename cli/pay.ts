@@ -332,12 +332,28 @@ export async function paidStreamRequest(
   return { response: paidRes, paid: true, amountUsdc, payer }
 }
 
+/**
+ * Detect transient Solana errors that warrant rebuilding the tx with a fresh
+ * blockhash and retrying. Most common: "Blockhash not found" (the blockhash
+ * we signed against expired in flight, ~60s window).
+ */
+function isTransientSolanaError(message: string): boolean {
+  if (!message) return false
+  const m = message.toLowerCase()
+  return (
+    m.includes('blockhash not found') ||
+    m.includes('block height exceeded') ||
+    m.includes('blockhashnotfound')
+  )
+}
+
 export async function paidRequest(
   api: string,
   method: string,
   path: string,
   body?: Record<string, unknown>,
   passphrase?: string,
+  attempt: number = 1,
 ): Promise<{ data: any; paid: boolean; txHash?: string }> {
   const opts: RequestInit = {
     method,
@@ -449,6 +465,17 @@ export async function paidRequest(
       const detail = paidData.message && paidData.message !== paidData.error
         ? `${paidData.error}: ${paidData.message}`
         : paidData.error
+
+      // Transient Solana errors (blockhash expired etc.) self-heal with a
+      // rebuilt tx that picks up a fresh blockhash. Retry once before
+      // surfacing the failure to the user.
+      if (attempt < 2 && isTransientSolanaError(String(detail))) {
+        if (spinner) spinner.update(`Retrying with fresh blockhash...`)
+        await new Promise(r => setTimeout(r, 500))
+        if (spinner) spinner.cancel()
+        return paidRequest(api, method, path, body, passphrase, attempt + 1)
+      }
+
       if (spinner) spinner.cancel()
       throw new Error(summarizeUpstreamError(detail))
     }
@@ -457,8 +484,14 @@ export async function paidRequest(
     log(`payment: ${amountUsdc} USDC → ${path} on ${chosenChain} (payer: ${payer})`)
 
     return { data: paidData, paid: true, txHash: paidData.txHash }
-  } catch (e) {
+  } catch (e: any) {
     if (spinner) spinner.cancel()
+    // Also retry on transient errors that surface as exceptions (network
+    // hiccups, RPC errors thrown before paidData parsing).
+    if (attempt < 2 && isTransientSolanaError(String(e?.message ?? e))) {
+      await new Promise(r => setTimeout(r, 500))
+      return paidRequest(api, method, path, body, passphrase, attempt + 1)
+    }
     throw e
   }
 }
