@@ -294,7 +294,7 @@ describe("generatePlan — stubbed LLM", () => {
     const result = await generatePlan(makeRequest({
       walletAddress: "WALLET_DIRECT",
       intent: "Register example.io",
-      params: { domain_preferences: ["example.io"] },
+      params: { domain: "example.io" },
     }));
     assert.ok("planId" in result);
     const plan = result as any;

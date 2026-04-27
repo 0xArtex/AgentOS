@@ -495,16 +495,28 @@ async function directPlan(
   const capability = classification.detected_capability;
   if (!capability || !getCapability(capability)) return compoundPlan(request);
 
-  // If the matched capability needs path params and the caller didn't bundle
-  // them, the user only knows the resource by attribute (e.g. email address,
-  // not inbox_id). Fall through to compound so the planner adds a list_* step.
+  // If the matched capability needs path params or any other required input
+  // and the caller didn't bundle them in `params`, fall through to compound.
+  // The compound planner reads the natural-language intent and extracts the
+  // values; direct path can't.
+  //
+  // A field is "required" when its schema-string lacks the `?` marker
+  // convention (e.g. `name: "string (local-part)"` is required;
+  // `domain: "string? (...)"` is optional).
   const cap = getCapability(capability)!;
   const params = (request.params as Record<string, unknown>) ?? {};
-  const missingPathParams = Object.entries(cap.inputSchema ?? {})
+  const schemaEntries = Object.entries(cap.inputSchema ?? {});
+  const missingPathParams = schemaEntries
     .filter(([, v]) => typeof v === "string" && v.includes("(path)"))
     .map(([k]) => k)
     .filter(k => !(k in params));
-  if (missingPathParams.length > 0) return compoundPlan(request);
+  const missingRequiredFields = schemaEntries
+    .filter(([, v]) => typeof v === "string" && !/\?/.test(v))
+    .map(([k]) => k)
+    .filter(k => !(k in params));
+  if (missingPathParams.length > 0 || missingRequiredFields.length > 0) {
+    return compoundPlan(request);
+  }
 
   const ranked = scoreProviders(capability, request.quality ?? "best");
   const usable = ranked.filter(

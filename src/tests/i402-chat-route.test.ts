@@ -208,6 +208,7 @@ describe("generatePlan — wallet-keyed session resolution", () => {
       sessionId: "",
       walletAddress: "NEW_WALLET_1",
       intent: "Register example.com",
+      params: { domain: "example.com" },
       budgetUsdc: 20,
     });
     assert.ok("planId" in result);
@@ -250,6 +251,7 @@ describe("generatePlan — wallet-keyed session resolution", () => {
       sessionId: "",
       walletAddress: "WALLET_CONT",
       intent: "Now register freshkicks.io",
+      params: { domain: "freshkicks.io" },
       budgetUsdc: 20,
     });
     assert.ok("planId" in result);
@@ -284,6 +286,7 @@ describe("generatePlan — wallet-keyed session resolution", () => {
       sessionId: "",
       walletAddress: "WALLET_SWITCH",
       intent: "Start a coffee subscription business",
+      params: { domain: "coffeesub.io" },
       budgetUsdc: 20,
     });
     assert.ok("planId" in result);
@@ -307,7 +310,7 @@ describe("generatePlan — wallet-keyed session resolution", () => {
     })) as any;
 
     const result = await generatePlan(
-      { sessionId: "", walletAddress: "WALLET_FORCE", intent: "Do thing", budgetUsdc: 10 },
+      { sessionId: "", walletAddress: "WALLET_FORCE", intent: "Do thing", params: { domain: "thing.io" }, budgetUsdc: 10 },
       { forceNewSession: true }
     );
     assert.ok("planId" in result);
@@ -363,6 +366,7 @@ describe("generatePlan — wallet-keyed session resolution", () => {
       sessionId: "",
       walletAddress: "WALLET_PERSIST",
       intent: "Register example.io",
+      params: { domain: "example.io" },
       budgetUsdc: 20,
     });
     assert.ok("planId" in result);
