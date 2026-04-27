@@ -723,6 +723,7 @@ import { startDepositMonitor } from "./services/deposit-monitor";
 import { seedAgentOSPrimitives } from "./services/i402-providers";
 import { ensureProviderEmbeddings, embeddingsAvailable } from "./services/i402-embeddings";
 import { refreshFederatedCatalogs } from "./services/i402-agentic-market";
+import { refreshHcloudTypes } from "./services/hcloud-types";
 
 async function refreshI402Federations(): Promise<void> {
   try {
@@ -741,6 +742,12 @@ async function refreshI402Federations(): Promise<void> {
 app.listen(config.port, () => {
   startDepositMonitor();
   seedAgentOSPrimitives();
+  // Pull live Hetzner server-type catalog so we never hardcode types that
+  // get deprecated. Background refresh; falls back to a tiny static list if
+  // the API is unreachable at boot.
+  refreshHcloudTypes().catch(err =>
+    console.warn("[hcloud-types] initial refresh failed:", err?.message ?? err)
+  );
   if (embeddingsAvailable()) {
     // Non-blocking: compute any missing provider embeddings in the background.
     ensureProviderEmbeddings().catch(err =>

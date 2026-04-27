@@ -159,9 +159,10 @@ export interface UpdateDnsRequest {
 
 // ── Compute Service ───────────────────────────────────────────
 
-export type ServerType =
-  | "cpx11" | "cpx21" | "cpx31" | "cpx41" | "cpx51"
-  | "cax11" | "cax21" | "cax31" | "cax41";
+// Server-type names are sourced live from Hetzner Cloud at boot
+// (src/services/hcloud-types.ts) so we never hardcode a list that gets
+// deprecated. Type-level it's just a string; the runtime registry validates.
+export type ServerType = string;
 
 export interface ServerPlan {
   type: ServerType;
@@ -174,25 +175,11 @@ export interface ServerPlan {
   priceUsdc: string;       // what we charge
 }
 
-export const SERVER_PLANS: ServerPlan[] = [
-  // ARM (Ampere Altra) - cheapest, current. Available in fsn1/hel1/nbg1.
-  // Best $/perf for typical web workloads (coming-soon pages, small APIs, etc.)
-  { type: "cax11", vcpu: 2,  ram: 4,   disk: 40,  traffic: 20, arch: "arm", hetznerMonthly: 3.79,  priceUsdc: "5.00" },
-  { type: "cax21", vcpu: 4,  ram: 8,   disk: 80,  traffic: 20, arch: "arm", hetznerMonthly: 6.49,  priceUsdc: "9.00" },
-  { type: "cax31", vcpu: 8,  ram: 16,  disk: 160, traffic: 20, arch: "arm", hetznerMonthly: 12.49, priceUsdc: "17.00" },
-  { type: "cax41", vcpu: 16, ram: 32,  disk: 320, traffic: 20, arch: "arm", hetznerMonthly: 24.49, priceUsdc: "33.00" },
-  // AMD (CPX line) - x86, available in EVERY Hetzner location worldwide.
-  // Pick this for x86-only Docker images or when ARM compatibility is uncertain.
-  { type: "cpx11", vcpu: 2,  ram: 2,   disk: 40,  traffic: 20, arch: "x86", hetznerMonthly: 4.99,  priceUsdc: "7.00" },
-  { type: "cpx21", vcpu: 3,  ram: 4,   disk: 80,  traffic: 20, arch: "x86", hetznerMonthly: 9.99,  priceUsdc: "15.00" },
-  { type: "cpx31", vcpu: 4,  ram: 8,   disk: 160, traffic: 20, arch: "x86", hetznerMonthly: 17.99, priceUsdc: "26.00" },
-  { type: "cpx41", vcpu: 8,  ram: 16,  disk: 240, traffic: 20, arch: "x86", hetznerMonthly: 33.49, priceUsdc: "48.00" },
-  { type: "cpx51", vcpu: 16, ram: 32,  disk: 360, traffic: 20, arch: "x86", hetznerMonthly: 66.99, priceUsdc: "95.00" },
-];
-
-export const SERVER_PRICING: Record<string, string> = Object.fromEntries(
-  SERVER_PLANS.map(p => [p.type, p.priceUsdc])
-);
+// Server-type plans + pricing are sourced LIVE from Hetzner — see
+// src/services/hcloud-types.ts. Call `getServerPlans()` / `getServerPricing()`
+// to read the current cached list (refreshed every 6h from
+// GET /v1/server_types). The old static `SERVER_PLANS` / `SERVER_PRICING`
+// constants were removed because they hardcoded types that get deprecated.
 
 export type ServerAction = "reboot" | "poweron" | "poweroff" | "rebuild" | "reset";
 

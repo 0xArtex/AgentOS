@@ -312,7 +312,7 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     description: "Provision a new cloud VPS with cloud-init + SSH key. Returns server_id + public IPs.",
     inputSchema: {
       name: "string",
-      serverType: "string (cax11|cax21|cax31|cax41 [ARM, cheapest, EU only] OR cpx11|cpx21|cpx31|cpx41|cpx51 [AMD, available globally]). Default cax11 for cost; cpx11 for x86 compatibility.",
+      serverType: "string (current Hetzner shared types — typically cax11/cpx11 (smallest) up to cax41/cpx51 (largest). The active list is fetched live from Hetzner; pick cax* for ARM (cheapest, EU only) or cpx* for x86 (global). The route 400s with the live valid list if you pass an unknown/deprecated type.)",
       image: "string? (default ubuntu-24.04)",
       sshKeyIds: "number[]?",
       installOpenClaw: "boolean? (default true)",
