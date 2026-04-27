@@ -186,6 +186,7 @@ function buildRouterSystem(): SystemBlock[] {
         "",
         "Bias toward 'compound' over 'direct' when in doubt. Bias toward 'ambiguous' only when a concrete plan would require major assumptions.",
         "Goals with known cultural templates ('launch a product', 'grow an audience') are 'compound', not 'ambiguous'.",
+        "DO NOT use 'ambiguous' just because some implementation detail is unspecified. If the user names a clear action and a clear target/identifier, classify as 'direct' or 'compound' and let the planner / downstream routes handle the rest. Examples that are NEVER ambiguous: 'create an inbox at hello@example.com', 'send SMS from +1555... to +1666...', 'register example.com', 'deploy a 2GB VPS', 'list my domains'. The downstream services know how to handle their own internals — never ask the user about backends, providers, or whether something already exists; the routes will tell us.",
       ].join("\n"),
     },
   ];
