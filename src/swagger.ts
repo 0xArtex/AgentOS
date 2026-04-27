@@ -257,7 +257,7 @@ export const swaggerSpec = {
                   name: { type: 'string', example: 'my-server' },
                   serverType: { 
                     type: 'string', 
-                    enum: ['cx23', 'cx33', 'cx43', 'cx53', 'cpx11', 'cpx21', 'cpx31', 'cpx41', 'cpx51'],
+                    enum: ['cx22', 'cx32', 'cx42', 'cx52', 'cpx11', 'cpx21', 'cpx31', 'cpx41', 'cpx51'],
                     example: 'cx22'
                   },
                   image: { type: 'string', example: 'ubuntu-22.04' }

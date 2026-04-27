@@ -169,7 +169,8 @@ router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async 
       image ?? "ubuntu-24.04",
       owner,
       sshKeyIds,
-      installOpenClaw
+      installOpenClaw,
+      location
     );
 
     if (req.isHackathonMode && req.agentId) {
