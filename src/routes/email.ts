@@ -199,18 +199,29 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
     // For custom domains, register the domain with our email backend (Resend)
     // and write the SPF + DKIM CNAME records it asks for to the user's Namecheap
     // DNS. Resend auto-verifies once DNS propagates (typically 5-30 min).
-    // Failure here is logged but doesn't roll back the inbox — the user can
-    // re-trigger the auto-verify by calling provision_email_inbox again.
     let dnsApplied = false;
     let resendStatus: string | undefined;
+    let resendDomainId: string | undefined;
+    let resendRegistered = false;
+    let resendError: string | undefined;
     if (resolvedDomain) {
       try {
         const { registerDomainWithResend, isResendConfigured } = await import("../services/resend");
         let records: DnsHostRecord[] = [];
         if (isResendConfigured()) {
-          const reg = await registerDomainWithResend(resolvedDomain);
-          records = reg.records;
-          resendStatus = reg.status;
+          try {
+            const reg = await registerDomainWithResend(resolvedDomain);
+            records = reg.records;
+            resendStatus = reg.status;
+            resendDomainId = reg.id;
+            resendRegistered = true;
+            console.log(`[email] resend registered ${resolvedDomain} (id=${reg.id}, status=${reg.status}, ${reg.records.length} dns records)`);
+          } catch (resErr: any) {
+            resendError = resErr?.message || String(resErr);
+            console.error(`[email] resend register ${resolvedDomain} failed:`, resendError);
+          }
+        } else {
+          console.warn(`[email] RESEND_API_KEY not set — skipping resend domain registration for ${resolvedDomain}`);
         }
         // Always include an inbound MX so future receive paths land somewhere.
         records.push({ type: 'MX', name: '@', value: 'mx.agntos.dev', ttl: 1800, mxPref: 10 });
@@ -228,14 +239,67 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         walletAddress: result.solanaPublicKey,
       },
       dnsApplied: resolvedDomain ? dnsApplied : undefined,
+      resendRegistered: resolvedDomain ? resendRegistered : undefined,
+      resendDomainId,
+      resendStatus,
+      resendError,
       sendingStatus: resolvedDomain
         ? (resendStatus === 'verified'
           ? 'ready'
-          : 'pending_verification — DNS propagating; sending will work once Resend verifies the domain (typically 5–30 min)')
+          : resendRegistered
+            ? 'pending_verification — DNS propagating; sending will work once Resend verifies the domain (typically 5–30 min). Poll with: agentos email status <domain>'
+            : 'unverified — Resend not configured on server; outbound send unavailable until RESEND_API_KEY is set')
         : undefined,
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /email/domains/:domain/status — verification status of a wallet-owned
+ * domain in Resend. Used to poll after inbox provisioning while DNS
+ * propagates. Wallet must own the domain.
+ */
+router.get("/domains/:domain/status", requireAuth(0.01, "general", {
+  description: "Get the Resend verification status of a wallet-owned domain (use to poll while DNS propagates).",
+  category: "communications",
+  tags: ["email", "domain", "resend", "verification"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  const owner = req.agentId || req.payment?.payer;
+  if (!owner) return res.status(401).json({ error: "Unauthenticated" });
+  const domain = String(req.params.domain || "").toLowerCase().trim();
+  if (!domain) return res.status(400).json({ error: "domain path param required" });
+
+  const owns = db
+    .prepare("SELECT 1 FROM domains WHERE domain = ? AND owner = ? AND status != ?")
+    .get(domain, owner, "expired");
+  if (!owns) {
+    return res.status(403).json({ error: `Domain '${domain}' is not registered to this wallet` });
+  }
+
+  try {
+    const { getResendDomainStatus, isResendConfigured } = await import("../services/resend");
+    if (!isResendConfigured()) {
+      return res.json({ domain, status: "resend_not_configured", message: "RESEND_API_KEY not set on server" });
+    }
+    const result = await getResendDomainStatus(domain);
+    if (!result.found) {
+      return res.json({
+        domain,
+        status: "not_registered",
+        message: "Domain has not been registered with Resend yet — re-run provision_email_inbox to trigger auto-registration.",
+      });
+    }
+    res.json({
+      domain,
+      resendDomainId: result.id,
+      status: result.status,
+      records: result.records,
+      ready: result.status === "verified",
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err?.message || String(err) });
   }
 });
 

@@ -35,6 +35,32 @@ export function isResendConfigured(): boolean {
   return !!process.env.RESEND_API_KEY;
 }
 
+/**
+ * Fetch the verification status of a domain that's already been registered
+ * with Resend. Used by `GET /email/domains/:domain/status` so callers can
+ * poll for verification without spawning a new inbox provision.
+ */
+export async function getResendDomainStatus(
+  domain: string
+): Promise<{ found: boolean; id?: string; status?: string; records?: DnsHostRecord[] }> {
+  const r = client();
+  const list = await r.domains.list();
+  if (list.error || !list.data) return { found: false };
+  const data = (list.data as any).data ?? list.data;
+  if (!Array.isArray(data)) return { found: false };
+  const match = data.find((d: any) => d.name === domain);
+  if (!match) return { found: false };
+  const detail = await r.domains.get(match.id);
+  if (detail.error || !detail.data) return { found: true, id: match.id, status: 'unknown' };
+  const detailData = detail.data as any;
+  return {
+    found: true,
+    id: match.id,
+    status: detailData.status ?? 'unknown',
+    records: mapResendRecords(detailData.records ?? []),
+  };
+}
+
 export interface ResendSendInput {
   from: string;
   to: string | string[];

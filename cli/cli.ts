@@ -183,6 +183,40 @@ function print(obj: any) {
   }
 }
 
+/**
+ * Compact formatter for chat-run step outputs in the summary line. Picks the
+ * most-useful 2-4 fields per step (id, address, status flags) without dumping
+ * the entire JSON. Falls back to the full object for unknown shapes.
+ */
+function formatStepOutput(output: any): string {
+  if (output == null) return '—'
+  if (typeof output !== 'object') return String(output)
+  // Common shapes we want a clean one-liner for.
+  if (output.inbox?.address) {
+    const i = output.inbox
+    const flags: string[] = []
+    if (output.dnsApplied === true) flags.push('dns ✓')
+    if (output.resendRegistered === true) flags.push(`resend=${output.resendStatus ?? 'pending'}`)
+    if (output.sendingStatus) flags.push(`send: ${output.sendingStatus.split(' — ')[0]}`)
+    return `${i.address} (id ${i.id})${flags.length ? '  ' + flags.join('  ') : ''}`
+  }
+  if (Array.isArray(output.inboxes)) return `${output.inboxes.length} inbox(es)`
+  if (Array.isArray(output.numbers)) return `${output.numbers.length} number(s)`
+  if (Array.isArray(output.servers)) return `${output.servers.length} server(s)`
+  if (Array.isArray(output.domains)) return `${output.domains.length} domain(s)`
+  if (Array.isArray(output.calls)) return `${output.calls.length} call(s)`
+  if (Array.isArray(output.sshKeys)) return `${output.sshKeys.length} ssh key(s)`
+  // Pull the most-useful keys for unknown single-object shapes.
+  const keys = ['id', 'address', 'phoneNumber', 'callControlId', 'serverId', 'ipv4', 'domain', 'status', 'message']
+  const parts: string[] = []
+  for (const k of keys) {
+    const v = output[k]
+    if (v !== undefined && v !== null) parts.push(`${k}=${typeof v === 'object' ? JSON.stringify(v) : v}`)
+    if (parts.length >= 4) break
+  }
+  return parts.length ? parts.join('  ') : JSON.stringify(output).slice(0, 200)
+}
+
 // ─── Help ───
 function help() {
   render(React.createElement(MenuScreen, {
@@ -416,6 +450,7 @@ async function main() {
             commands: [
               { name: 'create', description: 'Create an inbox', hint: '--name agent [--domain example.com]' },
               { name: 'list', description: 'List inboxes owned by your wallet' },
+              { name: 'status', description: 'Domain verification status (Resend)', hint: '<domain>' },
               { name: 'read', description: 'Read inbox messages', hint: '--id INBOX_ID' },
               { name: 'send', description: 'Send an email', hint: '--id ID --to x@y.com --subject ... --body ...' },
               { name: 'threads', description: 'List threads', hint: '--id INBOX_ID' },
@@ -437,6 +472,12 @@ async function main() {
           }
           case 'list': {
             const data = await ao.emailListInboxes()
+            return print(data)
+          }
+          case 'status': {
+            const domain = (flags.domain as string) || positional[0]
+            if (!domain) err('domain required: agentos email status <domain>')
+            const data = await ao.emailDomainStatus(domain)
             return print(data)
           }
           case 'read': {
@@ -1114,6 +1155,7 @@ async function main() {
             if (autoExecute || plan.status === 'approved') {
               console.log(`${c.cyan}Executing plan${c.white} (streaming)...\n`)
               let spent = 0
+              const stepOutputs: Record<string, any> = {}
               for await (const event of ao.chatExecute(plan)) {
                 switch (event.type) {
                   case 'session':
@@ -1125,6 +1167,7 @@ async function main() {
                     break
                   case 'step_result':
                     spent += Number(event.costChargedUsdc ?? 0)
+                    if (event.output && typeof event.output === 'object') stepOutputs[event.stepId] = event.output
                     console.log(`  ${c.green}✓${c.white} ${event.stepId} done in ${event.latencyMs}ms  ${c.gray}spent: $${spent.toFixed(2)}${c.white}`)
                     break
                   case 'step_error':
@@ -1134,7 +1177,13 @@ async function main() {
                     console.log(`  ${c.yellow}?${c.white} clarification: ${JSON.stringify(event.questions)}`)
                     break
                   case 'summary':
-                    console.log(`\n${c.cyan}Summary${c.white}: status=${event.status}  spent=$${event.spentUsdc?.toFixed(2)}`)
+                    console.log(`\n${c.cyan}Summary${c.white}: status=${event.status}  spent=$${event.spentUsdc?.toFixed(2)}  ${c.gray}session=${plan.session_id}${c.white}`)
+                    if (Object.keys(stepOutputs).length > 0) {
+                      console.log(`\n${c.cyan}Outputs:${c.white}`)
+                      for (const [stepId, out] of Object.entries(stepOutputs)) {
+                        console.log(`  ${c.gray}${stepId}${c.white} ${formatStepOutput(out)}`)
+                      }
+                    }
                     for (const a of event.artifacts || []) {
                       console.log(`  ${c.gray}artifact:${c.white} ${a.type} — ${a.name ?? a.resourceRef}`)
                     }
