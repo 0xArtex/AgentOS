@@ -88,10 +88,21 @@ export function initDatabase(): void {
   // the same local-part can exist on different domains (hello@brand-a.com +
   // hello@brand-b.com). SQLite can't drop constraints in place — rebuild the
   // table when the unique index is detected.
+  //
+  // Detection: inline UNIQUE constraints get auto-named indexes
+  // (sqlite_autoindex_email_inboxes_N) that DON'T contain the column name —
+  // we have to query PRAGMA index_info(<idx>) to find the column each index
+  // actually covers.
   const inboxIndexes = db.prepare("PRAGMA index_list(email_inboxes)").all() as Array<{ name: string; unique: number; origin: string }>;
-  const hasLegacyUniqueLocalPart = inboxIndexes.some(idx =>
-    idx.unique === 1 && idx.origin === 'u' && /local_part/i.test(idx.name)
-  );
+  let hasLegacyUniqueLocalPart = false;
+  for (const idx of inboxIndexes) {
+    if (idx.unique !== 1 || idx.origin !== 'u') continue;
+    const cols = db.prepare(`PRAGMA index_info("${idx.name}")`).all() as Array<{ name: string }>;
+    if (cols.length === 1 && cols[0].name === 'local_part') {
+      hasLegacyUniqueLocalPart = true;
+      break;
+    }
+  }
   if (hasLegacyUniqueLocalPart) {
     db.exec(`
       BEGIN;
