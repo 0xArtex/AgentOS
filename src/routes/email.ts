@@ -153,7 +153,7 @@ router.get("/inboxes", requireAuth(0.01, "general", {
 });
 
 router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
-  description: "Create an end-to-end encrypted email inbox keyed to your Solana wallet. Defaults to {name}@agntos.dev; pass `domain` to provision on a Namecheap-registered domain you own (auto-sets MX/SPF/_mailchannels records).",
+  description: "Create an end-to-end encrypted email inbox keyed to your Solana wallet. Defaults to {name}@agntos.dev; pass `domain` to provision on a Namecheap-registered domain you own (auto-sets MX/SPF/DKIM records).",
   category: "communications",
   tags: ["email", "inbox", "e2e", "encryption", "provision"],
 }), async (req: AuthenticatedRequest, res: Response) => {
@@ -268,7 +268,7 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
  * the existing record set; DNS setHosts is also idempotent (replaces all).
  */
 router.post("/domains/:domain/register", requireAuth(0.05, "email", {
-  description: "Register a wallet-owned domain with Resend + write its DKIM/SPF DNS records. Idempotent — safe to retry.",
+  description: "Register a wallet-owned domain with Resend and write its DKIM/SPF DNS records. Idempotent - safe to retry.",
   category: "communications",
   tags: ["email", "domain", "resend", "register"],
 }), async (req: AuthenticatedRequest, res: Response) => {
