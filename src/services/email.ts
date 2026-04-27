@@ -142,14 +142,18 @@ function encryptForWallet(plaintext: string, x25519PubKey: Uint8Array): string {
 export function createInbox(
   name: string,
   owner: string,
-  solanaPublicKey: string
+  solanaPublicKey: string,
+  domain?: string
 ): EmailInbox & { decryptionGuide: object } {
   const localPart = name.toLowerCase().replace(/[^a-z0-9\-_.]/g, "");
   if (!localPart) throw new Error("Invalid inbox name");
 
-  const address = `${localPart}@${config.emailDomain}`;
+  const targetDomain = (domain && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(domain))
+    ? domain.toLowerCase()
+    : config.emailDomain;
+  const address = `${localPart}@${targetDomain}`;
 
-  if (storage.hasEmailLocalPart(localPart)) {
+  if (storage.hasEmailAddress(address)) {
     throw new Error(`Inbox ${address} already exists`);
   }
 

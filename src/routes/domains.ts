@@ -3,12 +3,9 @@ import { requireAuth } from "../middleware/auth";
 import { db } from "../db";
 import { v4 as uuid } from "uuid";
 import { AuthenticatedRequest } from "../types";
+import { namecheapRequest, type NamecheapResponse } from "../services/namecheap";
 
 const router = Router();
-
-interface NamecheapResponse {
-  [key: string]: any;
-}
 
 interface DomainCheckResult {
   available: boolean;
@@ -39,148 +36,7 @@ interface DomainDbRecord {
 const pricingCache = new Map<string, { price: number; timestamp: number }>();
 const PRICING_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
 
-/**
- * Make Namecheap API request
- */
-async function namecheapRequest(command: string, params: Record<string, string> = {}): Promise<NamecheapResponse> {
-  const apiUser = process.env.NAMECHEAP_API_USER;
-  const apiKey = process.env.NAMECHEAP_API_KEY;
-  const clientIp = '77.42.89.233';
-  
-  if (!apiUser || !apiKey) {
-    throw new Error('Namecheap API credentials not configured');
-  }
-
-  const baseParams = {
-    ApiUser: apiUser,
-    ApiKey: apiKey,
-    UserName: apiUser,
-    ClientIp: clientIp,
-    Command: command
-  };
-
-  const allParams = { ...baseParams, ...params };
-  const url = new URL('https://api.namecheap.com/xml.response');
-  
-  Object.entries(allParams).forEach(([key, value]) => {
-    url.searchParams.append(key, value);
-  });
-
-  try {
-    const response = await fetch(url.toString(), { 
-      method: 'GET',
-      signal: AbortSignal.timeout(10000) // 10 second timeout
-    });
-    
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-    }
-    
-    const xmlText = await response.text();
-
-    // Simple XML parsing - extract key information
-    const result: NamecheapResponse = { raw: xmlText };
-
-    // Parse common response structure
-    if (xmlText.includes('<Status>ERROR</Status>')) {
-      const errorMatch = xmlText.match(/<Error Number="(\d+)">(.*?)<\/Error>/);
-      throw new Error(errorMatch ? errorMatch[2] : 'Namecheap API error');
-    }
-
-    // Parse domain check response — batch calls return one DomainCheckResult
-    // per domain. We expose both shapes: `results[]` for callers that pass a
-    // list, and top-level fields for the single-domain caller.
-    if (command === 'namecheap.domains.check') {
-      const rows: Array<{ domain: string; available: boolean; premium: boolean }> = [];
-      const rx = /<DomainCheckResult\s+([^>]*?)\/?>/g;
-      let m: RegExpExecArray | null;
-      while ((m = rx.exec(xmlText)) !== null) {
-        const attrs = m[1];
-        const d = attrs.match(/Domain="([^"]*)"/);
-        const a = attrs.match(/Available="([^"]*)"/);
-        const p = attrs.match(/IsPremiumName="([^"]*)"/);
-        if (d && a) {
-          rows.push({
-            domain: d[1],
-            available: a[1].toLowerCase() === 'true',
-            premium: (p?.[1] || '').toLowerCase() === 'true'
-          });
-        }
-      }
-      result.results = rows;
-      if (rows[0]) {
-        result.domain = rows[0].domain;
-        result.available = rows[0].available;
-        result.isPremiumName = rows[0].premium;
-      }
-    }
-
-    // Parse pricing response
-    if (command === 'namecheap.users.getPricing') {
-      const priceMatches = xmlText.matchAll(/<ProductType Name="DOMAIN".*?<ProductCategory Name="REGISTER".*?<Product Name="([^"]*)".*?<Price Duration="1" DurationType="YEAR" Price="([^"]*)".*?\/>/g);
-      result.pricing = {};
-      for (const match of priceMatches) {
-        result.pricing[match[1]] = parseFloat(match[2]);
-      }
-    }
-
-    // Parse domain creation response. Match attributes in any order —
-    // Namecheap sometimes returns Registered="false" (registration rejected,
-    // no DomainID/OrderID) where the old strict regex silently set success=false.
-    if (command === 'namecheap.domains.create') {
-      const tagMatch = xmlText.match(/<DomainCreateResult\s+([^>]*?)\/?>/);
-      if (tagMatch) {
-        const attrs = tagMatch[1];
-        const attr = (name: string): string | null => {
-          const m = attrs.match(new RegExp(`${name}="([^"]*)"`));
-          return m ? m[1] : null;
-        };
-        const registered = (attr('Registered') || '').toLowerCase() === 'true';
-        const orderId = attr('OrderID');
-        result.registered = registered;
-        result.orderId = orderId || undefined;
-        result.chargedAmount = attr('ChargedAmount');
-        result.success = registered && !!orderId;
-      }
-    }
-
-    // Parse account balance response (AvailableBalance is in USD)
-    if (command === 'namecheap.users.getBalances') {
-      const balMatch = xmlText.match(/AvailableBalance="([^"]+)"/);
-      if (balMatch) result.availableBalance = parseFloat(balMatch[1]);
-    }
-
-    // Parse DNS hosts response
-    if (command === 'namecheap.domains.dns.getHosts') {
-      result.hosts = [];
-      const hostMatches = xmlText.matchAll(/<host HostId="[^"]*" Name="([^"]*)" Type="([^"]*)" Address="([^"]*)" MXPref="([^"]*)" TTL="([^"]*)".*?\/>/g);
-      for (const match of hostMatches) {
-        result.hosts.push({
-          name: match[1],
-          type: match[2],
-          address: match[3],
-          mxPref: match[4],
-          ttl: match[5]
-        });
-      }
-    }
-
-    // Parse domain info response
-    if (command === 'namecheap.domains.getInfo') {
-      const expiresMatch = xmlText.match(/<DomainDetails.*?<DomainNameservers>.*?<\/DomainNameservers>.*?<\/DomainDetails>.*?<DnsDetails>.*?<\/DnsDetails>.*?<Whoisguard.*?ExpiredDate="([^"]*)".*?\/>/);
-      if (expiresMatch) {
-        result.expiresAt = expiresMatch[1];
-      }
-    }
-
-    return result;
-  } catch (error: any) {
-    if (error.name === 'AbortError' || error.name === 'TimeoutError') {
-      throw new Error(`Namecheap API timeout: ${command}`);
-    }
-    throw new Error(`Namecheap API request failed: ${error.message}`);
-  }
-}
+// namecheapRequest now imported from src/services/namecheap.ts
 
 /**
  * Get pricing for a specific TLD from Namecheap

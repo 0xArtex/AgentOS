@@ -5,6 +5,9 @@ import { AuthenticatedRequest } from "../types";
 import * as emailService from "../services/email";
 import { storage } from "../services/storage";
 import { trackHackathonUsage } from "../middleware/hackathon";
+import { db } from "../db";
+import { setDomainDnsRecords, type DnsHostRecord } from "../services/namecheap";
+import { config } from "../config";
 
 const router = Router();
 
@@ -118,26 +121,91 @@ router.get("/inboxes", requireAuth(0.01, "general", {
 });
 
 router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
-  description: "Create an end-to-end encrypted email inbox at {name}@agntos.dev, keyed to your Solana wallet.",
+  description: "Create an end-to-end encrypted email inbox keyed to your Solana wallet. Defaults to {name}@agntos.dev; pass `domain` to provision on a Namecheap-registered domain you own (auto-sets MX/SPF/_mailchannels records).",
   category: "communications",
   tags: ["email", "inbox", "e2e", "encryption", "provision"],
 }), async (req: AuthenticatedRequest, res: Response) => {
-  const { name, walletAddress, solanaPublicKey: spk } = req.body;
+  const { name, walletAddress, solanaPublicKey: spk, domain } = req.body as {
+    name: string;
+    walletAddress?: string;
+    solanaPublicKey?: string;
+    domain?: string;
+  };
   const owner = req.agentId || req.payment?.payer || "unknown";
-  // Default the encryption key to the paying wallet — agent owns its own inbox in 99% of cases.
-  // Explicit walletAddress only needed for delegation (encrypt for a different wallet).
+  // Encryption key defaults to the paying wallet — agent owns its own inbox
+  // in 99% of cases. Explicit walletAddress is only needed for delegation.
   const encryptionKey = walletAddress || spk || req.payment?.payer;
   if (!encryptionKey) {
     res.status(401).json({ error: "Could not determine encryption key (no walletAddress provided and no x402 payer)" });
     return;
   }
+
+  // If a custom domain is requested, verify the calling wallet owns it. The
+  // ownership row lives in the `domains` table populated by register_domain.
+  let resolvedDomain: string | undefined;
+  if (domain) {
+    const normalized = String(domain).toLowerCase().trim();
+    if (normalized && normalized !== config.emailDomain) {
+      const ownerKey = req.payment?.payer || req.agentId;
+      const row = ownerKey
+        ? db.prepare('SELECT 1 FROM domains WHERE domain = ? AND owner = ? AND status != ?').get(normalized, ownerKey, 'expired')
+        : undefined;
+      if (!row) {
+        res.status(403).json({
+          error: "Forbidden",
+          message: `Domain '${normalized}' is not registered to this wallet. Register it first via POST /domains/register, or omit 'domain' to default to ${config.emailDomain}.`,
+        });
+        return;
+      }
+      resolvedDomain = normalized;
+    }
+  }
+
   try {
-    const result = emailService.createInbox(name, owner, encryptionKey);
-    res.status(201).json({ inbox: { id: result.id, address: result.address, walletAddress: result.solanaPublicKey } });
+    const result = emailService.createInbox(name, owner, encryptionKey, resolvedDomain);
+
+    // For custom domains, auto-emit the DNS records the inbox needs to send
+    // and receive mail through AgentOS infrastructure. Failure here is logged
+    // but doesn't roll back the inbox — the user can retry via dns_manage.
+    let dnsApplied = false;
+    if (resolvedDomain) {
+      try {
+        await setDomainDnsRecords(resolvedDomain, defaultMailDnsRecords());
+        dnsApplied = true;
+      } catch (dnsErr: any) {
+        console.error(`[email] auto-DNS for ${resolvedDomain} failed:`, dnsErr?.message || dnsErr);
+      }
+    }
+
+    res.status(201).json({
+      inbox: {
+        id: result.id,
+        address: result.address,
+        walletAddress: result.solanaPublicKey,
+      },
+      dnsApplied: resolvedDomain ? dnsApplied : undefined,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
+
+/**
+ * The minimum DNS record set we apply to a wallet-owned domain when an
+ * inbox is provisioned on it. MX routes inbound mail at our infra; SPF +
+ * _mailchannels TXT authorize outbound through MailChannels' relay.
+ */
+function defaultMailDnsRecords(): DnsHostRecord[] {
+  const cfid = process.env.MAILCHANNELS_CFID || '';
+  const records: DnsHostRecord[] = [
+    { type: 'MX', name: '@', value: 'mx.agntos.dev', ttl: 1800, mxPref: 10 },
+    { type: 'TXT', name: '@', value: 'v=spf1 a mx include:relay.mailchannels.net ~all', ttl: 1800 },
+  ];
+  if (cfid) {
+    records.push({ type: 'TXT', name: '_mailchannels', value: `v=mc1 cfid=${cfid}`, ttl: 1800 });
+  }
+  return records;
+}
 
 /**
  * GET /email/inboxes/:id/messages — Read inbox (decrypted)
