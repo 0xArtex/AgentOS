@@ -1172,6 +1172,13 @@ async function main() {
                   case 'step_start':
                     console.log(`  ${c.gray}→${c.white} ${event.stepId} ${event.capability} via ${event.provider} ${c.gray}($${event.costUsdc?.toFixed(2)})${c.white}`)
                     break
+                  case 'session_refresh_started':
+                    process.stdout.write(`    ${c.gray}↻ refreshing ${event.platform} session for @${event.handle}…${c.white}`)
+                    break
+                  case 'session_refresh_done':
+                    spent += Number(event.costChargedUsdc ?? 0)
+                    console.log(` ${c.green}done${c.white} ${c.gray}(+$${event.costChargedUsdc?.toFixed(3)})${c.white}`)
+                    break
                   case 'step_result':
                     spent += Number(event.costChargedUsdc ?? 0)
                     if (event.output && typeof event.output === 'object') stepOutputs[event.stepId] = event.output
