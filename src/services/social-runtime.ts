@@ -180,15 +180,8 @@ export async function openAuthenticatedSession(
   const sessionKey = opts.proxySessionId || opts.accountId;
   const proxy = buildProxyConfig(sessionKey, { country: opts.country });
 
-  // The "new" headless mode ships the full real Chrome renderer — the legacy
-  // `headless: true` runs a stripped-down build that platform anti-bot
-  // systems (TikTok specifically) fingerprint. `headless: "new"` closes
-  // most of the easy tells. When `SOCIAL_HEADFUL=1` is set in env, we skip
-  // headless entirely — useful when running with Xvfb on the VPS to get
-  // indistinguishable-from-real-Chrome behavior.
-  const headless = process.env.SOCIAL_HEADFUL === "1" ? false : ("new" as any);
   const browser = await chromium.launch({
-    headless,
+    headless: true,
     proxy,
     args: [
       "--disable-blink-features=AutomationControlled",
