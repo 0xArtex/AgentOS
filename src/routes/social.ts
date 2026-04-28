@@ -25,6 +25,7 @@ import {
   updateAvatar,
   updateBanner,
   changeUsername,
+  listMyTweets,
 } from "../services/social-operations";
 import { loginTikTok } from "../services/tiktok-login";
 import {
@@ -235,6 +236,23 @@ router.post(
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Post failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/list-my-tweets",
+  requireXEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { limit } = req.body as { limit?: number };
+    try {
+      const result = await listMyTweets({ ...common, limit });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "List tweets failed" });
     }
   }
 );

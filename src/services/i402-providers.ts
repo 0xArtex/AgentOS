@@ -463,6 +463,12 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     inputSchema: { country: "string?", age_category: "string?" },
     outputSchema: { success: "boolean", account: "object ({ id, platform, username, country, age_category, proxy_session_id, credentials: object, cookies: object[] })" },
   },
+  twitter_list_my_tweets: {
+    name: "twitter_list_my_tweets",
+    description: "List the agent's own tweets in oldest-first order. Use this before bulk-deleting or referencing specific tweets by index.",
+    inputSchema: { handle: "string (no @)", limit: "number? (default 20, max 50)" },
+    outputSchema: { success: "boolean", data: "object ({ tweets: [{ tweet_url, tweet_id, posted_at, text }] })" },
+  },
 
   // ── Social: TikTok ──
   // Same model as Twitter: sessions are client-managed. Login is not a
@@ -739,7 +745,7 @@ export function seedAgentOSPrimitives(): void {
          'agentos.twitter_unfollow', 'agentos.twitter_delete_post',
          'agentos.twitter_update_profile', 'agentos.twitter_update_avatar',
          'agentos.twitter_update_banner', 'agentos.twitter_change_username',
-         'agentos.twitter_buy_account',
+         'agentos.twitter_buy_account', 'agentos.twitter_list_my_tweets',
          'agentos.tiktok_post', 'agentos.tiktok_follow',
          'agentos.tiktok_like', 'agentos.tiktok_delete_post',
          'agentos.tiktok_update_profile', 'agentos.tiktok_update_avatar',
@@ -946,6 +952,9 @@ export function seedAgentOSPrimitives(): void {
     // automatically and quietly when needed; it is not a planner step.
     p("agentos.twitter_post", "twitter_post", "/social/twitter/post", {
       costUsdc: 0.001, p50: 5000, p99: 30000, reputation: 0.8,
+    }),
+    p("agentos.twitter_list_my_tweets", "twitter_list_my_tweets", "/social/twitter/list-my-tweets", {
+      costUsdc: 0.005, p50: 5000, p99: 30000, reputation: 0.85,
     }),
     p("agentos.twitter_reply", "twitter_reply", "/social/twitter/reply", {
       costUsdc: 0.001, p50: 5000, p99: 30000, reputation: 0.8,
