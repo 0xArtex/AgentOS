@@ -615,6 +615,185 @@ export async function deleteTweet(
   }
 }
 
+/* ─── listMyTweets: list the agent's own recent tweets ───────────────── */
+
+interface ListedTweet {
+  tweet_url: string;
+  tweet_id: string;
+  posted_at: string;
+  text: string;
+}
+
+export async function listMyTweets(
+  req: OpRequest & { limit?: number }
+): Promise<OpResult<{ tweets: ListedTweet[] }>> {
+  // Clamp limit to [1, 50] with default 20.
+  const requestedLimit = typeof req.limit === "number" && Number.isFinite(req.limit) ? req.limit : 20;
+  const limit = Math.max(1, Math.min(50, Math.floor(requestedLimit)));
+
+  let session;
+  try {
+    session = await openAuthenticatedSession({
+      accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
+      cookies: req.cookies,
+    });
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
+  }
+
+  const { page, close } = session;
+  try {
+    // Resolve the logged-in user's handle. X redirects bare /home → settings if
+    // unauth; for an authenticated session it lands on the home feed and the
+    // sidebar profile link points to /<handle>. Reading from the feed avoids a
+    // dependency on the request body knowing the handle.
+    await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 45000 });
+    if (isSessionExpiredUrl(page.url())) {
+      return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
+    }
+
+    // The "Profile" sidebar link (data-testid="AppTabBar_Profile_Link") has
+    // href="/<handle>". Wait for it before reading.
+    const profileLink = page.locator('[data-testid="AppTabBar_Profile_Link"]').first();
+    await profileLink.waitFor({ state: "attached", timeout: 20000 });
+    const profileHref = await profileLink.getAttribute("href").catch(() => null);
+    const handle = profileHref?.replace(/^\//, "").trim();
+    if (!handle || !/^[A-Za-z0-9_]{1,15}$/.test(handle)) {
+      const shot = await debugShot(page, "list-my-tweets-no-handle");
+      return {
+        success: false,
+        error: `Could not resolve logged-in handle from sidebar (got: ${profileHref}). Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    // Navigate to the user's own profile timeline.
+    await page.goto(`https://x.com/${handle}`, { waitUntil: "domcontentloaded", timeout: 45000 });
+    if (isSessionExpiredUrl(page.url())) {
+      return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
+    }
+
+    // Wait for at least one tweet card to render.
+    const firstTweet = page.locator('article[data-testid="tweet"]').first();
+    try {
+      await firstTweet.waitFor({ state: "visible", timeout: 20000 });
+    } catch {
+      const shot = await debugShot(page, "list-my-tweets-empty");
+      return {
+        success: false,
+        error: `No tweets visible on @${handle}'s profile. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    // Scroll-and-collect loop. We accumulate by tweet_id (dedupe) until we
+    // have `limit` own original tweets or the timeline stops growing.
+    const collected = new Map<string, ListedTweet>();
+    const handleLower = handle.toLowerCase();
+    const maxScrolls = 30; // Hard cap so we never scroll forever.
+    let stagnantRounds = 0;
+
+    // Page-context evaluator: runs in Chromium so `document`/`window` exist
+    // there. We pass it as a string-bodied function to avoid pulling DOM types
+    // into the Node tsconfig (the rest of this codebase doesn't use them).
+    const evalScript = `(selfHandleLower) => {
+      const out = [];
+      const cards = document.querySelectorAll('article[data-testid="tweet"]');
+      for (const card of Array.from(cards)) {
+        const links = card.querySelectorAll('a[href*="/status/"]');
+        let tweet_id = "";
+        let permalinkHandle = "";
+        for (const a of Array.from(links)) {
+          const href = a.getAttribute("href") || "";
+          const m = href.match(/^\\/([A-Za-z0-9_]+)\\/status\\/(\\d+)/);
+          if (m) {
+            permalinkHandle = m[1];
+            tweet_id = m[2];
+            break;
+          }
+        }
+        if (!tweet_id || !permalinkHandle) continue;
+
+        const socialContext = card.querySelector('[data-testid="socialContext"]');
+        const socialText = (socialContext && socialContext.textContent || "").toLowerCase();
+        const is_retweet = socialText.indexOf("repost") !== -1 || socialText.indexOf("retweet") !== -1;
+        const is_pinned = socialText.indexOf("pinned") !== -1;
+        const is_reply_to_other = permalinkHandle.toLowerCase() !== selfHandleLower;
+
+        const timeEl = card.querySelector("time");
+        const posted_at = (timeEl && timeEl.getAttribute("datetime")) || "";
+
+        const textEl = card.querySelector('[data-testid="tweetText"]');
+        const text = ((textEl && textEl.textContent) || "").trim();
+
+        out.push({
+          tweet_url: "https://x.com/" + permalinkHandle + "/status/" + tweet_id,
+          tweet_id: tweet_id,
+          posted_at: posted_at,
+          text: text,
+          is_pinned: is_pinned,
+          is_retweet: is_retweet,
+          is_reply_to_other: is_reply_to_other,
+        });
+      }
+      return out;
+    }`;
+
+    for (let i = 0; i < maxScrolls && collected.size < limit; i++) {
+      const harvested: Array<ListedTweet & { is_pinned: boolean; is_retweet: boolean; is_reply_to_other: boolean }> =
+        await page.evaluate(evalScript, handleLower);
+
+      const beforeSize = collected.size;
+      for (const t of harvested) {
+        if (t.is_retweet || t.is_reply_to_other) continue;
+        if (!t.tweet_id) continue;
+        if (collected.has(t.tweet_id)) continue;
+        collected.set(t.tweet_id, {
+          tweet_url: t.tweet_url,
+          tweet_id: t.tweet_id,
+          posted_at: t.posted_at,
+          text: t.text,
+        });
+      }
+
+      if (collected.size === beforeSize) {
+        stagnantRounds++;
+        if (stagnantRounds >= 3) break; // No new tweets after 3 scrolls — end of timeline.
+      } else {
+        stagnantRounds = 0;
+      }
+
+      if (collected.size >= limit) break;
+
+      // Scroll down to load more. Wait a beat for X's lazy loader.
+      await page.evaluate(`window.scrollBy(0, window.innerHeight * 0.9)`);
+      await page.waitForTimeout(800);
+    }
+
+    // Sort oldest-first by posted_at (ISO 8601 sorts lexicographically).
+    // Tweets without a posted_at end up first; tweet_id is a snowflake that
+    // already encodes time, so use it as a stable secondary sort.
+    const tweets = Array.from(collected.values())
+      .sort((a, b) => {
+        if (a.posted_at && b.posted_at && a.posted_at !== b.posted_at) {
+          return a.posted_at < b.posted_at ? -1 : 1;
+        }
+        // Snowflake IDs increase monotonically with time.
+        return a.tweet_id.length === b.tweet_id.length
+          ? (a.tweet_id < b.tweet_id ? -1 : a.tweet_id > b.tweet_id ? 1 : 0)
+          : a.tweet_id.length - b.tweet_id.length;
+      })
+      .slice(0, limit);
+
+    return { success: true, data: { tweets } };
+  } catch (e: any) {
+    return { success: false, error: e.message || String(e), error_code: "UI_TIMEOUT" };
+  } finally {
+    await close();
+  }
+}
+
 /* ─── unfollow: stop following a user ──────────────────────────────────── */
 
 export async function unfollowUser(

@@ -1492,6 +1492,43 @@ async function main() {
             })
           }
 
+          case 'list-tweets': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const rawLimit = flags.limit
+            let limit: number | undefined
+            if (rawLimit !== undefined) {
+              const n = Number(rawLimit)
+              if (!Number.isFinite(n) || n <= 0) err('--limit must be a positive integer', EXIT.BAD_INPUT)
+              limit = Math.floor(n)
+            }
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
+            const sess = sv.loadSession(acc!.id)
+            if (!sess || !sess.cookies || sess.cookies.length === 0) {
+              err(
+                `No cached session for ${username}. Run 'twitter login ${username}' first.`,
+                EXIT.NOT_FOUND
+              )
+            }
+            const psid = sv.getProxySessionId(platform, username)
+            let data: any
+            try {
+              data = await ao.socialTwitterListMyTweets(acc!.id, sess!.cookies, limit, psid)
+            } catch (e: any) {
+              err(`list-tweets failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.success) {
+              err(
+                `list-tweets failed: ${data?.error || 'unknown'}` +
+                (data?.error_code ? ` [${data.error_code}]` : ''),
+                EXIT.GENERAL
+              )
+            }
+            sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+            return print({ success: true, platform, username, ...(data?.data || {}) })
+          }
+
           case 'username': {
             const username = positional[0] || (flags.username as string)
             const rawNewUsername = flags.to as string
@@ -1766,7 +1803,7 @@ async function main() {
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, bio, name, location, website, pfp, banner, username, buy`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, list-tweets, bio, name, location, website, pfp, banner, username, buy`)
         }
         break
       }
