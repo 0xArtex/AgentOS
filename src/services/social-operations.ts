@@ -828,12 +828,21 @@ export async function updateProfile(
     }
 
     if (req.website !== undefined) {
+      // X's UI requires a fully-qualified URL. The LLM planner often emits a
+      // bare domain ('arianne.dev'); prepend https:// so we don't fail X's
+      // "Url is not valid" check on something we can normalize ourselves.
+      // Pass an empty string through as-is so callers can clear the field.
+      const normalized = req.website === ""
+        ? ""
+        : /^https?:\/\//i.test(req.website)
+          ? req.website
+          : `https://${req.website}`;
       const urlInput = page.locator('input[name="url"]:visible').first();
       await urlInput.waitFor({ state: "visible", timeout: 5000 }).catch(() => {});
       await urlInput.click();
       await urlInput.press("Control+A");
       await urlInput.press("Delete");
-      await urlInput.pressSequentially(req.website, { delay: 25 });
+      await urlInput.pressSequentially(normalized, { delay: 25 });
     }
 
     // Save
