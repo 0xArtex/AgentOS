@@ -137,11 +137,14 @@ function socialPlatformForCapability(capability?: string): 'twitter' | 'tiktok' 
 }
 
 /**
- * For a planner-emitted social step, resolve the handle in `account_id` to
- * the local vault entry, ensure a fresh login session (auto-login if stale),
- * and return an enriched HTTP body with cookies + real account id + creds
- * injected. Credentials NEVER appear in the persisted plan/step.input — only
- * in the immediate HTTP body to the social endpoint.
+ * For a planner-emitted social step, resolve the `handle` field to the local
+ * vault entry, ensure a fresh login session (auto-login if stale), and return
+ * an enriched HTTP body. The `handle` field is consumed (removed from the
+ * outgoing body) and replaced with the server-expected `account_id` plus
+ * cookies + proxy_session_id + (for change_username) password.
+ *
+ * Credentials NEVER appear in the persisted plan/step.input — only in the
+ * immediate HTTP body to the social endpoint.
  *
  * If the session is stale or missing, performs a paid login call (~$0.005)
  * and yields a 'session_refresh' event so the CLI can render it inline.
@@ -159,10 +162,15 @@ async function* injectSocialCredentials(opts: {
   const sv: typeof import('./social-vault.js') = await import('./social-vault.js')
   const { paidRequest } = await import('./pay.js')
 
-  const rawHandle = String(opts.resolvedInput.account_id ?? '').replace(/^@/, '').trim()
+  // Accept `handle` (current schema) or `account_id` (legacy). Remove both
+  // from the outgoing body — the server only wants `account_id` set to the
+  // real internal id, which we inject below.
+  const rawHandle = String(
+    opts.resolvedInput.handle ?? opts.resolvedInput.account_id ?? ''
+  ).replace(/^@/, '').trim()
   if (!rawHandle) {
     throw new Error(
-      `${opts.capability} requires a handle in 'account_id' (e.g. 'ArianneAgent'). ` +
+      `${opts.capability} requires a handle in 'handle' (e.g. 'ArianneAgent'). ` +
       `The planner left it blank.`
     )
   }
@@ -217,10 +225,11 @@ async function* injectSocialCredentials(opts: {
   }
 
   // Build the enriched body. Start from resolvedInput so operation-specific
-  // fields (text, target_user, etc.) flow through. Then overwrite account_id
-  // with the real internal id, inject cookies + proxy_session_id, and for
-  // operations that need a vault password (change_username), inject that too.
+  // fields (text, target_user, etc.) flow through. Strip the planner's
+  // handle/account_id fields, then inject the real internal account_id,
+  // cookies, proxy_session_id, and (for change_username) the vault password.
   const enriched: Record<string, any> = { ...opts.resolvedInput }
+  delete enriched.handle
   enriched.account_id = acc.id
   enriched.cookies = session!.cookies
   const psid2 = sv.getProxySessionId(opts.platform, rawHandle)
