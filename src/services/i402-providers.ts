@@ -386,76 +386,75 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   // ── Social: Twitter / X ──
   // All social ops return an OpResult envelope: { success, data?, error?, error_code? }.
   // Chain via $STEPS.sN.output.data.FIELD (NOT $STEPS.sN.output.FIELD).
-  twitter_login: {
-    name: "twitter_login",
-    description: "Authenticate a Twitter account session (required before posting).",
-    inputSchema: { account_id: "string", proxy_session_id: "string?", cookies: "object?", login: "string?", password: "string?", totp_seed: "string?" },
-    outputSchema: { success: "boolean", cookies: "object[]?", captured_at: "iso8601?" },
-  },
+  //
+  // Sessions are managed entirely by the client-side executor: it resolves
+  // the account by handle, ensures a fresh session via the local vault, and
+  // injects cookies/credentials at HTTP time. Login is NOT a planner step,
+  // and cookies/login/password NEVER appear in step inputs.
   twitter_post: {
     name: "twitter_post",
     description: "Post a tweet from an owned X account.",
-    inputSchema: { account_id: "string", cookies: "object[]", text: "string", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", text: "string" },
     outputSchema: { success: "boolean", data: "object ({ tweet_id: string, tweet_url: string })" },
   },
   twitter_reply: {
     name: "twitter_reply",
     description: "Reply to a tweet.",
-    inputSchema: { account_id: "string", cookies: "object[]", tweet_url: "string", text: "string", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", tweet_url: "string", text: "string" },
     outputSchema: { success: "boolean", data: "object ({ tweet_id?: string, tweet_url?: string })" },
   },
   twitter_like: {
     name: "twitter_like",
     description: "Like a tweet.",
-    inputSchema: { account_id: "string", cookies: "object[]", tweet_url: "string", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", tweet_url: "string" },
     outputSchema: { success: "boolean", data: "object? ({ already_liked?: boolean })" },
   },
   twitter_retweet: {
     name: "twitter_retweet",
     description: "Retweet.",
-    inputSchema: { account_id: "string", cookies: "object[]", tweet_url: "string", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", tweet_url: "string" },
     outputSchema: { success: "boolean", data: "object? ({ already_retweeted?: boolean })" },
   },
   twitter_follow: {
     name: "twitter_follow",
     description: "Follow a user on X.",
-    inputSchema: { account_id: "string", cookies: "object[]", target_user: "string (handle)", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", target_user: "string (handle)" },
     outputSchema: { success: "boolean", data: "object? ({ already_following?: boolean })" },
   },
   twitter_unfollow: {
     name: "twitter_unfollow",
     description: "Unfollow a user on X.",
-    inputSchema: { account_id: "string", cookies: "object[]", target_user: "string (handle)", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", target_user: "string (handle)" },
     outputSchema: { success: "boolean", data: "object? ({ already_not_following?: boolean })" },
   },
   twitter_delete_post: {
     name: "twitter_delete_post",
     description: "Delete an own tweet.",
-    inputSchema: { account_id: "string", cookies: "object[]", tweet_url: "string", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", tweet_url: "string" },
     outputSchema: { success: "boolean" },
   },
   twitter_update_profile: {
     name: "twitter_update_profile",
     description: "Update profile fields (bio, display name, location, website).",
-    inputSchema: { account_id: "string", cookies: "object[]", bio: "string?", display_name: "string?", location: "string?", website: "string?", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", bio: "string?", display_name: "string?", location: "string?", website: "string?" },
     outputSchema: { success: "boolean", data: "object (echoes fields actually updated: { bio?, display_name?, location?, website? })" },
   },
   twitter_update_avatar: {
     name: "twitter_update_avatar",
     description: "Update profile picture.",
-    inputSchema: { account_id: "string", cookies: "object[]", image_base64: "string?", image_url: "string?", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", image_base64: "string?", image_url: "string?" },
     outputSchema: { success: "boolean", data: "object ({ kind: 'avatar', observed_posts: string[] })" },
   },
   twitter_update_banner: {
     name: "twitter_update_banner",
     description: "Update X profile banner image.",
-    inputSchema: { account_id: "string", cookies: "object[]", image_base64: "string?", image_url: "string?", proxy_session_id: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", image_base64: "string?", image_url: "string?" },
     outputSchema: { success: "boolean", data: "object ({ kind: 'banner', observed_posts: string[] })" },
   },
   twitter_change_username: {
     name: "twitter_change_username",
-    description: "Change the Twitter handle (requires account password).",
-    inputSchema: { account_id: "string", cookies: "object[]", new_username: "string", password: "string", proxy_session_id: "string?" },
+    description: "Change the Twitter handle. The executor injects the vault password automatically.",
+    inputSchema: { account_id: "string (handle, no @)", new_username: "string" },
     outputSchema: { success: "boolean", data: "object ({ new_username: string })" },
   },
   twitter_buy_account: {
@@ -466,48 +465,42 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   },
 
   // ── Social: TikTok ──
-  // All TikTok ops return an OpResult envelope: { success, data?, error?, error_code?, retry_after_ms? }.
-  // Chain via $STEPS.sN.output.data.FIELD (NOT $STEPS.sN.output.FIELD).
-  tiktok_login: {
-    name: "tiktok_login",
-    description: "Authenticate a TikTok account session.",
-    inputSchema: { account_id: "string", sessionid: "string?", login: "string?", password: "string?", email: "string?", email_password: "string?", proxy_session_id: "string?", country: "string?" },
-    outputSchema: { success: "boolean", cookies: "object[]?", captured_at: "iso8601?", observed_username: "string?" },
-  },
+  // Same model as Twitter: sessions are client-managed. Login is not a
+  // planner step; cookies/login/password never appear in step inputs.
   tiktok_post: {
     name: "tiktok_post",
     description: "Post a video to TikTok.",
-    inputSchema: { account_id: "string", cookies: "object[]", caption: "string", video_base64: "string?", video_url: "string?", privacy: "number?", allow_comments: "boolean?", allow_duet: "boolean?", allow_stitch: "boolean?", proxy_session_id: "string?", country: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", caption: "string", video_base64: "string?", video_url: "string?", privacy: "number?", allow_comments: "boolean?", allow_duet: "boolean?", allow_stitch: "boolean?" },
     outputSchema: { success: "boolean", data: "object ({ video_id: string, video_url: string })" },
   },
   tiktok_follow: {
     name: "tiktok_follow",
     description: "Follow a TikTok user.",
-    inputSchema: { account_id: "string", cookies: "object[]", target_user: "string", proxy_session_id: "string?", country: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", target_user: "string" },
     outputSchema: { success: "boolean", data: "object ({ followed: boolean })" },
   },
   tiktok_like: {
     name: "tiktok_like",
     description: "Like a TikTok video.",
-    inputSchema: { account_id: "string", cookies: "object[]", video_url: "string", proxy_session_id: "string?", country: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", video_url: "string" },
     outputSchema: { success: "boolean", data: "object ({ liked: boolean })" },
   },
   tiktok_delete_post: {
     name: "tiktok_delete_post",
     description: "Delete an own TikTok video.",
-    inputSchema: { account_id: "string", cookies: "object[]", video_url: "string", proxy_session_id: "string?", country: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", video_url: "string" },
     outputSchema: { success: "boolean", data: "object ({ deleted: boolean })" },
   },
   tiktok_update_profile: {
     name: "tiktok_update_profile",
     description: "Update TikTok profile (bio, display name).",
-    inputSchema: { account_id: "string", cookies: "object[]", bio: "string?", display_name: "string?", proxy_session_id: "string?", country: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", bio: "string?", display_name: "string?" },
     outputSchema: { success: "boolean", data: "object ({ updated: string[] })" },
   },
   tiktok_update_avatar: {
     name: "tiktok_update_avatar",
     description: "Update TikTok avatar.",
-    inputSchema: { account_id: "string", cookies: "object[]", image_base64: "string?", image_url: "string?", proxy_session_id: "string?", country: "string?" },
+    inputSchema: { account_id: "string (handle, no @)", image_base64: "string?", image_url: "string?" },
     outputSchema: { success: "boolean", data: "object ({ updated: boolean })" },
   },
 
@@ -741,13 +734,13 @@ export function seedAgentOSPrimitives(): void {
          'agentos.vps_action', 'agentos.vps_resize', 'agentos.vps_delete',
          'agentos.install_skill', 'agentos.install_skills_bulk', 'agentos.remove_skill',
          'agentos.configure_openclaw', 'agentos.configure_vps_wallet',
-         'agentos.twitter_login', 'agentos.twitter_post', 'agentos.twitter_reply',
+         'agentos.twitter_post', 'agentos.twitter_reply',
          'agentos.twitter_like', 'agentos.twitter_retweet', 'agentos.twitter_follow',
          'agentos.twitter_unfollow', 'agentos.twitter_delete_post',
          'agentos.twitter_update_profile', 'agentos.twitter_update_avatar',
          'agentos.twitter_update_banner', 'agentos.twitter_change_username',
          'agentos.twitter_buy_account',
-         'agentos.tiktok_login', 'agentos.tiktok_post', 'agentos.tiktok_follow',
+         'agentos.tiktok_post', 'agentos.tiktok_follow',
          'agentos.tiktok_like', 'agentos.tiktok_delete_post',
          'agentos.tiktok_update_profile', 'agentos.tiktok_update_avatar',
          'agentos.issue_api_key',
@@ -948,9 +941,9 @@ export function seedAgentOSPrimitives(): void {
     }),
 
     // ── Social: Twitter / X ──
-    p("agentos.twitter_login", "twitter_login", "/social/twitter/login", {
-      costUsdc: 0.005, p50: 15000, p99: 60000, reputation: 0.75,
-    }),
+    // No twitter_login provider — sessions are managed client-side by the
+    // CLI executor (see cli/sdk.ts:ensureSocialSession). Login happens
+    // automatically and quietly when needed; it is not a planner step.
     p("agentos.twitter_post", "twitter_post", "/social/twitter/post", {
       costUsdc: 0.001, p50: 5000, p99: 30000, reputation: 0.8,
     }),
@@ -990,10 +983,8 @@ export function seedAgentOSPrimitives(): void {
     }),
 
     // ── Social: TikTok ──
-    p("agentos.tiktok_login", "tiktok_login", "/social/tiktok/login", {
-      costUsdc: 0.02, p50: 30000, p99: 120000, reputation: 0.65,
-      description: "TikTok session — subject to captcha / DOM churn; may fail transiently.",
-    }),
+    // Same model as Twitter: no tiktok_login provider — sessions are
+    // managed client-side by the CLI executor.
     p("agentos.tiktok_post", "tiktok_post", "/social/tiktok/post", {
       costUsdc: 0.01, p50: 30000, p99: 120000, reputation: 0.7,
     }),

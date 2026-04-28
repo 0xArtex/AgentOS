@@ -124,6 +124,118 @@ function resolveStepInput(input: any, priorOutputs: Record<string, any>): any {
 }
 
 /**
+ * Detect whether a step's capability is a social operation that needs a
+ * vault-managed session (cookies, login creds). Twitter/TikTok provisioning
+ * (buy/account) and any non-social capability return false.
+ */
+function socialPlatformForCapability(capability?: string): 'twitter' | 'tiktok' | null {
+  if (!capability) return null
+  if (capability === 'twitter_buy_account') return null
+  if (capability.startsWith('twitter_')) return 'twitter'
+  if (capability.startsWith('tiktok_')) return 'tiktok'
+  return null
+}
+
+/**
+ * For a planner-emitted social step, resolve the handle in `account_id` to
+ * the local vault entry, ensure a fresh login session (auto-login if stale),
+ * and return an enriched HTTP body with cookies + real account id + creds
+ * injected. Credentials NEVER appear in the persisted plan/step.input — only
+ * in the immediate HTTP body to the social endpoint.
+ *
+ * If the session is stale or missing, performs a paid login call (~$0.005)
+ * and yields a 'session_refresh' event so the CLI can render it inline.
+ *
+ * Throws if the account isn't in the local vault (the caller turns this into
+ * a step_error).
+ */
+async function* injectSocialCredentials(opts: {
+  platform: 'twitter' | 'tiktok'
+  capability: string
+  resolvedInput: Record<string, any>
+  api: string
+  passphrase?: string
+}): AsyncGenerator<any, Record<string, any>, undefined> {
+  const sv: typeof import('./social-vault.js') = await import('./social-vault.js')
+  const { paidRequest } = await import('./pay.js')
+
+  const rawHandle = String(opts.resolvedInput.account_id ?? '').replace(/^@/, '').trim()
+  if (!rawHandle) {
+    throw new Error(
+      `${opts.capability} requires a handle in 'account_id' (e.g. 'ArianneAgent'). ` +
+      `The planner left it blank.`
+    )
+  }
+  const acc = sv.getAccount(opts.platform, rawHandle)
+  if (!acc) {
+    throw new Error(
+      `${opts.platform} account "@${rawHandle}" is not in the local vault. ` +
+      `Run: agentos ${opts.platform} import @${rawHandle}`
+    )
+  }
+
+  const SESSION_TTL_HOURS = 12
+  let session = sv.loadSession(acc.id)
+  const ageHours = sv.sessionAgeHours(acc.id)
+  const stale = !session || session.cookies.length === 0 || (ageHours !== undefined && ageHours > SESSION_TTL_HOURS)
+
+  if (stale) {
+    yield { type: 'session_refresh_started', platform: opts.platform, handle: rawHandle }
+    const creds = sv.unlockCredentials(opts.platform, rawHandle)
+    const psid = sv.getProxySessionId(opts.platform, rawHandle)
+    const loginPath = `/social/${opts.platform}/login`
+    const loginBody: Record<string, any> = { account_id: acc.id, ...(psid ? { proxy_session_id: psid } : {}) }
+    if (opts.platform === 'twitter') {
+      if (creds.auth_token) loginBody.auth_token = creds.auth_token
+      if (creds.ct0) loginBody.ct0 = creds.ct0
+      if (creds.login) loginBody.login = creds.login
+      if (creds.password) loginBody.password = creds.password
+      if (creds.totp_seed) loginBody.totp_seed = creds.totp_seed
+    } else {
+      if (creds.tiktok_sessionid) loginBody.sessionid = creds.tiktok_sessionid
+      if (creds.tiktok_csrf) loginBody.tt_csrf_token = creds.tiktok_csrf
+      if (creds.tiktok_webid) loginBody.tt_webid_v2 = creds.tiktok_webid
+      if (creds.login) loginBody.login = creds.login
+      if (creds.password) loginBody.password = creds.password
+      if (creds.email) loginBody.email = creds.email
+      if (creds.email_password) loginBody.email_password = creds.email_password
+    }
+    const result = await paidRequest(opts.api, 'POST', loginPath, loginBody, opts.passphrase)
+    const cookies = (result.data?.cookies ?? []) as any[]
+    if (!Array.isArray(cookies) || cookies.length === 0) {
+      throw new Error(`${opts.platform} login for @${rawHandle} returned no cookies`)
+    }
+    session = sv.saveSession(acc.id, opts.platform, cookies)
+    sv.updateMeta(opts.platform, rawHandle, { last_action_at: new Date().toISOString() })
+    yield {
+      type: 'session_refresh_done',
+      platform: opts.platform,
+      handle: rawHandle,
+      costChargedUsdc: 0.005,
+      txSignature: result.txHash,
+    }
+  }
+
+  // Build the enriched body. Start from resolvedInput so operation-specific
+  // fields (text, target_user, etc.) flow through. Then overwrite account_id
+  // with the real internal id, inject cookies + proxy_session_id, and for
+  // operations that need a vault password (change_username), inject that too.
+  const enriched: Record<string, any> = { ...opts.resolvedInput }
+  enriched.account_id = acc.id
+  enriched.cookies = session!.cookies
+  const psid2 = sv.getProxySessionId(opts.platform, rawHandle)
+  if (psid2) enriched.proxy_session_id = psid2
+  if (opts.capability === 'twitter_change_username') {
+    const creds = sv.unlockCredentials(opts.platform, rawHandle)
+    if (!creds.password) {
+      throw new Error(`twitter_change_username needs the vault password for @${rawHandle}, but none is stored.`)
+    }
+    enriched.password = creds.password
+  }
+  return enriched
+}
+
+/**
  * Substitute {field_name} placeholders in an endpoint URL from the step's input.
  * Fields consumed into the path are REMOVED from the returned body so they
  * don't get sent twice. If a placeholder has no matching input, throws — the
@@ -655,10 +767,40 @@ export class AgentOS {
 
       const startMs = Date.now()
       try {
+        // For social steps, ensure a vault session and replace handle/inject
+        // cookies BEFORE path-param substitution. Credentials only ever live
+        // in this local body — they never enter step.input or any persisted
+        // plan/session record.
+        let injectedInput: Record<string, any> = resolvedInput as Record<string, any>
+        const platform = socialPlatformForCapability(step.capability)
+        if (platform) {
+          const url0 = new URL(step.x402?.endpoint ?? '')
+          const apiBase = `${url0.protocol}//${url0.host}`
+          const gen = injectSocialCredentials({
+            platform,
+            capability: step.capability,
+            resolvedInput: resolvedInput as Record<string, any>,
+            api: apiBase,
+            passphrase: this.passphrase,
+          })
+          while (true) {
+            const next = await gen.next()
+            if (next.done) {
+              injectedInput = next.value
+              break
+            }
+            // Surface session_refresh events to the caller and bill them.
+            if (next.value?.type === 'session_refresh_done') {
+              totalSpent += Number(next.value.costChargedUsdc ?? 0)
+            }
+            yield next.value
+          }
+        }
+
         // Substitute {placeholder} path params from input → concrete URL + pruned body
         const { url: concreteUrl, body: postBody } = substitutePathParams(
           step.x402?.endpoint ?? '',
-          resolvedInput as Record<string, any>,
+          injectedInput,
         )
         const url = new URL(concreteUrl)
         const path = url.pathname + url.search
