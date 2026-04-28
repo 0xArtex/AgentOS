@@ -695,9 +695,12 @@ export async function listMyTweets(
     let stagnantRounds = 0;
 
     // Page-context evaluator: runs in Chromium so `document`/`window` exist
-    // there. We pass it as a string-bodied function to avoid pulling DOM types
-    // into the Node tsconfig (the rest of this codebase doesn't use them).
-    const evalScript = `(selfHandleLower) => {
+    // there. Built as a self-invoking expression (IIFE) so `page.evaluate(str)`
+    // evaluates it as a CALL and returns the array; passing a function-literal
+    // string + a second argument doesn't work — Playwright treats string-form
+    // as an expression and ignores extra args, so we inline `handleLower`.
+    const evalScript = `(() => {
+      const selfHandleLower = ${JSON.stringify(handleLower)};
       const out = [];
       const cards = document.querySelectorAll('article[data-testid="tweet"]');
       for (const card of Array.from(cards)) {
@@ -738,11 +741,11 @@ export async function listMyTweets(
         });
       }
       return out;
-    }`;
+    })()`;
 
     for (let i = 0; i < maxScrolls && collected.size < limit; i++) {
       const harvested: Array<ListedTweet & { is_pinned: boolean; is_retweet: boolean; is_reply_to_other: boolean }> =
-        await page.evaluate(evalScript, handleLower);
+        await page.evaluate(evalScript);
 
       const beforeSize = collected.size;
       for (const t of harvested) {
