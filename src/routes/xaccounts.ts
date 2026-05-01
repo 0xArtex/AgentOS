@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { xAccountService } from "../services/xaccounts";
+import { requirePoolAdmin } from "../middleware/pool-admin";
 
 const router = Router();
 
@@ -109,12 +110,12 @@ router.get("/accounts", async (_req: Request, res: Response) => {
 
 /**
  * POST /x/accounts/add — Add account to pool (admin only)
- * 
+ *
+ * Auth: pool-admin signature (X-Admin-Pubkey/Timestamp/Signature).
  * Body: { username, email, password, cookies?, auth_token?, profile_name?, profile_bio?, warmed? }
  */
-router.post("/accounts/add", async (req: Request, res: Response) => {
+router.post("/accounts/add", requirePoolAdmin, async (req: Request, res: Response) => {
   try {
-    // TODO: Add admin auth check
     const { username, email, password, cookies, auth_token, profile_name, profile_bio, profile_image, warmed } = req.body;
 
     if (!username || !email || !password) {
@@ -160,10 +161,11 @@ router.post("/accounts/add", async (req: Request, res: Response) => {
 
 /**
  * PATCH /x/accounts/:id/status — Update account status (admin only)
- * 
+ *
+ * Auth: pool-admin signature.
  * Body: { status: "available" | "suspended" }
  */
-router.patch("/accounts/:id/status", async (req: Request, res: Response) => {
+router.patch("/accounts/:id/status", requirePoolAdmin, async (req: Request, res: Response) => {
   try {
     const { status } = req.body;
     if (!["available", "reserved", "sold", "suspended"].includes(status)) {
@@ -186,10 +188,11 @@ router.patch("/accounts/:id/status", async (req: Request, res: Response) => {
 
 /**
  * PATCH /x/accounts/:id/cookies — Refresh account cookies (admin only)
- * 
+ *
+ * Auth: pool-admin signature.
  * Body: { cookies: [...] }
  */
-router.patch("/accounts/:id/cookies", async (req: Request, res: Response) => {
+router.patch("/accounts/:id/cookies", requirePoolAdmin, async (req: Request, res: Response) => {
   try {
     const { cookies } = req.body;
     if (!cookies) {
