@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { preloadFrames } from "../lib/preload";
+import { setupScrub } from "../lib/scroll";
 
 interface Props {
   framePath: string;
@@ -29,7 +30,6 @@ export default function ScrollFrameCanvas({
     if (!ctx) return;
 
     let cancelled = false;
-    let rafId = 0;
 
     const resize = () => {
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -62,22 +62,14 @@ export default function ScrollFrameCanvas({
       lastDrawn.current = index;
     };
 
-    const onScroll = () => {
-      if (rafId) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = 0;
-        const rect = section.getBoundingClientRect();
-        const scrollable = section.offsetHeight - window.innerHeight;
-        if (scrollable <= 0) return;
-        const progress = Math.min(Math.max(-rect.top / scrollable, 0), 1);
-        const idx = Math.min(frameCount - 1, Math.floor(progress * (frameCount - 1)));
-        if (idx !== lastDrawn.current && frames.current[idx]) drawFrame(idx);
-      });
+    const onProgress = (progress: number) => {
+      const idx = Math.min(frameCount - 1, Math.floor(progress * (frameCount - 1)));
+      if (idx !== lastDrawn.current && frames.current[idx]) drawFrame(idx);
     };
 
     resize();
     window.addEventListener("resize", resize);
-    window.addEventListener("scroll", onScroll, { passive: true });
+    const trigger = setupScrub(section, onProgress);
 
     preloadFrames(framePath, frameCount).then((bitmaps) => {
       if (cancelled) {
@@ -86,14 +78,12 @@ export default function ScrollFrameCanvas({
       }
       frames.current = bitmaps;
       drawFrame(0);
-      onScroll();
     });
 
     return () => {
       cancelled = true;
       window.removeEventListener("resize", resize);
-      window.removeEventListener("scroll", onScroll);
-      if (rafId) cancelAnimationFrame(rafId);
+      trigger.kill();
       for (const b of frames.current) b.close();
       frames.current = [];
     };
