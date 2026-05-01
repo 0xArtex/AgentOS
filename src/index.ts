@@ -202,8 +202,13 @@ app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
 import agentChatRoutes from "./routes/agent-chat";
 app.use("/chat", agentChatRoutes);
-import discoverRoutes from "./routes/discover";
-app.use("/discover", discoverRoutes);
+import discoveryRoutes from "./routes/discovery";
+app.use("/api/discovery", discoveryRoutes);
+// /discover (legacy server-rendered HTML) → /discovery (new React-built SPA).
+app.get("/discover", (_req, res) => res.redirect(301, "/discovery"));
+app.get("/discovery", (_req, res) =>
+  res.sendFile(path.join(__dirname, "..", "public", "discovery", "index.html"))
+);
 import provisionRoutes from "./routes/provision";
 app.use("/provision", provisionRoutes);
 // wallet routes proxied to port 3002 (see above, before timeout middleware)

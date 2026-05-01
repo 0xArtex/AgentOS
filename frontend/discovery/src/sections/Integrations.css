@@ -1,0 +1,33 @@
+.integrations-section {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  padding: 120px 0;
+}
+
+.integrations-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 80px;
+  align-items: center;
+}
+
+.integrations-text {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.integrations-constellation {
+  min-height: 480px;
+}
+
+@media (max-width: 880px) {
+  .integrations-grid {
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  .integrations-constellation {
+    min-height: 320px;
+  }
+}
