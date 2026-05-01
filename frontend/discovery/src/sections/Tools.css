@@ -1,6 +1,12 @@
 .tools-section {
   min-height: 100vh;
   padding: 120px 0;
+  position: relative;
+  background:
+    /* Subtle vignette so the table stays readable on top of the scene */
+    linear-gradient(180deg, rgba(2, 10, 18, 0.55) 0%, rgba(2, 10, 18, 0.78) 100%),
+    url("/discovery/tools-bg.webp") center / cover no-repeat,
+    var(--bg);
 }
 
 .tools-grid {
