@@ -1,4 +1,5 @@
 import { useReveal } from "../lib/useReveal";
+import FrameworkConstellation from "../components/FrameworkConstellation";
 import "./Integrations.css";
 
 export default function Integrations() {
@@ -27,10 +28,8 @@ export default function Integrations() {
             Explore integrations <span aria-hidden="true">→</span>
           </a>
         </div>
-        <div className="integrations-constellation" aria-hidden="true">
-          {/* TODO: render the framework constellation (OpenClaw / Claude Code /
-              Hermes / Codex / Any framework) connected to a center "AgentOS+"
-              node. Placeholder for now. */}
+        <div className="integrations-constellation">
+          <FrameworkConstellation />
         </div>
       </div>
     </section>
