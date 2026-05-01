@@ -95,13 +95,16 @@ export default function Phase2() {
       onUpdate: (self) => onUpdate(self.progress),
     });
 
-    preloadFrames(FRAME_PATH, FRAME_COUNT).then((bitmaps) => {
+    preloadFrames(FRAME_PATH, FRAME_COUNT, (firstBmp) => {
+      if (cancelled) return;
+      framesRef.current[0] = firstBmp;
+      drawFrame(0);
+    }).then((bitmaps) => {
       if (cancelled) {
         for (const b of bitmaps) b.close();
         return;
       }
       framesRef.current = bitmaps;
-      drawFrame(0);
       onUpdate(0);
     });
 

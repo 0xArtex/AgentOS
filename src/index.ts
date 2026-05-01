@@ -115,6 +115,11 @@ import agentManifestRoutes from "./routes/agent-manifest";
 const app = express();
 import deadlineDayRoute from "./routes/deadline-day";
 
+// gzip JSON + JS + CSS + HTML responses. WebP/MP4/PNG are skipped by the
+// default `compressible` filter so already-compressed bytes don't get re-run.
+import compression from "compression";
+app.use(compression());
+
 app.use(securityHeaders);
 app.use(paramPollution);
 // Social image-upload endpoints transfer up to ~10 MB of base64 image data;
