@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DiscoveryResponse, Tool } from "../types";
+import { useReveal } from "../lib/useReveal";
 import "./Tools.css";
 
 function formatPrice(min: number, max: number): string {
@@ -15,6 +16,12 @@ export default function Tools() {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
   const [network, setNetwork] = useState<string>("all");
+
+  const eyebrowRef = useReveal<HTMLParagraphElement>({ delay: 0.0 });
+  const headingRef = useReveal<HTMLHeadingElement>({ delay: 0.1 });
+  const subRef = useReveal<HTMLParagraphElement>({ delay: 0.25 });
+  const ctaRef = useReveal<HTMLAnchorElement>({ delay: 0.35 });
+  const tableRef = useReveal<HTMLDivElement>({ delay: 0.15, y: 48 });
 
   useEffect(() => {
     let cancelled = false;
@@ -50,22 +57,22 @@ export default function Tools() {
     <section className="section tools-section" id="tools">
       <div className="container tools-grid">
         <div className="tools-text">
-          <p className="h-eyebrow">Chapter III</p>
-          <h2 className="h-display">
+          <p ref={eyebrowRef} className="h-eyebrow">Chapter III</p>
+          <h2 ref={headingRef} className="h-display">
             Browse every tool
             <br />
             your agent can use.
           </h2>
-          <p className="h-sub">
+          <p ref={subRef} className="h-sub">
             Discover hosted tools, x402 endpoints, and modes — every tool your
             agent can plug into, priced in USDC, no API keys required.
           </p>
-          <a className="cta" href="#tools">
+          <a ref={ctaRef} className="cta" href="#tools">
             Explore integrations <span aria-hidden="true">→</span>
           </a>
         </div>
 
-        <div className="tools-table-wrap">
+        <div ref={tableRef} className="tools-table-wrap">
           <header className="tools-table-head">
             <h3>All Tools</h3>
             <div className="tools-controls">
