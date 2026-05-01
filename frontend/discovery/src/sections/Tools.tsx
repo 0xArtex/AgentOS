@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DiscoveryResponse, Tool } from "../types";
 import { useReveal } from "../lib/useReveal";
+import CategoryIcon from "../components/CategoryIcon";
 import "./Tools.css";
 
 function formatPrice(min: number, max: number): string {
@@ -52,6 +53,8 @@ export default function Tools() {
     });
   }, [data, query, category, network]);
 
+  const totalCount = data?.stats.totalTools ?? 0;
+
   return (
     <section className="section tools-section" id="tools">
       <div className="container tools-grid">
@@ -70,48 +73,77 @@ export default function Tools() {
 
         <div ref={tableRef} className="tools-table-wrap">
           <header className="tools-table-head">
-            <h3>All Tools</h3>
+            <div className="tools-title-row">
+              <h3>All Tools</h3>
+              {totalCount > 0 && <span className="tools-count">{totalCount}</span>}
+            </div>
+
             <div className="tools-controls">
-              <input
-                type="search"
-                className="tools-search"
-                placeholder="Search tools…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-              />
-              <select
-                className="tools-select"
-                value={category}
-                onChange={(e) => setCategory(e.target.value)}
-              >
-                <option value="all">All Categories</option>
-                {data?.categories.map((c) => (
-                  <option key={c.key} value={c.key}>
-                    {c.label}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="tools-select"
-                value={network}
-                onChange={(e) => setNetwork(e.target.value)}
-              >
-                <option value="all">All Networks</option>
-                {data?.networks.map((n) => (
-                  <option key={n.key} value={n.key}>
-                    {n.label}
-                  </option>
-                ))}
-              </select>
+              <label className="tools-search-wrap">
+                <svg
+                  className="tools-search-icon"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="11" cy="11" r="8" />
+                  <path d="m21 21-4.3-4.3" />
+                </svg>
+                <input
+                  type="search"
+                  className="tools-search"
+                  placeholder="Search tools (e.g., send_sms, compute, twitter)…"
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </label>
+
+              <label className="tools-select-wrap">
+                <span className="tools-select-label">Category</span>
+                <select
+                  className="tools-select"
+                  value={category}
+                  onChange={(e) => setCategory(e.target.value)}
+                >
+                  <option value="all">All Categories</option>
+                  {data?.categories.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="tools-select-wrap">
+                <span className="tools-select-label">Network</span>
+                <select
+                  className="tools-select"
+                  value={network}
+                  onChange={(e) => setNetwork(e.target.value)}
+                >
+                  <option value="all">All Networks</option>
+                  {data?.networks.map((n) => (
+                    <option key={n.key} value={n.key}>
+                      {n.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </header>
 
           <div className="tools-table">
             <div className="tools-row tools-row-head">
-              <span>Name</span>
+              <span>Tool</span>
               <span>Category</span>
               <span>Network</span>
-              <span className="num">Price</span>
+              <span className="num">Avg per use</span>
             </div>
             {error ? (
               <div className="tools-empty">Failed to load tools: {error}</div>
@@ -122,12 +154,21 @@ export default function Tools() {
             ) : (
               filtered.map((t) => (
                 <div className="tools-row" key={t.id}>
-                  <span className="tools-name" title={t.description}>
-                    {t.name}
+                  <span className="tools-tool" title={t.description}>
+                    <span className="tool-icon" aria-hidden="true">
+                      <CategoryIcon category={t.category} size={16} />
+                    </span>
+                    <span className="tool-name">{t.name}</span>
                   </span>
-                  <span className="tools-cat">{t.categoryLabel}</span>
+                  <span className="tools-cat">
+                    <span className="tag">{t.categoryLabel}</span>
+                  </span>
                   <span className="tools-net">
-                    {t.networkLabels.join(", ") || "—"}
+                    {t.networkLabels.length === 0
+                      ? <span className="tag tag-muted">—</span>
+                      : t.networkLabels.map((n) => (
+                          <span key={n} className="tag">{n}</span>
+                        ))}
                   </span>
                   <span className="tools-price num">
                     {formatPrice(t.minCostUsdc, t.maxCostUsdc)}
