@@ -1,31 +1,33 @@
-// Direct-path imports of the Color variants. Importing from the package
-// root via { OpenClaw } returns a CompoundedIcon whose attached `.Color`
-// property the TS types don't expose cleanly through React.memo.
 import OpenClawIcon from "@lobehub/icons/es/OpenClaw/components/Color";
 import ClaudeCodeIcon from "@lobehub/icons/es/ClaudeCode/components/Color";
 import HermesAgentIcon from "@lobehub/icons/es/HermesAgent/components/Mono";
 import CodexIcon from "@lobehub/icons/es/Codex/components/Color";
+import { useCanvasOverlay } from "../lib/useCanvasOverlay";
 import "./FrameworkConstellation.css";
 
 interface Framework {
   id: string;
   name: string;
-  /** percent of viewport width / height — anchored to match the empty card
-   * outlines baked into h2i frame 0076. */
+  /**
+   * Image-relative percentages, measured from h2i frame 0076 (the empty
+   * card outlines baked into the canvas). The parent .constellation div
+   * is sized to mirror the actual displayed-image area, so percentages
+   * here line up with the image regardless of viewport aspect.
+   */
   x: number;
   y: number;
   Icon: React.ComponentType<{ size?: number | string }>;
 }
 
 const FRAMEWORKS: Framework[] = [
-  { id: "openclaw",    name: "OpenClaw",      x: 76.5, y: 23,   Icon: OpenClawIcon },
-  { id: "claude-code", name: "Claude Code",   x: 82.5, y: 39.5, Icon: ClaudeCodeIcon },
-  { id: "hermes",      name: "Hermes Agent",  x: 82.5, y: 55.5, Icon: HermesAgentIcon },
-  { id: "codex",       name: "Codex",         x: 82.5, y: 71.5, Icon: CodexIcon },
-  { id: "any",         name: "Any framework", x: 76.5, y: 87,   Icon: AnyFrameworkIcon },
+  { id: "openclaw",    name: "OpenClaw",      x: 80.2, y: 23.9, Icon: OpenClawIcon },
+  { id: "claude-code", name: "Claude Code",   x: 84.9, y: 38.0, Icon: ClaudeCodeIcon },
+  { id: "hermes",      name: "Hermes Agent",  x: 84.9, y: 53.7, Icon: HermesAgentIcon },
+  { id: "codex",       name: "Codex",         x: 84.9, y: 69.4, Icon: CodexIcon },
+  { id: "any",         name: "Any framework", x: 80.2, y: 83.3, Icon: AnyFrameworkIcon },
 ];
 
-const CENTER = { x: 50.5, y: 50 };
+const CENTER = { x: 65, y: 51 };
 
 function AnyFrameworkIcon({ size = 16 }: { size?: number | string }) {
   return (
@@ -40,8 +42,10 @@ function AnyFrameworkIcon({ size = 16 }: { size?: number | string }) {
 }
 
 export default function FrameworkConstellation() {
+  const overlayStyle = useCanvasOverlay();
+
   return (
-    <div className="constellation" aria-hidden="true">
+    <div className="constellation" style={overlayStyle} aria-hidden="true">
       <div
         className="constellation-center"
         style={{ left: `${CENTER.x}%`, top: `${CENTER.y}%` }}
