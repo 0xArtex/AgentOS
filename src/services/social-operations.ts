@@ -1052,10 +1052,32 @@ export async function updateProfile(
     }
 
     if (!apiResult.ok) {
+      // X frequently returns "Internal error" with no code on profile-update
+      // rejections — capture everything we can so the caller has something
+      // to debug with: HTTP status, every error in the array (not just [0]),
+      // raw response body, and a screenshot of whatever X showed in the UI.
+      const shot = await debugShot(page, "profile-update-rejected");
+      const allErrors: Array<{ code?: number; message?: string }> =
+        Array.isArray(apiResult.json?.errors) ? apiResult.json.errors : [];
+      const bodySnippet = (() => {
+        try {
+          return JSON.stringify(apiResult.json).slice(0, 500);
+        } catch {
+          return undefined;
+        }
+      })();
       return {
         success: false,
         error: `X rejected profile update: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
         error_code: mapXError(apiResult.status, apiResult.errorCode),
+        data: {
+          x_error_code: apiResult.errorCode,
+          x_http_status: apiResult.status,
+          x_errors: allErrors,
+          x_body_snippet: bodySnippet,
+          submitted_fields: Object.fromEntries(provided),
+          screenshot: shot,
+        },
       };
     }
 
