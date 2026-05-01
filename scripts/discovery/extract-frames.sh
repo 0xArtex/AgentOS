@@ -43,14 +43,16 @@ extract_transition() {
   rm -rf "$desktop_dir" "$mobile_dir"
   mkdir -p "$desktop_dir" "$mobile_dir"
 
+  # -c:v libwebp + -f image2: force per-frame WebP output. Without these, ffmpeg
+  # auto-selects libwebp_anim and bundles every frame into one animated WebP.
   echo "→ $name: extracting desktop frames (1920w, 15fps)"
   ffmpeg -y -hide_banner -loglevel error -i "$src" \
-    -vf "fps=15,scale=1920:-2" -q:v 75 \
+    -vf "fps=15,scale=1920:-2" -c:v libwebp -q:v 75 -f image2 \
     "$desktop_dir/%04d.webp"
 
   echo "→ $name: extracting mobile frames (960w, 6fps)"
   ffmpeg -y -hide_banner -loglevel error -i "$src" \
-    -vf "fps=6,scale=960:-2" -q:v 70 \
+    -vf "fps=6,scale=960:-2" -c:v libwebp -q:v 70 -f image2 \
     "$mobile_dir/%04d.webp"
 
   local desktop_count
