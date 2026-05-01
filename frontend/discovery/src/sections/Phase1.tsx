@@ -104,6 +104,16 @@ export default function Phase1() {
       }
     };
 
+    // Hide canvas + hero text until the first frame is ready, then reveal
+    // them in one synchronized timeline so nothing pops in mid-stagger.
+    const heroEls = heroRef.current
+      ? Array.from(
+          heroRef.current.querySelectorAll<HTMLElement>(".hero-fx")
+        )
+      : [];
+    gsap.set(canvas, { opacity: 0 });
+    if (heroEls.length) gsap.set(heroEls, { opacity: 0, y: 24 });
+
     resize();
     window.addEventListener("resize", resize);
 
@@ -119,6 +129,15 @@ export default function Phase1() {
       if (cancelled) return;
       framesRef.current[0] = firstBmp;
       drawFrame(0);
+      const tl = gsap.timeline({ defaults: { ease: "power2.out" } });
+      tl.to(canvas, { opacity: 1, duration: 0.4 }, 0);
+      if (heroEls.length) {
+        tl.to(
+          heroEls,
+          { opacity: 1, y: 0, duration: 0.6, stagger: 0.12 },
+          0.05
+        );
+      }
     }).then((bitmaps) => {
       if (cancelled) {
         for (const b of bitmaps) b.close();
