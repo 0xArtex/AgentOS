@@ -1,9 +1,4 @@
-import { useEffect, useRef } from "react";
-import gsap from "gsap";
-import { ScrollTrigger } from "gsap/ScrollTrigger";
 import "./FrameworkConstellation.css";
-
-gsap.registerPlugin(ScrollTrigger);
 
 interface Framework {
   id: string;
@@ -86,44 +81,8 @@ const FRAMEWORKS: Framework[] = [
 const CENTER = { x: 18, y: 50 };
 
 export default function FrameworkConstellation() {
-  const containerRef = useRef<HTMLDivElement | null>(null);
-  const cardsRef = useRef<Array<HTMLDivElement | null>>([]);
-  const centerCardRef = useRef<HTMLDivElement | null>(null);
-  const pathsRef = useRef<Array<SVGPathElement | null>>([]);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    gsap.set(centerCardRef.current, { opacity: 0, scale: 0.92 });
-    gsap.set(cardsRef.current, { opacity: 0, x: -16 });
-    gsap.set(pathsRef.current, { strokeDashoffset: 220 });
-
-    const trigger = ScrollTrigger.create({
-      trigger: container,
-      start: "top 75%",
-      once: true,
-      onEnter: () => {
-        const tl = gsap.timeline({ defaults: { ease: "power2.out" } });
-        tl.to(centerCardRef.current, { opacity: 1, scale: 1, duration: 0.6 })
-          .to(
-            pathsRef.current.filter(Boolean),
-            { strokeDashoffset: 0, duration: 0.8, stagger: 0.08 },
-            "-=0.35"
-          )
-          .to(
-            cardsRef.current.filter(Boolean),
-            { opacity: 1, x: 0, duration: 0.55, stagger: 0.08 },
-            "-=0.55"
-          );
-      },
-    });
-
-    return () => trigger.kill();
-  }, []);
-
   return (
-    <div ref={containerRef} className="constellation" aria-hidden="true">
+    <div className="constellation" aria-hidden="true">
       <svg className="constellation-connectors" viewBox="0 0 100 100" preserveAspectRatio="none">
         <defs>
           <linearGradient id="conn-grad" x1="0" y1="0" x2="1" y2="0">
@@ -131,18 +90,16 @@ export default function FrameworkConstellation() {
             <stop offset="1" stopColor="rgba(200,165,103,0.25)" />
           </linearGradient>
         </defs>
-        {FRAMEWORKS.map((f, i) => {
+        {FRAMEWORKS.map((f) => {
           const cx = (CENTER.x + f.x) / 2;
           const d = `M ${CENTER.x} ${CENTER.y} Q ${cx} ${CENTER.y} ${f.x} ${f.y}`;
           return (
             <path
               key={f.id}
-              ref={(el) => { pathsRef.current[i] = el; }}
               d={d}
               stroke="url(#conn-grad)"
               strokeWidth="0.18"
               fill="none"
-              strokeDasharray="220"
               vectorEffect="non-scaling-stroke"
             />
           );
@@ -150,7 +107,6 @@ export default function FrameworkConstellation() {
       </svg>
 
       <div
-        ref={centerCardRef}
         className="constellation-center"
         style={{ left: `${CENTER.x}%`, top: `${CENTER.y}%` }}
       >
@@ -160,10 +116,9 @@ export default function FrameworkConstellation() {
         </span>
       </div>
 
-      {FRAMEWORKS.map((f, i) => (
+      {FRAMEWORKS.map((f) => (
         <div
           key={f.id}
-          ref={(el) => { cardsRef.current[i] = el; }}
           className="constellation-card"
           style={{ left: `${f.x}%`, top: `${f.y}%` }}
         >

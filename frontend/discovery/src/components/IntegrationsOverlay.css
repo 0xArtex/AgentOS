@@ -1,0 +1,24 @@
+.integrations-overlay {
+  display: flex;
+  align-items: center;
+}
+
+.integrations-overlay .overlay-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 64px;
+  align-items: center;
+}
+
+.integrations-overlay .overlay-text {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+@media (max-width: 880px) {
+  .integrations-overlay .overlay-split {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+}
