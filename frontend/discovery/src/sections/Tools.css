@@ -2,11 +2,18 @@
   min-height: 100vh;
   padding: 120px 0;
   position: relative;
-  background:
-    /* Subtle vignette so the table stays readable on top of the scene */
-    linear-gradient(180deg, rgba(2, 10, 18, 0.55) 0%, rgba(2, 10, 18, 0.78) 100%),
-    url("/discovery/tools-bg.webp") center / cover no-repeat,
-    var(--bg);
+  background-color: var(--bg);
+  background-image:
+    /* Vignette over the scene; lighter on top so the pillars/books read,
+       darker toward the bottom so the table rows stay legible. */
+    linear-gradient(180deg, rgba(2, 10, 18, 0.4) 0%, rgba(2, 10, 18, 0.7) 60%, rgba(2, 10, 18, 0.85) 100%),
+    url("/discovery/tools-bg.webp");
+  /* Anchor scene detail to the left so pillars/globe/books stay visible
+     even on tall sections where `cover center` would crop them out. */
+  background-position: center, left center;
+  background-size: auto, cover;
+  background-repeat: no-repeat, no-repeat;
+  background-attachment: scroll, fixed;
 }
 
 .tools-grid {
