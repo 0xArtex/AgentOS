@@ -142,7 +142,7 @@ export default function Tools() {
             <div className="tools-row tools-row-head">
               <span>Tool</span>
               <span>Category</span>
-              <span>Network</span>
+              <span>Description</span>
               <span className="num">Avg per use</span>
             </div>
             {error ? (
@@ -163,12 +163,8 @@ export default function Tools() {
                   <span className="tools-cat">
                     <span className="tag">{t.categoryLabel}</span>
                   </span>
-                  <span className="tools-net">
-                    {t.networkLabels.length === 0
-                      ? <span className="tag tag-muted">—</span>
-                      : t.networkLabels.map((n) => (
-                          <span key={n} className="tag">{n}</span>
-                        ))}
+                  <span className="tools-desc" title={t.description}>
+                    {t.description}
                   </span>
                   <span className="tools-price num">
                     {formatPrice(t.minCostUsdc, t.maxCostUsdc)}

@@ -181,8 +181,8 @@
 
 .tools-row {
   display: grid;
-  grid-template-columns: minmax(0, 2.2fr) 130px 140px 110px;
-  gap: 16px;
+  grid-template-columns: minmax(220px, 1.4fr) 120px minmax(0, 2.2fr) 100px;
+  gap: 18px;
   padding: 14px 24px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   font: 13.5px var(--sans);
@@ -262,10 +262,13 @@
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-.tools-net {
-  display: inline-flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.tools-desc {
+  color: var(--w60);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tools-price {
@@ -305,7 +308,7 @@
   .tools-row-head {
     padding: 10px 16px;
   }
-  /* Hide network column on small screens */
+  /* Hide description column on small screens to keep rows readable */
   .tools-row-head span:nth-child(3),
   .tools-row > span:nth-child(3) {
     display: none;
