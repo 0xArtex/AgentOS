@@ -1,0 +1,94 @@
+.topnav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  height: 64px;
+  background: linear-gradient(180deg, rgba(2, 10, 18, 0.85), rgba(2, 10, 18, 0));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.topnav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 100%;
+  gap: 24px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: 14px;
+  letter-spacing: 0.02em;
+  color: var(--w100);
+}
+
+.brand-mark {
+  color: var(--gold);
+  flex-shrink: 0;
+}
+
+.nav-links {
+  display: flex;
+  gap: 28px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.nav-links a {
+  font-family: var(--sans);
+  font-size: 13px;
+  color: var(--w60);
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.nav-links a:hover {
+  color: var(--w100);
+}
+
+.topnav-right {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.install-cmd {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--w60);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  white-space: nowrap;
+}
+
+.gh {
+  color: var(--w60);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  transition: color 0.15s, background 0.15s;
+}
+
+.gh:hover {
+  color: var(--w100);
+  background: var(--surface-2);
+}
+
+@media (max-width: 880px) {
+  .nav-links,
+  .install-cmd {
+    display: none;
+  }
+}
