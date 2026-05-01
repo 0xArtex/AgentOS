@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import gsap from "gsap";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { preloadFrames } from "../lib/preload";
-import { usePrefersReducedMotion } from "../lib/reducedMotion";
 import HeroOverlay from "../components/HeroOverlay";
 import IntegrationsOverlay from "../components/IntegrationsOverlay";
 import "./Phase.css";
@@ -13,18 +12,13 @@ const FRAME_PATH = "/discovery/frames/hero-to-integrations/desktop";
 const FRAME_COUNT = 76;
 const HEIGHT_VH = 500;
 
-// Scroll progress checkpoints (0..1 over the full pinned section).
+// Scroll progress checkpoints (0..1).
 //
-// The first 15% holds the hero (video autoplaying + hero overlay visible). The
-// canvas takes over invisibly between 5–25% (its frame 0001 is the same scene
-// as the video's last frame, so swapping looks like the video froze). Frames
-// scrub 25–75%; canvas freezes at frame 76 from 75% onward. Integrations
-// overlay fades in 78–95% over the static last frame.
-const HERO_FADE_START = 0.15;
-const HERO_FADE_END = 0.25;
-const VIDEO_FADE_START = 0.05;
-const VIDEO_FADE_END = 0.20;
-const SCRUB_START = 0.25;
+// Hero overlay holds 0–8%, fades out 8–20%. Canvas scrubs h2i frames 20–75%.
+// Integrations overlay reveals 78–95% over the frozen last frame.
+const HERO_FADE_START = 0.08;
+const HERO_FADE_END = 0.20;
+const SCRUB_START = 0.20;
 const SCRUB_END = 0.75;
 const INT_FADE_START = 0.78;
 const INT_FADE_END = 0.95;
@@ -39,13 +33,11 @@ function mapRange(value: number, inMin: number, inMax: number, outMin: number, o
 
 export default function Phase1() {
   const sectionRef = useRef<HTMLElement | null>(null);
-  const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const heroRef = useRef<HTMLDivElement | null>(null);
   const intRef = useRef<HTMLDivElement | null>(null);
   const framesRef = useRef<ImageBitmap[]>([]);
   const lastDrawn = useRef<number>(-1);
-  const reduced = usePrefersReducedMotion();
 
   useEffect(() => {
     const section = sectionRef.current;
@@ -89,8 +81,6 @@ export default function Phase1() {
     };
 
     const onUpdate = (progress: number) => {
-      // Canvas frame: hold at 0 before SCRUB_START, scrub between SCRUB_START
-      // and SCRUB_END, freeze at last frame after.
       let frameIdx = 0;
       if (progress >= SCRUB_END) frameIdx = FRAME_COUNT - 1;
       else if (progress > SCRUB_START) {
@@ -100,12 +90,6 @@ export default function Phase1() {
         );
       }
       if (frameIdx !== lastDrawn.current && framesRef.current[frameIdx]) drawFrame(frameIdx);
-
-      if (videoRef.current) {
-        videoRef.current.style.opacity = String(
-          1 - mapRange(progress, VIDEO_FADE_START, VIDEO_FADE_END, 0, 1)
-        );
-      }
 
       if (heroRef.current) {
         const op = 1 - mapRange(progress, HERO_FADE_START, HERO_FADE_END, 0, 1);
@@ -139,6 +123,7 @@ export default function Phase1() {
       framesRef.current = bitmaps;
       drawFrame(0);
       onUpdate(0);
+      canvas.classList.add("loaded");
     });
 
     return () => {
@@ -154,18 +139,6 @@ export default function Phase1() {
     <section ref={sectionRef} className="phase" style={{ height: `${HEIGHT_VH}vh` }}>
       <div className="phase-stage">
         <canvas ref={canvasRef} className="phase-canvas" />
-        {!reduced && (
-          <video
-            ref={videoRef}
-            className="phase-video"
-            src="/discovery/video/hero.mp4"
-            poster="/discovery/video/hero-poster.webp"
-            autoPlay
-            muted
-            playsInline
-            preload="auto"
-          />
-        )}
         <HeroOverlay ref={heroRef} />
         <IntegrationsOverlay ref={intRef} />
       </div>
