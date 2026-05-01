@@ -1,18 +1,14 @@
 import TopNav from "./components/TopNav";
-import Hero from "./sections/Hero";
-import HeroToIntegrations from "./sections/HeroToIntegrations";
-import Integrations from "./sections/Integrations";
-import IntegrationsToTools from "./sections/IntegrationsToTools";
+import Phase1 from "./sections/Phase1";
+import Phase2 from "./sections/Phase2";
 import Tools from "./sections/Tools";
 
 export default function App() {
   return (
     <>
       <TopNav />
-      <Hero />
-      <HeroToIntegrations />
-      <Integrations />
-      <IntegrationsToTools />
+      <Phase1 />
+      <Phase2 />
       <Tools />
     </>
   );

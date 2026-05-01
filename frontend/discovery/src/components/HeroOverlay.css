@@ -1,0 +1,17 @@
+.hero-overlay .overlay-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 22px;
+  padding-top: 8vh;
+}
+
+.hero-overlay .h-display {
+  margin-top: 4px;
+}
+
+.hero-overlay .cta {
+  margin-top: 6px;
+}
