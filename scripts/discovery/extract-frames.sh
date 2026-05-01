@@ -2,12 +2,9 @@
 # Extract WebP frame sequences for the /discovery scroll-scrub transitions and
 # copy the hero MP4 to its serve location. Idempotent: cleans target dirs first.
 #
-# Inputs (gitignored):  discovery-build/videos/Hero.mp4
-#                       discovery-build/videos/Hero-to-integrations.mp4
+# Inputs (gitignored):  discovery-build/videos/Hero-to-integrations.mp4
 #                       discovery-build/videos/integrations-to-tools.mp4
-# Outputs (committed):  public/discovery/video/hero.mp4
-#                       public/discovery/video/hero-poster.webp
-#                       public/discovery/frames/<transition>/<viewport>/NNNN.webp
+# Outputs (committed):  public/discovery/frames/<transition>/<viewport>/NNNN.webp
 #
 # Usage: bash scripts/discovery/extract-frames.sh
 # Requires: ffmpeg on PATH.
@@ -16,21 +13,12 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 VIDEOS="$ROOT/discovery-build/videos"
-OUT_VIDEO="$ROOT/public/discovery/video"
 OUT_FRAMES="$ROOT/public/discovery/frames"
 
 if ! command -v ffmpeg >/dev/null 2>&1; then
   echo "error: ffmpeg not found on PATH. Install with: winget install Gyan.FFmpeg" >&2
   exit 1
 fi
-
-# Hero: keep as MP4 (browser hardware-decodes; cheaper than scrubbing frames).
-HERO_SRC="$VIDEOS/Hero.mp4"
-mkdir -p "$OUT_VIDEO"
-echo "→ hero: copying MP4 + extracting poster"
-cp "$HERO_SRC" "$OUT_VIDEO/hero.mp4"
-ffmpeg -y -hide_banner -loglevel error -sseof -0.1 -i "$HERO_SRC" \
-  -vframes 1 -vf "scale=1920:-1" -q:v 80 "$OUT_VIDEO/hero-poster.webp"
 
 # Transitions: extract frames for scroll-scrubbing. Desktop + mobile variants.
 # 15fps × 5s = 75 frames. Mobile drops to 6fps × 5s = 30 frames at half-res.
