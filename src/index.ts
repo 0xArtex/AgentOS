@@ -74,7 +74,6 @@ import { cors } from "./middleware/cors";
 import { requestTimeout } from "./middleware/timeout";
 import { rateLimit } from "./middleware/rateLimit";
 import { securityHeaders, paramPollution, sqlInjectionGuard, sanitizeInputs, bodySizeLimit, bruteForceProtection } from "./middleware/security";
-import { isHackathonActive, getAgentUsage } from "./middleware/hackathon";
 import activityRoutes from "./routes/activity";
 import onboardingRoutes from "./routes/onboarding";
 import analyticsRoutes from "./routes/analytics";
@@ -299,35 +298,6 @@ app.get("/pricing", (_req, res) => {
     },
     docs: "https://agntos.dev/skill.md",
   });
-
-});
-// ── Hackathon status (no auth required) ──────────────────────
-app.get("/hackathon/status", (req, res) => {
-  const active = isHackathonActive();
-  const agentId = req.headers["x-agent-id"] as string | undefined;
-  
-  const response: any = {
-    mode: config.hackathonMode ? "enabled" : "disabled",
-    active,
-    deadline: config.hackathonEnd,
-    limits: {
-      phoneNumbers: 5,
-      emailInboxes: 5, 
-      servers: 2
-    }
-  };
-
-  if (active && agentId) {
-    const usage = getAgentUsage(agentId);
-    response.usage = {
-      agentId,
-      phoneNumbers: usage.phoneNumbers,
-      emailInboxes: usage.emailInboxes,
-      servers: usage.servers
-    };
-  }
-
-  res.json(response);
 
 });
 // ── Skill documentation for OpenClaw agents ─────────────────

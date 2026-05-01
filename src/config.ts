@@ -43,8 +43,4 @@ export const config = {
   // Hetzner Cloud
   hcloudToken: optional("HCLOUD_TOKEN", ""),
   hcloudLocation: optional("HCLOUD_LOCATION", "fsn1"),
-
-  // Hackathon Mode
-  hackathonMode: optional("HACKATHON_MODE", "false") === "true",
-  hackathonEnd: optional("HACKATHON_END", "2026-02-12T17:00:00Z"),
 } as const;

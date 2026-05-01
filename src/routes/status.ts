@@ -21,7 +21,6 @@ router.get("/", (_req, res) => {
 
   // Agent stats
   const agentCount = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
-  const hackathonAgents = (db.prepare("SELECT COUNT(DISTINCT agent_id) as c FROM hackathon_usage").get() as any).c;
 
   // Resource stats
   let phones = 0, emails = 0, servers = 0;
@@ -63,10 +62,8 @@ router.get("/", (_req, res) => {
     version: version.version,
     health: health.status,
     uptime: health.uptime,
-    hackathon: health.hackathon,
     stats: {
       agents: agentCount,
-      hackathonAgents,
       phones,
       emails,
       servers,
