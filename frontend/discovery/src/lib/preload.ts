@@ -1,22 +1,32 @@
 /**
- * Sequentially fetch + decode frames into ImageBitmaps so subsequent
- * draws are cheap. Sequential (not Promise.all) on purpose: 75 parallel
- * fetches saturate the connection pool and delay the first frames.
+ * Fire all frame fetches in parallel and resolve as bitmaps. The optional
+ * `onFirstFrame` callback fires the moment frame 0001 finishes decoding so
+ * the caller can paint it without waiting for the full sequence — keeps
+ * first paint fast even though the network does a burst of 76 requests.
+ *
+ * `cache: "force-cache"` lets the browser reuse a `<link rel="preload">`-
+ * primed entry for frame 0001 (zero round-trip on cold load).
  */
-export async function preloadFrames(
+export function preloadFrames(
   basePath: string,
-  count: number
+  count: number,
+  onFirstFrame?: (bmp: ImageBitmap) => void
 ): Promise<ImageBitmap[]> {
-  const out: ImageBitmap[] = [];
+  const promises: Promise<ImageBitmap>[] = [];
   for (let i = 1; i <= count; i++) {
     const url = `${basePath}/${String(i).padStart(4, "0")}.webp`;
-    const res = await fetch(url, { cache: "force-cache" });
-    if (!res.ok) {
-      console.warn(`[preload] missing frame ${url}`);
-      continue;
+    const p = fetch(url, { cache: "force-cache" })
+      .then((r) => {
+        if (!r.ok) throw new Error(`frame ${url}: ${r.status}`);
+        return r.blob();
+      })
+      .then((b) => createImageBitmap(b));
+    if (i === 1 && onFirstFrame) {
+      p.then(onFirstFrame).catch(() => {
+        /* will surface via Promise.all rejection */
+      });
     }
-    const blob = await res.blob();
-    out.push(await createImageBitmap(blob));
+    promises.push(p);
   }
-  return out;
+  return Promise.all(promises);
 }
