@@ -1,129 +1,68 @@
+// Direct-path imports of the Color variants. Importing from the package
+// root via { OpenClaw } returns a CompoundedIcon whose attached `.Color`
+// property the TS types don't expose cleanly through React.memo.
+import OpenClawIcon from "@lobehub/icons/es/OpenClaw/components/Color";
+import ClaudeCodeIcon from "@lobehub/icons/es/ClaudeCode/components/Color";
+import HermesAgentIcon from "@lobehub/icons/es/HermesAgent/components/Mono";
+import CodexIcon from "@lobehub/icons/es/Codex/components/Color";
 import "./FrameworkConstellation.css";
 
 interface Framework {
   id: string;
   name: string;
-  /** percent positions inside the constellation box (0..100) */
+  /** percent of viewport width / height — anchored to match the empty card
+   * outlines baked into h2i frame 0076. */
   x: number;
   y: number;
-  icon: React.ReactNode;
+  Icon: React.ComponentType<{ size?: number | string }>;
 }
 
 const FRAMEWORKS: Framework[] = [
-  {
-    id: "openclaw",
-    name: "OpenClaw",
-    x: 58,
-    y: 10,
-    icon: (
-      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-        <path d="M12 2 L22 12 L12 22 L2 12 Z" fill="#dc2626" />
-      </svg>
-    ),
-  },
-  {
-    id: "claude-code",
-    name: "Claude Code",
-    x: 78,
-    y: 30,
-    icon: (
-      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-        <path
-          d="M12 3 L13.5 10.5 L21 12 L13.5 13.5 L12 21 L10.5 13.5 L3 12 L10.5 10.5 Z"
-          fill="#cc785c"
-        />
-      </svg>
-    ),
-  },
-  {
-    id: "hermes",
-    name: "Hermes Agent",
-    x: 88,
-    y: 52,
-    icon: (
-      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-        <circle cx="12" cy="9" r="3" fill="#9b8cff" />
-        <path d="M6 20 C6 15 9 13 12 13 C15 13 18 15 18 20 Z" fill="#9b8cff" />
-      </svg>
-    ),
-  },
-  {
-    id: "codex",
-    name: "Codex",
-    x: 78,
-    y: 74,
-    icon: (
-      <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" fill="none" stroke="#e6d6a3" strokeWidth="1.5">
-        <polygon points="12,3 21,8 21,16 12,21 3,16 3,8" />
-        <line x1="12" y1="3" x2="12" y2="21" />
-        <line x1="3" y1="8" x2="21" y2="16" />
-        <line x1="21" y1="8" x2="3" y2="16" />
-      </svg>
-    ),
-  },
-  {
-    id: "any",
-    name: "Any framework",
-    x: 58,
-    y: 92,
-    icon: (
-      <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
-        {[0, 6, 12].map((y) =>
-          [0, 6, 12].map((x) => (
-            <rect key={`${x}-${y}`} x={x} y={y} width="3" height="3" rx="0.5" fill="var(--w60)" />
-          ))
-        )}
-      </svg>
-    ),
-  },
+  { id: "openclaw",    name: "OpenClaw",      x: 76.5, y: 23,   Icon: OpenClawIcon },
+  { id: "claude-code", name: "Claude Code",   x: 82.5, y: 39.5, Icon: ClaudeCodeIcon },
+  { id: "hermes",      name: "Hermes Agent",  x: 82.5, y: 55.5, Icon: HermesAgentIcon },
+  { id: "codex",       name: "Codex",         x: 82.5, y: 71.5, Icon: CodexIcon },
+  { id: "any",         name: "Any framework", x: 76.5, y: 87,   Icon: AnyFrameworkIcon },
 ];
 
-const CENTER = { x: 18, y: 50 };
+const CENTER = { x: 50.5, y: 50 };
+
+function AnyFrameworkIcon({ size = 16 }: { size?: number | string }) {
+  return (
+    <svg viewBox="0 0 16 16" width={size} height={size} aria-hidden="true">
+      {[0, 6, 12].map((y) =>
+        [0, 6, 12].map((x) => (
+          <rect key={`${x}-${y}`} x={x} y={y} width="3.2" height="3.2" rx="0.6" fill="rgba(243,238,226,0.55)" />
+        ))
+      )}
+    </svg>
+  );
+}
 
 export default function FrameworkConstellation() {
   return (
     <div className="constellation" aria-hidden="true">
-      <svg className="constellation-connectors" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="conn-grad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0" stopColor="rgba(200,165,103,0.85)" />
-            <stop offset="1" stopColor="rgba(200,165,103,0.25)" />
-          </linearGradient>
-        </defs>
-        {FRAMEWORKS.map((f) => {
-          const cx = (CENTER.x + f.x) / 2;
-          const d = `M ${CENTER.x} ${CENTER.y} Q ${cx} ${CENTER.y} ${f.x} ${f.y}`;
-          return (
-            <path
-              key={f.id}
-              d={d}
-              stroke="url(#conn-grad)"
-              strokeWidth="0.18"
-              fill="none"
-              vectorEffect="non-scaling-stroke"
-            />
-          );
-        })}
-      </svg>
-
       <div
         className="constellation-center"
         style={{ left: `${CENTER.x}%`, top: `${CENTER.y}%` }}
       >
-        <span className="center-frame">
-          <span className="center-label">AgentOS</span>
+        <span className="center-mark">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
+          </svg>
+          <span className="center-name">AgentOS</span>
           <span className="center-plus">+</span>
         </span>
       </div>
 
-      {FRAMEWORKS.map((f) => (
+      {FRAMEWORKS.map(({ id, name, x, y, Icon }) => (
         <div
-          key={f.id}
+          key={id}
           className="constellation-card"
-          style={{ left: `${f.x}%`, top: `${f.y}%` }}
+          style={{ left: `${x}%`, top: `${y}%` }}
         >
-          <span className="card-icon">{f.icon}</span>
-          <span className="card-name">{f.name}</span>
+          <span className="card-icon"><Icon size={18} /></span>
+          <span className="card-name">{name}</span>
         </div>
       ))}
     </div>
