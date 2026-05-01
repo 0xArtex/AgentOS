@@ -4,7 +4,6 @@ import { x402 } from "../middleware/x402";
 import { AuthenticatedRequest } from "../types";
 import * as emailService from "../services/email";
 import { storage } from "../services/storage";
-import { trackHackathonUsage } from "../middleware/hackathon";
 import { db } from "../db";
 import { setDomainDnsRecords, type DnsHostRecord } from "../services/namecheap";
 import { config } from "../config";
@@ -43,10 +42,6 @@ router.post("/provision", requireAuth(2.0, "email", {
 
     const owner = req.agentId || req.payment?.payer || "unknown";
     const result = emailService.createInbox(name, owner, solanaPublicKey);
-
-    if (req.isHackathonMode && req.agentId) {
-      trackHackathonUsage(req.agentId, "email", result.id);
-    }
 
     res.status(201).json({
       inbox: {

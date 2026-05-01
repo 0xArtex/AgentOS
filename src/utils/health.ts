@@ -1,5 +1,4 @@
 import { db } from "../db";
-import { config } from "../config";
 import os from "os";
 
 const startTime = Date.now();
@@ -33,10 +32,6 @@ export function getHealth() {
       nodeVersion: process.version,
       cpus: os.cpus().length,
       freeMemMB: Math.round(os.freemem() / 1024 / 1024),
-    },
-    hackathon: {
-      active: config.hackathonMode && new Date() < new Date(config.hackathonEnd),
-      deadline: config.hackathonEnd,
     },
   };
 }

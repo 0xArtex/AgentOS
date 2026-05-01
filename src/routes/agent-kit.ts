@@ -1,26 +1,15 @@
 import { Router, Request, Response } from "express";
 import { getVersion, getHealth } from "../utils/health";
-import { isHackathonActive } from "../middleware/hackathon";
 
 const router = Router();
 
 router.get("/", (_req: Request, res: Response) => {
   const health = getHealth();
-  const hackathonActive = isHackathonActive();
-  const deadline = new Date("2026-02-12T17:00:00Z");
-  const now = new Date();
-  const hoursLeft = Math.max(0, Math.floor((deadline.getTime() - now.getTime()) / 3600000));
 
   res.json({
     welcome: "Welcome to AgentOS — autonomous infrastructure for AI agents",
     version: getVersion().version,
     status: health.status,
-    hackathon: {
-      active: hackathonActive,
-      free_until: "2026-02-12T17:00:00Z",
-      hours_remaining: hoursLeft,
-      how_to_get_free_access: "Add header X-Agent-Id: your-agent-name to all requests"
-    },
     quick_start: {
       step_1: "curl -X POST http://77.42.89.233:3001/agents/register -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"name\":\"my-agent\"}'",
       step_2: "curl -X POST http://77.42.89.233:3001/phone/provision -H 'X-Agent-Id: my-agent' -d '{\"country\":\"US\"}'",

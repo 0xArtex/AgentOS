@@ -4,7 +4,6 @@ import { rateLimit } from "../middleware/rateLimit";
 import { AuthenticatedRequest, ServerAction } from "../types";
 import * as computeService from "../services/compute";
 import { db } from "../db";
-import { trackHackathonUsage } from "../middleware/hackathon";
 
 const router = Router();
 
@@ -172,10 +171,6 @@ router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async 
       installOpenClaw,
       location
     );
-
-    if (req.isHackathonMode && req.agentId) {
-      trackHackathonUsage(req.agentId, 'server', server.id);
-    }
 
     res.status(201).json({
       ...server,

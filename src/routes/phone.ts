@@ -3,7 +3,6 @@ import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest, ProvisionNumberRequest, SendSmsRequest } from "../types";
 import * as phoneService from "../services/phone";
 import * as voiceService from "../services/voice";
-import { trackHackathonUsage } from "../middleware/hackathon";
 import { config } from "../config";
 
 
@@ -102,10 +101,6 @@ router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone", {
     const owner = req.agentId || req.payment?.payer || "unknown";
 
     const number = await phoneService.provisionNumber(country, owner, areaCode);
-
-    if (req.isHackathonMode && req.agentId) {
-      trackHackathonUsage(req.agentId, "phone", number.id);
-    }
 
     res.status(201).json(number);
   } catch (err: any) {
