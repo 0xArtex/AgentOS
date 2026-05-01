@@ -68,26 +68,6 @@ router.post("/debit", requireDashboardAuth, (req: Request, res: Response) => {
   }
 });
 
-// POST /deposit/crypto — manual deposit notification (with tx hash)
-router.post("/deposit/crypto", (req: Request, res: Response) => {
-  const userId = getUserId(req);
-  if (!userId) return res.status(401).json({ error: "X-Dashboard-User header required" });
-
-  const { txHash, chain, amount } = req.body || {};
-  if (!txHash || !amount || !chain) {
-    return res.status(400).json({ error: "txHash, chain, and amount required" });
-  }
-
-  try {
-    // TODO: Verify on-chain that this tx actually sent USDC to our deposit wallet
-    // For now, log and credit (deposit monitor will also catch it)
-    const balance = balanceService.deposit(userId, amount, txHash, `${chain} USDC deposit`);
-    res.json({ success: true, ...balance });
-  } catch (e: any) {
-    res.status(400).json({ error: e.message });
-  }
-});
-
 // POST /deposit/test — TESTING ONLY: fake deposit
 // Gated by ALLOW_TEST_DEPOSITS=true. Without the flag the route is not
 // registered at all, so prod can't be tricked into crediting fake balances
