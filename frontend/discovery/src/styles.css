@@ -62,7 +62,7 @@ a {
 .section {
   position: relative;
   width: 100%;
-  background: var(--bg);
+  background-color: var(--bg);
 }
 
 .section-pinned {
