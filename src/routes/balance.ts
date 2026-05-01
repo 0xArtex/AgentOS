@@ -89,16 +89,20 @@ router.post("/deposit/crypto", (req: Request, res: Response) => {
 });
 
 // POST /deposit/test — TESTING ONLY: fake deposit
-// ⚠️ REMOVE IN PRODUCTION
-router.post("/deposit/test", (req: Request, res: Response) => {
-  const userId = getUserId(req);
-  if (!userId) return res.status(401).json({ error: "X-Dashboard-User header required" });
+// Gated by ALLOW_TEST_DEPOSITS=true. Without the flag the route is not
+// registered at all, so prod can't be tricked into crediting fake balances
+// even if NODE_ENV is misconfigured.
+if (process.env.ALLOW_TEST_DEPOSITS === "true") {
+  router.post("/deposit/test", (req: Request, res: Response) => {
+    const userId = getUserId(req);
+    if (!userId) return res.status(401).json({ error: "X-Dashboard-User header required" });
 
-  const { amount } = req.body || {};
-  if (!amount || amount <= 0) return res.status(400).json({ error: "amount required (positive number)" });
+    const { amount } = req.body || {};
+    if (!amount || amount <= 0) return res.status(400).json({ error: "amount required (positive number)" });
 
-  const balance = balanceService.deposit(userId, amount, `test_${Date.now()}`, "Test deposit");
-  res.json({ success: true, ...balance });
-});
+    const balance = balanceService.deposit(userId, amount, `test_${Date.now()}`, "Test deposit");
+    res.json({ success: true, ...balance });
+  });
+}
 
 export default router;
