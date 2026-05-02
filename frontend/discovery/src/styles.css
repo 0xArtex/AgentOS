@@ -13,8 +13,7 @@
   --w60: rgba(243, 238, 226, 0.6);
   --w40: rgba(243, 238, 226, 0.4);
   --w20: rgba(243, 238, 226, 0.18);
-  --serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
-  --sans: "Inter", system-ui, sans-serif;
+  --sans: "Inter", system-ui, -apple-system, sans-serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
   --maxw: 1280px;
 }
@@ -104,14 +103,19 @@ a {
   padding: 0 clamp(20px, 4vw, 48px);
 }
 
-/* Headline/serif typography */
+/* Headline typography — matches the landing page's h1 treatment
+   (Inter 500, tight letter-spacing, white-to-gray gradient text). */
 .h-display {
-  font-family: var(--serif);
-  font-weight: 400;
-  font-size: clamp(48px, 7vw, 88px);
-  line-height: 1.02;
-  letter-spacing: -0.02em;
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: clamp(40px, 6vw, 72px);
+  line-height: 1.05;
+  letter-spacing: -0.04em;
   color: var(--w100);
+  background: linear-gradient(180deg, #fff 40%, rgba(255, 255, 255, 0.6));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .h-eyebrow {

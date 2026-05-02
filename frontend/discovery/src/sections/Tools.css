@@ -55,11 +55,11 @@
 }
 
 .tools-table-head h3 {
-  font-family: var(--serif);
-  font-size: 26px;
-  font-weight: 500;
+  font-family: var(--sans);
+  font-size: 22px;
+  font-weight: 600;
   color: var(--w100);
-  letter-spacing: 0.005em;
+  letter-spacing: -0.01em;
 }
 
 .tools-count {
