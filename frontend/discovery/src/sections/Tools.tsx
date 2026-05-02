@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { DiscoveryResponse, Tool } from "../types";
 import { useReveal } from "../lib/useReveal";
 import ToolIcon from "../components/ToolIcon";
+import Select from "../components/Select";
 import "./Tools.css";
 
 function formatPrice(min: number, max: number): string {
@@ -155,21 +156,18 @@ export default function Tools() {
                 />
               </label>
 
-              <label className="tools-select-wrap">
-                <span className="tools-select-label">Category</span>
-                <select
-                  className="tools-select"
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                >
-                  <option value="all">All Categories</option>
-                  {data?.categories.map((c) => (
-                    <option key={c.key} value={c.key}>
-                      {c.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <Select
+                label="Category"
+                value={category}
+                onChange={setCategory}
+                options={[
+                  { value: "all", label: "All Categories" },
+                  ...(data?.categories.map((c) => ({
+                    value: c.key,
+                    label: c.label,
+                  })) ?? []),
+                ]}
+              />
             </div>
           </header>
 
