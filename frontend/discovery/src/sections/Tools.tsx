@@ -105,7 +105,7 @@ export default function Tools() {
     <section className="section tools-section" id="tools">
       <div className="container tools-grid">
         <div className="tools-text">
-          <p ref={eyebrowRef} className="h-eyebrow">Chapter I</p>
+          <p ref={eyebrowRef} className="h-eyebrow">Discovery</p>
           <h2 ref={headingRef} className="h-display">
             Browse every
             <br />
