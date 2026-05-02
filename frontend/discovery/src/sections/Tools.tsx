@@ -16,7 +16,6 @@ export default function Tools() {
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
-  const [network, setNetwork] = useState<string>("all");
 
   const eyebrowRef = useReveal<HTMLParagraphElement>({ delay: 0.0 });
   const headingRef = useReveal<HTMLHeadingElement>({ delay: 0.1 });
@@ -47,12 +46,11 @@ export default function Tools() {
     const q = query.trim().toLowerCase();
     return data.tools.filter((t) => {
       if (category !== "all" && t.category !== category) return false;
-      if (network !== "all" && !t.networks.includes(network)) return false;
       if (!q) return true;
       const hay = `${t.name} ${t.description} ${t.path} ${t.categoryLabel}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [data, query, category, network]);
+  }, [data, query, category]);
 
   const totalCount = data?.stats.totalTools ?? 0;
 
@@ -121,22 +119,6 @@ export default function Tools() {
                   {data?.categories.map((c) => (
                     <option key={c.key} value={c.key}>
                       {c.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-
-              <label className="tools-select-wrap">
-                <span className="tools-select-label">Network</span>
-                <select
-                  className="tools-select"
-                  value={network}
-                  onChange={(e) => setNetwork(e.target.value)}
-                >
-                  <option value="all">All Networks</option>
-                  {data?.networks.map((n) => (
-                    <option key={n.key} value={n.key}>
-                      {n.label}
                     </option>
                   ))}
                 </select>
