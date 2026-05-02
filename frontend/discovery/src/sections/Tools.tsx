@@ -117,8 +117,8 @@ export default function Tools() {
             Discover tools across phone, voice, email, compute, and social —
             ready for your agent to call.
           </p>
-          <a ref={ctaRef} className="tools-cta-link" href="#tools-table">
-            Explore integrations <span aria-hidden="true">→</span>
+          <a ref={ctaRef} className="tools-cta-link" href="/skill.md">
+            Get started <span aria-hidden="true">→</span>
           </a>
         </div>
 
