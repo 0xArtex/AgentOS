@@ -2,16 +2,12 @@
   min-height: 100vh;
   padding: 120px 0;
   position: relative;
-  background-color: var(--bg);
-  background-image:
-    /* Vignette over the scene; lighter on top so the pillars/books read,
-       darker toward the bottom so the table rows stay legible. */
-    linear-gradient(180deg, rgba(2, 10, 18, 0.4) 0%, rgba(2, 10, 18, 0.7) 60%, rgba(2, 10, 18, 0.85) 100%),
-    url("/discovery/tools-bg.webp");
-  background-position: center, left center;
-  background-size: auto, cover;
-  background-repeat: no-repeat, no-repeat;
-  background-attachment: scroll, fixed;
+  background-color: #000;
+  background-image: url("/discovery/bg.webp");
+  background-position: left center;
+  background-size: cover;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
 }
 
 .tools-grid {
