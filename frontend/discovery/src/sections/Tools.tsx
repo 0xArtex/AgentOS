@@ -63,7 +63,7 @@ export default function Tools() {
           <h2 ref={headingRef} className="h-display">
             Browse every tool
             <br />
-            your agent can use.
+            your agent can use<span className="accent-dot">.</span>
           </h2>
           <p ref={subRef} className="h-sub">
             Hosted tools, x402 endpoints, and modes — every capability your
@@ -98,7 +98,7 @@ export default function Tools() {
                 <input
                   type="search"
                   className="tools-search"
-                  placeholder="Search tools (e.g., send_sms, compute, twitter)…"
+                  placeholder="Search tools (e.g., send_sms, compute)…"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                 />

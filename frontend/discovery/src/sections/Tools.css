@@ -30,8 +30,8 @@
 }
 
 .tools-table-wrap {
-  background: rgba(2, 10, 18, 0.6);
-  border: 1px solid rgba(200, 165, 103, 0.18);
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(245, 73, 0, 0.18);
   border-radius: 14px;
   overflow: hidden;
   backdrop-filter: blur(6px);
@@ -66,9 +66,9 @@
   font-family: var(--mono);
   font-size: 11.5px;
   font-weight: 500;
-  color: var(--gold);
-  background: rgba(200, 165, 103, 0.08);
-  border: 1px solid rgba(200, 165, 103, 0.3);
+  color: var(--accent);
+  background: rgba(245, 73, 0, 0.08);
+  border: 1px solid rgba(245, 73, 0, 0.3);
   padding: 3px 9px;
   border-radius: 4px;
   letter-spacing: 0.04em;
@@ -111,11 +111,11 @@
 }
 
 .tools-search:hover {
-  border-color: rgba(200, 165, 103, 0.3);
+  border-color: rgba(245, 73, 0, 0.3);
 }
 
 .tools-search:focus {
-  border-color: var(--gold);
+  border-color: var(--accent);
   background: rgba(255, 255, 255, 0.05);
 }
 
@@ -146,7 +146,7 @@
   height: 40px;
   padding: 0 36px 0 12px;
   background-color: rgba(255, 255, 255, 0.03);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23c8a567' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f54900' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   background-size: 14px;
@@ -160,11 +160,11 @@
 }
 
 .tools-select:hover {
-  border-color: rgba(200, 165, 103, 0.3);
+  border-color: rgba(245, 73, 0, 0.3);
 }
 
 .tools-select:focus {
-  border-color: var(--gold);
+  border-color: var(--accent);
 }
 
 .tools-select option {
@@ -224,9 +224,9 @@
   width: 32px;
   height: 32px;
   border-radius: 7px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: var(--gold);
+  background: rgba(245, 73, 0, 0.08);
+  border: 1px solid rgba(245, 73, 0, 0.18);
+  color: var(--accent);
   flex-shrink: 0;
 }
 
@@ -245,15 +245,15 @@
   display: inline-flex;
   align-items: center;
   padding: 3px 10px;
-  background: rgba(255, 255, 255, 0.02);
-  border: 1px solid rgba(200, 165, 103, 0.22);
+  background: rgba(245, 73, 0, 0.06);
+  border: 1px solid rgba(245, 73, 0, 0.2);
   border-radius: 5px;
   font-family: var(--mono);
   font-size: 10.5px;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--w80);
+  color: var(--accent);
   white-space: nowrap;
 }
 
@@ -272,7 +272,7 @@
 }
 
 .tools-price {
-  color: var(--gold);
+  color: var(--accent);
   font-weight: 600;
   font-size: 13px;
 }
