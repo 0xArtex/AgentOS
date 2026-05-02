@@ -127,7 +127,9 @@ export default function Tools() {
           <header className="tools-table-head">
             <div className="tools-title-row">
               <h3>All Tools</h3>
-              {totalCount > 0 && <span className="tools-count">{totalCount}</span>}
+              {totalCount > 0 && (
+                <span className="tools-count">{totalCount} tools</span>
+              )}
             </div>
 
             <div className="tools-controls">
