@@ -14,7 +14,6 @@
   --w40: rgba(243, 238, 226, 0.4);
   --w20: rgba(243, 238, 226, 0.18);
   --sans: "Inter", system-ui, -apple-system, sans-serif;
-  --serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
   --maxw: 1280px;
 }
@@ -104,14 +103,14 @@ a {
   padding: 0 clamp(20px, 4vw, 48px);
 }
 
-/* Headline typography — Renaissance-feel serif sized smaller than a hero
-   so it sits cleanly inside the section's left rail without dominating. */
+/* Headline typography — Inter at display weight, sized to fit the
+   section's left rail cleanly. */
 .h-display {
-  font-family: var(--serif);
-  font-weight: 400;
-  font-size: clamp(38px, 4.4vw, 56px);
+  font-family: var(--sans);
+  font-weight: 500;
+  font-size: clamp(34px, 3.8vw, 48px);
   line-height: 1.08;
-  letter-spacing: -0.005em;
+  letter-spacing: -0.025em;
   color: var(--w100);
 }
 
