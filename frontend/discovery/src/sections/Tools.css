@@ -94,7 +94,7 @@
 
 .tools-controls {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 180px 180px;
+  grid-template-columns: minmax(0, 1fr) 200px;
   gap: 12px;
   align-items: end;
 }
