@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DiscoveryResponse, Tool } from "../types";
 import { useReveal } from "../lib/useReveal";
-import CategoryIcon from "../components/CategoryIcon";
+import ToolIcon from "../components/ToolIcon";
 import "./Tools.css";
 
 function formatPrice(min: number, max: number): string {
@@ -141,7 +141,6 @@ export default function Tools() {
           <div className="tools-table">
             <div className="tools-row tools-row-head">
               <span>Tool</span>
-              <span>Category</span>
               <span>Description</span>
               <span className="num">Avg per use</span>
             </div>
@@ -155,13 +154,10 @@ export default function Tools() {
               filtered.map((t) => (
                 <div className="tools-row" key={t.id}>
                   <span className="tools-tool" title={t.description}>
-                    <span className="tool-icon" aria-hidden="true">
-                      <CategoryIcon category={t.category} size={16} />
+                    <span className="tool-icon">
+                      <ToolIcon category={t.category} size={20} />
                     </span>
                     <span className="tool-name">{t.name}</span>
-                  </span>
-                  <span className="tools-cat">
-                    <span className="tag">{t.categoryLabel}</span>
                   </span>
                   <span className="tools-desc" title={t.description}>
                     {t.description}
