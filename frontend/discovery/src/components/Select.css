@@ -1,0 +1,118 @@
+.select {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.select-label {
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--w60);
+  letter-spacing: 0.02em;
+  padding-left: 2px;
+}
+
+.select-trigger {
+  position: relative;
+  height: 40px;
+  padding: 0 36px 0 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--w100);
+  font: 13.5px var(--sans);
+  cursor: pointer;
+  outline: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.select-trigger:hover {
+  border-color: rgba(245, 73, 0, 0.3);
+}
+
+.select-trigger.is-open,
+.select-trigger:focus-visible {
+  border-color: var(--accent);
+}
+
+.select-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.select-chevron {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--accent);
+  transition: transform 0.18s ease;
+}
+
+.select-trigger.is-open .select-chevron {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.select-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  background: rgba(8, 8, 10, 0.96);
+  border: 1px solid rgba(245, 73, 0, 0.28);
+  border-radius: 10px;
+  z-index: 50;
+  max-height: 320px;
+  overflow-y: auto;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(0, 0, 0, 0.4);
+}
+
+.select-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 9px 12px;
+  border-radius: 6px;
+  font: 13.5px var(--sans);
+  color: var(--w80);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.select-option:hover,
+.select-option.is-active {
+  background: rgba(245, 73, 0, 0.1);
+  color: var(--w100);
+}
+
+.select-option.is-selected {
+  color: var(--accent);
+}
+
+.select-option.is-selected.is-active {
+  background: rgba(245, 73, 0, 0.14);
+}
+
+/* Custom scrollbar inside the menu so it doesn't clash with the OS one. */
+.select-menu::-webkit-scrollbar {
+  width: 6px;
+}
+.select-menu::-webkit-scrollbar-thumb {
+  background: rgba(245, 73, 0, 0.25);
+  border-radius: 3px;
+}
+.select-menu::-webkit-scrollbar-track {
+  background: transparent;
+}
