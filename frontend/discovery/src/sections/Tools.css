@@ -1,6 +1,6 @@
 .tools-section {
   min-height: 100vh;
-  padding: 120px 0;
+  padding: 140px 0 100px;
   position: relative;
   background-color: #000;
   background-image: url("/discovery/bg.webp");
@@ -12,23 +12,43 @@
 
 .tools-grid {
   display: grid;
-  grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
-  gap: 80px;
+  grid-template-columns: minmax(0, 360px) minmax(0, 1fr);
+  gap: 64px;
   align-items: start;
 }
 
 .tools-text {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 18px;
   position: sticky;
-  top: 96px;
+  top: 110px;
+}
+
+.tools-cta-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  align-self: flex-start;
+  font-family: var(--sans);
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--accent);
+  border-bottom: 1px solid rgba(245, 73, 0, 0.5);
+  padding-bottom: 2px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.tools-cta-link:hover {
+  color: #fff;
+  border-color: var(--accent);
 }
 
 .tools-table-wrap {
   background: rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(245, 73, 0, 0.18);
-  border-radius: 14px;
+  border-radius: 16px;
   overflow: hidden;
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);
@@ -40,7 +60,7 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
-  padding: 24px 24px 18px;
+  padding: 24px 26px 18px;
   border-bottom: 1px solid var(--border);
 }
 
@@ -51,11 +71,11 @@
 }
 
 .tools-table-head h3 {
-  font-family: var(--sans);
-  font-size: 22px;
-  font-weight: 600;
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 500;
   color: var(--w100);
-  letter-spacing: -0.01em;
+  letter-spacing: 0.005em;
 }
 
 .tools-count {
@@ -126,12 +146,11 @@
 }
 
 .tools-select-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 500;
+  font-family: var(--sans);
+  font-size: 11px;
+  font-weight: 400;
   color: var(--w60);
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.02em;
   padding-left: 2px;
 }
 
@@ -164,7 +183,7 @@
 }
 
 .tools-select option {
-  background-color: #0a141d;
+  background-color: #0a0a0a;
   color: var(--w100);
 }
 
@@ -177,9 +196,9 @@
 
 .tools-row {
   display: grid;
-  grid-template-columns: minmax(240px, 1.5fr) minmax(0, 2.4fr) 100px;
-  gap: 18px;
-  padding: 14px 24px;
+  grid-template-columns: minmax(220px, 1.6fr) 130px minmax(140px, 1.1fr) 110px;
+  gap: 16px;
+  padding: 12px 26px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   font: 13.5px var(--sans);
   align-items: center;
@@ -190,14 +209,26 @@
 }
 
 .tools-row-head {
-  background: rgba(255, 255, 255, 0.02);
-  font-family: var(--mono);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.14em;
+  background: rgba(255, 255, 255, 0.015);
+  font-family: var(--sans);
+  font-size: 12px;
+  letter-spacing: 0;
   color: var(--w40);
-  font-weight: 600;
-  padding: 11px 24px;
+  font-weight: 400;
+  text-transform: none;
+  padding: 14px 26px;
+}
+
+.tools-row-head .num {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.info-icon {
+  color: var(--w40);
+  flex-shrink: 0;
 }
 
 .tools-row .num {
@@ -252,7 +283,7 @@
   align-items: center;
   padding: 3px 10px;
   background: rgba(245, 73, 0, 0.06);
-  border: 1px solid rgba(245, 73, 0, 0.2);
+  border: 1px solid rgba(245, 73, 0, 0.22);
   border-radius: 5px;
   font-family: var(--mono);
   font-size: 10.5px;
@@ -266,15 +297,13 @@
 .tag-muted {
   color: var(--w40);
   border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
 }
 
-.tools-desc {
-  color: var(--w60);
-  font-size: 13px;
-  line-height: 1.45;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.tools-net {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .tools-price {
@@ -284,7 +313,7 @@
 }
 
 .tools-empty {
-  padding: 56px 24px;
+  padding: 56px 26px;
   text-align: center;
   color: var(--w40);
   font-size: 13px;
@@ -307,16 +336,16 @@
     grid-template-columns: 1fr;
   }
   .tools-row {
-    grid-template-columns: minmax(0, 1.6fr) 80px;
+    grid-template-columns: minmax(0, 1.6fr) 90px 80px;
     gap: 10px;
     padding: 12px 16px;
   }
   .tools-row-head {
-    padding: 10px 16px;
+    padding: 12px 16px;
   }
-  /* Hide description column on small screens to keep rows readable */
-  .tools-row-head span:nth-child(2),
-  .tools-row > span:nth-child(2) {
+  /* Hide network column on small screens */
+  .tools-row-head span:nth-child(3),
+  .tools-row > span:nth-child(3) {
     display: none;
   }
   .tool-icon {
