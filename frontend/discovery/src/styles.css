@@ -44,8 +44,8 @@ a {
 }
 
 ::selection {
-  background: var(--gold);
-  color: #000;
+  background: var(--accent);
+  color: #fff;
 }
 
 ::-webkit-scrollbar {
@@ -123,7 +123,7 @@ a {
   font-size: 11px;
   letter-spacing: 0.32em;
   text-transform: uppercase;
-  color: var(--gold);
+  color: var(--accent);
   font-weight: 500;
 }
 
@@ -140,9 +140,9 @@ a {
   align-items: center;
   gap: 10px;
   padding: 12px 26px;
-  border: 1px solid var(--gold);
+  border: 1px solid var(--accent);
   background: transparent;
-  color: var(--gold);
+  color: var(--accent);
   font-family: var(--sans);
   font-size: 14px;
   font-weight: 500;
@@ -151,6 +151,13 @@ a {
   transition: background 0.15s, color 0.15s;
 }
 .cta:hover {
-  background: var(--gold);
-  color: #000;
+  background: var(--accent);
+  color: #fff;
+}
+
+/* Accent dot used in display headlines (e.g. ".") to break out of the
+   gradient text-fill and pop in the brand color. */
+.accent-dot {
+  color: var(--accent);
+  -webkit-text-fill-color: var(--accent);
 }
