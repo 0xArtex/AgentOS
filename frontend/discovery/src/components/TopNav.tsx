@@ -11,21 +11,7 @@ export default function TopNav() {
     <header className="topnav">
       <div className="container topnav-inner">
         <a href="/" className="brand">
-          <svg
-            className="brand-mark"
-            viewBox="0 0 24 24"
-            width="22"
-            height="22"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.4"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-          >
-            <circle cx="12" cy="12" r="9" />
-            <path d="M12 2v20M2 12h20M5 5l14 14M19 5L5 19" />
-          </svg>
+          <img className="brand-mark" src="/assets/logo.png" alt="AgentOS" />
           <span>AgentOS</span>
         </a>
 
