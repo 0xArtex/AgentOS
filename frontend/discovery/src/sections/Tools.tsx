@@ -11,6 +11,18 @@ function formatPrice(min: number, max: number): string {
   return min === max ? fmt(min) : `${fmt(min)}–${fmt(max)}`;
 }
 
+function sortPriority(t: Tool): number {
+  if (t.name === "grow_audience") return 0;
+  if (t.name === "launch_product") return 1;
+  if (t.category === "twitter") return 2;
+  if (t.category === "domain") return 3;
+  if (t.category === "phone") return 4;
+  if (t.category === "voice") return 5;
+  if (t.category === "compute" && t.name !== "configure_openclaw") return 6;
+  if (t.name === "configure_openclaw") return 7;
+  return 99;
+}
+
 interface SchemaBlockProps {
   title: string;
   schema: Record<string, unknown>;
@@ -71,11 +83,19 @@ export default function Tools() {
   const filtered = useMemo<Tool[]>(() => {
     if (!data) return [];
     const q = query.trim().toLowerCase();
-    return data.tools.filter((t) => {
+    const list = data.tools.filter((t) => {
       if (category !== "all" && t.category !== category) return false;
       if (!q) return true;
       const hay = `${t.name} ${t.description} ${t.path} ${t.categoryLabel}`.toLowerCase();
       return hay.includes(q);
+    });
+    // Manually-curated priority order: marquee compound flows first,
+    // then the categories users hit most often, then long-tail.
+    return list.sort((a, b) => {
+      const pa = sortPriority(a);
+      const pb = sortPriority(b);
+      if (pa !== pb) return pa - pb;
+      return a.name.localeCompare(b.name);
     });
   }, [data, query, category]);
 
@@ -197,7 +217,7 @@ export default function Tools() {
                     >
                       <span className="tools-tool">
                         <span className="tool-icon">
-                          <ToolIcon category={t.category} size={20} />
+                          <ToolIcon name={t.name} category={t.category} size={20} />
                         </span>
                         <span className="tool-name">{t.name}</span>
                       </span>
