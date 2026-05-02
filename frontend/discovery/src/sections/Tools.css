@@ -71,11 +71,11 @@
 }
 
 .tools-table-head h3 {
-  font-family: var(--serif);
-  font-size: 26px;
-  font-weight: 500;
+  font-family: var(--sans);
+  font-size: 22px;
+  font-weight: 600;
   color: var(--w100);
-  letter-spacing: 0.005em;
+  letter-spacing: -0.01em;
 }
 
 .tools-count {
@@ -196,12 +196,21 @@
 
 .tools-row {
   display: grid;
-  grid-template-columns: minmax(220px, 1.6fr) 130px minmax(140px, 1.1fr) 110px;
-  gap: 16px;
+  grid-template-columns: minmax(220px, 1.4fr) minmax(0, 2.4fr) 110px;
+  gap: 18px;
   padding: 12px 26px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
   font: 13.5px var(--sans);
   align-items: center;
+}
+
+.tools-desc {
+  color: var(--w60);
+  font-size: 13px;
+  line-height: 1.45;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tools-row:last-child {
@@ -265,6 +274,9 @@
   width: 20px;
   height: 20px;
   object-fit: contain;
+  /* Strip brand colors so the table reads as a uniform monochrome list
+     rather than a colorful logo wall. */
+  filter: grayscale(100%) brightness(1.6) opacity(0.85);
 }
 
 .tool-name {
@@ -336,16 +348,16 @@
     grid-template-columns: 1fr;
   }
   .tools-row {
-    grid-template-columns: minmax(0, 1.6fr) 90px 80px;
+    grid-template-columns: minmax(0, 1.6fr) 80px;
     gap: 10px;
     padding: 12px 16px;
   }
   .tools-row-head {
     padding: 12px 16px;
   }
-  /* Hide network column on small screens */
-  .tools-row-head span:nth-child(3),
-  .tools-row > span:nth-child(3) {
+  /* Hide description column on small screens */
+  .tools-row-head span:nth-child(2),
+  .tools-row > span:nth-child(2) {
     display: none;
   }
   .tool-icon {
