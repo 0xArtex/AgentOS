@@ -11,11 +11,38 @@ function formatPrice(min: number, max: number): string {
   return min === max ? fmt(min) : `${fmt(min)}–${fmt(max)}`;
 }
 
+interface SchemaBlockProps {
+  title: string;
+  schema: Record<string, unknown>;
+}
+
+function SchemaBlock({ title, schema }: SchemaBlockProps) {
+  const entries = Object.entries(schema ?? {});
+  return (
+    <div className="schema-block">
+      <span className="detail-cli-label">{title}</span>
+      {entries.length === 0 ? (
+        <p className="schema-empty">—</p>
+      ) : (
+        <ul>
+          {entries.map(([k, v]) => (
+            <li key={k}>
+              <code>{k}</code>
+              <span>{typeof v === "string" ? v : JSON.stringify(v)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 export default function Tools() {
   const [data, setData] = useState<DiscoveryResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<string>("all");
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const eyebrowRef = useReveal<HTMLParagraphElement>({ delay: 0.0 });
   const headingRef = useReveal<HTMLHeadingElement>({ delay: 0.1 });
@@ -157,23 +184,87 @@ export default function Tools() {
             ) : filtered.length === 0 ? (
               <div className="tools-empty">No tools match.</div>
             ) : (
-              filtered.map((t) => (
-                <div className="tools-row" key={t.id}>
-                  <span className="tools-tool" title={t.description}>
-                    <span className="tool-icon">
-                      <ToolIcon category={t.category} size={20} />
-                    </span>
-                    <span className="tool-name">{t.name}</span>
-                  </span>
-                  <span className="tools-desc" title={t.description}>
-                    {t.description}
-                  </span>
-                  <span className="tools-price num">
-                    {formatPrice(t.minCostUsdc, t.maxCostUsdc)}
-                  </span>
-                </div>
-              ))
+              filtered.map((t) => {
+                const isOpen = expandedId === t.id;
+                return (
+                  <div key={t.id} className={`tools-row-group${isOpen ? " is-open" : ""}`}>
+                    <button
+                      type="button"
+                      className="tools-row tools-row-clickable"
+                      aria-expanded={isOpen}
+                      aria-controls={`detail-${t.id}`}
+                      onClick={() => setExpandedId(isOpen ? null : t.id)}
+                    >
+                      <span className="tools-tool">
+                        <span className="tool-icon">
+                          <ToolIcon category={t.category} size={20} />
+                        </span>
+                        <span className="tool-name">{t.name}</span>
+                      </span>
+                      <span className="tools-desc">{t.description}</span>
+                      <span className="tools-price num">
+                        {formatPrice(t.minCostUsdc, t.maxCostUsdc)}
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="tools-row-detail" id={`detail-${t.id}`}>
+                        <p className="detail-desc">{t.description}</p>
+                        <div className="detail-grid">
+                          <SchemaBlock
+                            title="Input"
+                            schema={t.inputSchema}
+                          />
+                          <SchemaBlock
+                            title="Output"
+                            schema={t.outputSchema}
+                          />
+                        </div>
+                        <div className="detail-cli">
+                          <span className="detail-cli-label">Try it</span>
+                          <code>
+                            agentos chat run &quot;{t.name.replace(/_/g, " ")} …&quot;
+                            --budget 10 --execute
+                          </code>
+                        </div>
+                        {t.providers.length > 0 && (
+                          <div className="detail-providers">
+                            <span className="detail-cli-label">
+                              {t.providers.length} provider
+                              {t.providers.length > 1 ? "s" : ""}
+                            </span>
+                            <ul>
+                              {t.providers.map((p) => (
+                                <li key={p.id}>
+                                  <code>{p.id}</code>
+                                  <span className="detail-prov-net">
+                                    {p.networkLabel}
+                                  </span>
+                                  <span className="detail-prov-cost">
+                                    {formatPrice(p.costUsdc, p.costUsdc)}
+                                  </span>
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
+
+            <footer className="tools-table-foot">
+              <span>More tools and capabilities are added regularly.</span>
+              <a
+                href="https://github.com/0xArtex/AgentOS/issues/new?labels=tool-request&title=Tool+request%3A+"
+                target="_blank"
+                rel="noopener"
+                className="tools-foot-link"
+              >
+                Request a tool <span aria-hidden="true">→</span>
+              </a>
+            </footer>
           </div>
         </div>
       </div>
