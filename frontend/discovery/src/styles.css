@@ -1,5 +1,8 @@
 :root {
-  --bg: #020a12;
+  /* Pure black so the body color matches the Tools section's hardcoded
+     #000 — without this, the body shows a brief navy flash before the
+     section paints on first load. */
+  --bg: #000;
   --bg-2: #050f17;
   --surface: rgba(255, 255, 255, 0.03);
   --surface-2: rgba(255, 255, 255, 0.05);
