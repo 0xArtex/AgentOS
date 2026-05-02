@@ -21,6 +21,7 @@ export default function Tools() {
   const eyebrowRef = useReveal<HTMLParagraphElement>({ delay: 0.0 });
   const headingRef = useReveal<HTMLHeadingElement>({ delay: 0.1 });
   const subRef = useReveal<HTMLParagraphElement>({ delay: 0.25 });
+  const ctaRef = useReveal<HTMLAnchorElement>({ delay: 0.35 });
   const tableRef = useReveal<HTMLDivElement>({ delay: 0.15, y: 48 });
 
   useEffect(() => {
@@ -59,19 +60,24 @@ export default function Tools() {
     <section className="section tools-section" id="tools">
       <div className="container tools-grid">
         <div className="tools-text">
-          <p ref={eyebrowRef} className="h-eyebrow">Discovery</p>
+          <p ref={eyebrowRef} className="h-eyebrow">Chapter I</p>
           <h2 ref={headingRef} className="h-display">
-            Browse every tool
+            Browse every
             <br />
-            your agent can use<span className="accent-dot">.</span>
+            tool your
+            <br />
+            agent can use<span className="accent-dot">.</span>
           </h2>
           <p ref={subRef} className="h-sub">
-            Hosted tools, x402 endpoints, and modes — every capability your
-            agent can plug into, priced in USDC, no API keys required.
+            Discover tools across phone, voice, email, compute, and social —
+            ready for your agent to call.
           </p>
+          <a ref={ctaRef} className="tools-cta-link" href="#tools-table">
+            Explore integrations <span aria-hidden="true">→</span>
+          </a>
         </div>
 
-        <div ref={tableRef} className="tools-table-wrap">
+        <div ref={tableRef} className="tools-table-wrap" id="tools-table">
           <header className="tools-table-head">
             <div className="tools-title-row">
               <h3>All Tools</h3>
@@ -141,8 +147,27 @@ export default function Tools() {
           <div className="tools-table">
             <div className="tools-row tools-row-head">
               <span>Tool</span>
-              <span>Description</span>
-              <span className="num">Avg per use</span>
+              <span>Category</span>
+              <span>Network</span>
+              <span className="num">
+                Avg per use
+                <svg
+                  className="info-icon"
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+              </span>
             </div>
             {error ? (
               <div className="tools-empty">Failed to load tools: {error}</div>
@@ -159,8 +184,15 @@ export default function Tools() {
                     </span>
                     <span className="tool-name">{t.name}</span>
                   </span>
-                  <span className="tools-desc" title={t.description}>
-                    {t.description}
+                  <span className="tools-cat">
+                    <span className="tag">{t.categoryLabel}</span>
+                  </span>
+                  <span className="tools-net">
+                    {t.networkLabels.length === 0
+                      ? <span className="tag tag-muted">—</span>
+                      : t.networkLabels.map((n) => (
+                          <span key={n} className="tag">{n}</span>
+                        ))}
                   </span>
                   <span className="tools-price num">
                     {formatPrice(t.minCostUsdc, t.maxCostUsdc)}

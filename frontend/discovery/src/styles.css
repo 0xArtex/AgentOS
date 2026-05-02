@@ -14,6 +14,7 @@
   --w40: rgba(243, 238, 226, 0.4);
   --w20: rgba(243, 238, 226, 0.18);
   --sans: "Inter", system-ui, -apple-system, sans-serif;
+  --serif: "Cormorant Garamond", "EB Garamond", Georgia, serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
   --maxw: 1280px;
 }
@@ -103,19 +104,15 @@ a {
   padding: 0 clamp(20px, 4vw, 48px);
 }
 
-/* Headline typography — matches the landing page's h1 treatment
-   (Inter 500, tight letter-spacing, white-to-gray gradient text). */
+/* Headline typography — Renaissance-feel serif sized smaller than a hero
+   so it sits cleanly inside the section's left rail without dominating. */
 .h-display {
-  font-family: var(--sans);
-  font-weight: 500;
-  font-size: clamp(40px, 6vw, 72px);
-  line-height: 1.05;
-  letter-spacing: -0.04em;
+  font-family: var(--serif);
+  font-weight: 400;
+  font-size: clamp(38px, 4.4vw, 56px);
+  line-height: 1.08;
+  letter-spacing: -0.005em;
   color: var(--w100);
-  background: linear-gradient(180deg, #fff 40%, rgba(255, 255, 255, 0.6));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
 }
 
 .h-eyebrow {
@@ -128,10 +125,10 @@ a {
 }
 
 .h-sub {
-  font-size: 16px;
+  font-size: 13.5px;
   color: var(--w60);
-  line-height: 1.65;
-  max-width: 540px;
+  line-height: 1.6;
+  max-width: 360px;
 }
 
 /* CTA */
