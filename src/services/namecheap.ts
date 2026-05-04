@@ -170,5 +170,17 @@ export async function setDomainDnsRecords(
     return acc;
   }, {});
 
-  await namecheapRequest('namecheap.domains.dns.setHosts', { SLD: sld, TLD: tld, ...hosts });
+  // Namecheap's default mail mode for a freshly-registered domain is "FWD"
+  // (their email-forwarding service via eforward1-5.registrar-servers.com).
+  // While in FWD/MXE mode, custom MX records sent via setHosts are silently
+  // ignored — the dashboard accepts the call but DNS keeps serving the
+  // eforward MX list. Switching EmailType to "MX" tells Namecheap to honor
+  // the host-level MX rows we just sent. Only set it when the caller actually
+  // included MX records, so we don't clobber Gmail/Workspace setups for
+  // domains that don't need custom MX.
+  const hasMx = records.some(r => r.type === 'MX');
+  const params: Record<string, string> = { SLD: sld, TLD: tld, ...hosts };
+  if (hasMx) params.EmailType = 'MX';
+
+  await namecheapRequest('namecheap.domains.dns.setHosts', params);
 }

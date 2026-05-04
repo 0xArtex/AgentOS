@@ -165,12 +165,26 @@ export async function registerDomainWithMailgun(
  * Fetch the verification status of a domain that's already been registered
  * with Mailgun. Used by `GET /email/domains/:domain/status` so callers can
  * poll for verification without re-running provision.
+ *
+ * If `forceRecheck` is true (default), we PUT to the verify endpoint first
+ * so Mailgun re-polls DNS *now* instead of returning stale cached state.
+ * Without this, Mailgun's background poller can take several minutes to
+ * notice a freshly-written DKIM/SPF/MX record, which makes `agentos email
+ * status` return "pending" long after DNS has propagated.
  */
 export async function getMailgunDomainStatus(
   domain: string,
+  forceRecheck: boolean = true,
 ): Promise<{ found: boolean; id?: string; status?: string; records?: DnsHostRecord[] }> {
   if (!isMailgunConfigured()) {
     throw new Error('MAILGUN_API_KEY not set');
+  }
+  if (forceRecheck) {
+    // Same call the "Check status" button in the dashboard makes. Errors are
+    // non-fatal here — fall through to GET so callers still see cached state.
+    try {
+      await mgFetch(`/v4/domains/${encodeURIComponent(domain)}/verify`, { method: 'PUT' });
+    } catch { /* best effort */ }
   }
   try {
     const got = await mgJson<MailgunDomainResponse>(
@@ -182,6 +196,25 @@ export async function getMailgunDomainStatus(
     if (err?.status === 404) return { found: false };
     throw err;
   }
+}
+
+/**
+ * Force Mailgun to re-poll DNS for a domain. Same call as the dashboard's
+ * "Check status" button. Use after writing DKIM/SPF/MX records so the
+ * provision response reflects truth instead of Mailgun's stale cache.
+ */
+export async function forceVerifyMailgunDomain(
+  domain: string,
+): Promise<{ status: string; records: DnsHostRecord[] }> {
+  if (!isMailgunConfigured()) {
+    throw new Error('MAILGUN_API_KEY not set');
+  }
+  const verified = await mgJson<MailgunDomainResponse>(
+    `/v4/domains/${encodeURIComponent(domain)}/verify`,
+    { method: 'PUT' },
+  );
+  const shaped = shapeDomainResponse(domain, verified);
+  return { status: shaped.status, records: shaped.records };
 }
 
 /**

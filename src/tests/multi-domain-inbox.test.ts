@@ -41,11 +41,17 @@ function insertDomain(domainName: string, owner: string, status: string = "activ
 
 before(() => {
   initDatabase();
-  db.exec("DELETE FROM domains; DELETE FROM email_inboxes;");
+  // Delete in FK-dependency order so PRAGMA foreign_keys=ON doesn't reject
+  // the email_inboxes wipe when stale email_messages rows exist (e.g. from
+  // a real `agentos email send` run against the dev DB).
+  db.exec("DELETE FROM email_messages; DELETE FROM email_inboxes; DELETE FROM domains;");
 });
 
 beforeEach(() => {
-  db.exec("DELETE FROM domains; DELETE FROM email_inboxes;");
+  // Delete in FK-dependency order so PRAGMA foreign_keys=ON doesn't reject
+  // the email_inboxes wipe when stale email_messages rows exist (e.g. from
+  // a real `agentos email send` run against the dev DB).
+  db.exec("DELETE FROM email_messages; DELETE FROM email_inboxes; DELETE FROM domains;");
 });
 
 describe("createInbox — custom domain", () => {
