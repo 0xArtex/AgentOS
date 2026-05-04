@@ -208,7 +208,7 @@ function formatStepOutput(output: any): string {
     const i = output.inbox
     const flags: string[] = []
     if (output.dnsApplied === true) flags.push('dns ✓')
-    if (output.sesRegistered === true) flags.push(`ses=${output.sesStatus ?? 'pending'}`)
+    if (output.mailgunRegistered === true) flags.push(`mailgun=${output.mailgunStatus ?? 'pending'}`)
     if (output.sendingStatus) flags.push(`send: ${output.sendingStatus.split(/ [—-] /)[0]}`)
     return `${i.address} (id ${i.id})${flags.length ? '  ' + flags.join('  ') : ''}`
   }

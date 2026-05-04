@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from "express";
+import { Router, Request, Response, NextFunction, urlencoded } from "express";
 import { requireAuth } from "../middleware/auth";
 import { x402 } from "../middleware/x402";
 import { AuthenticatedRequest } from "../types";
@@ -191,35 +191,39 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
   try {
     const result = emailService.createInbox(name, owner, encryptionKey, resolvedDomain);
 
-    // For custom domains, register the domain with our email backend (AWS SES)
-    // and write the DKIM CNAME + SPF records it asks for to the user's Namecheap
-    // DNS. SES auto-verifies once DNS propagates (typically 5-30 min).
+    // For custom domains, register the domain with our email backend (Mailgun)
+    // and write the DKIM + SPF records it asks for to the user's Namecheap
+    // DNS, plus inbound MX so receive lands at Mailgun. Mailgun auto-verifies
+    // once DNS propagates (typically a few minutes).
     let dnsApplied = false;
-    let sesStatus: string | undefined;
-    let sesIdentity: string | undefined;
-    let sesRegistered = false;
-    let sesError: string | undefined;
+    let mailgunStatus: string | undefined;
+    let mailgunIdentity: string | undefined;
+    let mailgunRegistered = false;
+    let mailgunError: string | undefined;
     if (resolvedDomain) {
       try {
-        const { registerDomainWithSes, isSesConfigured } = await import("../services/ses");
+        const { registerDomainWithMailgun, isMailgunConfigured } = await import("../services/mailgun");
         let records: DnsHostRecord[] = [];
-        if (isSesConfigured()) {
+        if (isMailgunConfigured()) {
           try {
-            const reg = await registerDomainWithSes(resolvedDomain);
+            const reg = await registerDomainWithMailgun(resolvedDomain);
             records = reg.records;
-            sesStatus = reg.status;
-            sesIdentity = reg.id;
-            sesRegistered = true;
-            console.log(`[email] ses registered ${resolvedDomain} (status=${reg.status}, ${reg.records.length} dns records)`);
-          } catch (sesErr: any) {
-            sesError = sesErr?.message || String(sesErr);
-            console.error(`[email] ses register ${resolvedDomain} failed:`, sesError);
+            mailgunStatus = reg.status;
+            mailgunIdentity = reg.id;
+            mailgunRegistered = true;
+            console.log(`[email] mailgun registered ${resolvedDomain} (status=${reg.status}, ${reg.records.length} dns records)`);
+          } catch (mgErr: any) {
+            mailgunError = mgErr?.message || String(mgErr);
+            console.error(`[email] mailgun register ${resolvedDomain} failed:`, mailgunError);
           }
         } else {
-          console.warn(`[email] AWS SES not configured (AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY missing) - skipping domain registration for ${resolvedDomain}`);
+          console.warn(`[email] Mailgun not configured (MAILGUN_API_KEY missing) - skipping domain registration for ${resolvedDomain}`);
         }
-        // Always include an inbound MX so future receive paths land somewhere.
-        records.push({ type: 'MX', name: '@', value: 'mx.agntos.dev', ttl: 1800, mxPref: 10 });
+        // Inbound MX records — Mailgun receives mail at mxa/mxb.mailgun.org
+        // (or mxa/mxb.eu.mailgun.org for the EU region).
+        const mxSuffix = (process.env.MAILGUN_REGION || 'us').toLowerCase() === 'eu' ? '.eu.mailgun.org' : '.mailgun.org';
+        records.push({ type: 'MX', name: '@', value: `mxa${mxSuffix}`, ttl: 1800, mxPref: 10 });
+        records.push({ type: 'MX', name: '@', value: `mxb${mxSuffix}`, ttl: 1800, mxPref: 10 });
         await setDomainDnsRecords(resolvedDomain, records);
         dnsApplied = true;
       } catch (dnsErr: any) {
@@ -234,16 +238,16 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         walletAddress: result.solanaPublicKey,
       },
       dnsApplied: resolvedDomain ? dnsApplied : undefined,
-      sesRegistered: resolvedDomain ? sesRegistered : undefined,
-      sesIdentity,
-      sesStatus,
-      sesError,
+      mailgunRegistered: resolvedDomain ? mailgunRegistered : undefined,
+      mailgunIdentity,
+      mailgunStatus,
+      mailgunError,
       sendingStatus: resolvedDomain
-        ? (sesStatus === 'verified'
+        ? (mailgunStatus === 'verified'
           ? 'ready'
-          : sesRegistered
-            ? 'pending_verification - DNS propagating; sending will work once SES verifies the domain (typically 5-30 min). Poll with: agentos email status <domain>'
-            : 'unverified - AWS SES not configured on server; outbound send unavailable until AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY are set')
+          : mailgunRegistered
+            ? 'pending_verification - DNS propagating; sending will work once Mailgun verifies the domain (typically a few minutes). Poll with: agentos email status <domain>'
+            : 'unverified - Mailgun not configured on server; outbound send unavailable until MAILGUN_API_KEY is set')
         : undefined,
     });
   } catch (err: any) {
@@ -253,19 +257,19 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
 
 /**
  * POST /email/domains/:domain/register - explicitly register a wallet-owned
- * domain with AWS SES and write the required DKIM/SPF DNS records via Namecheap.
+ * domain with Mailgun and write the required DKIM/SPF/MX DNS records via Namecheap.
  *
  * Use case: recover from a failed auto-registration during provision_email_inbox
- * (e.g. transient SES error) without paying $2 to provision another inbox just
- * to retry.
+ * (e.g. transient Mailgun error) without paying $2 to provision another inbox
+ * just to retry.
  *
- * Idempotent - SES re-registration on an existing identity returns the existing
- * DKIM tokens; DNS setHosts is also idempotent (replaces all).
+ * Idempotent - Mailgun re-registration on an existing domain returns the
+ * existing DKIM records; DNS setHosts is also idempotent (replaces all).
  */
 router.post("/domains/:domain/register", requireAuth(0.05, "email", {
-  description: "Register a wallet-owned domain with AWS SES and write its DKIM/SPF DNS records. Idempotent - safe to retry.",
+  description: "Register a wallet-owned domain with Mailgun and write its DKIM/SPF/MX DNS records. Idempotent - safe to retry.",
   category: "communications",
-  tags: ["email", "domain", "ses", "register"],
+  tags: ["email", "domain", "mailgun", "register"],
 }), async (req: AuthenticatedRequest, res: Response) => {
   const owner = req.agentId || req.payment?.payer;
   if (!owner) return res.status(401).json({ error: "Unauthenticated" });
@@ -280,23 +284,25 @@ router.post("/domains/:domain/register", requireAuth(0.05, "email", {
   }
 
   try {
-    const { registerDomainWithSes, isSesConfigured } = await import("../services/ses");
-    if (!isSesConfigured()) {
-      return res.status(503).json({ error: "AWS SES not configured on server (AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY missing)" });
+    const { registerDomainWithMailgun, isMailgunConfigured } = await import("../services/mailgun");
+    if (!isMailgunConfigured()) {
+      return res.status(503).json({ error: "Mailgun not configured on server (MAILGUN_API_KEY missing)" });
     }
-    const reg = await registerDomainWithSes(domain);
+    const reg = await registerDomainWithMailgun(domain);
     const records: DnsHostRecord[] = [...reg.records];
-    records.push({ type: 'MX', name: '@', value: 'mx.agntos.dev', ttl: 1800, mxPref: 10 });
+    const mxSuffix = (process.env.MAILGUN_REGION || 'us').toLowerCase() === 'eu' ? '.eu.mailgun.org' : '.mailgun.org';
+    records.push({ type: 'MX', name: '@', value: `mxa${mxSuffix}`, ttl: 1800, mxPref: 10 });
+    records.push({ type: 'MX', name: '@', value: `mxb${mxSuffix}`, ttl: 1800, mxPref: 10 });
     await setDomainDnsRecords(domain, records);
     res.json({
       domain,
-      sesIdentity: reg.id,
+      mailgunIdentity: reg.id,
       status: reg.status,
       records: reg.records,
       dnsApplied: true,
       message: reg.status === 'verified'
         ? 'Domain is verified and ready to send from.'
-        : 'Domain registered with SES. DNS records set on Namecheap. SES will auto-verify within 5-30 min - poll with: agentos email status ' + domain,
+        : 'Domain registered with Mailgun. DNS records set on Namecheap. Mailgun will auto-verify within a few minutes - poll with: agentos email status ' + domain,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || String(err) });
@@ -305,13 +311,13 @@ router.post("/domains/:domain/register", requireAuth(0.05, "email", {
 
 /**
  * GET /email/domains/:domain/status - verification status of a wallet-owned
- * domain in AWS SES. Used to poll after inbox provisioning while DNS
+ * domain in Mailgun. Used to poll after inbox provisioning while DNS
  * propagates. Wallet must own the domain.
  */
 router.get("/domains/:domain/status", requireAuth(0.01, "general", {
-  description: "Get the SES verification status of a wallet-owned domain (use to poll while DNS propagates).",
+  description: "Get the Mailgun verification status of a wallet-owned domain (use to poll while DNS propagates).",
   category: "communications",
-  tags: ["email", "domain", "ses", "verification"],
+  tags: ["email", "domain", "mailgun", "verification"],
 }), async (req: AuthenticatedRequest, res: Response) => {
   const owner = req.agentId || req.payment?.payer;
   if (!owner) return res.status(401).json({ error: "Unauthenticated" });
@@ -326,21 +332,21 @@ router.get("/domains/:domain/status", requireAuth(0.01, "general", {
   }
 
   try {
-    const { getSesDomainStatus, isSesConfigured } = await import("../services/ses");
-    if (!isSesConfigured()) {
-      return res.json({ domain, status: "ses_not_configured", message: "AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY not set on server" });
+    const { getMailgunDomainStatus, isMailgunConfigured } = await import("../services/mailgun");
+    if (!isMailgunConfigured()) {
+      return res.json({ domain, status: "mailgun_not_configured", message: "MAILGUN_API_KEY not set on server" });
     }
-    const result = await getSesDomainStatus(domain);
+    const result = await getMailgunDomainStatus(domain);
     if (!result.found) {
       return res.json({
         domain,
         status: "not_registered",
-        message: "Domain has not been registered with SES yet - re-run provision_email_inbox to trigger auto-registration.",
+        message: "Domain has not been registered with Mailgun yet - re-run provision_email_inbox to trigger auto-registration.",
       });
     }
     res.json({
       domain,
-      sesIdentity: result.id,
+      mailgunIdentity: result.id,
       status: result.status,
       records: result.records,
       ready: result.status === "verified",
@@ -350,22 +356,6 @@ router.get("/domains/:domain/status", requireAuth(0.01, "general", {
   }
 });
 
-/**
- * Legacy default DNS record set kept for the fallback path where Resend is
- * not configured. Production uses `registerDomainWithResend()` instead which
- * returns the canonical record set (DKIM + SPF) that Resend requires.
- */
-function defaultMailDnsRecords(): DnsHostRecord[] {
-  const cfid = process.env.MAILCHANNELS_CFID || '';
-  const records: DnsHostRecord[] = [
-    { type: 'MX', name: '@', value: 'mx.agntos.dev', ttl: 1800, mxPref: 10 },
-    { type: 'TXT', name: '@', value: 'v=spf1 a mx include:relay.mailchannels.net ~all', ttl: 1800 },
-  ];
-  if (cfid) {
-    records.push({ type: 'TXT', name: '_mailchannels', value: `v=mc1 cfid=${cfid}`, ttl: 1800 });
-  }
-  return records;
-}
 
 /**
  * GET /email/inboxes/:id/messages — Read inbox (decrypted)
@@ -506,27 +496,74 @@ router.post("/inboxes/:id/send", x402(0.08, {
 });
 
 /**
- * POST /email/inbound — Webhook for inbound emails
+ * POST /email/inbound — Webhook for inbound emails (Mailgun Routes target).
+ *
+ * Mailgun POSTs as multipart form-data (or url-encoded) containing the parsed
+ * message fields plus a signature triple (timestamp + token + signature).
+ * We HMAC-verify with MAILGUN_WEBHOOK_SIGNING_KEY before doing anything.
+ *
+ * Field map (Mailgun → AgentOS):
+ *   recipient         → to
+ *   sender            → from
+ *   subject           → subject
+ *   body-plain        → body
+ *   body-html         → html
+ *   Message-Id header → messageId
+ *   In-Reply-To       → inReplyTo
+ *   Cc                → cc
+ *
+ * Set up the route in Mailgun → Receiving → Routes:
+ *   Match: catch_all()    Action: forward("https://agntos.dev/email/inbound")
  */
-router.post("/inbound", async (req, res: Response) => {
+router.post("/inbound", urlencoded({ extended: true, limit: '25mb' }), async (req, res: Response) => {
   try {
-    const webhookSecret = Array.isArray(req.headers["x-webhook-secret"])
-      ? req.headers["x-webhook-secret"][0]
-      : req.headers["x-webhook-secret"];
-    const expectedSecret = process.env.EMAIL_WEBHOOK_SECRET;
-    if (!expectedSecret) { res.status(500).json({ error: "Inbound email not configured" }); return; }
-    if (webhookSecret !== expectedSecret) {
-      res.status(401).json({ error: "Unauthorized" });
+    const { verifyMailgunWebhook } = await import("../services/mailgun");
+    const body = (req.body || {}) as Record<string, any>;
+
+    const timestamp = body.timestamp as string | undefined;
+    const token = body.token as string | undefined;
+    const signature = body.signature as string | undefined;
+
+    if (!verifyMailgunWebhook(timestamp, token, signature)) {
+      res.status(401).json({ error: "Unauthorized — invalid Mailgun signature" });
       return;
     }
 
-    const { to, from, subject, body, html, attachments, messageId, inReplyTo, cc } = req.body;
-    const msg = emailService.handleInboundEmail(to, from, subject, body, html, attachments, { messageId, inReplyTo, cc });
+    // Parse Message-Id / In-Reply-To from the message-headers JSON when present.
+    let messageId: string | undefined;
+    let inReplyTo: string | undefined;
+    try {
+      const headers = body['message-headers'] ? JSON.parse(String(body['message-headers'])) : [];
+      for (const [name, val] of headers) {
+        const lower = String(name).toLowerCase();
+        if (lower === 'message-id' && !messageId) messageId = String(val);
+        if (lower === 'in-reply-to' && !inReplyTo) inReplyTo = String(val);
+      }
+    } catch { /* best-effort */ }
+
+    const to = String(body.recipient || body.to || '');
+    const from = String(body.sender || body.from || '');
+    const subject = String(body.subject || '');
+    const text = String(body['body-plain'] || body['stripped-text'] || '');
+    const html = body['body-html'] ? String(body['body-html']) : undefined;
+    const cc = body.Cc ? String(body.Cc) : undefined;
+
+    // Mailgun "stored" mode delivers attachments as fields attachment-1, attachment-2...
+    // We don't currently fetch them server-side; if you need attachments, switch to
+    // the "store and notify" route action and fetch via the message URL.
+    const attachments = undefined;
+
+    const msg = emailService.handleInboundEmail(to, from, subject, text, html, attachments, {
+      messageId,
+      inReplyTo,
+      cc,
+    });
 
     if (msg) {
       res.json({ received: true, messageId: msg.id, encrypted: true });
     } else {
-      res.status(404).json({ received: false, error: "No matching inbox" });
+      // Always 200 so Mailgun doesn't retry the webhook for unknown inboxes.
+      res.json({ received: false, reason: "No matching inbox" });
     }
   } catch (err: any) {
     console.error("[email] Inbound webhook error:", err);
