@@ -162,14 +162,19 @@ export function initDatabase(): void {
     if (fkBefore?.foreign_keys === 1) db.exec("PRAGMA foreign_keys = ON");
   }
 
-  // Email Messages table
+  // Email Messages table — created without indexes first so the column
+  // backfill below can run before any CREATE INDEX references thread_id.
   db.exec(`
     CREATE TABLE IF NOT EXISTS email_messages (
       id TEXT PRIMARY KEY,
       inbox_id TEXT NOT NULL,
+      thread_id TEXT,
       direction TEXT NOT NULL CHECK(direction IN ('inbound', 'outbound')),
       from_address TEXT NOT NULL,
       to_address TEXT NOT NULL,
+      cc TEXT,
+      message_id_header TEXT,
+      in_reply_to TEXT,
       subject TEXT NOT NULL,
       body TEXT NOT NULL,
       html TEXT,
@@ -177,9 +182,68 @@ export function initDatabase(): void {
       timestamp TEXT NOT NULL,
       FOREIGN KEY (inbox_id) REFERENCES email_inboxes(id)
     );
-    
+  `);
+
+  // Backfill threading columns on older DBs that have email_messages from
+  // before threads/attachments existed. CREATE TABLE IF NOT EXISTS leaves the
+  // pre-existing table untouched, so add any missing columns explicitly.
+  // Must run BEFORE the CREATE INDEX below, since the index targets thread_id.
+  {
+    const cols = db.prepare("PRAGMA table_info(email_messages)").all() as Array<{ name: string }>;
+    const have = new Set(cols.map(c => c.name));
+    const adds: Array<[string, string]> = [
+      ['thread_id', 'TEXT'],
+      ['cc', 'TEXT'],
+      ['message_id_header', 'TEXT'],
+      ['in_reply_to', 'TEXT'],
+    ];
+    for (const [name, spec] of adds) {
+      if (!have.has(name)) db.exec(`ALTER TABLE email_messages ADD COLUMN ${name} ${spec}`);
+    }
+  }
+
+  db.exec(`
     CREATE INDEX IF NOT EXISTS idx_email_messages_inbox_id ON email_messages(inbox_id);
+    CREATE INDEX IF NOT EXISTS idx_email_messages_thread_id ON email_messages(thread_id);
     CREATE INDEX IF NOT EXISTS idx_email_messages_timestamp ON email_messages(timestamp);
+  `);
+
+  // Email Threads, Attachments, Webhooks — added when threading shipped.
+  // Older DBs predate them; create here so storage.ts INSERTs don't 500.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS email_threads (
+      id TEXT PRIMARY KEY,
+      inbox_id TEXT NOT NULL,
+      subject TEXT,
+      participants TEXT,
+      message_count INTEGER DEFAULT 0,
+      last_message_at TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (inbox_id) REFERENCES email_inboxes(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_threads_inbox_id ON email_threads(inbox_id);
+    CREATE INDEX IF NOT EXISTS idx_email_threads_last_message_at ON email_threads(last_message_at);
+
+    CREATE TABLE IF NOT EXISTS email_attachments (
+      id TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      filename TEXT,
+      content_type TEXT,
+      size INTEGER,
+      content TEXT,
+      FOREIGN KEY (message_id) REFERENCES email_messages(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_attachments_message_id ON email_attachments(message_id);
+
+    CREATE TABLE IF NOT EXISTS email_webhooks (
+      id TEXT PRIMARY KEY,
+      inbox_id TEXT NOT NULL,
+      url TEXT NOT NULL,
+      events TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (inbox_id) REFERENCES email_inboxes(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_email_webhooks_inbox_id ON email_webhooks(inbox_id);
   `);
 
   // Domains table
