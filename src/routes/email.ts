@@ -226,6 +226,19 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         records.push({ type: 'MX', name: '@', value: `mxb${mxSuffix}`, ttl: 1800, mxPref: 10 });
         await setDomainDnsRecords(resolvedDomain, records);
         dnsApplied = true;
+
+        // Tell Mailgun to re-poll DNS now. Without this, the provision
+        // response and subsequent `agentos email status` calls return
+        // Mailgun's pre-write cached state for several minutes.
+        if (mailgunRegistered) {
+          try {
+            const { forceVerifyMailgunDomain } = await import("../services/mailgun");
+            const verified = await forceVerifyMailgunDomain(resolvedDomain);
+            mailgunStatus = verified.status;
+          } catch (vErr: any) {
+            console.warn(`[email] mailgun verify ${resolvedDomain} failed (non-fatal):`, vErr?.message || vErr);
+          }
+        }
       } catch (dnsErr: any) {
         console.error(`[email] auto-DNS for ${resolvedDomain} failed:`, dnsErr?.message || dnsErr);
       }
@@ -294,13 +307,24 @@ router.post("/domains/:domain/register", requireAuth(0.05, "email", {
     records.push({ type: 'MX', name: '@', value: `mxa${mxSuffix}`, ttl: 1800, mxPref: 10 });
     records.push({ type: 'MX', name: '@', value: `mxb${mxSuffix}`, ttl: 1800, mxPref: 10 });
     await setDomainDnsRecords(domain, records);
+
+    // Force a Mailgun re-poll so the response reflects post-write state.
+    let postWriteStatus = reg.status;
+    try {
+      const { forceVerifyMailgunDomain } = await import("../services/mailgun");
+      const verified = await forceVerifyMailgunDomain(domain);
+      postWriteStatus = verified.status;
+    } catch (vErr: any) {
+      console.warn(`[email] mailgun verify ${domain} failed (non-fatal):`, vErr?.message || vErr);
+    }
+
     res.json({
       domain,
       mailgunIdentity: reg.id,
-      status: reg.status,
+      status: postWriteStatus,
       records: reg.records,
       dnsApplied: true,
-      message: reg.status === 'verified'
+      message: postWriteStatus === 'verified'
         ? 'Domain is verified and ready to send from.'
         : 'Domain registered with Mailgun. DNS records set on Namecheap. Mailgun will auto-verify within a few minutes - poll with: agentos email status ' + domain,
     });
