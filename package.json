@@ -21,7 +21,6 @@
   "license": "MIT",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
-    "@aws-sdk/client-sesv2": "^3.1037.0",
     "@coinbase/x402": "^2.1.0",
     "@noble/curves": "^2.0.1",
     "@noble/hashes": "^2.0.1",

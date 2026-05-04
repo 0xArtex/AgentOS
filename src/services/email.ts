@@ -401,9 +401,9 @@ export async function sendEmail(
 }
 
 /**
- * Outbound email backend: AWS SES. Domains are auto-registered as SES email
- * identities when an inbox is provisioned on a custom domain (see
- * src/routes/email.ts), with DKIM CNAMEs written via Namecheap.
+ * Outbound email backend: Mailgun. Domains are auto-registered as Mailgun
+ * sending domains when an inbox is provisioned on a custom domain (see
+ * src/routes/email.ts), with DKIM + SPF records written via Namecheap.
  */
 async function sendOutboundEmail(
   from: string,
@@ -412,11 +412,11 @@ async function sendOutboundEmail(
   body: string,
   html?: string
 ): Promise<void> {
-  const { isSesConfigured, sendEmailViaSes } = await import("./ses");
-  if (!isSesConfigured()) {
-    throw new Error("Email send unavailable: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY in env (SES backend)");
+  const { isMailgunConfigured, sendEmailViaMailgun } = await import("./mailgun");
+  if (!isMailgunConfigured()) {
+    throw new Error("Email send unavailable: set MAILGUN_API_KEY in env (Mailgun backend)");
   }
-  await sendEmailViaSes({ from, to, subject, body, html });
+  await sendEmailViaMailgun({ from, to, subject, body, html });
 }
 
 export function getInbox(id: string): EmailInbox | undefined {
