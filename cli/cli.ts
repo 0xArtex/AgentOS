@@ -188,6 +188,18 @@ function print(obj: any) {
  * most-useful 2-4 fields per step (id, address, status flags) without dumping
  * the entire JSON. Falls back to the full object for unknown shapes.
  */
+/**
+ * Trim long upstream errors (HTML pages, multi-paragraph stack traces) down
+ * to a one-liner the terminal can display without scrolling. Strips HTML
+ * tags, collapses whitespace, and clips to ~200 chars with a length hint.
+ */
+function truncateError(msg: string, max: number = 200): string {
+  if (!msg) return '(no error message)'
+  const stripped = msg.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
+  if (stripped.length <= max) return stripped
+  return `${stripped.slice(0, max)}… [+${stripped.length - max} chars; rerun with --verbose for full body]`
+}
+
 function formatStepOutput(output: any): string {
   if (output == null) return '—'
   if (typeof output !== 'object') return String(output)
@@ -1144,12 +1156,12 @@ async function main() {
               break
             }
 
-            // Display the plan
+            // Display the plan — colors only on the heading line, body stays
+            // monochrome so logs paste cleanly into chat/issues.
             console.log(`\n${c.cyan}Plan${c.white}: ${plan.intent?.interpreted ?? plan.intent?.original}`)
-            console.log(`${c.gray}session:${c.white} ${plan.session_id}   ${c.gray}plan:${c.white} ${plan.plan_id}   ${c.gray}status:${c.white} ${plan.status}`)
-            console.log(`${c.gray}steps:${c.white} ${plan.steps?.length ?? 0}   ${c.gray}total:${c.white} $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'}   ${c.gray}eta:${c.white} ${plan.totals?.eta_seconds ?? '?'}s`)
+            console.log(`  ${plan.steps?.length ?? 0} steps · $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'} · ~${plan.totals?.eta_seconds ?? '?'}s · session ${plan.session_id}`)
             for (const s of plan.steps || []) {
-              console.log(`  ${c.gray}${s.step_id}${c.white} ${s.capability} → ${s.provider}  ${c.gray}$${s.cost_usdc?.toFixed(2)}${c.white}  ${s.description ?? ''}`)
+              console.log(`  ${s.step_id}  ${s.capability} → ${s.provider}  $${s.cost_usdc?.toFixed(2)}  ${s.description ?? ''}`)
             }
             console.log('')
 
@@ -1170,7 +1182,9 @@ async function main() {
                     // Already displayed
                     break
                   case 'step_start':
-                    console.log(`  ${c.gray}→${c.white} ${event.stepId} ${event.capability} via ${event.provider} ${c.gray}($${event.costUsdc?.toFixed(2)})${c.white}`)
+                    // Price is shown cumulatively on step_result — no need to
+                    // print it twice per step.
+                    console.log(`  ${c.gray}→${c.white} ${event.stepId} ${event.capability} via ${event.provider}`)
                     break
                   case 'session_refresh_started':
                     process.stdout.write(`    ${c.gray}↻ refreshing ${event.platform} session for @${event.handle}…${c.white}`)
@@ -1184,9 +1198,14 @@ async function main() {
                     if (event.output && typeof event.output === 'object') stepOutputs[event.stepId] = event.output
                     console.log(`  ${c.green}✓${c.white} ${event.stepId} done in ${event.latencyMs}ms  ${c.gray}spent: $${spent.toFixed(2)}${c.white}`)
                     break
-                  case 'step_error':
-                    console.log(`  ${c.red}✗${c.white} ${event.stepId} ${event.fatal ? '(FATAL)' : `retry → ${event.retryWith ?? 'none'}`}: ${event.error}`)
+                  case 'step_error': {
+                    // Long upstream errors (HTML pages, JSON dumps) are noise
+                    // in the terminal — truncate and point at --verbose.
+                    const errMsg = truncateError(String(event.error ?? ''))
+                    const tag = event.fatal ? '(FATAL)' : `retry → ${event.retryWith ?? 'none'}`
+                    console.log(`  ${c.red}✗${c.white} ${event.stepId} ${tag}: ${errMsg}`)
                     break
+                  }
                   case 'clarification_needed':
                     console.log(`  ${c.yellow}?${c.white} clarification: ${JSON.stringify(event.questions)}`)
                     break

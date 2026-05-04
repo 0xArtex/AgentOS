@@ -28,11 +28,8 @@ export const config = {
   telnyxWebhookSecret: optional("TELNYX_WEBHOOK_SECRET", ""),
   telnyxVoiceAppId: optional("TELNYX_VOICE_APP_ID", ""),
 
-  // Email / SendGrid
-  sendgridApiKey: optional("SENDGRID_API_KEY", ""),
+  // Email
   emailDomain: optional("EMAIL_DOMAIN", "agntos.dev"),
-  sendgridWebhookSecret: optional("SENDGRID_WEBHOOK_SECRET", ""),
-  mailWorkerUrl: optional("MAIL_WORKER_URL", ""),
 
   // Domain registrar
   domainRegistrar: optional("DOMAIN_REGISTRAR", "namecheap"),
