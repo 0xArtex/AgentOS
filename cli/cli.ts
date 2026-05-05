@@ -87,9 +87,16 @@ function parse(argv: string[]) {
   const positional: string[] = []
   let command = ''
   let subcommand = ''
+  // After we hit a bare `--`, every remaining argv element is a positional —
+  // even if it starts with a dash. Lets `agentos compute exec my-vps --
+  // systemctl status --no-pager openclaw` pass `--no-pager` through to the
+  // remote shell instead of being swallowed as a CLI flag.
+  let inPositionalRun = false
 
   for (let i = 2; i < argv.length; i++) {
     const arg = argv[i]
+    if (inPositionalRun) { positional.push(arg); continue }
+    if (arg === '--') { inPositionalRun = true; continue }
     if (!command && !arg.startsWith('-')) { command = arg; continue }
     if (command && !subcommand && !arg.startsWith('-')) { subcommand = arg; continue }
 
@@ -675,9 +682,13 @@ async function main() {
             commands: [
               { name: 'plans', description: 'List VPS plans' },
               { name: 'ssh-key', description: 'Manage Hetzner SSH keys', hint: 'add <pubkey-file> | list | delete <id>' },
-              { name: 'deploy', description: 'Deploy a VPS', hint: '--type cx23 [--ssh-key <id> | --pubkey-file ... | --generate-ssh-key] [--wait]' },
+              { name: 'deploy', description: 'Deploy a VPS (golden path: auto-generates key, waits, verifies SSH)', hint: '--type cx23 [--ssh-key <id> | --pubkey-file ...] [--no-wait]' },
               { name: 'wait', description: 'Block until status=running, port 22 open, SSH verified', hint: '<name|id> [--key <path>] [--wait-timeout <sec>]' },
               { name: 'ssh', description: 'SSH into a deployed VPS by name or id', hint: '<name|id>' },
+              { name: 'exec', description: 'Run a single command on a freshly-deployed VPS (pre-handoff)', hint: '<name|id> -- <command> [args...]' },
+              { name: 'reset-password', description: 'Rotate the root password (Hetzner-side)', hint: '<name|id>' },
+              { name: 'console', description: 'Get a noVNC console URL (break-glass)', hint: '<name|id>' },
+              { name: 'reboot', description: 'Reboot a server', hint: '<name|id>' },
               { name: 'setup-ssh', description: 'Inject your SSH key into a deployed VPS post-hoc', hint: '<id> --pubkey-file ~/.ssh/id_ed25519.pub' },
               { name: 'list', description: 'List servers' },
               { name: 'delete', description: 'Delete a server', hint: '--id SERVER_ID' },
@@ -751,14 +762,23 @@ async function main() {
             // 1–3 all use cloud-init inline; 4 uses Hetzner's pre-uploaded key
             // mechanism. They're mutually exclusive — the user who passes
             // multiple gets a clear error rather than silent precedence games.
-            const wantGenerate = flags['generate-ssh-key'] === true || flags.generate === true
+            //
+            // GOLDEN PATH: with no key flag at all, we auto-generate one. The
+            // alternative ("deploy returns and you can't SSH") was the agent's
+            // top complaint. `--no-generate-ssh-key` opts out (e.g. user wants
+            // to attach a key after the fact via setup-ssh).
+            let wantGenerate = flags['generate-ssh-key'] === true || flags.generate === true
             const pubkeyInline = (flags.pubkey as string) || (flags.publicKey as string)
             const pubkeyFile = (flags['pubkey-file'] as string) || (flags['ssh-key-file'] as string)
             const sshKeyIdRaw = flags['ssh-key'] as string | undefined
+            const explicitNoGenerate = flags['generate-ssh-key'] === false || flags.generate === false
 
             const keySources = [wantGenerate, !!pubkeyInline, !!pubkeyFile, !!sshKeyIdRaw].filter(Boolean).length
             if (keySources > 1) {
               err('Pass only one of: --generate-ssh-key, --pubkey, --pubkey-file, --ssh-key <id>', EXIT.BAD_INPUT)
+            }
+            if (keySources === 0 && !explicitNoGenerate) {
+              wantGenerate = true
             }
 
             let sshPublicKey: string | undefined
@@ -796,7 +816,12 @@ async function main() {
             })
             spin.stop('VPS deployed', true)
 
-            const wantWait = flags.wait === true
+            // Golden-path default: --wait is ON unless the user explicitly opts
+            // out (`--no-wait`). The deploy contract is "return when SSH
+            // works", and a plain `compute deploy` without --wait was a frequent
+            // foot-gun (looks successful, isn't yet usable). Users who want
+            // fire-and-forget deploys should pass --no-wait explicitly.
+            const wantWait = flags.wait !== false
             const waitTimeoutSec = flags['wait-timeout']
               ? Math.max(30, Math.min(900, parseInt(String(flags['wait-timeout']), 10)))
               : undefined
@@ -986,7 +1011,76 @@ async function main() {
             } catch {}
             return print(data)
           }
-          default: err(`Unknown compute command: ${subcommand}. Try: plans, ssh-key, deploy, wait, ssh, setup-ssh, list, delete`)
+          case 'exec': {
+            // Usage: agentos compute exec <name|id> -- <command> [args...]
+            // Or:    agentos compute exec <name|id> --command "..." --arg "..." --arg "..."
+            // The double-dash form is the natural one for shells that already
+            // know how to split argv; the explicit form lets agents that build
+            // arrays JSON-encode args without shell-splitting.
+            const csshMod = await import('./compute-ssh.js')
+            const target = positional[0] || (flags.id as string) || (flags.name as string)
+            if (!target) err('Usage: agentos compute exec <name|id> -- <command> [args...]', EXIT.BAD_INPUT)
+            const cached = csshMod.findCachedServer(target)
+            const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
+            if (!serverId) err(`Server "${target}" not in local cache. Pass numeric id, or run 'agentos compute list' first.`, EXIT.NOT_FOUND)
+
+            // Pull command + args from the remaining argv after the target.
+            // Bare `--` is a conventional separator; argv after it is treated
+            // as remote-shell argv.
+            let command: string | undefined
+            let args: string[] = []
+            const rest = positional.slice(1)
+            if (rest.length > 0) {
+              command = rest[0]
+              args = rest.slice(1)
+            } else if (flags.command) {
+              command = String(flags.command)
+              const argFlag = flags.arg
+              args = Array.isArray(argFlag) ? argFlag.map(String) : argFlag ? [String(argFlag)] : []
+            }
+            if (!command) err('No command. Try: agentos compute exec my-vps -- systemctl status openclaw', EXIT.BAD_INPUT)
+            const timeoutSec = flags.timeout ? Math.max(1, Math.min(120, parseInt(String(flags.timeout), 10))) : undefined
+            const data = await ao.computeExec(serverId, command, args, timeoutSec ? { timeoutSec } : {})
+            return print(data)
+          }
+          case 'reset-password':
+          case 'reset_password': {
+            const csshMod = await import('./compute-ssh.js')
+            const target = positional[0] || (flags.id as string) || (flags.name as string)
+            if (!target) err('Usage: agentos compute reset-password <name|id>', EXIT.BAD_INPUT)
+            const cached = csshMod.findCachedServer(target)
+            const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
+            if (!serverId) err(`Server "${target}" not in local cache.`, EXIT.NOT_FOUND)
+            const data = await ao.computeAction(serverId, 'reset_password')
+            return print(data)
+          }
+          case 'console':
+          case 'request-console': {
+            const csshMod = await import('./compute-ssh.js')
+            const target = positional[0] || (flags.id as string) || (flags.name as string)
+            if (!target) err('Usage: agentos compute console <name|id>', EXIT.BAD_INPUT)
+            const cached = csshMod.findCachedServer(target)
+            const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
+            if (!serverId) err(`Server "${target}" not in local cache.`, EXIT.NOT_FOUND)
+            const data = await ao.computeAction(serverId, 'request_console')
+            return print(data)
+          }
+          case 'reboot':
+          case 'poweroff':
+          case 'poweron':
+          case 'reset':
+          case 'rebuild': {
+            const csshMod = await import('./compute-ssh.js')
+            const target = positional[0] || (flags.id as string) || (flags.name as string)
+            if (!target) err(`Usage: agentos compute ${subcommand} <name|id>`, EXIT.BAD_INPUT)
+            const cached = csshMod.findCachedServer(target)
+            const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
+            if (!serverId) err(`Server "${target}" not in local cache.`, EXIT.NOT_FOUND)
+            const opts = subcommand === 'rebuild' && flags.image ? { image: String(flags.image) } : {}
+            const data = await ao.computeAction(serverId, subcommand, opts)
+            return print(data)
+          }
+          default: err(`Unknown compute command: ${subcommand}. Try: plans, ssh-key, deploy, wait, ssh, exec, reset-password, console, reboot, poweroff, poweron, reset, rebuild, setup-ssh, list, delete`)
         }
         break
       }

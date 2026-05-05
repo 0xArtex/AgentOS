@@ -436,6 +436,29 @@ export class AgentOS {
     return this.request('GET', `/compute/servers/${serverId}`)
   }
 
+  /**
+   * Run a single command on a freshly-deployed server via the platform's
+   * SSH key. Pre-handoff only — once `compute setup-ssh` has run we no
+   * longer have access. `command` and `args` are POSIX-quoted server-side
+   * so they pass through as distinct argv elements on the remote shell.
+   */
+  async computeExec(
+    serverId: string,
+    command: string,
+    args: string[] = [],
+    opts: { timeoutSec?: number } = {},
+  ): Promise<any> {
+    const body: Record<string, unknown> = { command, args }
+    if (opts.timeoutSec) body.timeoutSec = opts.timeoutSec
+    return this.request('POST', `/compute/servers/${serverId}/exec`, body)
+  }
+
+  async computeAction(serverId: string, action: string, opts: { image?: string } = {}): Promise<any> {
+    const body: Record<string, unknown> = { action }
+    if (opts.image) body.image = opts.image
+    return this.request('POST', `/compute/servers/${serverId}/actions`, body)
+  }
+
   // ── Domains ──
   async domainCheck(domain: string): Promise<any> {
     return this.request('GET', `/domains/check?domain=${domain}`)
