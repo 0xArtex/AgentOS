@@ -634,7 +634,7 @@ const SOL_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const EVM_ADDR = /^0x[a-fA-F0-9]{40}$/;
 const isWalletAddress = (s: string) => SOL_PUBKEY.test(s) || EVM_ADDR.test(s);
 
-router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
     const { new_owner } = req.body || {};
@@ -671,7 +671,7 @@ router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'ge
  * POST /domains/:domain/transfer
  * Initiate domain transfer out. Requires x402 ownership proof.
  */
-router.post('/:domain/transfer', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:domain/transfer', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
 

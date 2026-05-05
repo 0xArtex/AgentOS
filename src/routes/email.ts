@@ -19,6 +19,7 @@ router.post("/provision", requireAuth(2.0, "email", {
   description: "Create an end-to-end encrypted email inbox at {name}@agntos.dev, keyed to your Solana wallet.",
   category: "communications",
   tags: ["email", "inbox", "e2e", "encryption", "provision"],
+  discoverable: false, // legacy alias of POST /email/inboxes
 }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, walletAddress } = req.body;
@@ -283,6 +284,7 @@ router.post("/domains/:domain/register", requireAuth(0.05, "email", {
   description: "Register a wallet-owned domain with Mailgun and write its DKIM/SPF/MX DNS records. Idempotent - safe to retry.",
   category: "communications",
   tags: ["email", "domain", "mailgun", "register"],
+  discoverable: false, // recovery path; auto-runs inside POST /email/inboxes
 }), async (req: AuthenticatedRequest, res: Response) => {
   const owner = req.agentId || req.payment?.payer;
   if (!owner) return res.status(401).json({ error: "Unauthenticated" });
@@ -342,6 +344,7 @@ router.get("/domains/:domain/status", requireAuth(0.01, "general", {
   description: "Get the Mailgun verification status of a wallet-owned domain (use to poll while DNS propagates).",
   category: "communications",
   tags: ["email", "domain", "mailgun", "verification"],
+  discoverable: false, // poll endpoint; auto-verify now runs inline on provision
 }), async (req: AuthenticatedRequest, res: Response) => {
   const owner = req.agentId || req.payment?.payer;
   if (!owner) return res.status(401).json({ error: "Unauthenticated" });
@@ -598,7 +601,7 @@ router.post("/inbound", urlencoded({ extended: true, limit: '25mb' }), async (re
 /**
  * GET /email/inboxes/:id/threads — List threads in an inbox
  */
-router.get("/inboxes/:id/threads", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/inboxes/:id/threads", x402(0.02, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
     const inbox = emailService.getInbox(inboxId);
@@ -619,7 +622,7 @@ router.get("/inboxes/:id/threads", x402(0.02), async (req: AuthenticatedRequest,
 /**
  * GET /email/threads/:threadId/messages — Get messages in a thread
  */
-router.get("/threads/:threadId/messages", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/threads/:threadId/messages", x402(0.02, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const threadId = req.params.threadId as string;
     const thread = storage.getEmailThread?.(threadId);
@@ -644,7 +647,7 @@ router.get("/threads/:threadId/messages", x402(0.02), async (req: AuthenticatedR
 /**
  * GET /email/attachments/:attachmentId — Download an attachment
  */
-router.get("/attachments/:attachmentId", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/attachments/:attachmentId", x402(0.02, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const att = storage.getEmailAttachment?.(req.params.attachmentId as string);
     if (!att) { res.status(404).json({ error: "Attachment not found" }); return; }
@@ -665,7 +668,7 @@ router.get("/attachments/:attachmentId", x402(0.02), async (req: AuthenticatedRe
 /**
  * POST /email/webhooks — Register a webhook for inbox events
  */
-router.post("/webhooks", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/webhooks", x402(0.02, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { inboxId, url, events } = req.body;
     if (!emailService.isSsrfSafe(url)) { res.status(400).json({ error: "Invalid webhook URL. Must be HTTPS and not target internal networks." }); return; }

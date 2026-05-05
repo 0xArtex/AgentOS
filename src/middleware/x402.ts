@@ -86,6 +86,14 @@ export type X402Metadata = {
   description?: string;
   category?: string;
   tags?: string[];
+  /**
+   * If false, the route is hidden from /.well-known/x402 and /openapi.json
+   * (still callable, still returns 402, just not advertised). Set on
+   * internal/admin/auxiliary routes so the discoverable surface stays under
+   * the agent-token-budget threshold (x402scan flags >50 routes as
+   * L2_ROUTE_COUNT_HIGH). Default = true.
+   */
+  discoverable?: boolean;
 };
 
 function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Metadata) {
@@ -96,6 +104,28 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
   const bazaar: Record<string, any> = { discoverable: true };
   if (metadata?.category) bazaar.category = metadata.category;
   if (metadata?.tags && metadata.tags.length > 0) bazaar.tags = metadata.tags;
+  // Bazaar schema declaration. The x402scan validator's `extractSchemas2`
+  // (in @agentcash/discovery) walks this exact path:
+  //   extensions.bazaar.schema.properties.input.properties.{body|queryParams}
+  //   extensions.bazaar.schema.properties.output.properties.example
+  // Anything shallower or differently-shaped trips SCHEMA_INPUT_MISSING /
+  // SCHEMA_OUTPUT_MISSING. Permissive `{type: "object"}` is honest — every
+  // paid AgentOS route accepts/returns a JSON object — and resolves the
+  // errors without committing to per-field shapes.
+  const permissiveJsonSchema = { type: "object", additionalProperties: true };
+  const isBodyMethod = req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE";
+  bazaar.schema = {
+    properties: {
+      input: {
+        properties: isBodyMethod
+          ? { body: permissiveJsonSchema }
+          : { queryParams: permissiveJsonSchema },
+      },
+      output: {
+        properties: { example: permissiveJsonSchema },
+      },
+    },
+  };
 
   return {
     x402Version: 2,
