@@ -266,20 +266,26 @@ export function tcpProbe(host: string, port: number, timeoutMs: number = 3000): 
  */
 export function sshProbe(ip: string, keyPath: string, timeoutSec: number = 5): boolean {
   if (!existsSync(keyPath)) return false
-  // -q (quiet): suppress ssh's own MOTD/banner/warning chatter.
-  // -T: refuse to allocate a pseudo-tty. Some sshd configs and login-shell
-  //     setups on the remote print "tcsetattr: Inappropriate ioctl for
-  //     device" + "logout" through stderr when the remote bash thinks it
-  //     should manipulate terminal modes — issue #85. Forcing -T removes
-  //     the entire class of failure.
+  // -q + -T: quiet, no PTY (issue #85 — see sshRun).
+  //
+  // UserKnownHostsFile=/dev/null + StrictHostKeyChecking=no: deploy/wait
+  // probes are NOT security-critical. We're verifying "does this newly-
+  // provisioned VPS accept our key" — not authenticating a long-lived
+  // host. Hetzner reuses public IPs across short-lived test boxes, and a
+  // persistent known_hosts file accumulates stale entries that trigger
+  // host-key-mismatch failures (user report 2026-05-05: same IP reused →
+  // SSH gate hung for the full --wait-timeout). Discarding host keys
+  // matches the platform-side `sshCmd` and removes the entire class of
+  // failure. The interactive `compute ssh` command — which is security-
+  // relevant — keeps host-key pinning via spawnInteractiveSsh.
   const r = spawnSync('ssh', [
     '-i', keyPath,
     '-q',
     '-T',
     '-o', 'BatchMode=yes',
     '-o', `ConnectTimeout=${timeoutSec}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-o', 'UserKnownHostsFile=' + join(AGENTOS_DIR, 'ssh', 'known_hosts'),
+    '-o', 'StrictHostKeyChecking=no',
+    '-o', 'UserKnownHostsFile=/dev/null',
     `root@${ip}`,
     'true',
   ], { stdio: 'pipe', timeout: (timeoutSec + 2) * 1000 })
@@ -337,15 +343,18 @@ export interface ReadinessResult {
  */
 function sshRun(ip: string, keyPath: string, command: string, timeoutSec: number = 10): { stdout: string; status: number } {
   if (!existsSync(keyPath)) return { stdout: '', status: 127 }
-  // -q + -T: see sshProbe for rationale. Same defensive flags everywhere.
+  // -q + -T: quiet, no PTY (issue #85).
+  // UserKnownHostsFile=/dev/null + StrictHostKeyChecking=no: not security-
+  // critical (we're polling /etc/agentos/install-status.json on a server
+  // we just deployed). See sshProbe for full rationale.
   const r = spawnSync('ssh', [
     '-i', keyPath,
     '-q',
     '-T',
     '-o', 'BatchMode=yes',
     '-o', `ConnectTimeout=${Math.min(15, timeoutSec)}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-o', 'UserKnownHostsFile=' + join(AGENTOS_DIR, 'ssh', 'known_hosts'),
+    '-o', 'StrictHostKeyChecking=no',
+    '-o', 'UserKnownHostsFile=/dev/null',
     `root@${ip}`,
     command,
   ], { stdio: 'pipe', timeout: (timeoutSec + 2) * 1000, encoding: 'utf-8', maxBuffer: 1024 * 1024 })
