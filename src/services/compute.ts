@@ -49,22 +49,59 @@ const INSTALL_RECIPES: Record<string, { description: string; bash: string }> = {
   // OpenClaw — the original AgentOS default. Installs Node 22 + the openclaw
   // and clawhub npm packages. Writes /etc/openclaw/provision.json for
   // historical compatibility with anything that already keys off it.
+  //
+  // Defensive choices:
+  //   - Each curl|bash and npm install is wrapped in `set +e ... PIPESTATUS`
+  //     so we surface the inner exit code rather than letting our outer
+  //     `set -e` mask it with a generic abort.
+  //   - Tee logs to /var/log/agentos/openclaw-install.log so the CLI's
+  //     diagnostic fetcher has a single known path to tail on failure.
+  //   - Use absolute paths everywhere — cloud-init's bash doesn't source
+  //     ~/.bashrc, so PATH may not pick up freshly-installed binaries.
   openclaw: {
     description: 'OpenClaw runtime + clawhub skill registry (Node 22)',
     bash: `# ─── Install OpenClaw ───
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-apt-get install -y -qq nodejs
-npm install -g openclaw clawhub
-mkdir -p /etc/openclaw
-cat > /etc/openclaw/provision.json << 'OPENCLAW_PROVISION_EOF'
+mkdir -p /var/log/agentos /etc/openclaw
+
+# Install Node 22. NodeSource's setup script must be allowed to fail loudly,
+# but we want the actual install.sh exit code, not bash's pipe propagation.
+set +e
+curl -fsSL https://deb.nodesource.com/setup_22.x 2>&1 | bash - 2>&1 | tee /var/log/agentos/openclaw-install.log
+NODESOURCE_EXIT=\${PIPESTATUS[0]}
+if [ "\${NODESOURCE_EXIT:-1}" -ne 0 ]; then
+  echo "ERROR: NodeSource setup script failed (exit=\$NODESOURCE_EXIT)" >&2
+  set -e
+  exit 1
+fi
+
+apt-get install -y -qq nodejs 2>&1 | tee -a /var/log/agentos/openclaw-install.log
+APT_EXIT=\${PIPESTATUS[0]}
+if [ "\${APT_EXIT:-1}" -ne 0 ]; then
+  echo "ERROR: apt-get install nodejs failed (exit=\$APT_EXIT)" >&2
+  set -e
+  exit 1
+fi
+
+# npm install can take ~60s on a small box; tee the output so the CLI
+# diagnostic fetcher can show what happened on failure.
+npm install -g openclaw clawhub 2>&1 | tee -a /var/log/agentos/openclaw-install.log
+NPM_EXIT=\${PIPESTATUS[0]}
+set -e
+if [ "\${NPM_EXIT:-1}" -ne 0 ]; then
+  echo "ERROR: npm install -g openclaw clawhub failed (exit=\$NPM_EXIT)" >&2
+  exit 1
+fi
+
+cat > /etc/openclaw/provision.json << OPENCLAW_PROVISION_EOF
 {
   "provisioned_by": "agentos",
   "provisioned_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "openclaw_installed": true
 }
 OPENCLAW_PROVISION_EOF
-echo "OpenClaw provisioning complete" > /var/log/openclaw-provision.log
-openclaw --version >> /var/log/openclaw-provision.log 2>&1 || true
+
+echo "OpenClaw provisioning complete" >> /var/log/agentos/openclaw-install.log
+/usr/bin/openclaw --version >> /var/log/agentos/openclaw-install.log 2>&1 || true
 `,
   },
 
@@ -75,22 +112,46 @@ openclaw --version >> /var/log/openclaw-provision.log 2>&1 || true
   // the user can configure their model provider after deploy via
   //   agentos compute exec <id> -- hermes setup
   // or inside an SSH session.
+  //
+  // Defensive choices (this recipe failed in practice on a fresh deploy):
+  //   - Don't reference $HOME under `set -u` — cloud-init may not export it.
+  //     The installer always lands at /usr/local/bin/hermes when run as
+  //     root + Linux + non-Termux (the only path we hit in cloud-init).
+  //   - Wrap the curl|bash in `set +e` and capture PIPESTATUS[0], so the
+  //     real install.sh exit code is surfaced, not bash's pipe noise.
+  //   - tee output (don't just redirect) so the install log is visible
+  //     in /var/log/cloud-init-output.log too — easier post-mortem.
+  //   - Probe with the absolute path (/usr/local/bin/hermes), not a PATH
+  //     lookup. cloud-init bash doesn't have ~/.bashrc sourced, and even
+  //     though /usr/local/bin is in the default PATH, being explicit
+  //     removes one source of doubt.
   hermes: {
     description: 'Hermes Agent (Nous Research) — self-improving AI agent runtime',
     bash: `# ─── Install Hermes Agent ───
-# Nous Research's official installer. Handles deps + FHS layout when run as root.
-# --skip-setup leaves provider/model selection for the user to do post-deploy.
 mkdir -p /var/log/agentos
-curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh \
-  | bash -s -- --skip-setup > /var/log/agentos/hermes-install.log 2>&1
-# Confirm the binary landed where we expect; bail loudly if it didn't so the
-# install marker doesn't get written and the CLI's gate 4 surfaces the failure.
-if [ ! -x /usr/local/bin/hermes ] && [ ! -x "$HOME/.local/bin/hermes" ]; then
-  echo "ERROR: hermes binary not found after install. Tail of /var/log/agentos/hermes-install.log:" >&2
-  tail -50 /var/log/agentos/hermes-install.log >&2 || true
+
+# install.sh sets its own \`set -e\` and handles platform detection internally.
+# We disable our outer \`set -e\` only around the curl|bash + tee chain so
+# PIPESTATUS gives us the real exit code instead of tee's success.
+set +e
+curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh 2>&1 \\
+  | bash -s -- --skip-setup 2>&1 \\
+  | tee /var/log/agentos/hermes-install.log
+INSTALL_EXIT=\${PIPESTATUS[1]}
+set -e
+
+# Probe the canonical root-FHS path. The installer only uses ~/.local/bin
+# when running as a non-root user; in cloud-init we're always root.
+if [ ! -x /usr/local/bin/hermes ]; then
+  echo "ERROR: hermes binary not at /usr/local/bin/hermes after install (install.sh exit=\$INSTALL_EXIT)" >&2
+  echo "--- last 80 lines of /var/log/agentos/hermes-install.log ---" >&2
+  tail -80 /var/log/agentos/hermes-install.log >&2 || true
   exit 1
 fi
-hermes --version > /var/log/agentos/hermes-version.log 2>&1 || true
+
+# --version is a sanity check, not load-bearing. If a future Hermes release
+# changes its CLI, don't abort the whole install over it.
+/usr/local/bin/hermes --version > /var/log/agentos/hermes-version.log 2>&1 || true
 `,
   },
 };
@@ -130,12 +191,27 @@ function generateCloudInit(opts: { userPubkey?: string; installs: string[] }): s
   const installsJsonArray = JSON.stringify(opts.installs);
 
   return `#!/bin/bash
-set -euo pipefail
+# Deliberate: 'set -eo pipefail' (not -u). cloud-init doesn't always export
+# HOME or other vars our recipes reference, and an unbound-variable abort
+# masks the real failure with a confusing "HOME: unbound" message. Recipes
+# that want stricter hygiene set their own 'set -u' locally.
+set -eo pipefail
 
 # Suppress apt's interactive prompts and the needrestart noise that would
 # otherwise pause cloud-init for "which services should I restart?" dialogs.
+# Also ensure HOME is set — some Hermes/installer code paths fall back to it
+# even when running as root, and cloud-init's user_data shell sometimes
+# inherits an empty HOME.
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
+export HOME="\${HOME:-/root}"
+
+# Make every step's stdout/stderr land in the cloud-init log AND a file we
+# control so the CLI's diagnostic fetcher has a deterministic path to tail
+# regardless of which Hetzner image variant we're on.
+mkdir -p /var/log/agentos
+exec > >(tee -a /var/log/agentos/cloud-init.log) 2>&1
+echo "[agentos] cloud-init user_data starting at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ─── Security Hardening ───
 # Inject platform temp key for provisioning (removed during SSH handoff)
@@ -145,18 +221,20 @@ ${userKeyLine}
 chmod 600 /root/.ssh/authorized_keys
 
 # Clear Hetzner's forced password change (blocks SSH key auth otherwise)
-chage -d $(date +%Y-%m-%d) root 2>/dev/null || true
+chage -d "$(date +%Y-%m-%d)" root 2>/dev/null || true
 passwd -u root 2>/dev/null || true
 
 # Disable password auth but allow pubkey
 sed -i 's/#\\?PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
 sed -i 's/#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config
 sed -i 's/#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication no/' /etc/ssh/sshd_config
-systemctl restart ssh || systemctl restart sshd
+systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true
 
-# Firewall
-apt-get update -qq
-apt-get install -y -qq ufw
+# Firewall. apt update can fail transiently on a fresh box (mirror DNS races,
+# dpkg locks) — try twice before giving up so we don't abort cloud-init over
+# a one-shot transient.
+apt-get update -qq || (sleep 5 && apt-get update -qq)
+apt-get install -y -qq ufw unattended-upgrades
 ufw default deny incoming
 ufw default allow outgoing
 ufw allow 22/tcp
@@ -164,9 +242,9 @@ ufw allow 80/tcp
 ufw allow 443/tcp
 ufw --force enable
 
-# Auto security updates
-apt-get install -y -qq unattended-upgrades
 echo 'Unattended-Upgrade::Allowed-Origins { "\${distro_id}:\${distro_codename}-security"; };' > /etc/apt/apt.conf.d/50unattended-upgrades-local
+
+echo "[agentos] preamble done, starting recipes: ${JSON.stringify(opts.installs)}"
 
 ${recipeBlocks}
 
@@ -175,13 +253,14 @@ ${recipeBlocks}
 # user requested any install. Single sentinel; absent → CLI surfaces a
 # "install did not complete" timeout; present → CLI returns ready: true.
 mkdir -p /etc/agentos
-cat > /etc/agentos/install-status.json << 'AGENTOS_INSTALL_EOF'
+cat > /etc/agentos/install-status.json << AGENTOS_INSTALL_EOF
 {
   "installs": ${installsJsonArray},
   "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "status": "ok"
 }
 AGENTOS_INSTALL_EOF
+echo "[agentos] cloud-init complete"
 `;
 }
 

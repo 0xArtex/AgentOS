@@ -225,11 +225,50 @@ agentos compute deploy --type cx22 --no-install --json
 
 Recipe validation is **pre-payment**: passing `--install bogus` exits with `EXIT.BAD_INPUT` (2) before any USDC is charged. The CLI defaults `--wait-timeout` to 600s when `--install` is set; override with `--wait-timeout <seconds>` (clamped 30–900).
 
-Cloud-init logs go to `/var/log/cloud-init-output.log`; per-recipe logs land under `/var/log/agentos/`. Tail them post-deploy with:
+#### Failure recovery
+
+When `--wait` reports `ready: false`, the JSON response includes a `readiness.diagnostics` block with the cloud-init status, the tail of `/var/log/cloud-init-output.log`, and per-recipe install logs — fetched automatically over SSH so you don't have to log in by hand to figure out what went wrong:
+
+```jsonc
+{
+  "readiness": {
+    "ready": false,
+    "checks": { "hetznerStatus": "pass", "port22": "pass", "ssh": "pass", "installs": "fail" },
+    "reason": "cloud-init aborted (status: error). The user_data script failed before writing the install marker.",
+    "diagnostics": {
+      "cloudInitStatus": "status: error\nboot_status_code: enabled-by-...\nlast_update: ...",
+      "cloudInitLogTail": "...last 120 lines of /var/log/cloud-init-output.log...",
+      "agentosLogTail": "...last 80 lines of /var/log/agentos/cloud-init.log...",
+      "recipeLogs": [{ "name": "hermes", "tail": "...last 80 lines..." }]
+    }
+  }
+}
+```
+
+The wait fast-fails when `cloud-init status` reports `error` instead of waiting the full timeout. Re-run the chain against the same server with:
 
 ```bash
-agentos compute exec <name> -- tail -200 /var/log/cloud-init-output.log
-agentos compute exec <name> -- tail -200 /var/log/agentos/hermes-install.log
+agentos compute wait my-vps --install hermes --json
+```
+
+Cloud-init logs also live on the box if you want to look directly:
+
+```bash
+agentos compute exec my-vps -- tail -200 /var/log/cloud-init-output.log
+agentos compute exec my-vps -- tail -200 /var/log/agentos/hermes-install.log
+```
+
+#### Streaming progress
+
+Add `--progress` (agent mode only) to emit one NDJSON event per readiness gate transition to stderr — useful when an install takes minutes and you want to see what's happening without breaking the single-JSON-on-stdout contract:
+
+```bash
+agentos compute deploy --type cx22 --install hermes --json --progress 2>progress.ndjson
+# stdout: one JSON object at the end
+# stderr: {"event":"progress","stage":"status",...}
+#         {"event":"progress","stage":"port22",...}
+#         {"event":"progress","stage":"ssh",...}
+#         {"event":"progress","stage":"installs",...}
 ```
 
 #### SSH-key management

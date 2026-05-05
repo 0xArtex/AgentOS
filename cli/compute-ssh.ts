@@ -297,6 +297,39 @@ export interface ReadinessResult {
   reason?: string
   /** Parsed contents of /etc/agentos/install-status.json on success. */
   installStatus?: { installs: string[]; completed_at: string; status: string }
+  /** Cloud-init logs + recipe logs, fetched on failure when we can SSH. */
+  diagnostics?: {
+    cloudInitStatus?: string | null
+    cloudInitLogTail?: string | null
+    agentosLogTail?: string | null
+    recipeLogs?: Array<{ name: string; tail: string }>
+  }
+}
+
+/**
+ * Run a single command on the server via SSH using the platform/user key
+ * supplied to gate 3 + 4. Returns {stdout, status} so callers can branch on
+ * exit code rather than just trim/parse stdout.
+ *
+ * Used by the install-status probe, the cloud-init status probe, and the
+ * diagnostic-fetcher that runs on readiness failure. None of those need
+ * structured stderr handling, so we redirect 2>&1 to keep a single buffer.
+ */
+function sshRun(ip: string, keyPath: string, command: string, timeoutSec: number = 10): { stdout: string; status: number } {
+  if (!existsSync(keyPath)) return { stdout: '', status: 127 }
+  const r = spawnSync('ssh', [
+    '-i', keyPath,
+    '-o', 'BatchMode=yes',
+    '-o', `ConnectTimeout=${Math.min(15, timeoutSec)}`,
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'UserKnownHostsFile=' + join(AGENTOS_DIR, 'ssh', 'known_hosts'),
+    `root@${ip}`,
+    command,
+  ], { stdio: 'pipe', timeout: (timeoutSec + 2) * 1000, encoding: 'utf-8', maxBuffer: 1024 * 1024 })
+  return {
+    stdout: (r.stdout ?? '').toString(),
+    status: r.status === null ? 124 : r.status,
+  }
 }
 
 /**
@@ -309,20 +342,11 @@ export function readInstallStatus(ip: string, keyPath: string, timeoutSec: numbe
   | { installs: string[]; completed_at: string; status: string }
   | null
 {
-  if (!existsSync(keyPath)) return null
-  const r = spawnSync('ssh', [
-    '-i', keyPath,
-    '-o', 'BatchMode=yes',
-    '-o', `ConnectTimeout=${Math.min(15, timeoutSec)}`,
-    '-o', 'StrictHostKeyChecking=accept-new',
-    '-o', 'UserKnownHostsFile=' + join(AGENTOS_DIR, 'ssh', 'known_hosts'),
-    `root@${ip}`,
-    // 2>/dev/null suppresses the "no such file" error so the missing-file
-    // case is just an empty stdout, not a parse failure with stderr noise.
-    'cat /etc/agentos/install-status.json 2>/dev/null',
-  ], { stdio: 'pipe', timeout: (timeoutSec + 2) * 1000, encoding: 'utf-8' })
+  // 2>/dev/null suppresses the "no such file" error so the missing-file
+  // case is just an empty stdout, not a parse failure with stderr noise.
+  const r = sshRun(ip, keyPath, 'cat /etc/agentos/install-status.json 2>/dev/null', timeoutSec)
   if (r.status !== 0) return null
-  const out = (r.stdout ?? '').trim()
+  const out = r.stdout.trim()
   if (!out) return null
   try {
     const parsed = JSON.parse(out)
@@ -331,6 +355,87 @@ export function readInstallStatus(ip: string, keyPath: string, timeoutSec: numbe
     }
   } catch {}
   return null
+}
+
+/**
+ * Probe `cloud-init status` so the readiness chain can fail fast when the
+ * user_data script has clearly aborted. Returns the parsed status string
+ * (`done`, `running`, `error`, `disabled`, etc.) or null when the binary
+ * isn't reachable yet.
+ *
+ * Polled in gate 4 — if it returns 'error' we break out immediately and
+ * surface diagnostics, instead of waiting the full 600s install timeout
+ * for a marker file that's never going to be written.
+ */
+export function readCloudInitStatus(ip: string, keyPath: string, timeoutSec: number = 8): string | null {
+  const r = sshRun(ip, keyPath, 'cloud-init status 2>/dev/null', timeoutSec)
+  if (r.status !== 0) return null
+  // cloud-init status output: "status: done" / "status: error" / etc.
+  const m = r.stdout.match(/status:\s*(\S+)/)
+  return m ? m[1] : null
+}
+
+/**
+ * On readiness failure, SSH in (best effort) and grab a small bundle of
+ * diagnostic data so the JSON response includes a clear cause without the
+ * caller needing to ssh in by hand:
+ *
+ *   - cloud-init status (--long if available)
+ *   - tail of /var/log/cloud-init-output.log
+ *   - tail of /var/log/agentos/cloud-init.log (the wrapper's own tee)
+ *   - tail of any /var/log/agentos/<recipe>-install.log files
+ *
+ * Tails are capped to keep response bodies sane. If SSH is unreachable
+ * (gate 2 or 3 tripped), returns a short note instead of throwing.
+ */
+export function fetchDeployDiagnostics(ip: string, keyPath: string): {
+  cloudInitStatus: string | null
+  cloudInitLogTail: string | null
+  agentosLogTail: string | null
+  recipeLogs: Array<{ name: string; tail: string }>
+} {
+  const result = {
+    cloudInitStatus: null as string | null,
+    cloudInitLogTail: null as string | null,
+    agentosLogTail: null as string | null,
+    recipeLogs: [] as Array<{ name: string; tail: string }>,
+  }
+  if (!existsSync(keyPath)) return result
+
+  // cloud-init status --long has more detail than plain status (errors[],
+  // boot_status_code, etc.) but is also Ubuntu-version-dependent. Fall back
+  // to plain status if --long isn't supported.
+  const status = sshRun(ip, keyPath, 'cloud-init status --long 2>/dev/null || cloud-init status 2>/dev/null', 10)
+  if (status.status === 0 && status.stdout.trim()) {
+    result.cloudInitStatus = status.stdout.trim().split('\n').slice(0, 40).join('\n')
+  }
+
+  const ciLog = sshRun(ip, keyPath, 'tail -120 /var/log/cloud-init-output.log 2>/dev/null', 15)
+  if (ciLog.status === 0 && ciLog.stdout.trim()) {
+    result.cloudInitLogTail = ciLog.stdout
+  }
+
+  const agentosLog = sshRun(ip, keyPath, 'tail -80 /var/log/agentos/cloud-init.log 2>/dev/null', 15)
+  if (agentosLog.status === 0 && agentosLog.stdout.trim()) {
+    result.agentosLogTail = agentosLog.stdout
+  }
+
+  // List per-recipe install logs and tail the last one each. We use ls + a
+  // capped find so we don't accidentally pull megabytes from a runaway log.
+  const list = sshRun(ip, keyPath, 'ls /var/log/agentos/*-install.log 2>/dev/null', 10)
+  if (list.status === 0) {
+    const files = list.stdout.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 8)
+    for (const file of files) {
+      // Path is from `ls`, not user input, so safe to splice.
+      const r = sshRun(ip, keyPath, `tail -80 ${file}`, 15)
+      if (r.status === 0) {
+        const m = file.match(/\/([^/]+)-install\.log$/)
+        result.recipeLogs.push({ name: m ? m[1] : file, tail: r.stdout })
+      }
+    }
+  }
+
+  return result
 }
 
 /**
@@ -461,14 +566,18 @@ export async function waitForReady(opts: {
 
   // Gate 4: Install marker (optional). Cloud-init writes
   // /etc/agentos/install-status.json once every requested recipe finishes.
-  // We poll it via SSH every 5s; still subject to the shared deadline.
+  // We poll it via SSH every 5–8s, AND probe `cloud-init status` so we can
+  // fail fast when scripts_user has aborted (no point polling for a marker
+  // file that's never going to land).
   let installStatus: ReadinessResult['installStatus']
   if (opts.expectedInstalls && opts.expectedInstalls.length > 0) {
     if (opts.keyPath && existsSync(opts.keyPath)) {
       checks.installs = 'fail'
       opts.onProgress?.({ stage: 'installs', message: `Waiting for installs to finish: ${opts.expectedInstalls.join(', ')}…` })
       let installOk = false
+      let cloudInitErrored = false
       delay = 5_000
+      let pollIter = 0
       while (Date.now() < deadline) {
         const s = readInstallStatus(ip!, opts.keyPath, 8)
         if (s) {
@@ -483,19 +592,36 @@ export async function waitForReady(opts: {
             break
           }
         }
+
+        // Every 3rd iteration, probe cloud-init status. Don't probe every
+        // tick — it's an extra SSH roundtrip and cloud-init's status file
+        // doesn't update that often anyway. 3 polls × ~6s = ~18s cadence.
+        pollIter++
+        if (pollIter % 3 === 0) {
+          const ciStatus = readCloudInitStatus(ip!, opts.keyPath, 8)
+          if (ciStatus === 'error') {
+            cloudInitErrored = true
+            break
+          }
+        }
+
         await new Promise(r => setTimeout(r, delay))
         delay = Math.min(delay * 1.2, 8_000)
       }
       if (!installOk) {
-        checks.installs = 'timeout'
+        checks.installs = cloudInitErrored ? 'fail' : 'timeout'
+        const diagnostics = fetchDeployDiagnostics(ip!, opts.keyPath)
         return {
           ready: false,
           ip,
           status,
           checks,
           elapsedMs: Date.now() - startedAt,
-          reason: `Install did not complete within the timeout. Recipes requested: ${opts.expectedInstalls.join(', ')}. Tail the cloud-init log: agentos compute exec <id> -- tail -200 /var/log/cloud-init-output.log`,
+          reason: cloudInitErrored
+            ? `cloud-init aborted (status: error). The user_data script failed before writing the install marker. See diagnostics.cloudInitLogTail for the failure.`
+            : `Install did not complete within ${Math.round((opts.timeoutMs ?? 240_000) / 1000)}s. Recipes requested: ${opts.expectedInstalls.join(', ')}. See diagnostics for cloud-init + recipe logs.`,
           installStatus,
+          diagnostics,
         }
       }
     } else {
