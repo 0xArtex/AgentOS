@@ -1,0 +1,97 @@
+/**
+ * Walk Express's router stack and return every paid route — `(method, path,
+ * price, metadata)` — so the `/.well-known/x402` endpoint and `/openapi.json`
+ * can advertise an accurate, drift-free list to x402scan / Bazaar / clients.
+ *
+ * "Paid" = the route's handler stack contains a middleware tagged with
+ * `_x402PaidMin` (set by `requireAuth(>0)` in auth.ts and `x402()` in x402.ts).
+ *
+ * Express layer regex parsing is the brittle part. We keep it minimal: only
+ * decode the two patterns AgentOS uses — `app.use("/<prefix>", router)` and
+ * `app.get/post/...("/path", handler)`. Anything fancier (regex mounts,
+ * sub-sub-routers) returns "" and the caller can audit the result.
+ */
+
+import type { Express } from "express";
+import type { X402Metadata } from "../middleware/x402";
+
+export interface PaidRoute {
+  method: string;       // 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
+  path: string;         // full path including mount prefix, e.g. "/email/inboxes/:id/send"
+  priceUsdc: number;
+  metadata?: X402Metadata;
+}
+
+/**
+ * Decode an Express layer's mount path. Express stores it as a regex but
+ * exposes `fast_slash` / `fast_star` flags for the simple cases we care about.
+ * Falls back to parsing the regex source.
+ */
+function extractMountPath(layer: any): string {
+  const re = layer.regexp;
+  if (!re) return "";
+  if (re.fast_slash) return "";
+  if (re.fast_star) return "";
+
+  // Express mount-path regexes look like: ^\/email\/?(?=\/|$)
+  const src = String(re.source || re);
+  const m = /^\^\\?\/(.+?)\\\/\?\(\?=\\\/\|\$\)/.exec(src);
+  if (m) return "/" + m[1].replace(/\\\//g, "/");
+
+  // Final fallback: strip ^ and trailing artifacts; works for simple regexes.
+  return src
+    .replace(/^\^/, "")
+    .replace(/\\\/\?\(\?=\\\/\|\$\)$/, "")
+    .replace(/\\\//g, "/")
+    .replace(/\$$/, "")
+    || "";
+}
+
+/**
+ * Recursively walk a stack of layers, accumulating paid routes.
+ */
+function walk(stack: any[], prefix: string, out: PaidRoute[]): void {
+  for (const layer of stack || []) {
+    if (layer.route) {
+      // Single route — `app.get/post/...` or `router.get/post/...`
+      const route = layer.route;
+      const fullPath = prefix + (route.path || "");
+      // route.stack is the chain of middlewares for this route. Find any
+      // layer whose handle was tagged by requireAuth/x402.
+      const paidLayer = (route.stack || []).find(
+        (s: any) => s?.handle && (s.handle._x402PaidMin !== undefined),
+      );
+      if (paidLayer) {
+        const handle = paidLayer.handle;
+        const methods = route.methods || {};
+        for (const method of Object.keys(methods)) {
+          if (!methods[method]) continue;
+          out.push({
+            method: method.toUpperCase(),
+            path: fullPath,
+            priceUsdc: handle._x402PaidMin,
+            metadata: handle._x402Metadata,
+          });
+        }
+      }
+    } else if (layer.handle && Array.isArray(layer.handle.stack)) {
+      // Sub-router mounted via `app.use("/<prefix>", router)`.
+      const mountPath = extractMountPath(layer);
+      walk(layer.handle.stack, prefix + mountPath, out);
+    }
+  }
+}
+
+/**
+ * Enumerate every paid route registered on `app` at the moment of the call.
+ * Cheap (<1 ms for AgentOS-sized apps); fine to call on every request.
+ */
+export function enumeratePaidRoutes(app: Express): PaidRoute[] {
+  const stack = (app as any)?._router?.stack;
+  if (!Array.isArray(stack)) return [];
+  const out: PaidRoute[] = [];
+  walk(stack, "", out);
+  // Stable order so the well-known doc and OpenAPI don't shuffle on each call.
+  out.sort((a, b) => (a.path + a.method).localeCompare(b.path + b.method));
+  return out;
+}

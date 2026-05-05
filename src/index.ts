@@ -161,6 +161,14 @@ app.use((req, res, next) => {
   if (req.path.startsWith("/social") || req.path.startsWith("/chat")) return next();
   return requestTimeout(30_000)(req, res, next);
 });
+
+// Discovery endpoints (well-known + openapi) mounted BEFORE the global rate
+// limiter so x402scan / Bazaar crawlers can probe them without 429s. Their
+// handlers introspect the live router stack, so they reflect any route
+// registered later in this file.
+import { mountDiscoveryRoutes } from "./routes/well-known";
+mountDiscoveryRoutes(app);
+
 app.use(rateLimit(200, 60_000));
 app.use(requestLogger);
 
