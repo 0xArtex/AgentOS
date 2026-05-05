@@ -15,7 +15,7 @@ import { getOrCreateWallet } from "../services/deposit-wallets";
  * 4. No auth → 401
  */
 export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 'server' | 'general' = 'general', metadata?: X402Metadata) {
-  return async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  const handler = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
 
     const authHeader = req.headers["authorization"]?.toString().replace("Bearer ", "");
     const apiKey = authHeader || req.headers["x-api-key"] as string || req.headers["x-agent-token"] as string;
@@ -121,4 +121,13 @@ export function requireAuth(minUsdc: number, serviceType: 'phone' | 'email' | 's
     // No auth at all — send 402 so x402-compatible agents can pay
     send402Response(res, req, minUsdc, "Pay with USDC to use this service. Your wallet address becomes the owner.", metadata);
   };
+  // Discovery markers — read by route-discovery.ts at boot to enumerate paid
+  // routes for /.well-known/x402 and /openapi.json. Free endpoints (minUsdc=0)
+  // are also identified-only and don't belong in the discoverable list.
+  if (minUsdc > 0) {
+    (handler as any)._x402PaidMin = minUsdc;
+    (handler as any)._x402ServiceType = serviceType;
+    (handler as any)._x402Metadata = metadata;
+  }
+  return handler;
 }

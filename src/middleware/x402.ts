@@ -295,7 +295,7 @@ async function handleEvmPayment(
 }
 
 export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
-  return async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+  const handler = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
     const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
 
     if (!paymentHeader) {
@@ -399,6 +399,10 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
       });
     }
   };
+  // Discovery markers — see auth.ts:requireAuth for context.
+  (handler as any)._x402PaidMin = minUsdc;
+  (handler as any)._x402Metadata = metadata;
+  return handler;
 }
 
 export const requireX402Payment = x402;
