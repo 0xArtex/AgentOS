@@ -43,12 +43,22 @@ export function buildOpenApiDoc(app: Express, host: string): any {
   const routes = enumeratePaidRoutes(app);
   const paths: Record<string, any> = {};
 
+  // Permissive default schema — declares "this op accepts/returns a JSON
+  // object." Required by x402scan's discovery validator (raises
+  // SCHEMA_INPUT_MISSING / SCHEMA_OUTPUT_MISSING errors when absent),
+  // even though it doesn't actually constrain shape. Strict agents that
+  // need the real shape can probe the live 402 challenge or read route
+  // descriptions.
+  const permissiveJsonSchema = { type: "object", additionalProperties: true };
+  const jsonContent = { "application/json": { schema: permissiveJsonSchema } };
+  const mutatingMethods = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
   for (const r of routes) {
     // OpenAPI uses `{param}` for path params; Express uses `:param`. Convert.
     const oasPath = r.path.replace(/:([^/]+)/g, "{$1}");
     if (!paths[oasPath]) paths[oasPath] = {};
 
-    paths[oasPath][r.method.toLowerCase()] = {
+    const op: any = {
       summary: r.metadata?.description || `${r.method} ${r.path}`,
       description: r.metadata?.description,
       tags: r.metadata?.category ? [r.metadata.category] : undefined,
@@ -61,10 +71,28 @@ export function buildOpenApiDoc(app: Express, host: string): any {
         protocols: [{ x402: {} }],
       },
       responses: {
-        "402": { description: "Payment Required" },
-        "200": { description: "OK" },
+        "402": {
+          description: "Payment Required",
+          content: jsonContent,
+        },
+        "200": {
+          description: "OK",
+          content: jsonContent,
+        },
       },
     };
+
+    // Only mutating methods carry a request body in OpenAPI semantics. GET
+    // routes pass parameters via path/query, so requestBody on them would
+    // confuse downstream tooling.
+    if (mutatingMethods.has(r.method)) {
+      op.requestBody = {
+        required: false,
+        content: jsonContent,
+      };
+    }
+
+    paths[oasPath][r.method.toLowerCase()] = op;
   }
 
   return {
