@@ -76,7 +76,11 @@ function render(node: React.ReactElement) {
 // `json` and `no-color` are agent-mode toggles; the rest are command-specific.
 // Boolean flags never consume the next argv token — important so `agentos
 // wallet list --json` doesn't try to swallow whatever comes after.
-const BOOLEAN_FLAGS = new Set(['help', 'version', 'managed', 'quiet', 'confirm', 'json', 'no-color'])
+const BOOLEAN_FLAGS = new Set([
+  'help', 'version', 'managed', 'quiet', 'confirm', 'json', 'no-color',
+  // compute deploy/ssh flags
+  'wait', 'generate-ssh-key', 'generate',
+])
 
 function parse(argv: string[]) {
   const flags: Record<string, string | boolean> = {}
@@ -670,8 +674,10 @@ async function main() {
             footerLeft: 'Compute operations',
             commands: [
               { name: 'plans', description: 'List VPS plans' },
-              { name: 'deploy', description: 'Deploy a VPS', hint: '--name my-vps --type cx23 [--pubkey "ssh-ed25519 ..."]' },
-              { name: 'setup-ssh', description: 'Inject your SSH key into a deployed VPS', hint: '--id SERVER_ID --pubkey-file ~/.ssh/id_ed25519.pub' },
+              { name: 'ssh-key', description: 'Manage Hetzner SSH keys', hint: 'add <pubkey-file> | list | delete <id>' },
+              { name: 'deploy', description: 'Deploy a VPS', hint: '--type cx23 [--ssh-key <id> | --pubkey-file ... | --generate-ssh-key] [--wait]' },
+              { name: 'ssh', description: 'SSH into a deployed VPS by name or id', hint: '<name|id>' },
+              { name: 'setup-ssh', description: 'Inject your SSH key into a deployed VPS post-hoc', hint: '<id> --pubkey-file ~/.ssh/id_ed25519.pub' },
               { name: 'list', description: 'List servers' },
               { name: 'delete', description: 'Delete a server', hint: '--id SERVER_ID' },
             ],
@@ -701,33 +707,174 @@ async function main() {
             }))
             break
           }
+          case 'ssh-key': {
+            // Subcommand layout: `compute ssh-key add <pubkey-file>` | `list` | `delete <id>`
+            // We piggy-back on the parser's `positional` array — `add` consumes
+            // positional[0] as the file path, `delete` consumes it as the ID.
+            const op = positional[0]
+            const arg = positional[1]
+            if (!op || op === 'list') {
+              const data = await ao.computeSshKeyList()
+              return print(data)
+            }
+            if (op === 'add') {
+              const pubkeyFile = arg || (flags.file as string) || (flags['pubkey-file'] as string)
+              if (!pubkeyFile) err('Usage: agentos compute ssh-key add <pubkey-file> [--name "label"]', EXIT.BAD_INPUT)
+              const fullPath = pubkeyFile.replace('~', homedir())
+              if (!existsSync(fullPath)) err(`Public key file not found: ${pubkeyFile}`, EXIT.NOT_FOUND)
+              const publicKey = readFileSync(fullPath, 'utf8').trim()
+              const name = (flags.name as string) || (flags.label as string) ||
+                (publicKey.split(/\s+/)[2] || `key-${Date.now()}`)
+              const data = await ao.computeSshKeyAdd(name, publicKey)
+              return print(data)
+            }
+            if (op === 'delete' || op === 'remove' || op === 'rm') {
+              const id = arg || (flags.id as string)
+              if (!id) err('Usage: agentos compute ssh-key delete <id>', EXIT.BAD_INPUT)
+              const data = await ao.computeSshKeyDelete(id)
+              return print(data)
+            }
+            err(`Unknown ssh-key subcommand: ${op}. Try: add, list, delete`, EXIT.BAD_INPUT)
+            break
+          }
           case 'deploy': {
+            const csshMod = await import('./compute-ssh.js')
             const name = flags.name as string || 'agent-' + Date.now()
             const type = flags.type as string || 'cx23'
-            // Deploy-time SSH key injection. We accept --pubkey "ssh-..." OR a
-            // path via --pubkey-file (resolved synchronously). Keeps the user
-            // from getting locked out of their own server (cloud-init disables
-            // password auth, so the rootPassword Hetzner returns is dead-on-
-            // arrival without a key).
-            let sshPublicKey = (flags.pubkey as string) || (flags['ssh-key'] as string) || (flags.publicKey as string)
+
+            // SSH-key resolution priority (most explicit wins):
+            //   1. --generate-ssh-key      → fresh keypair, saved locally, pubkey inline
+            //   2. --pubkey-file <path>    → read file, send pubkey inline
+            //   3. --pubkey "ssh-..."      → send pubkey inline as-is
+            //   4. --ssh-key <id>          → numeric Hetzner ID, sent as sshKeyIds[]
+            // 1–3 all use cloud-init inline; 4 uses Hetzner's pre-uploaded key
+            // mechanism. They're mutually exclusive — the user who passes
+            // multiple gets a clear error rather than silent precedence games.
+            const wantGenerate = flags['generate-ssh-key'] === true || flags.generate === true
+            const pubkeyInline = (flags.pubkey as string) || (flags.publicKey as string)
             const pubkeyFile = (flags['pubkey-file'] as string) || (flags['ssh-key-file'] as string)
-            if (!sshPublicKey && pubkeyFile) {
+            const sshKeyIdRaw = flags['ssh-key'] as string | undefined
+
+            const keySources = [wantGenerate, !!pubkeyInline, !!pubkeyFile, !!sshKeyIdRaw].filter(Boolean).length
+            if (keySources > 1) {
+              err('Pass only one of: --generate-ssh-key, --pubkey, --pubkey-file, --ssh-key <id>', EXIT.BAD_INPUT)
+            }
+
+            let sshPublicKey: string | undefined
+            let sshKeyIds: number[] | undefined
+            let generatedKeyMeta: { privateKeyPath: string; publicKeyPath: string } | undefined
+
+            if (sshKeyIdRaw) {
+              const n = Number(sshKeyIdRaw)
+              if (!Number.isFinite(n) || n <= 0) err(`--ssh-key must be a numeric Hetzner key ID (got "${sshKeyIdRaw}"). Run \`agentos compute ssh-key list\` to find it, or \`compute ssh-key add <pubkey-file>\` to upload one.`, EXIT.BAD_INPUT)
+              sshKeyIds = [n]
+            } else if (pubkeyFile) {
+              const fullPath = pubkeyFile.replace('~', homedir())
+              if (!existsSync(fullPath)) err(`Public key file not found: ${pubkeyFile}`, EXIT.NOT_FOUND)
+              sshPublicKey = readFileSync(fullPath, 'utf8').trim()
+            } else if (pubkeyInline) {
+              sshPublicKey = pubkeyInline.trim()
+            } else if (wantGenerate) {
+              // Generated keys are namespaced by server NAME (we don't have an
+              // ID yet at this point). The directory gets renamed to use the
+              // ID once the deploy returns, so cached lookups by either work.
               try {
-                sshPublicKey = readFileSync(pubkeyFile.replace('~', homedir()), 'utf8').trim()
+                const kp = csshMod.generateKeypair(name)
+                sshPublicKey = kp.publicKey
+                generatedKeyMeta = { privateKeyPath: kp.privateKeyPath, publicKeyPath: kp.publicKeyPath }
               } catch (e: any) {
-                err(`Could not read --pubkey-file ${pubkeyFile}: ${e.message}`, EXIT.NOT_FOUND)
+                err(`--generate-ssh-key failed: ${e.message}`, EXIT.GENERAL)
               }
             }
+
             const spin = new Spinner()
             spin.start('Deploying VPS...')
-            const data = await ao.computeDeploy(name, type, sshPublicKey ? { sshPublicKey } : {})
+            const data = await ao.computeDeploy(name, type, {
+              ...(sshPublicKey ? { sshPublicKey } : {}),
+              ...(sshKeyIds ? { sshKeyIds } : {}),
+            })
             spin.stop('VPS deployed', true)
-            return print(data)
+
+            const wantWait = flags.wait === true
+            let finalData: any = data
+            if (wantWait && data?.id) {
+              const spin2 = new Spinner()
+              spin2.start('Waiting for server to reach running state...')
+              try {
+                const final = await csshMod.waitForRunning(async () => {
+                  const s = await ao.computeGet(String(data.id))
+                  return { status: s.status || 'unknown', ipv4: s.ipv4 ?? null }
+                }, { timeoutMs: 180_000 })
+                finalData = { ...data, status: final.status, ipv4: final.ipv4 ?? data.ipv4 }
+                spin2.stop(`Server is ${final.status}`, true)
+              } catch (e: any) {
+                spin2.stop(`Wait timed out: ${e.message}`, false)
+                finalData = { ...data, waitTimeout: true, waitError: e.message }
+              }
+            }
+
+            // Persist a local cache entry so `compute ssh <name>` can resolve
+            // names without paying for a `GET /compute/servers` round-trip.
+            try {
+              csshMod.saveDeployedServer({
+                id: String(finalData.id || data.id || ''),
+                name: String(finalData.name || data.name || name),
+                ipv4: (finalData.ipv4 || data.ipv4) ?? null,
+                serverType: String(finalData.serverType || data.serverType || type),
+                sshPrivateKeyPath: generatedKeyMeta?.privateKeyPath,
+                sshKeyIds,
+                deployedAt: new Date().toISOString(),
+              })
+            } catch {}
+
+            // Surface where the generated key landed in the response so users
+            // (especially agents in non-TTY runs) know what to ssh -i.
+            if (generatedKeyMeta) {
+              finalData = {
+                ...finalData,
+                generatedKey: {
+                  privateKeyPath: generatedKeyMeta.privateKeyPath,
+                  publicKeyPath: generatedKeyMeta.publicKeyPath,
+                  hint: `ssh -i "${generatedKeyMeta.privateKeyPath}" root@${finalData.ipv4 || '<ip>'}`,
+                },
+              }
+            }
+            return print(finalData)
+          }
+          case 'ssh': {
+            const csshMod = await import('./compute-ssh.js')
+            const target = positional[0] || (flags.id as string) || (flags.name as string)
+            if (!target) err('Usage: agentos compute ssh <name|id>', EXIT.BAD_INPUT)
+            // Local cache first — free, instant. Server-side fallback is
+            // available but not auto-triggered: it would cost 0.01 USDC and
+            // we'd rather make the user opt in than charge them silently.
+            const cached = csshMod.findCachedServer(target)
+            if (!cached?.ipv4) {
+              err(
+                `Server "${target}" not in local cache. ` +
+                `Either run 'agentos compute list --json' first, ` +
+                `or use the explicit IP: ssh root@<ip>.`,
+                EXIT.NOT_FOUND,
+              )
+            }
+            const keyPath = cached.sshPrivateKeyPath || (flags.key as string) || (flags.identity as string)
+            if (AGENT_MODE) {
+              return print({
+                id: cached.id,
+                name: cached.name,
+                ipv4: cached.ipv4,
+                command: csshMod.buildSshCommand(cached.ipv4!, keyPath),
+                privateKeyPath: keyPath,
+              })
+            }
+            // TTY mode: hand the terminal over to ssh and exit with its code.
+            const code = csshMod.spawnInteractiveSsh(cached.ipv4!, keyPath)
+            process.exit(code)
           }
           case 'setup-ssh': {
             const id = (flags.id as string) || positional[0]
             if (!id) err('--id SERVER_ID required (or pass it as the first positional arg)', EXIT.BAD_INPUT)
-            let pubkey = (flags.pubkey as string) || (flags['ssh-key'] as string) || (flags.publicKey as string)
+            let pubkey = (flags.pubkey as string) || (flags.publicKey as string)
             const pubkeyFile = (flags['pubkey-file'] as string) || (flags['ssh-key-file'] as string)
             if (!pubkey && pubkeyFile) {
               try {
@@ -748,9 +895,13 @@ async function main() {
             const id = flags.id as string || positional[0]
             if (!id) err('--id SERVER_ID required')
             const data = await ao.computeDelete(id)
+            try {
+              const csshMod = await import('./compute-ssh.js')
+              csshMod.removeCachedServer(id)
+            } catch {}
             return print(data)
           }
-          default: err(`Unknown compute command: ${subcommand}. Try: plans, deploy, setup-ssh, list, delete`)
+          default: err(`Unknown compute command: ${subcommand}. Try: plans, ssh-key, deploy, ssh, setup-ssh, list, delete`)
         }
         break
       }
