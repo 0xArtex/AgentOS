@@ -959,18 +959,28 @@ async function main() {
           case 'addresses': {
             const walletId = positional[0] || flags.id as string
             if (!walletId) err('Wallet ID required')
-            const data = await ao.walletAddresses(walletId)
-            return print(data)
-            render(React.createElement(SuccessScreen, {
-              version: VERSION,
-              title: 'Wallet addresses',
-              subtitle: walletId,
-              footerLeft: `${(data.addresses || []).length} chains`,
-              details: (data.addresses || []).map((a: any) => ({
-                label: a.chainId,
-                value: a.address,
-              })),
-            }))
+            // Read from local vault — same source as `wallet list` / `wallet info`.
+            // The previous server-call path 401'd for unauthenticated users
+            // even though all the data is already on the local disk.
+            const { listVaultWallets } = await import('./vault.js')
+            const wallets = listVaultWallets()
+            const w = wallets.find(x => x.id === walletId || x.name === walletId)
+            if (!w) err(`Wallet "${walletId}" not found`, EXIT.NOT_FOUND)
+            const addresses = [
+              ...(w!.solanaAddress ? [{ chainId: 'solana', address: w!.solanaAddress }] : []),
+              ...(w!.evmAddress ? [{ chainId: 'base', address: w!.evmAddress }] : []),
+            ]
+            if (process.stdout.isTTY) {
+              render(React.createElement(SuccessScreen, {
+                version: VERSION,
+                title: 'Wallet addresses',
+                subtitle: walletId,
+                footerLeft: `${addresses.length} chain(s)`,
+                details: addresses.map(a => ({ label: a.chainId + ':', value: a.address })),
+              }))
+            } else {
+              print({ id: w!.id, name: w!.name, addresses })
+            }
             break
           }
           case 'sign-message': {
