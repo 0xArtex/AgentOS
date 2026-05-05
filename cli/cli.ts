@@ -676,6 +676,7 @@ async function main() {
               { name: 'plans', description: 'List VPS plans' },
               { name: 'ssh-key', description: 'Manage Hetzner SSH keys', hint: 'add <pubkey-file> | list | delete <id>' },
               { name: 'deploy', description: 'Deploy a VPS', hint: '--type cx23 [--ssh-key <id> | --pubkey-file ... | --generate-ssh-key] [--wait]' },
+              { name: 'wait', description: 'Block until status=running, port 22 open, SSH verified', hint: '<name|id> [--key <path>] [--wait-timeout <sec>]' },
               { name: 'ssh', description: 'SSH into a deployed VPS by name or id', hint: '<name|id>' },
               { name: 'setup-ssh', description: 'Inject your SSH key into a deployed VPS post-hoc', hint: '<id> --pubkey-file ~/.ssh/id_ed25519.pub' },
               { name: 'list', description: 'List servers' },
@@ -796,20 +797,47 @@ async function main() {
             spin.stop('VPS deployed', true)
 
             const wantWait = flags.wait === true
+            const waitTimeoutSec = flags['wait-timeout']
+              ? Math.max(30, Math.min(900, parseInt(String(flags['wait-timeout']), 10)))
+              : undefined
+            // Resolve the local key path for the SSH credential probe. Only
+            // available when the user supplied a key on disk (--pubkey-file or
+            // --generate-ssh-key) OR explicitly told us where the matching
+            // private key lives (--key-path) when using --ssh-key <id>.
+            const explicitKeyPath = (flags['key-path'] as string) || (flags['private-key'] as string)
+            const localKeyPath = generatedKeyMeta?.privateKeyPath
+              || (pubkeyFile ? pubkeyFile.replace(/\.pub$/, '').replace('~', homedir()) : undefined)
+              || (explicitKeyPath ? explicitKeyPath.replace('~', homedir()) : undefined)
+
             let finalData: any = data
+            let readiness: any = undefined
             if (wantWait && data?.id) {
               const spin2 = new Spinner()
-              spin2.start('Waiting for server to reach running state...')
-              try {
-                const final = await csshMod.waitForRunning(async () => {
+              spin2.start('Waiting: status=running…')
+              const result = await csshMod.waitForReady({
+                getStatus: async () => {
                   const s = await ao.computeGet(String(data.id))
                   return { status: s.status || 'unknown', ipv4: s.ipv4 ?? null }
-                }, { timeoutMs: 180_000 })
-                finalData = { ...data, status: final.status, ipv4: final.ipv4 ?? data.ipv4 }
-                spin2.stop(`Server is ${final.status}`, true)
-              } catch (e: any) {
-                spin2.stop(`Wait timed out: ${e.message}`, false)
-                finalData = { ...data, waitTimeout: true, waitError: e.message }
+                },
+                keyPath: localKeyPath && existsSync(localKeyPath) ? localKeyPath : undefined,
+                timeoutMs: waitTimeoutSec ? waitTimeoutSec * 1000 : undefined,
+                onProgress: ev => spin2.update(`Waiting: ${ev.message}`),
+              })
+              readiness = {
+                ready: result.ready,
+                checks: result.checks,
+                elapsedMs: result.elapsedMs,
+                ...(result.reason ? { reason: result.reason } : {}),
+              }
+              if (result.ready) {
+                spin2.stop(`Server ready in ${(result.elapsedMs / 1000).toFixed(1)}s (status=running, port22=open${result.checks.ssh === 'pass' ? ', ssh=verified' : ''})`, true)
+              } else {
+                spin2.stop(`Wait incomplete: ${result.reason}`, false)
+              }
+              finalData = {
+                ...data,
+                status: result.status ?? data.status,
+                ipv4: result.ip ?? data.ipv4,
               }
             }
 
@@ -821,25 +849,82 @@ async function main() {
                 name: String(finalData.name || data.name || name),
                 ipv4: (finalData.ipv4 || data.ipv4) ?? null,
                 serverType: String(finalData.serverType || data.serverType || type),
-                sshPrivateKeyPath: generatedKeyMeta?.privateKeyPath,
+                sshPrivateKeyPath: localKeyPath && existsSync(localKeyPath) ? localKeyPath : undefined,
                 sshKeyIds,
                 deployedAt: new Date().toISOString(),
               })
             } catch {}
 
             // Surface where the generated key landed in the response so users
-            // (especially agents in non-TTY runs) know what to ssh -i.
+            // (especially agents in non-TTY runs) know what to ssh -i. When we
+            // know a working key, also include a top-level `sshCommand` —
+            // that's the literal "usable SSH command" the deploy contract
+            // promises when --wait succeeds.
+            const ip = finalData.ipv4 || data.ipv4
             if (generatedKeyMeta) {
               finalData = {
                 ...finalData,
                 generatedKey: {
                   privateKeyPath: generatedKeyMeta.privateKeyPath,
                   publicKeyPath: generatedKeyMeta.publicKeyPath,
-                  hint: `ssh -i "${generatedKeyMeta.privateKeyPath}" root@${finalData.ipv4 || '<ip>'}`,
+                  hint: `ssh -i "${generatedKeyMeta.privateKeyPath}" root@${ip || '<ip>'}`,
                 },
               }
             }
+            if (localKeyPath && ip) {
+              finalData.sshCommand = csshMod.buildSshCommand(ip, localKeyPath)
+            }
+            if (readiness) finalData.readiness = readiness
             return print(finalData)
+          }
+          case 'wait': {
+            // `compute wait <name|id> [--key <path>] [--wait-timeout <sec>]` —
+            // run the readiness chain against an existing server. Useful when
+            // the user deployed without --wait, or the deploy --wait timed out
+            // and they want to retry without redeploying.
+            const csshMod = await import('./compute-ssh.js')
+            const target = positional[0] || (flags.id as string) || (flags.name as string)
+            if (!target) err('Usage: agentos compute wait <name|id> [--key <path>] [--wait-timeout <sec>]', EXIT.BAD_INPUT)
+            const cached = csshMod.findCachedServer(target)
+            // Resolve the server id — cache first (to skip a paid round-trip
+            // when possible), but accept a numeric arg as the id directly.
+            const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
+            if (!serverId) err(`Server "${target}" not in local cache. Pass the numeric id as the first arg, or run 'agentos compute list' to refresh.`, EXIT.NOT_FOUND)
+            const explicitKeyPath = (flags.key as string) || (flags['key-path'] as string) || (flags['private-key'] as string)
+            const keyPath = (explicitKeyPath ? explicitKeyPath.replace('~', homedir()) : cached?.sshPrivateKeyPath)
+            const waitTimeoutSec = flags['wait-timeout']
+              ? Math.max(30, Math.min(900, parseInt(String(flags['wait-timeout']), 10)))
+              : undefined
+            const spin = new Spinner()
+            spin.start('Probing readiness…')
+            const result = await csshMod.waitForReady({
+              getStatus: async () => {
+                const s = await ao.computeGet(serverId)
+                return { status: s.status || 'unknown', ipv4: s.ipv4 ?? null }
+              },
+              keyPath: keyPath && existsSync(keyPath) ? keyPath : undefined,
+              timeoutMs: waitTimeoutSec ? waitTimeoutSec * 1000 : undefined,
+              onProgress: ev => spin.update(`Probing: ${ev.message}`),
+            })
+            spin.stop(result.ready ? `Ready in ${(result.elapsedMs / 1000).toFixed(1)}s` : `Not ready: ${result.reason}`, result.ready)
+            const out: any = {
+              id: serverId,
+              ready: result.ready,
+              status: result.status,
+              ipv4: result.ip,
+              checks: result.checks,
+              elapsedMs: result.elapsedMs,
+              ...(result.reason ? { reason: result.reason } : {}),
+            }
+            if (keyPath && result.ip) out.sshCommand = csshMod.buildSshCommand(result.ip, keyPath)
+            // Exit with NOT_FOUND if any gate failed so shell scripts can
+            // branch on $?. Stdout still gets the full report so callers
+            // capturing JSON can inspect which check tripped.
+            if (!result.ready) {
+              print(out)
+              process.exit(EXIT.NOT_FOUND)
+            }
+            return print(out)
           }
           case 'ssh': {
             const csshMod = await import('./compute-ssh.js')
@@ -901,7 +986,7 @@ async function main() {
             } catch {}
             return print(data)
           }
-          default: err(`Unknown compute command: ${subcommand}. Try: plans, ssh-key, deploy, ssh, setup-ssh, list, delete`)
+          default: err(`Unknown compute command: ${subcommand}. Try: plans, ssh-key, deploy, wait, ssh, setup-ssh, list, delete`)
         }
         break
       }
