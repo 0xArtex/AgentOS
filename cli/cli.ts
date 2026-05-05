@@ -681,9 +681,10 @@ async function main() {
             footerLeft: 'Compute operations',
             commands: [
               { name: 'plans', description: 'List VPS plans' },
+              { name: 'install-recipes', description: 'List available agent install recipes (hermes, openclaw, ...)' },
               { name: 'ssh-key', description: 'Manage Hetzner SSH keys', hint: 'add <pubkey-file> | list | delete <id>' },
-              { name: 'deploy', description: 'Deploy a VPS (golden path: auto-generates key, waits, verifies SSH)', hint: '--type cx23 [--ssh-key <id> | --pubkey-file ...] [--no-wait]' },
-              { name: 'wait', description: 'Block until status=running, port 22 open, SSH verified', hint: '<name|id> [--key <path>] [--wait-timeout <sec>]' },
+              { name: 'deploy', description: 'Deploy a VPS (golden path: auto-key, wait, verified SSH)', hint: '--type cx23 [--install hermes] [--no-wait]' },
+              { name: 'wait', description: 'Block until status=running, port 22 open, SSH verified, installs done', hint: '<name|id> [--install hermes] [--key <path>] [--wait-timeout <sec>]' },
               { name: 'ssh', description: 'SSH into a deployed VPS by name or id', hint: '<name|id>' },
               { name: 'exec', description: 'Run a single command on a freshly-deployed VPS (pre-handoff)', hint: '<name|id> -- <command> [args...]' },
               { name: 'reset-password', description: 'Rotate the root password (Hetzner-side)', hint: '<name|id>' },
@@ -808,12 +809,38 @@ async function main() {
               }
             }
 
+            // Resolve the install list. `--install hermes` or `--install hermes,openclaw`
+            // overrides the default. `--no-install` (or `--install ""`) skips
+            // cloud-init entirely (vanilla Ubuntu, password auth on). With no
+            // flag at all, the server defaults to OpenClaw — same behavior the
+            // CLI has shipped since v0.5.
+            const installRaw = flags.install
+            let installRequested: string[] | undefined
+            if (installRaw === false) {
+              // `--no-install` → empty array (vanilla Ubuntu).
+              installRequested = []
+            } else if (typeof installRaw === 'string') {
+              installRequested = installRaw.split(',').map(s => s.trim()).filter(Boolean)
+            } // else: leave undefined → server keeps the legacy default.
+
             const spin = new Spinner()
             spin.start('Deploying VPS...')
-            const data = await ao.computeDeploy(name, type, {
-              ...(sshPublicKey ? { sshPublicKey } : {}),
-              ...(sshKeyIds ? { sshKeyIds } : {}),
-            })
+            let data: any
+            try {
+              data = await ao.computeDeploy(name, type, {
+                ...(sshPublicKey ? { sshPublicKey } : {}),
+                ...(sshKeyIds ? { sshKeyIds } : {}),
+                ...(installRequested !== undefined ? { install: installRequested } : {}),
+              })
+            } catch (e: any) {
+              spin.stop('VPS deploy failed', false)
+              // The server's "Invalid install recipe" 400 is the most common
+              // user-facing failure for this flag — surface it cleanly.
+              if (/install recipe/i.test(String(e?.message || ''))) {
+                err(`${e.message} Run \`agentos compute install-recipes --json\` to list available recipes.`, EXIT.BAD_INPUT)
+              }
+              throw e
+            }
             spin.stop('VPS deployed', true)
 
             // Golden-path default: --wait is ON unless the user explicitly opts
@@ -822,9 +849,18 @@ async function main() {
             // foot-gun (looks successful, isn't yet usable). Users who want
             // fire-and-forget deploys should pass --no-wait explicitly.
             const wantWait = flags.wait !== false
+            // The marker file gate (gate 4) only runs when the deploy actually
+            // requested an install. Use whatever the SERVER echoed back —
+            // `data.installs` reflects the resolved list (including any legacy
+            // default), independent of what the CLI inferred.
+            const expectedInstalls: string[] = Array.isArray(data?.installs) ? data.installs : []
+            // Bigger default budget when an install is in flight. Hermes pulls
+            // Python 3.11 + a couple hundred MB of pip packages on a fresh box;
+            // 240s is too tight, 600s is comfortable.
+            const defaultTimeout = expectedInstalls.length > 0 ? 600 : 240
             const waitTimeoutSec = flags['wait-timeout']
               ? Math.max(30, Math.min(900, parseInt(String(flags['wait-timeout']), 10)))
-              : undefined
+              : defaultTimeout
             // Resolve the local key path for the SSH credential probe. Only
             // available when the user supplied a key on disk (--pubkey-file or
             // --generate-ssh-key) OR explicitly told us where the matching
@@ -845,7 +881,8 @@ async function main() {
                   return { status: s.status || 'unknown', ipv4: s.ipv4 ?? null }
                 },
                 keyPath: localKeyPath && existsSync(localKeyPath) ? localKeyPath : undefined,
-                timeoutMs: waitTimeoutSec ? waitTimeoutSec * 1000 : undefined,
+                timeoutMs: waitTimeoutSec * 1000,
+                expectedInstalls,
                 onProgress: ev => spin2.update(`Waiting: ${ev.message}`),
               })
               readiness = {
@@ -853,9 +890,13 @@ async function main() {
                 checks: result.checks,
                 elapsedMs: result.elapsedMs,
                 ...(result.reason ? { reason: result.reason } : {}),
+                ...(result.installStatus ? { installStatus: result.installStatus } : {}),
               }
               if (result.ready) {
-                spin2.stop(`Server ready in ${(result.elapsedMs / 1000).toFixed(1)}s (status=running, port22=open${result.checks.ssh === 'pass' ? ', ssh=verified' : ''})`, true)
+                const passed = ['status=running', 'port22=open']
+                if (result.checks.ssh === 'pass') passed.push('ssh=verified')
+                if (result.checks.installs === 'pass') passed.push(`installs=${expectedInstalls.join('+')}`)
+                spin2.stop(`Server ready in ${(result.elapsedMs / 1000).toFixed(1)}s (${passed.join(', ')})`, true)
               } else {
                 spin2.stop(`Wait incomplete: ${result.reason}`, false)
               }
@@ -903,13 +944,14 @@ async function main() {
             return print(finalData)
           }
           case 'wait': {
-            // `compute wait <name|id> [--key <path>] [--wait-timeout <sec>]` —
-            // run the readiness chain against an existing server. Useful when
+            // `compute wait <name|id> [--key <path>] [--wait-timeout <sec>] [--install <name>]`
+            // — run the readiness chain against an existing server. Useful when
             // the user deployed without --wait, or the deploy --wait timed out
-            // and they want to retry without redeploying.
+            // and they want to retry without redeploying. Pass --install to
+            // also gate on the install marker file (gate 4).
             const csshMod = await import('./compute-ssh.js')
             const target = positional[0] || (flags.id as string) || (flags.name as string)
-            if (!target) err('Usage: agentos compute wait <name|id> [--key <path>] [--wait-timeout <sec>]', EXIT.BAD_INPUT)
+            if (!target) err('Usage: agentos compute wait <name|id> [--key <path>] [--wait-timeout <sec>] [--install hermes,...]', EXIT.BAD_INPUT)
             const cached = csshMod.findCachedServer(target)
             // Resolve the server id — cache first (to skip a paid round-trip
             // when possible), but accept a numeric arg as the id directly.
@@ -917,9 +959,14 @@ async function main() {
             if (!serverId) err(`Server "${target}" not in local cache. Pass the numeric id as the first arg, or run 'agentos compute list' to refresh.`, EXIT.NOT_FOUND)
             const explicitKeyPath = (flags.key as string) || (flags['key-path'] as string) || (flags['private-key'] as string)
             const keyPath = (explicitKeyPath ? explicitKeyPath.replace('~', homedir()) : cached?.sshPrivateKeyPath)
+            const installRaw = flags.install
+            const expectedInstalls: string[] = typeof installRaw === 'string'
+              ? installRaw.split(',').map(s => s.trim()).filter(Boolean)
+              : []
+            const defaultTimeout = expectedInstalls.length > 0 ? 600 : 240
             const waitTimeoutSec = flags['wait-timeout']
               ? Math.max(30, Math.min(900, parseInt(String(flags['wait-timeout']), 10)))
-              : undefined
+              : defaultTimeout
             const spin = new Spinner()
             spin.start('Probing readiness…')
             const result = await csshMod.waitForReady({
@@ -928,7 +975,8 @@ async function main() {
                 return { status: s.status || 'unknown', ipv4: s.ipv4 ?? null }
               },
               keyPath: keyPath && existsSync(keyPath) ? keyPath : undefined,
-              timeoutMs: waitTimeoutSec ? waitTimeoutSec * 1000 : undefined,
+              timeoutMs: waitTimeoutSec * 1000,
+              expectedInstalls,
               onProgress: ev => spin.update(`Probing: ${ev.message}`),
             })
             spin.stop(result.ready ? `Ready in ${(result.elapsedMs / 1000).toFixed(1)}s` : `Not ready: ${result.reason}`, result.ready)
@@ -940,6 +988,7 @@ async function main() {
               checks: result.checks,
               elapsedMs: result.elapsedMs,
               ...(result.reason ? { reason: result.reason } : {}),
+              ...(result.installStatus ? { installStatus: result.installStatus } : {}),
             }
             if (keyPath && result.ip) out.sshCommand = csshMod.buildSshCommand(result.ip, keyPath)
             // Exit with NOT_FOUND if any gate failed so shell scripts can
@@ -950,6 +999,13 @@ async function main() {
               process.exit(EXIT.NOT_FOUND)
             }
             return print(out)
+          }
+          case 'install-recipes':
+          case 'recipes': {
+            // Free discovery endpoint — list available agent install recipes.
+            // Agents call this to know what they can pass to --install.
+            const data = await ao.computeInstallRecipes()
+            return print(data)
           }
           case 'ssh': {
             const csshMod = await import('./compute-ssh.js')
@@ -1080,7 +1136,7 @@ async function main() {
             const data = await ao.computeAction(serverId, subcommand, opts)
             return print(data)
           }
-          default: err(`Unknown compute command: ${subcommand}. Try: plans, ssh-key, deploy, wait, ssh, exec, reset-password, console, reboot, poweroff, poweron, reset, rebuild, setup-ssh, list, delete`)
+          default: err(`Unknown compute command: ${subcommand}. Try: plans, install-recipes, ssh-key, deploy, wait, ssh, exec, reset-password, console, reboot, poweroff, poweron, reset, rebuild, setup-ssh, list, delete`)
         }
         break
       }

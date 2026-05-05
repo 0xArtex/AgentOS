@@ -48,13 +48,16 @@ agentos email threads --id INBOX_ID                    # List threads ($0.02)
 
 # Compute
 agentos compute plans                                       # List VPS plans (free)
+agentos compute install-recipes                             # List bootstrappable agent runtimes (free)
 agentos compute deploy --type cx23 --json                   # Golden path: auto-key, wait, verified ($6 + monthly)
+agentos compute deploy --type cx22 --install hermes --json  # Deploy + bootstrap Hermes Agent (Nous Research)
+agentos compute deploy --type cx23 --install hermes,openclaw --json  # Multiple recipes
+agentos compute deploy --type cx23 --no-install --json      # Vanilla Ubuntu (password auth on)
 agentos compute deploy --type cx23 --ssh-key 12345 --json   # Use a pre-uploaded Hetzner key
-agentos compute deploy --type cx23 --pubkey-file ~/.ssh/id_ed25519.pub --json  # Use existing key
 agentos compute deploy --type cx23 --no-wait --json         # Fire-and-forget
 agentos compute ssh-key add ~/.ssh/id_ed25519.pub           # Upload key to Hetzner ($0.10) — returns numeric id
 agentos compute ssh-key list                                # List uploaded keys ($0.01)
-agentos compute wait <name|id>                              # Block until status=running, port 22 open, SSH verified
+agentos compute wait <name|id> [--install hermes]           # Block until ready (gates: status=running, port 22, SSH, install marker)
 agentos compute ssh <name|id>                               # SSH in (TTY) or print ssh command (agent mode)
 agentos compute exec <name|id> -- <command> [args...]       # Run command pre-handoff ($0.05)
 agentos compute reset-password <name|id>                    # Rotate root password ($0.10)
@@ -129,10 +132,11 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Register webhook | `POST /email/webhooks` | 0.02 |
 | **Compute** | | |
 | List plans | `GET /compute/plans` | Free |
+| List install recipes | `GET /compute/install-recipes` | Free |
 | Upload SSH key | `POST /compute/ssh-keys` | 0.10 |
 | List SSH keys | `GET /compute/ssh-keys` | 0.01 |
 | Delete SSH key | `DELETE /compute/ssh-keys/:id` | 0.01 |
-| Create server | `POST /compute/servers` *(accepts `sshPublicKey` or `sshKeyIds[]`; returns `sshAccess` block)* | 6.00 |
+| Create server | `POST /compute/servers` *(accepts `sshPublicKey`, `sshKeyIds[]`, `install` recipe; returns `sshAccess` + `installs` blocks)* | 6.00 |
 | List servers | `GET /compute/servers` | 0.01 |
 | Server status | `GET /compute/servers/:id` | 0.01 |
 | Server action | `POST /compute/servers/:id/actions` *(reboot, poweron, poweroff, reset, rebuild, **reset_password**, **request_console**)* | 0.10 |
@@ -201,10 +205,23 @@ agentos compute exec my-vps -- echo hi --json 2>err.log; [ $? -eq 0 ] || cat err
 `agentos compute deploy --type cx23 --json` is a one-liner that:
 1. Generates an ed25519 keypair locally (`~/.agentos/ssh/<name>/id_ed25519`).
 2. Pays $6 USDC via x402, deploys via Hetzner Cloud.
-3. Waits until `status=running`, port 22 is open, and `ssh -i <key> root@<ip> 'true'` returns 0.
-4. Returns JSON with a top-level `sshCommand` and a `readiness` block showing each gate.
+3. Runs cloud-init (security hardening + the requested install recipe).
+4. Waits until `status=running`, port 22 is open, `ssh -i <key> root@<ip> 'true'` returns 0, and `/etc/agentos/install-status.json` reports `ok`.
+5. Returns JSON with a top-level `sshCommand` and a `readiness` block showing each gate.
 
 After it returns, `agentos compute ssh <name>` drops you in (TTY) or prints the ssh command (agent mode). Everything resolves from a local cache — no paid round-trip.
+
+### Bootstrap an agent runtime in one call
+
+```bash
+agentos compute deploy --type cx22 --install hermes --json
+```
+
+Cloud-init runs the recipe at first boot. Available recipes (live list at `GET /compute/install-recipes`):
+- `openclaw` — Node 22 + the openclaw and clawhub npm packages. The historical default.
+- `hermes` — [Hermes Agent](https://github.com/NousResearch/hermes-agent), Nous Research's self-improving AI agent. Installed via the official `scripts/install.sh --skip-setup`. After deploy, run `agentos compute exec <name> -- hermes setup` to pick a model provider.
+
+Recipe validation is **pre-payment**: typos return `EXIT.BAD_INPUT` (2) without charging USDC.
 
 ## Authentication
 

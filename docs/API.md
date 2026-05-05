@@ -628,6 +628,38 @@ curl -X PUT https://api.agentos.dev/domains/dom_ghi789/dns \
 
 ### Compute
 
+#### `GET /compute/install-recipes`
+
+List the agent runtime install recipes that the `install` field on `POST /compute/servers` accepts. Free, no auth, no payment.
+
+**Request:**
+```bash
+curl https://api.agentos.dev/compute/install-recipes
+```
+
+**Response (200):**
+```json
+{
+  "recipes": [
+    {
+      "name": "openclaw",
+      "description": "OpenClaw runtime + clawhub skill registry (Node 22)"
+    },
+    {
+      "name": "hermes",
+      "description": "Hermes Agent (Nous Research) — self-improving AI agent runtime"
+    }
+  ],
+  "usage": {
+    "api": "POST /compute/servers with body { install: \"hermes\" } or { install: [\"hermes\", \"openclaw\"] }",
+    "cli": "agentos compute deploy --type cx22 --install hermes",
+    "marker": "Cloud-init writes /etc/agentos/install-status.json when all requested recipes finish. The CLI's deploy --wait polls this as gate 4."
+  }
+}
+```
+
+---
+
 #### `POST /compute/servers`
 
 Create a new cloud server (Hetzner Cloud).
@@ -655,9 +687,10 @@ curl -X POST https://api.agentos.dev/compute/servers \
 | `name` | string | ✅ | Server name |
 | `serverType` | string | ✅ | Server tier: `cx22`, `cx32`, `cx42`, `cx52` |
 | `image` | string | ❌ | OS image (default: `ubuntu-24.04`) |
-| `sshPublicKey` | string | ❌ | OpenSSH-format public key, inlined into cloud-init at first boot. Validated server-side; bad input fails as 400 before Hetzner is touched. |
+| `sshPublicKey` | string | ❌ | OpenSSH-format public key, inlined into cloud-init at first boot. Validated **before** payment — bad input fails as 400 with no USDC charged. |
 | `sshKeyIds` | number[] | ❌ | IDs of pre-uploaded keys (from `POST /compute/ssh-keys`). Hetzner injects them before cloud-init runs. |
-| `installOpenClaw` | boolean | ❌ | Default `true`. Runs cloud-init that hardens sshd (disables password auth), installs OpenClaw, sets up the firewall. Set to `false` to get a vanilla Ubuntu box; password auth stays enabled and the returned `rootPassword` works. |
+| `install` | string \| string[] | ❌ | Install recipe(s) to bootstrap during cloud-init. Comma-separated string or array. Each name must appear in `GET /compute/install-recipes`. Validated **before** payment — typos fail as 400 with no USDC charged. Overrides `installOpenClaw`. Examples: `"hermes"`, `["hermes", "openclaw"]`. |
+| `installOpenClaw` | boolean | ❌ | Legacy. Default `true` (= `install: ["openclaw"]`). `false` skips cloud-init entirely (vanilla Ubuntu, password auth on). Ignored when `install` is set. |
 
 **Server Types:**
 
@@ -670,7 +703,7 @@ curl -X POST https://api.agentos.dev/compute/servers \
 
 **Response (201) — branches on whether cloud-init runs and a key was attached:**
 
-When `installOpenClaw=true` and a key was attached (`sshPublicKey` or `sshKeyIds`):
+When cloud-init runs (default OR `install` set) and a key was attached (`sshPublicKey` or `sshKeyIds`):
 ```json
 {
   "id": "srv_jkl012",
@@ -688,7 +721,12 @@ When `installOpenClaw=true` and a key was attached (`sshPublicKey` or `sshKeyIds
     "command": "ssh root@203.0.113.50",
     "note": "Your public key was injected at boot. Cloud-init takes ~60s to finish; SSH may be reachable a bit before that."
   },
-  "message": "Server created at 203.0.113.50. SSH ready once cloud-init finishes (~60s)."
+  "installs": ["openclaw"],
+  "installStatus": {
+    "marker": "/etc/agentos/install-status.json",
+    "note": "Cloud-init runs 1 install recipe(s) in sequence. The CLI's deploy --wait gate 4 polls the marker file via SSH; if you skipped --wait, you can check it yourself with: agentos compute exec srv_jkl012 -- cat /etc/agentos/install-status.json"
+  },
+  "message": "Server created at 203.0.113.50. SSH ready once cloud-init finishes (~60s). Installing: openclaw."
 }
 ```
 

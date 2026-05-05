@@ -15,7 +15,7 @@ const HCLOUD_API = "https://api.hetzner.cloud/v1";
  * Allowed key types match what `routes/compute.ts:setup-ssh` already accepts.
  * Stripped to single-line; comment field is allowed (alphanum + . _ - @).
  */
-function assertSshPublicKey(key: string): string {
+export function assertSshPublicKey(key: string): string {
   const trimmed = key.trim()
   if (trimmed.length === 0 || trimmed.length > 16384) {
     throw new Error('sshPublicKey must be 1–16384 chars');
@@ -26,7 +26,95 @@ function assertSshPublicKey(key: string): string {
   return trimmed;
 }
 
-function generateCloudInit(opts: { userPubkey?: string } = {}): string {
+/**
+ * Bash blocks emitted into cloud-init for each named install recipe.
+ *
+ * Adding a new recipe is purely additive: pick a slug, drop a bash block here,
+ * and the route layer's allowlist + the marker-file check (gate 4 of the CLI's
+ * readiness chain) pick it up automatically.
+ *
+ * Recipe contracts:
+ *   - Run as root, non-interactive. `set -euo pipefail` is in effect from the
+ *     wrapping cloud-init script — recipes that have steps which can fail
+ *     transiently must guard with `|| true` or restart the recipe explicitly.
+ *   - DEBIAN_FRONTEND=noninteractive and NEEDRESTART_MODE=a are exported by
+ *     the wrapping script.
+ *   - Recipes should NOT exit non-zero on cosmetic failures (version probes
+ *     etc.) — bubbling those up aborts the rest of cloud-init.
+ *   - The wrapping script writes /etc/agentos/install-status.json on success
+ *     so the CLI's wait-for-install gate has a single sentinel to poll.
+ *     Per-recipe debug logs are recipe-specific (see below).
+ */
+const INSTALL_RECIPES: Record<string, { description: string; bash: string }> = {
+  // OpenClaw — the original AgentOS default. Installs Node 22 + the openclaw
+  // and clawhub npm packages. Writes /etc/openclaw/provision.json for
+  // historical compatibility with anything that already keys off it.
+  openclaw: {
+    description: 'OpenClaw runtime + clawhub skill registry (Node 22)',
+    bash: `# ─── Install OpenClaw ───
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt-get install -y -qq nodejs
+npm install -g openclaw clawhub
+mkdir -p /etc/openclaw
+cat > /etc/openclaw/provision.json << 'OPENCLAW_PROVISION_EOF'
+{
+  "provisioned_by": "agentos",
+  "provisioned_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "openclaw_installed": true
+}
+OPENCLAW_PROVISION_EOF
+echo "OpenClaw provisioning complete" > /var/log/openclaw-provision.log
+openclaw --version >> /var/log/openclaw-provision.log 2>&1 || true
+`,
+  },
+
+  // Hermes Agent (Nous Research) — the self-improving AI agent. The official
+  // installer at scripts/install.sh handles all platform detection, deps
+  // (Python 3.11+ via uv, build-essential, ripgrep, ffmpeg), and creates the
+  // /usr/local/bin/hermes symlink when run as root. We pass --skip-setup so
+  // the user can configure their model provider after deploy via
+  //   agentos compute exec <id> -- hermes setup
+  // or inside an SSH session.
+  hermes: {
+    description: 'Hermes Agent (Nous Research) — self-improving AI agent runtime',
+    bash: `# ─── Install Hermes Agent ───
+# Nous Research's official installer. Handles deps + FHS layout when run as root.
+# --skip-setup leaves provider/model selection for the user to do post-deploy.
+mkdir -p /var/log/agentos
+curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh \
+  | bash -s -- --skip-setup > /var/log/agentos/hermes-install.log 2>&1
+# Confirm the binary landed where we expect; bail loudly if it didn't so the
+# install marker doesn't get written and the CLI's gate 4 surfaces the failure.
+if [ ! -x /usr/local/bin/hermes ] && [ ! -x "$HOME/.local/bin/hermes" ]; then
+  echo "ERROR: hermes binary not found after install. Tail of /var/log/agentos/hermes-install.log:" >&2
+  tail -50 /var/log/agentos/hermes-install.log >&2 || true
+  exit 1
+fi
+hermes --version > /var/log/agentos/hermes-version.log 2>&1 || true
+`,
+  },
+};
+
+export function listInstallRecipes(): Array<{ name: string; description: string }> {
+  return Object.entries(INSTALL_RECIPES).map(([name, r]) => ({ name, description: r.description }));
+}
+
+export function isKnownRecipe(name: string): boolean {
+  return Object.prototype.hasOwnProperty.call(INSTALL_RECIPES, name);
+}
+
+/**
+ * Build a cloud-init `user_data` script.
+ *
+ * Always emits the security-hardening preamble (sshd config, UFW, unattended
+ * upgrades). Then runs each install recipe in `installs` in the order given.
+ * Finally writes `/etc/agentos/install-status.json` so the CLI's gate-4
+ * readiness check has a single file to poll.
+ *
+ * Caller is responsible for validating that every entry in `installs` is in
+ * `INSTALL_RECIPES` (the route layer does this so the 400 surfaces cleanly).
+ */
+function generateCloudInit(opts: { userPubkey?: string; installs: string[] }): string {
   const platformPubKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAeOkVwRfQpLUemQ6HwbglAPjv1WioahHED/SXSaK7r+ agentos-platform-temp';
   // userPubkey was already validated by the route layer via assertSshPublicKey;
   // it cannot contain shell metacharacters by construction. We still wrap it in
@@ -34,8 +122,20 @@ function generateCloudInit(opts: { userPubkey?: string } = {}): string {
   const userKeyLine = opts.userPubkey
     ? `echo '${opts.userPubkey}' >> /root/.ssh/authorized_keys`
     : '# (no user public key provided at deploy time — call POST /compute/servers/:id/setup-ssh to inject one)';
+
+  const recipeBlocks = opts.installs
+    .map(name => INSTALL_RECIPES[name]?.bash ?? `# (unknown recipe '${name}' — skipping; route layer should have rejected this before generateCloudInit)`)
+    .join('\n');
+
+  const installsJsonArray = JSON.stringify(opts.installs);
+
   return `#!/bin/bash
 set -euo pipefail
+
+# Suppress apt's interactive prompts and the needrestart noise that would
+# otherwise pause cloud-init for "which services should I restart?" dialogs.
+export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
 
 # ─── Security Hardening ───
 # Inject platform temp key for provisioning (removed during SSH handoff)
@@ -55,7 +155,6 @@ sed -i 's/#\\?ChallengeResponseAuthentication.*/ChallengeResponseAuthentication 
 systemctl restart ssh || systemctl restart sshd
 
 # Firewall
-export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y -qq ufw
 ufw default deny incoming
@@ -66,32 +165,23 @@ ufw allow 443/tcp
 ufw --force enable
 
 # Auto security updates
-DEBIAN_FRONTEND=noninteractive apt-get install -y -qq unattended-upgrades
+apt-get install -y -qq unattended-upgrades
 echo 'Unattended-Upgrade::Allowed-Origins { "\${distro_id}:\${distro_codename}-security"; };' > /etc/apt/apt.conf.d/50unattended-upgrades-local
 
-# ─── Install OpenClaw ───
-# Install Node.js 22
-curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
-apt-get install -y -qq nodejs
+${recipeBlocks}
 
-# Install OpenClaw
-npm install -g openclaw clawhub
-
-# Mark setup complete
-mkdir -p /etc/openclaw
-cat > /etc/openclaw/provision.json << 'PROVISION_EOF'
+# ─── AgentOS install marker ───
+# The CLI's deploy --wait readiness chain polls this file as gate 4 when the
+# user requested any install. Single sentinel; absent → CLI surfaces a
+# "install did not complete" timeout; present → CLI returns ready: true.
+mkdir -p /etc/agentos
+cat > /etc/agentos/install-status.json << 'AGENTOS_INSTALL_EOF'
 {
-  "provisioned_by": "agentos",
-  "provisioned_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "openclaw_installed": true,
-  "hardened": true,
-  "firewall": "ufw",
-  "ssh": "key-only"
+  "installs": ${installsJsonArray},
+  "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "status": "ok"
 }
-PROVISION_EOF
-
-echo "OpenClaw provisioning complete" > /var/log/openclaw-provision.log
-openclaw --version >> /var/log/openclaw-provision.log 2>&1 || true
+AGENTOS_INSTALL_EOF
 `;
 }
 
@@ -126,11 +216,12 @@ async function hcloud(method: string, path: string, body?: any): Promise<any> {
  *     it lands in `authorized_keys` while we're already touching the file there.
  *     Validated by `assertSshPublicKey` at the route boundary; do not pass
  *     untrusted input straight to this argument.
- *   - `installOpenClaw=true`: cloud-init runs and **disables password auth**.
- *     Password Hetzner returns is therefore useless after first boot. Caller
- *     must hand in a key (`sshKeyIds` or `sshPublicKey`), or use the
- *     `setup-ssh` route after the fact, or accept that they'll only access
- *     the box through the OpenClaw API/gateway.
+ *   - `installs`: list of named install recipes from `INSTALL_RECIPES`. When
+ *     non-empty, cloud-init runs and disables password auth — the password
+ *     Hetzner returns is then useless after first boot. Caller must hand in
+ *     a key (`sshKeyIds` or `sshPublicKey`), or use `setup-ssh` after the
+ *     fact, or accept that they'll only access the box through the
+ *     AgentOS-managed APIs.
  *
  * `passwordUsable` in the return payload is the source of truth for the route
  * layer: false → strip `rootPassword` from the API response, surface handoff
@@ -142,15 +233,26 @@ export async function createServer(
   image: string,
   owner: string,
   sshKeyIds?: number[],
-  installOpenClaw?: boolean,
+  installs?: string[],
   location?: string,
   sshPublicKey?: string
-): Promise<Server & { passwordUsable: boolean }> {
+): Promise<Server & { passwordUsable: boolean; installs: string[] }> {
   if (!isValidServerType(serverType)) {
     const valid = getServerPlans().map(p => p.type).join(", ");
     throw new Error(`Unknown or deprecated server type '${serverType}'. Valid types right now: ${valid}`);
   }
   const pricing = getServerPricing()[serverType] ?? "0.00";
+
+  // Sanitize and validate the install list. Dedup, drop empty strings, then
+  // bail on anything outside the allowlist — we don't want shell snippets
+  // we didn't author landing in cloud-init.
+  const resolvedInstalls = Array.from(new Set((installs ?? []).filter(s => typeof s === 'string' && s.length > 0)));
+  for (const r of resolvedInstalls) {
+    if (!isKnownRecipe(r)) {
+      const known = Object.keys(INSTALL_RECIPES).join(', ');
+      throw new Error(`Unknown install recipe '${r}'. Known recipes: ${known}`);
+    }
+  }
 
   const payload: any = {
     name,
@@ -168,8 +270,8 @@ export async function createServer(
   // shell-metachar input — caller must turn that into a 400.
   const safeUserKey = sshPublicKey ? assertSshPublicKey(sshPublicKey) : undefined;
 
-  if (installOpenClaw) {
-    payload.user_data = generateCloudInit({ userPubkey: safeUserKey });
+  if (resolvedInstalls.length > 0) {
+    payload.user_data = generateCloudInit({ userPubkey: safeUserKey, installs: resolvedInstalls });
   }
 
   const data = await hcloud("POST", "/servers", payload);
@@ -177,7 +279,7 @@ export async function createServer(
 
   // Cloud-init disables password auth — once it runs, the password Hetzner
   // returned is no good. Tell the caller so they don't ship it to the user.
-  const passwordUsable = !installOpenClaw;
+  const passwordUsable = resolvedInstalls.length === 0;
 
   const server: Server = {
     id: String(s.id),
@@ -197,7 +299,7 @@ export async function createServer(
   };
 
   storage.setServer(server.id, server);
-  return { ...server, passwordUsable };
+  return { ...server, passwordUsable, installs: resolvedInstalls };
 }
 
 /**
