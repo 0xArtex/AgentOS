@@ -342,19 +342,52 @@ The full method list is exported from `@agntos/agentos` with `.d.ts` typings.
 
 ## Output Modes
 
-The CLI has **one** output format. There is no `--json` flag.
+The CLI auto-switches between a human TUI and an agent-friendly JSON contract.
 
-- **Stdout is a TTY** → renders an interactive UI for `setup`, `status`, `wallet create`, etc., and pretty-printed JSON for data commands.
-- **Stdout is piped** (e.g. `| jq`, `> file`, inside a script, in a CI job) → emits raw JSON on stdout. No colour, no progress spinners, no Ink screens.
+- **TTY (default)** → interactive Ink screens for menus, status, wallet create, etc., plus key-coloured JSON for data commands.
+- **Agent mode** → raw JSON on stdout, NDJSON for streaming commands, structured `{error, exitCode, hint}` on stderr for failures, no spinners, no ANSI escape codes, no Ink screens.
 
-Because output mode is auto-detected, the same command works identically for a developer at a terminal and an agent in a pipeline.
+Agent mode is **on** when any of these are true:
+
+- stdout is not a TTY (you piped, redirected, or you're running inside a non-interactive runner like `cron`, `docker run`, CI),
+- you pass `--json`,
+- `AGENTOS_JSON=1` is set in the environment.
 
 ```bash
-# Interactive
+# Interactive — nice menus, spinners, the whole TUI
 agentos wallet list
 
-# Agent-shaped, raw JSON
+# Agent mode (auto, because of the pipe)
 agentos wallet list | jq '.wallets[].id'
+
+# Agent mode (explicit, even on a TTY)
+agentos compute deploy --name my-vps --type cx23 --json
+
+# Agent mode via env var (good for shell scripts that need predictable output)
+AGENTOS_JSON=1 agentos status
+```
+
+### Streaming commands (`agentos chat run`)
+
+In agent mode, `chat run` emits **NDJSON** — one JSON object per line — so you can `for await` over stdout in a pipeline:
+
+```bash
+agentos chat run "deploy a wordpress vps and an inbox" --budget 50 --execute --json \
+  | jq -c 'select(.event == "step_result" or .event == "summary")'
+```
+
+Event shapes match the SDK's `chatExecute` generator: `plan`, `step_start`, `step_result`, `step_error`, `summary`, etc.
+
+### Errors in agent mode
+
+Errors go to **stderr** as a single-line JSON object so they don't pollute the stdout data stream:
+
+```bash
+$ agentos compute deploy --type cx23 --json 2>err.log
+$ echo $?
+2
+$ cat err.log
+{"error":"--name and --type required","exitCode":2}
 ```
 
 ---

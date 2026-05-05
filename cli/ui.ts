@@ -3,6 +3,21 @@
  * Inspired by Claude Code's aesthetic
  */
 
+// ─── Agent mode ───
+//
+// When the CLI is being driven by an agent (stdout isn't a TTY, or the user
+// passed --json), every decorative helper in this file becomes a no-op so the
+// caller gets clean machine-parseable output instead of garbled spinner frames
+// and ANSI escape sequences interleaved with JSON.
+//
+// `cli.ts:main()` calls `setAgentMode(true)` early when the conditions match;
+// helpers and the Spinner self-check via `isAgentMode()` so we never write to
+// stdout. Spinners can still be used freely in command code — they just become
+// invisible in agent mode.
+let agentMode = !process.stdout.isTTY
+export function setAgentMode(v: boolean): void { agentMode = v }
+export function isAgentMode(): boolean { return agentMode }
+
 // ─── Theme ───
 export const theme = {
   // Brand
@@ -120,6 +135,7 @@ export class Spinner {
   start(label: string) {
     // Reuse path: already-running spinner just gets a new label.
     if (this.active) { this.update(label); return }
+    if (agentMode) { this.label = label; this.stopped = false; this.active = true; return }
     installCursorRestoreOnce()
     this.label = label
     this.frame = 0
@@ -143,6 +159,7 @@ export class Spinner {
 
   update(label: string) {
     this.label = label
+    if (agentMode) return
     // Repaint immediately so label changes don't feel laggy waiting for the
     // next tick.
     this.render()
@@ -151,6 +168,7 @@ export class Spinner {
   stop(label: string, success = true) {
     if (this.stopped) return
     this.stopped = true
+    if (agentMode) { this.active = false; return }
     this.terminateRender()
     if (success) {
       console.log(`  ${icon.success} ${label}`)
@@ -166,13 +184,19 @@ export class Spinner {
   cancel() {
     if (this.stopped) return
     this.stopped = true
+    if (agentMode) { this.active = false; return }
     this.terminateRender()
     this.popAndResume()
   }
 }
 
 // ─── Layout ───
+//
+// Every helper below is decorative: ANSI-colored boxes, dividers, status icons.
+// In agent mode we no-op them so JSON output isn't poisoned with leading blank
+// lines, dim-grey separators, or check-mark prefixes.
 export function header(title: string) {
+  if (agentMode) return
   console.log()
   console.log(`  ${theme.accent}${theme.bold}${title}${theme.reset}`)
   console.log(`  ${theme.dim}${'─'.repeat(Math.min(title.length + 4, 50))}${theme.reset}`)
@@ -180,50 +204,59 @@ export function header(title: string) {
 }
 
 export function row(label: string, value: string, valueColor = theme.text) {
+  if (agentMode) return
   const padded = label.padEnd(16)
   console.log(`  ${theme.muted}${padded}${theme.reset} ${valueColor}${value}${theme.reset}`)
 }
 
 export function ok(msg: string) {
+  if (agentMode) return
   console.log(`  ${icon.success} ${msg}`)
 }
 
 export function fail(msg: string) {
+  if (agentMode) return
   console.log(`  ${icon.error} ${msg}`)
 }
 
 export function warn(msg: string) {
+  if (agentMode) return
   console.log(`  ${icon.warn} ${theme.warn}${msg}${theme.reset}`)
 }
 
 export function info(msg: string) {
+  if (agentMode) return
   console.log(`  ${icon.info} ${msg}`)
 }
 
 export function subtle(msg: string) {
+  if (agentMode) return
   console.log(`  ${theme.muted}${msg}${theme.reset}`)
 }
 
 export function divider() {
+  if (agentMode) return
   console.log(`  ${theme.dim}${'─'.repeat(50)}${theme.reset}`)
 }
 
 export function blank() {
+  if (agentMode) return
   console.log()
 }
 
 // ─── Table ───
 export function table(headers: string[], rows: string[][]) {
+  if (agentMode) return
   // Calculate column widths
-  const widths = headers.map((h, i) => 
+  const widths = headers.map((h, i) =>
     Math.max(h.length, ...rows.map(r => (r[i] || '').length))
   )
-  
+
   // Header
   const headerRow = headers.map((h, i) => h.padEnd(widths[i])).join('  ')
   console.log(`  ${theme.muted}${headerRow}${theme.reset}`)
   console.log(`  ${theme.dim}${widths.map(w => '─'.repeat(w)).join('──')}${theme.reset}`)
-  
+
   // Rows
   for (const r of rows) {
     const line = r.map((cell, i) => {
@@ -236,10 +269,11 @@ export function table(headers: string[], rows: string[][]) {
 
 // ─── Box ───
 export function box(title: string, content: string, color = theme.muted) {
+  if (agentMode) return
   const lines = content.split('\n')
   const maxLen = Math.max(title.length + 2, ...lines.map(l => l.length))
   const width = Math.min(maxLen + 4, 60)
-  
+
   console.log(`  ${color}╭${'─'.repeat(width)}╮${theme.reset}`)
   console.log(`  ${color}│${theme.reset} ${theme.bold}${title}${theme.reset}${' '.repeat(width - title.length - 1)}${color}│${theme.reset}`)
   console.log(`  ${color}├${'─'.repeat(width)}┤${theme.reset}`)
@@ -251,6 +285,7 @@ export function box(title: string, content: string, color = theme.muted) {
 
 // ─── Progress ───
 export function progress(current: number, total: number, label?: string) {
+  if (agentMode) return
   const width = 30
   const filled = Math.round((current / total) * width)
   const bar = '█'.repeat(filled) + '░'.repeat(width - filled)
@@ -263,12 +298,13 @@ export function progress(current: number, total: number, label?: string) {
 
 // ─── Init Report (Claude Code style) ───
 export function initReport(title: string, items: Array<{name: string, status: 'created' | 'updated' | 'skipped' | 'exists'}>) {
+  if (agentMode) return
   console.log()
   console.log(`  ${theme.accent}${theme.bold}${title}${theme.reset}`)
   console.log()
   for (const item of items) {
-    const statusColor = item.status === 'created' ? theme.success 
-      : item.status === 'updated' ? theme.warn 
+    const statusColor = item.status === 'created' ? theme.success
+      : item.status === 'updated' ? theme.warn
       : theme.muted
     const statusLabel = item.status === 'created' ? 'created'
       : item.status === 'updated' ? 'updated'
@@ -281,6 +317,7 @@ export function initReport(title: string, items: Array<{name: string, status: 'c
 
 // ─── Greeting / Banner ───
 export function banner() {
+  if (agentMode) return
   console.log()
   console.log(`  ${theme.accent}${theme.bold}▲ AgentOS${theme.reset} ${theme.muted}v${process.env.AGENTOS_VERSION || '0.5.0'}${theme.reset}`)
   console.log(`  ${theme.dim}Everything your AI agent needs${theme.reset}`)
@@ -289,23 +326,27 @@ export function banner() {
 
 // ─── Key-Value Pair (compact) ───
 export function kv(label: string, value: string) {
+  if (agentMode) return
   console.log(`  ${theme.muted}${label}${theme.reset} ${theme.text}${value}${theme.reset}`)
 }
 
 // ─── Section ───
 export function section(title: string) {
+  if (agentMode) return
   console.log()
   console.log(`  ${theme.bold}${title}${theme.reset}`)
 }
 
 // ─── List Item ───
 export function listItem(text: string, indent = 0) {
+  if (agentMode) return
   const pad = '  '.repeat(indent + 1)
   console.log(`${pad}${icon.bullet} ${theme.muted}${text}${theme.reset}`)
 }
 
 // ─── Compact Status Line ───
 export function statusLine(label: string, value: string, good: boolean) {
+  if (agentMode) return
   const dot = good ? `${theme.success}●${theme.reset}` : `${theme.error}●${theme.reset}`
   console.log(`  ${dot} ${theme.muted}${label.padEnd(16)}${theme.reset} ${theme.text}${value}${theme.reset}`)
 }
@@ -349,6 +390,7 @@ export function sideBySide(left: string[], right: string[], gap = 1): string[] {
 }
 
 export function welcomeScreen(config: { version: string, name?: string, model?: string, chain?: string, wallets?: any, apiOk?: boolean }) {
+  if (agentMode) return
   const termWidth = process.stdout.columns || 100
   const leftWidth = Math.min(Math.floor(termWidth * 0.45), 48)
   const rightWidth = Math.min(Math.floor(termWidth * 0.45), 48)
@@ -397,6 +439,7 @@ export function welcomeScreen(config: { version: string, name?: string, model?: 
 
 // ─── Status Bar ───
 export function statusBar(left: string, right: string) {
+  if (agentMode) return
   const termWidth = process.stdout.columns || 100
   const usable = termWidth - 4
   const leftLen = visibleLength(left)

@@ -19,7 +19,7 @@ import { render as inkRender } from 'ink'
 import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, ConfigScreen, Dashboard, DoctorScreen, DomainCheckScreen, DomainPricingScreen, ErrorScreen, HealthScreen, MenuScreen, PricingScreen, RecordsScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen, WalletListScreen } from './app.js'
 import { AgentOS } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addNote } from './config.js'
-import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel } from './ui.js'
+import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel, setAgentMode as setUiAgentMode } from './ui.js'
 import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
@@ -40,6 +40,11 @@ const VERSION = (() => {
 })()
 
 // ─── Exit codes ───
+//
+// These are part of the agent-facing CLI contract — agents branch on $? to
+// distinguish "wrong flag" from "no funds" from "API unreachable". Treat
+// them as semver-stable. New error categories get new codes; never repurpose
+// an existing one.
 const EXIT = {
   OK: 0,
   GENERAL: 1,
@@ -51,13 +56,27 @@ const EXIT = {
   SECURITY: 7,
 } as const
 
+const EXIT_CODE_DOCS = [
+  { code: 0, name: 'OK', description: 'Success' },
+  { code: 1, name: 'GENERAL', description: 'Unspecified failure' },
+  { code: 2, name: 'BAD_INPUT', description: 'Missing or invalid flag/argument' },
+  { code: 3, name: 'AUTH_FAIL', description: 'Authentication failed (bad token/session)' },
+  { code: 4, name: 'NOT_FOUND', description: 'Wallet/resource not found' },
+  { code: 5, name: 'NETWORK', description: 'API unreachable or transient network error' },
+  { code: 6, name: 'PAYMENT', description: 'x402 payment verification or settlement failed' },
+  { code: 7, name: 'SECURITY', description: 'Vault tamper / security check failed — do not retry' },
+]
+
 function render(node: React.ReactElement) {
   return inkRender(node)
 }
 
 // ─── Parse args ───
 // Boolean flags that never take a value (prevents flag <next> from eating the next positional)
-const BOOLEAN_FLAGS = new Set(['help', 'version', 'managed', 'quiet', 'confirm'])
+// `json` and `no-color` are agent-mode toggles; the rest are command-specific.
+// Boolean flags never consume the next argv token — important so `agentos
+// wallet list --json` doesn't try to swallow whatever comes after.
+const BOOLEAN_FLAGS = new Set(['help', 'version', 'managed', 'quiet', 'confirm', 'json', 'no-color'])
 
 function parse(argv: string[]) {
   const flags: Record<string, string | boolean> = {}
@@ -102,12 +121,15 @@ function parse(argv: string[]) {
   return { command, subcommand, positional, flags }
 }
 
-// Global JSON mode — set early in main() based on TTY + flags.
-// When true, errors emit as JSON to stderr instead of Ink render.
-let JSON_MODE = false
+// Global agent-mode flag — set early in main() based on TTY detection + the
+// --json flag. When true, every output path emits structured JSON (stdout for
+// data, stderr for errors) and skips Ink rendering and ANSI decoration. This
+// is the contract agents rely on: pipe stdout into jq, check $? against the
+// EXIT table, parse stderr for the {error, exitCode} object on failure.
+let AGENT_MODE = !process.stdout.isTTY
 
 function err(msg: string, code: number = EXIT.BAD_INPUT): never {
-  if (JSON_MODE) {
+  if (AGENT_MODE) {
     process.stderr.write(JSON.stringify({ error: msg, exitCode: code }) + '\n')
     process.exit(code)
   }
@@ -122,6 +144,10 @@ function err(msg: string, code: number = EXIT.BAD_INPUT): never {
 
 /** Show per-subcommand help with flag descriptions */
 function subcommandHelp(command: string, subcommand: string, options: Array<{ flag: string; desc: string; hint?: string }>) {
+  if (AGENT_MODE) {
+    print({ command, subcommand, options })
+    return
+  }
   console.log(`\n  ${t.accent}agentos ${command} ${subcommand}${t.reset}\n`)
   for (const opt of options) {
     const flagStr = `  ${t.info}${opt.flag.padEnd(24)}${t.reset}`
@@ -167,10 +193,47 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--chain <chain>', desc: 'Which chain to pay on', hint: 'solana (default) | base' },
   ],
 }
+/**
+ * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
+ * with the AgentOS aesthetic. In agent mode → flat JSON listing the available
+ * subcommands so an agent can drive discovery (e.g. `agentos phone --json`
+ * → `{"command":"phone","subcommands":[{"name":"search",...}, ...]}`).
+ */
+function showMenu(opts: {
+  command: string
+  title: string
+  subtitle: string
+  footerLeft: string
+  commands: Array<{ name: string; description: string; hint?: string }>
+  fromHome: boolean
+}) {
+  if (AGENT_MODE) {
+    print({ command: opts.command, subcommands: opts.commands })
+    return
+  }
+  render(React.createElement(MenuScreen, {
+    version: VERSION,
+    title: opts.title,
+    subtitle: opts.subtitle,
+    footerLeft: opts.footerLeft,
+    commands: opts.commands,
+    interactive: opts.fromHome,
+    onBack: opts.fromHome ? () => {
+      process.env.AGENTOS_FROM_HOME = '0'
+      process.argv = [process.argv[0], process.argv[1]]
+      void main()
+    } : undefined,
+  }))
+}
+
 function print(obj: any) {
   const json = JSON.stringify(obj, null, 2)
-  // Color only when output is a TTY. When piped/captured by an agent, emit parseable JSON.
-  if (process.stdout.isTTY) {
+  // Plain JSON in agent mode (stdout is piped, --json is set, or AGENTOS_JSON
+  // env is on). On a real TTY without --json, color the keys so humans get a
+  // little visual aid — but the structure is still valid JSON either way.
+  if (AGENT_MODE) {
+    console.log(json)
+  } else {
     const colored = json
       .replace(/"([^"]+)":/g, `${t.info}"$1"${t.reset}:`)
       .replace(/: "([^"]+)"/g, `: ${t.success}"$1"${t.reset}`)
@@ -178,8 +241,6 @@ function print(obj: any) {
       .replace(/: (true|false)/g, `: ${t.accent}$1${t.reset}`)
       .replace(/: (null)/g, `: ${t.muted}$1${t.reset}`)
     console.log(colored)
-  } else {
-    console.log(json)
   }
 }
 
@@ -229,26 +290,46 @@ function formatStepOutput(output: any): string {
   return parts.length ? parts.join('  ') : JSON.stringify(output).slice(0, 200)
 }
 
+// Single source of truth for the top-level command catalog. Used by both the
+// Ink help screen and the JSON path so agents and humans see the same surface.
+const TOP_LEVEL_COMMANDS: Array<{ name: string; description: string }> = [
+  { name: 'phone', description: 'search · buy · sms · call' },
+  { name: 'email', description: 'create · read · send · threads' },
+  { name: 'compute', description: 'plans · deploy · list · delete' },
+  { name: 'domain', description: 'check · pricing · buy · dns' },
+  { name: 'wallet', description: 'create · import · list · export · sign · api-key' },
+  { name: 'setup', description: 'Configure wallets + chain preference' },
+  { name: 'status', description: 'Show config, wallets, and API health' },
+  { name: 'config', description: 'Show current configuration' },
+  { name: 'doctor', description: 'Verify system health (cred store, vault, API)' },
+  { name: 'pricing', description: 'All service prices' },
+  { name: 'health', description: 'API status + version check' },
+]
+
 // ─── Help ───
 function help() {
+  if (AGENT_MODE) {
+    print({
+      version: VERSION,
+      commands: TOP_LEVEL_COMMANDS,
+      flags: {
+        global: [
+          { flag: '--json', desc: 'Force machine-parseable JSON output (auto-on when stdout isn\'t a TTY)' },
+          { flag: '--quiet', desc: 'Suppress decorative log lines' },
+          { flag: '--token <api-key>', desc: 'Bearer token for authenticated calls' },
+          { flag: '--passphrase <pass>', desc: 'Wallet passphrase (or AGENTOS_WALLET_PASSPHRASE env)' },
+        ],
+      },
+      exitCodes: EXIT_CODE_DOCS,
+    })
+    return
+  }
   render(React.createElement(MenuScreen, {
     version: VERSION,
     title: 'help',
     subtitle: 'Command surface',
     footerLeft: 'Structured JSON output for all commands',
-    commands: [
-      { name: 'phone', description: 'search · buy · sms · call' },
-      { name: 'email', description: 'create · read · send · threads' },
-      { name: 'compute', description: 'plans · deploy · list · delete' },
-      { name: 'domain', description: 'check · pricing · buy · dns' },
-      { name: 'wallet', description: 'create · import · list · export · sign · api-key' },
-      { name: 'setup', description: 'Configure wallets + chain preference' },
-      { name: 'status', description: 'Show config, wallets, and API health' },
-      { name: 'config', description: 'Show current configuration' },
-      { name: 'doctor', description: 'Verify system health (cred store, vault, API)' },
-      { name: 'pricing', description: 'All service prices' },
-      { name: 'health', description: 'API status + version check' },
-    ],
+    commands: TOP_LEVEL_COMMANDS,
   }))
 }
 
@@ -257,14 +338,37 @@ async function main() {
   const { command, subcommand, positional, flags } = parse(process.argv)
   const fromHome = process.env.AGENTOS_FROM_HOME === '1'
 
-  if (flags.version) { console.log(VERSION); return }
+  // Agent-mode detection: piped stdout (no TTY) or explicit --json. Once set,
+  // it drives everything — Ink screens flip to JSON output, Spinner/decorators
+  // self-suppress (see ui.ts:setAgentMode), and err() stringifies to stderr.
+  // Honor AGENTOS_JSON=1 too so agents can opt in via env var when their
+  // runtime allocates a TTY they can't easily suppress.
+  AGENT_MODE = !process.stdout.isTTY || !!flags.json || process.env.AGENTOS_JSON === '1'
+  setUiAgentMode(AGENT_MODE)
+
+  if (flags.version) {
+    if (AGENT_MODE) print({ version: VERSION })
+    else console.log(VERSION)
+    return
+  }
   if (flags.help && !command) { help(); return }
 
-  // No command — show welcome dashboard
+  // No command — show welcome dashboard (agents get a JSON listing of the
+  // top-level command surface so they can drive discovery programmatically).
   if (!command) {
     const cfg = loadConfig()
     let apiOk = false
     try { const h = await new AgentOS(cfg.api).health(); apiOk = h.status === 'healthy' } catch {}
+    if (AGENT_MODE) {
+      print({
+        version: VERSION,
+        chain: cfg.defaultChain,
+        wallets: cfg.wallets || {},
+        apiOk,
+        commands: TOP_LEVEL_COMMANDS,
+      })
+      return
+    }
     render(React.createElement(Dashboard, {
       version: VERSION,
       chain: cfg.defaultChain,
@@ -285,9 +389,6 @@ async function main() {
   const token = (flags.token as string) || config.apiKey || process.env.AGENTOS_TOKEN || process.env.AGENTOS_API_KEY
   const passphrase = (flags.passphrase as string) || process.env.AGENTOS_WALLET_PASSPHRASE
   const ao = new AgentOS(url, true, token, passphrase)
-  // All data commands emit JSON. One format, agent-first.
-  // Interactive screens (Dashboard, help menus, setup wizards) use Ink rendering.
-  JSON_MODE = true
 
   try {
     switch (command) {
@@ -305,31 +406,28 @@ async function main() {
         const chain = (flags.chain as string || 'solana') as 'solana' | 'base'
 
         if (!keyfile) {
-          render(React.createElement(ErrorScreen, {
-            version: VERSION,
-            title: 'No keyfile',
-            message: 'No keyfile found.',
-            hint: 'agentos setup --keyfile /path/to/keypair.json --chain solana',
-            footerLeft: 'Provide a keyfile to continue',
-          }))
-          process.exit(1)
+          err('No keyfile. Pass --keyfile /path/to/keypair.json --chain solana', EXIT.BAD_INPUT)
         }
 
         if (!existsSync(keyfile.replace('~', homedir()))) {
-          err(`Keyfile not found: ${keyfile}`)
+          err(`Keyfile not found: ${keyfile}`, EXIT.NOT_FOUND)
         }
 
         const { addWalletToConfig, getConfiguredChains } = await import('./config.js')
         addWalletToConfig(chain, keyfile)
         const chains = getConfiguredChains()
 
-        render(React.createElement(SetupScreen, {
-          version: VERSION,
-          api: url,
-          keyfile,
-          chains,
-          addedChain: chain,
-        }))
+        if (AGENT_MODE) {
+          print({ ok: true, api: url, keyfile, chains, addedChain: chain })
+        } else {
+          render(React.createElement(SetupScreen, {
+            version: VERSION,
+            api: url,
+            keyfile,
+            chains,
+            addedChain: chain,
+          }))
+        }
         log(`setup: keyfile=${keyfile} chain=${chain}`)
         break
       }
@@ -339,19 +437,28 @@ async function main() {
         let apiOk = false
         try { const h = await ao.health(); apiOk = h.status === 'healthy' } catch {}
 
-        render(React.createElement(StatusScreen, {
-          version: VERSION,
-          api: config.api,
-          apiOk,
-          wallets,
-          defaultChain: config.defaultChain || 'solana',
-          interactive: fromHome,
-          onBack: fromHome ? () => {
-            process.env.AGENTOS_FROM_HOME = '0'
-            process.argv = [process.argv[0], process.argv[1]]
-            void main()
-          } : undefined,
-        }))
+        if (AGENT_MODE) {
+          print({
+            api: config.api,
+            apiOk,
+            wallets,
+            defaultChain: config.defaultChain || 'solana',
+          })
+        } else {
+          render(React.createElement(StatusScreen, {
+            version: VERSION,
+            api: config.api,
+            apiOk,
+            wallets,
+            defaultChain: config.defaultChain || 'solana',
+            interactive: fromHome,
+            onBack: fromHome ? () => {
+              process.env.AGENTOS_FROM_HOME = '0'
+              process.argv = [process.argv[0], process.argv[1]]
+              void main()
+            } : undefined,
+          }))
+        }
         break
       }
 
@@ -359,14 +466,18 @@ async function main() {
         const text = positional.join(' ') || subcommand || ''
         if (!text) err('Usage: agentos note "your note here"')
         addNote(text)
-        render(React.createElement(SuccessScreen, { version: VERSION, title: 'note saved', subtitle: text, details: [{ label: 'Path', value: '~/.agentos/memory/notes.md' }], footerLeft: 'Note saved' }))
+        if (AGENT_MODE) {
+          print({ ok: true, note: text, path: '~/.agentos/memory/notes.md' })
+        } else {
+          render(React.createElement(SuccessScreen, { version: VERSION, title: 'note saved', subtitle: text, details: [{ label: 'Path', value: '~/.agentos/memory/notes.md' }], footerLeft: 'Note saved' }))
+        }
         break
       }
 
       case 'phone': {
         if (!subcommand || flags.help) {
-          render(React.createElement(MenuScreen, {
-            version: VERSION,
+          showMenu({
+            command: 'phone',
             title: 'phone',
             subtitle: 'Voice and messaging',
             footerLeft: 'Phone operations',
@@ -376,13 +487,8 @@ async function main() {
               { name: 'sms', description: 'Send an SMS', hint: '--id ID --to +1... --body "hi"' },
               { name: 'call', description: 'Place a voice call', hint: '--id ID --to +1... --tts "hello"' },
             ],
-            interactive: fromHome,
-            onBack: fromHome ? () => {
-              process.env.AGENTOS_FROM_HOME = '0'
-              process.argv = [process.argv[0], process.argv[1]]
-              void main()
-            } : undefined,
-          }))
+            fromHome,
+          })
           break
         }
         switch (subcommand) {
@@ -454,21 +560,22 @@ async function main() {
 
       case 'email': {
         if (!subcommand || flags.help) {
-          render(React.createElement(MenuScreen, {
-            version: VERSION,
+          showMenu({
+            command: 'email',
             title: 'email',
             subtitle: 'Inbox operations',
             footerLeft: 'Email operations',
             commands: [
               { name: 'create', description: 'Create an inbox', hint: '--name agent [--domain example.com]' },
               { name: 'list', description: 'List inboxes owned by your wallet' },
-              { name: 'status', description: 'Domain verification status (AWS SES)', hint: '<domain>' },
-              { name: 'register', description: 'Register / re-register a wallet-owned domain with AWS SES', hint: '<domain>' },
+              { name: 'status', description: 'Domain verification status (Mailgun)', hint: '<domain>' },
+              { name: 'register', description: 'Register / re-register a wallet-owned domain with Mailgun', hint: '<domain>' },
               { name: 'read', description: 'Read inbox messages', hint: '--id INBOX_ID' },
               { name: 'send', description: 'Send an email', hint: '--id ID --to x@y.com --subject ... --body ...' },
               { name: 'threads', description: 'List threads', hint: '--id INBOX_ID' },
             ],
-          }))
+            fromHome,
+          })
           break
         }
         switch (subcommand) {
@@ -556,8 +663,8 @@ async function main() {
 
       case 'compute': {
         if (!subcommand || flags.help) {
-          render(React.createElement(MenuScreen, {
-            version: VERSION,
+          showMenu({
+            command: 'compute',
             title: 'compute',
             subtitle: 'Server operations',
             footerLeft: 'Compute operations',
@@ -567,13 +674,8 @@ async function main() {
               { name: 'list', description: 'List servers' },
               { name: 'delete', description: 'Delete a server', hint: '--id SERVER_ID' },
             ],
-            interactive: fromHome,
-            onBack: fromHome ? () => {
-              process.env.AGENTOS_FROM_HOME = '0'
-              process.argv = [process.argv[0], process.argv[1]]
-              void main()
-            } : undefined,
-          }))
+            fromHome,
+          })
           break
         }
         switch (subcommand) {
@@ -644,8 +746,8 @@ async function main() {
 
       case 'domain': {
         if (!subcommand || flags.help) {
-          render(React.createElement(MenuScreen, {
-            version: VERSION,
+          showMenu({
+            command: 'domain',
             title: 'domain',
             subtitle: 'Naming and DNS',
             footerLeft: 'Domain operations',
@@ -657,13 +759,8 @@ async function main() {
               { name: 'dns', description: 'Get DNS records', hint: '--name example.dev' },
               { name: 'transfer-ownership', description: 'Transfer domain to another wallet', hint: '--name example.dev --to <wallet>' },
             ],
-            interactive: fromHome,
-            onBack: fromHome ? () => {
-              process.env.AGENTOS_FROM_HOME = '0'
-              process.argv = [process.argv[0], process.argv[1]]
-              void main()
-            } : undefined,
-          }))
+            fromHome,
+          })
           break
         }
         switch (subcommand) {
@@ -673,7 +770,7 @@ async function main() {
             const data = await ao.domainCheck(name)
             // Multi-TLD response: render a table when interactive, JSON otherwise.
             if (Array.isArray(data?.results)) {
-              if (!process.stdout.isTTY) return print(data)
+              if (AGENT_MODE) return print(data)
               console.log(`\n  ${t.accent}domain check${t.reset} — ${t.info}${data.query}${t.reset}\n`)
               const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length))
               const dLen = Math.max(...data.results.map((r: any) => r.domain.length), 6)
@@ -746,7 +843,7 @@ async function main() {
           }
           case 'list': {
             const data = await ao.domainList()
-            if (!process.stdout.isTTY) return print(data)
+            if (AGENT_MODE) return print(data)
             const domains = data?.domains || []
             console.log(`\n  ${t.accent}your domains${t.reset} — ${t.muted}${data.owner}${t.reset}\n`)
             if (domains.length === 0) {
@@ -795,8 +892,8 @@ async function main() {
 
       case 'wallet': {
         if (!subcommand || (flags.help && !WALLET_HELP[subcommand])) {
-          render(React.createElement(MenuScreen, {
-            version: VERSION,
+          showMenu({
+            command: 'wallet',
             title: 'wallet',
             subtitle: 'Non-custodial HD wallet',
             footerLeft: 'Solana + Base wallet operations',
@@ -813,7 +910,8 @@ async function main() {
               { name: 'use', description: 'Set default pay wallet', hint: 'WALLET_ID' },
               { name: 'request-approval', description: 'Request human approval (managed)', hint: 'WALLET_ID --action limits --daily 100' },
             ],
-          }))
+            fromHome,
+          })
           break
         }
 
@@ -866,7 +964,7 @@ async function main() {
             }
 
             // TTY → nice TUI. Piped → JSON with setupLink included.
-            if (process.stdout.isTTY) {
+            if (!AGENT_MODE) {
               render(React.createElement(WalletCreateScreen, {
                 version: VERSION,
                 id: w.id,
@@ -900,7 +998,7 @@ async function main() {
 
             log(`wallet import: ${w.id}`)
 
-            if (process.stdout.isTTY) {
+            if (!AGENT_MODE) {
               render(React.createElement(WalletCreateScreen, {
                 version: VERSION,
                 id: w.id,
@@ -918,7 +1016,7 @@ async function main() {
             // List from local vault — no server needed
             const { listVaultWallets } = await import('./vault.js')
             const wallets = listVaultWallets()
-            if (process.stdout.isTTY) {
+            if (!AGENT_MODE) {
               render(React.createElement(WalletListScreen, {
                 version: VERSION,
                 wallets: wallets.map((w: any) => ({
@@ -942,7 +1040,7 @@ async function main() {
             const wallets = listVaultWallets()
             const w = wallets.find(x => x.id === walletId || x.name === walletId)
             if (!w) err(`Wallet "${walletId}" not found`, EXIT.NOT_FOUND)
-            if (process.stdout.isTTY) {
+            if (!AGENT_MODE) {
               render(React.createElement(WalletStatusScreen, {
                 version: VERSION,
                 id: w!.id,
@@ -970,7 +1068,7 @@ async function main() {
               ...(w!.solanaAddress ? [{ chainId: 'solana', address: w!.solanaAddress }] : []),
               ...(w!.evmAddress ? [{ chainId: 'base', address: w!.evmAddress }] : []),
             ]
-            if (process.stdout.isTTY) {
+            if (!AGENT_MODE) {
               render(React.createElement(SuccessScreen, {
                 version: VERSION,
                 title: 'Wallet addresses',
@@ -1097,7 +1195,7 @@ async function main() {
             }
 
             const warning = 'Keep this phrase secret. Anyone with these 12 words can take your funds. Write it down offline; never share, screenshot, or paste it.'
-            if (process.stdout.isTTY) {
+            if (!AGENT_MODE) {
               console.log(`\n  ${t.warn}⚠  MNEMONIC — KEEP SECRET${t.reset}\n`)
               console.log(`  ${mnemonic!}\n`)
               console.log(`  ${t.muted}${warning}${t.reset}\n`)
@@ -1113,10 +1211,11 @@ async function main() {
 
       case 'chat': {
         if (!subcommand || flags.help) {
-          render(React.createElement(MenuScreen, {
-            version: VERSION,
+          showMenu({
+            command: 'chat',
             title: 'chat',
             subtitle: 'i402 (intent layer for x402): tell AgentOS what you want, pay USDC, get the outcome',
+            footerLeft: 'Powered by the i402 protocol — see spec/i402.md',
             commands: [
               { name: 'run',         description: 'Generate a plan (and optionally execute it)', hint: '"launch a sneaker brand" --budget 50' },
               { name: 'resume',      description: 'Continue an existing session with a follow-up intent', hint: '<session_id> "now post 3 videos"' },
@@ -1126,8 +1225,8 @@ async function main() {
               { name: 'capabilities', description: 'List the canonical capability classes' },
               { name: 'providers',   description: 'List registered providers, optionally filtered', hint: '[--capability web_search]' },
             ],
-            footerLeft: 'Powered by the i402 protocol — see spec/i402.md',
-          }))
+            fromHome,
+          })
           break
         }
 
@@ -1153,39 +1252,80 @@ async function main() {
             spin.stop('Plan generated', true)
 
             if (plan.status === 'clarification_needed') {
-              render(React.createElement(RecordsScreen, {
-                version: VERSION,
-                title: 'i402 — clarification needed',
-                subtitle: `session ${plan.session_id}`,
-                records: (plan.questions || []).map((q: any) => ({
-                  primary: q.text,
-                  secondary: `id: ${q.id}`,
-                })),
-                footerLeft: 'Re-run `agentos chat resume <session_id> "<your answer>"`',
-              }))
+              if (AGENT_MODE) {
+                print({
+                  status: 'clarification_needed',
+                  sessionId: plan.session_id,
+                  questions: plan.questions || [],
+                })
+              } else {
+                render(React.createElement(RecordsScreen, {
+                  version: VERSION,
+                  title: 'i402 — clarification needed',
+                  subtitle: `session ${plan.session_id}`,
+                  records: (plan.questions || []).map((q: any) => ({
+                    primary: q.text,
+                    secondary: `id: ${q.id}`,
+                  })),
+                  footerLeft: 'Re-run `agentos chat resume <session_id> "<your answer>"`',
+                }))
+              }
               break
             }
 
-            // Display the plan — colors only on the heading line, body stays
-            // monochrome so logs paste cleanly into chat/issues.
-            console.log(`\n${c.cyan}Plan${c.white}: ${plan.intent?.interpreted ?? plan.intent?.original}`)
-            console.log(`  ${plan.steps?.length ?? 0} steps · $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'} · ~${plan.totals?.eta_seconds ?? '?'}s · session ${plan.session_id}`)
-            for (const s of plan.steps || []) {
-              console.log(`  ${s.step_id}  ${s.capability} → ${s.provider}  $${s.cost_usdc?.toFixed(2)}  ${s.description ?? ''}`)
+            // Agent mode: emit the plan as a single JSON object, then NDJSON
+            // events during execution so an agent can `for await` over stdout.
+            // TTY mode: keep the colored progress output below.
+            if (AGENT_MODE) {
+              print({
+                event: 'plan',
+                planId: plan.plan_id,
+                sessionId: plan.session_id,
+                intent: plan.intent,
+                steps: plan.steps,
+                totals: plan.totals,
+                status: plan.status,
+              })
+            } else {
+              console.log(`\n${c.cyan}Plan${c.white}: ${plan.intent?.interpreted ?? plan.intent?.original}`)
+              console.log(`  ${plan.steps?.length ?? 0} steps · $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'} · ~${plan.totals?.eta_seconds ?? '?'}s · session ${plan.session_id}`)
+              for (const s of plan.steps || []) {
+                console.log(`  ${s.step_id}  ${s.capability} → ${s.provider}  $${s.cost_usdc?.toFixed(2)}  ${s.description ?? ''}`)
+              }
+              console.log('')
             }
-            console.log('')
 
             if (!autoExecute && plan.status !== 'approved') {
-              console.log(`${c.yellow}Plan not auto-approved.${c.white} To execute:`)
-              console.log(`  ${c.cyan}agentos chat resume ${plan.session_id} --approve --plan-id ${plan.plan_id}${c.white}`)
+              if (AGENT_MODE) {
+                print({
+                  event: 'awaiting_approval',
+                  sessionId: plan.session_id,
+                  planId: plan.plan_id,
+                  resumeCommand: `agentos chat resume ${plan.session_id} --approve --plan-id ${plan.plan_id}`,
+                })
+              } else {
+                console.log(`${c.yellow}Plan not auto-approved.${c.white} To execute:`)
+                console.log(`  ${c.cyan}agentos chat resume ${plan.session_id} --approve --plan-id ${plan.plan_id}${c.white}`)
+              }
               break
             }
 
             if (autoExecute || plan.status === 'approved') {
-              console.log(`${c.cyan}Executing plan${c.white} (streaming)...\n`)
+              if (!AGENT_MODE) console.log(`${c.cyan}Executing plan${c.white} (streaming)...\n`)
               let spent = 0
               const stepOutputs: Record<string, any> = {}
               for await (const event of ao.chatExecute(plan)) {
+                if (AGENT_MODE) {
+                  // NDJSON: one event per line. Agents can stream-parse.
+                  process.stdout.write(JSON.stringify(event) + '\n')
+                  if (event.type === 'step_result' || event.type === 'session_refresh_done') {
+                    spent += Number((event as any).costChargedUsdc ?? 0)
+                  }
+                  if (event.type === 'step_result' && event.output && typeof event.output === 'object') {
+                    stepOutputs[event.stepId] = event.output
+                  }
+                  continue
+                }
                 switch (event.type) {
                   case 'session':
                   case 'plan':
@@ -1254,10 +1394,24 @@ async function main() {
                 quality: (flags.quality as any) || 'best',
                 approve: autoExecute,
               })
-              console.log(`${c.cyan}New plan in session${c.white} ${sessionId}`)
-              console.log(`  plan_id: ${plan.plan_id}  cost: $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'}`)
+              if (AGENT_MODE) {
+                print({
+                  event: 'plan',
+                  sessionId,
+                  planId: plan.plan_id,
+                  totalCostUsdc: plan.totals?.total_cost_usdc,
+                  steps: plan.steps,
+                })
+              } else {
+                console.log(`${c.cyan}New plan in session${c.white} ${sessionId}`)
+                console.log(`  plan_id: ${plan.plan_id}  cost: $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'}`)
+              }
               if (!autoExecute) break
               for await (const event of ao.chatExecute(plan)) {
+                if (AGENT_MODE) {
+                  process.stdout.write(JSON.stringify(event) + '\n')
+                  continue
+                }
                 if (event.type === 'step_result') console.log(`  ${c.green}✓${c.white} ${event.stepId} $${event.costChargedUsdc?.toFixed(2)}`)
                 if (event.type === 'step_error') console.log(`  ${c.red}✗${c.white} ${event.stepId} ${event.error}`)
                 if (event.type === 'summary') console.log(`${c.cyan}done${c.white}: ${event.status}  spent=$${event.spentUsdc?.toFixed(2)}`)
@@ -1312,10 +1466,11 @@ async function main() {
         const platform = 'twitter' as const
 
         if (!subcommand) {
-          render(React.createElement(MenuScreen, {
-            version: VERSION,
+          showMenu({
+            command: 'twitter',
             title: 'twitter',
             subtitle: 'Automated X account management',
+            footerLeft: 'Phase 1: local vault + BYO import works today. Server-dependent commands stub out.',
             commands: [
               { name: 'import',  description: 'Save a BYO account to the local vault', hint: '--username --password --totp-seed' },
               { name: 'list',    description: 'List all local X accounts' },
@@ -1328,8 +1483,8 @@ async function main() {
               { name: 'post',    description: 'Post a tweet (requires server browser runtime)', hint: '<username> --body "..."' },
               { name: 'status',  description: 'Check if the account is alive / shadow-banned', hint: '<username>' },
             ],
-            footerLeft: 'Phase 1: local vault + BYO import works today. Server-dependent commands stub out.',
-          }))
+            fromHome,
+          })
           return
         }
 
@@ -1771,7 +1926,7 @@ async function main() {
             }
 
             const results: any[] = []
-            const isInteractive = process.stdout.isTTY
+            const isInteractive = !AGENT_MODE
             let spin: any = null
             if (isInteractive && lines.length > 1) {
               spin = new Spinner()
@@ -1842,10 +1997,11 @@ async function main() {
         const platform = 'tiktok' as const
 
         if (!subcommand) {
-          render(React.createElement(MenuScreen, {
-            version: VERSION,
+          showMenu({
+            command: 'tiktok',
             title: 'tiktok',
             subtitle: 'Automated TikTok account management',
+            footerLeft: 'BYO: export sessionid from a logged-in TikTok browser, import, then post / follow / like.',
             commands: [
               { name: 'import',  description: 'Save a BYO TikTok account. Pass --credentials-line "login:pw:email:email_pw" from a marketplace, or extract cookies from DevTools → Application → Cookies → .tiktok.com and pass --sessionid.', hint: '--credentials-line "..." OR <username> --sessionid ... --csrf ... --webid ...' },
               { name: 'list',    description: 'List all local TikTok accounts' },
@@ -1863,8 +2019,8 @@ async function main() {
               { name: 'name',    description: 'Update display name (<=30 chars)', hint: '<username> --display "..."' },
               { name: 'pfp',     description: 'Update avatar', hint: '<username> --file pic.png' },
             ],
-            footerLeft: 'BYO: export sessionid from a logged-in TikTok browser, import, then post / follow / like.',
-          }))
+            fromHome,
+          })
           return
         }
 
@@ -2228,7 +2384,7 @@ async function main() {
           cliVersion: VERSION,
         }
 
-        if (process.stdout.isTTY) {
+        if (!AGENT_MODE) {
           render(React.createElement(ConfigScreen, { version: VERSION, config: configData }))
         } else {
           print(configData)
@@ -2286,7 +2442,7 @@ async function main() {
         }
 
         const failCount = checks.filter(c => c.status === 'fail').length
-        if (process.stdout.isTTY) {
+        if (!AGENT_MODE) {
           render(React.createElement(DoctorScreen, { version: VERSION, checks }))
         } else {
           print({ checks })
@@ -2344,80 +2500,88 @@ async function main() {
       }
 
       default:
-        render(React.createElement(ErrorScreen, {
-          version: VERSION,
-          title: 'Unknown command',
-          message: `Unknown command: ${command}`,
-          hint: 'Run agentos --help for usage',
-          footerLeft: 'Command not found',
-        }))
-        process.exit(1)
+        if (AGENT_MODE) {
+          process.stderr.write(JSON.stringify({
+            error: `Unknown command: ${command}`,
+            hint: 'Run agentos --help for usage',
+            exitCode: EXIT.BAD_INPUT,
+          }) + '\n')
+        } else {
+          render(React.createElement(ErrorScreen, {
+            version: VERSION,
+            title: 'Unknown command',
+            message: `Unknown command: ${command}`,
+            hint: 'Run agentos --help for usage',
+            footerLeft: 'Command not found',
+          }))
+        }
+        process.exit(EXIT.BAD_INPUT)
     }
   } catch (e: any) {
-    // Sanitize error output — never expose stack traces or internal paths
+    // Sanitize error output — never expose stack traces or internal paths.
+    // The same sanitized message goes to both the Ink ErrorScreen and the
+    // JSON-mode stderr line, so behaviour matches across modes.
     const rawMsg: string = e.message || String(e)
-    // Strip file paths, stack frames, and Node internals
     const safeMsg = rawMsg
       .replace(/\s*at\s+.+/g, '')              // strip stack frames
       .replace(/[A-Z]:\\[^\s:]+/gi, '[path]')  // strip Windows paths
       .replace(/\/[^\s:]+\.(ts|js)/g, '[path]') // strip Unix paths
       .trim()
 
+    // Map the raw error to a stable exit code + a one-line agent-friendly hint.
     let exitCode: number = EXIT.GENERAL
-    // Show real server error on 402, not generic "Payment required" boilerplate
+    let title = 'Command failed'
+    let hint: string | undefined
+    let footerLeft = 'See agentos --help'
+
     if (rawMsg.startsWith('Payment Required:') || rawMsg.includes('settlement failed') || rawMsg.includes('verification failed')) {
-      render(React.createElement(ErrorScreen, {
-        version: VERSION,
-        title: 'Payment rejected',
-        message: safeMsg,
-        hint: rawMsg.includes('settlement failed')
-          ? 'On-chain tx reverted. Check wallet balance (USDC only — chain fees are paid by the server). View tx on explorer if settled partially.'
-          : 'The server rejected the payment signature. Check your default pay wallet: agentos config',
-        footerLeft: 'x402 payment failed',
-      }))
       exitCode = EXIT.PAYMENT
+      title = 'Payment rejected'
+      hint = rawMsg.includes('settlement failed')
+        ? 'On-chain tx reverted. Check wallet balance (USDC only — chain fees are paid by the server). View tx on explorer if settled partially.'
+        : 'The server rejected the payment signature. Check your default pay wallet: agentos config'
+      footerLeft = 'x402 payment failed'
     } else if (rawMsg === 'Payment Required' || rawMsg.includes('402')) {
-      render(React.createElement(ErrorScreen, {
-        version: VERSION,
-        title: 'Payment required',
-        message: 'This endpoint costs USDC via x402.',
-        hint: 'Set a default pay wallet: agentos wallet use <ID>',
-        footerLeft: 'Provisioning blocked until payment',
-      }))
       exitCode = EXIT.PAYMENT
+      title = 'Payment required'
+      hint = 'Set a default pay wallet: agentos wallet use <ID>'
+      footerLeft = 'Provisioning blocked until payment'
     } else if (rawMsg.includes('SECURITY')) {
-      render(React.createElement(ErrorScreen, {
-        version: VERSION,
-        title: 'Security violation',
-        message: safeMsg,
-        hint: 'A wallet file may have been tampered with. Do not use it.',
-        footerLeft: 'Operation blocked',
-      }))
       exitCode = EXIT.SECURITY
-    } else {
-      let hint: string | undefined
-      if (rawMsg.includes('ECONNREFUSED') || rawMsg.includes('fetch failed')) {
-        hint = 'Is the API running? Check: agentos health'
-        exitCode = EXIT.NETWORK
-      } else if (rawMsg.includes('Authentication') || rawMsg.includes('401') || rawMsg.includes('Unauthorized')) {
-        hint = 'Check your API token or session'
-        exitCode = EXIT.AUTH_FAIL
-      } else if (rawMsg.includes('session secret') || rawMsg.includes('credential store')) {
-        hint = 'Create a wallet first: agentos wallet create'
-        exitCode = EXIT.NOT_FOUND
-      } else if (rawMsg.includes('not found')) {
-        const scope = rawMsg.includes('twitter account') ? 'twitter'
-                    : rawMsg.includes('tiktok account') ? 'tiktok'
-                    : 'wallet'
-        hint = `Check the name with: agentos ${scope} list`
-        exitCode = EXIT.NOT_FOUND
+      title = 'Security violation'
+      hint = 'A wallet file may have been tampered with. Do not use it.'
+      footerLeft = 'Operation blocked'
+    } else if (rawMsg.includes('ECONNREFUSED') || rawMsg.includes('fetch failed')) {
+      exitCode = EXIT.NETWORK
+      hint = 'Is the API running? Check: agentos health'
+    } else if (rawMsg.includes('Authentication') || rawMsg.includes('401') || rawMsg.includes('Unauthorized')) {
+      exitCode = EXIT.AUTH_FAIL
+      hint = 'Check your API token or session'
+    } else if (rawMsg.includes('session secret') || rawMsg.includes('credential store')) {
+      exitCode = EXIT.NOT_FOUND
+      hint = 'Create a wallet first: agentos wallet create'
+    } else if (rawMsg.includes('not found')) {
+      exitCode = EXIT.NOT_FOUND
+      const scope = rawMsg.includes('twitter account') ? 'twitter'
+                  : rawMsg.includes('tiktok account') ? 'tiktok'
+                  : 'wallet'
+      hint = `Check the name with: agentos ${scope} list`
+    }
+
+    if (AGENT_MODE) {
+      const payload: Record<string, any> = {
+        error: safeMsg || 'An unexpected error occurred',
+        exitCode,
       }
+      if (hint) payload.hint = hint
+      process.stderr.write(JSON.stringify(payload) + '\n')
+    } else {
       render(React.createElement(ErrorScreen, {
         version: VERSION,
-        title: 'Command failed',
+        title,
         message: safeMsg || 'An unexpected error occurred',
         hint,
-        footerLeft: 'See agentos --help',
+        footerLeft,
       }))
     }
     process.exit(exitCode)
