@@ -83,15 +83,45 @@ function walk(stack: any[], prefix: string, out: PaidRoute[]): void {
 }
 
 /**
- * Enumerate every paid route registered on `app` at the moment of the call.
- * Cheap (<1 ms for AgentOS-sized apps); fine to call on every request.
+ * Enumerate every paid route registered on `app`. Cheap (<1 ms for AgentOS-
+ * sized apps); fine to call on every request.
+ *
+ * @param opts.includeNonDiscoverable when true, returns *all* paid routes
+ *   including ones whose metadata sets `discoverable: false`. Default false:
+ *   the discovery surfaces (well-known, openapi) hide internal/admin routes
+ *   so the listed surface stays inside agent-token-budget thresholds.
  */
-export function enumeratePaidRoutes(app: Express): PaidRoute[] {
+export function enumeratePaidRoutes(
+  app: Express,
+  opts: { includeNonDiscoverable?: boolean } = {},
+): PaidRoute[] {
   const stack = (app as any)?._router?.stack;
   if (!Array.isArray(stack)) return [];
   const out: PaidRoute[] = [];
   walk(stack, "", out);
+
+  // Normalize trailing-slash duplicates: Express's stack walker can produce
+  // both "/apikeys" and "/apikeys/" depending on how a router was mounted.
+  // x402scan probes the canonical form, so anything ending in "/" (other
+  // than the root) is the duplicate — drop the trailing slash.
+  for (const r of out) {
+    if (r.path.length > 1 && r.path.endsWith("/")) r.path = r.path.replace(/\/+$/, "");
+  }
+
+  // Dedupe (method, path).
+  const seen = new Set<string>();
+  const deduped = out.filter(r => {
+    const key = r.method + " " + r.path;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  const filtered = opts.includeNonDiscoverable
+    ? deduped
+    : deduped.filter(r => r.metadata?.discoverable !== false);
+
   // Stable order so the well-known doc and OpenAPI don't shuffle on each call.
-  out.sort((a, b) => (a.path + a.method).localeCompare(b.path + b.method));
-  return out;
+  filtered.sort((a, b) => (a.path + a.method).localeCompare(b.path + b.method));
+  return filtered;
 }

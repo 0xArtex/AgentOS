@@ -252,7 +252,7 @@ router.post("/servers/:id/actions", requireAuth(0.10, 'general'), async (req: Au
  * POST /compute/servers/:id/setup-ssh — Inject user's public key, disable password auth, delete root password from DB
  * This is the "zero access" handoff: after this, only the user can SSH in.
  */
-router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { publicKey } = req.body as { publicKey: string };
@@ -300,7 +300,7 @@ router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general'), async (req: 
 /**
  * GET /compute/servers/:id/verify — Verify OpenClaw installation on server
  */
-router.get("/servers/:id/verify", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/servers/:id/verify", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const row = db.prepare("SELECT ipv4, root_password FROM servers WHERE id = ?").get(serverId) as any;
@@ -355,7 +355,7 @@ router.get("/servers/:id/verify", requireAuth(0.01, 'general'), async (req: Auth
  * POST /compute/servers/:id/configure-openclaw — Configure OpenClaw on the VPS
  * Writes openclaw.json config and sets up the Anthropic API key
  */
-router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const {
@@ -532,7 +532,7 @@ WantedBy=multi-user.target`;
 /**
  * POST /compute/servers/:id/remove-openclaw-config — Remove channel or model config
  */
-router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { remove } = req.body; // 'channel' or 'model'
@@ -589,7 +589,7 @@ router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general'),
 /**
  * POST /compute/servers/:id/install-skill — Install a skill on the VPS
  */
-router.post("/servers/:id/install-skill", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/install-skill", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { skillName, skillUrl } = req.body; // skillUrl = clawhub URL or git repo
@@ -655,7 +655,7 @@ router.post("/servers/:id/install-skill", requireAuth(0.01, 'general'), async (r
 /**
  * POST /compute/servers/:id/install-skills-bulk — Install multiple skills at once
  */
-router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { skills } = req.body as { skills: string[] };
@@ -739,7 +739,7 @@ router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general'), as
 /**
  * POST /compute/servers/:id/remove-skill — Remove a skill from the VPS
  */
-router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { skillName } = req.body;
@@ -863,7 +863,7 @@ router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) 
 /**
  * POST /compute/servers/:id/configure-wallet — Push wallet addresses to VPS
  */
-router.post("/servers/:id/configure-wallet", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/configure-wallet", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { baseWallet, solanaWallet, baseAgent, solanaAgent, basePrivateKey, solanaPrivateKey } = req.body;
@@ -958,7 +958,7 @@ agentwallet send --wallet $AGENT_BASE_WALLET --to <recipient> --amount <amount> 
 /**
  * POST /compute/servers/:id/pairing-approve — Approve a pairing code on the VPS
  */
-router.post("/servers/:id/pairing-approve", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/pairing-approve", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { code, channel: chan } = req.body;
@@ -1069,7 +1069,7 @@ router.get("/skills/:slug/security", async (req: AuthenticatedRequest, res: Resp
 /**
  * POST /compute/servers/:id/install-clawhub-skills — Install skills from ClawHub via clawhub CLI
  */
-router.post("/servers/:id/install-clawhub-skills", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/install-clawhub-skills", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { slugs } = req.body as { slugs: string[] };
@@ -1113,7 +1113,7 @@ router.post("/servers/:id/install-clawhub-skills", requireAuth(0.01, 'general'),
 /**
  * POST /compute/servers/:id/remove-all-skills — Remove all skills from the VPS
  */
-router.post("/servers/:id/remove-all-skills", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/remove-all-skills", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
@@ -1135,7 +1135,7 @@ router.post("/servers/:id/remove-all-skills", requireAuth(0.01, 'general'), asyn
  * POST /compute/servers/:id/resize — Resize server (change plan)
  * Cost: 0.10 USDC (+ price difference on next billing)
  */
-router.post("/servers/:id/resize", requireAuth(0.10, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/resize", requireAuth(0.10, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { serverType, upgradeDisk } = req.body as { serverType: string; upgradeDisk?: boolean };
 

@@ -164,7 +164,7 @@ router.post(
 router.post(
   "/twitter/list-my-tweets",
   requireXEnabled,
-  requireAuth(0.005, "general"),
+  requireAuth(0.005, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -286,7 +286,7 @@ router.post(
 router.post(
   "/twitter/delete",
   requireXEnabled,
-  requireAuth(0.001, "general"),
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -307,7 +307,7 @@ router.post(
 router.post(
   "/twitter/profile",
   requireXEnabled,
-  requireAuth(0.001, "general"),
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -331,7 +331,7 @@ router.post(
 router.post(
   "/twitter/avatar",
   requireXEnabled,
-  requireAuth(0.005, "general"),
+  requireAuth(0.005, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -352,7 +352,7 @@ router.post(
 router.post(
   "/twitter/banner",
   requireXEnabled,
-  requireAuth(0.005, "general"),
+  requireAuth(0.005, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -516,7 +516,7 @@ router.post(
 router.post(
   "/twitter/buy",
   requireXEnabled,
-  requireAuth(5.0, "general"),
+  requireAuth(5.0, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const { country, age_category } = (req.body || {}) as {
       country?: string;
@@ -544,7 +544,7 @@ router.post(
 router.post(
   "/twitter/username",
   requireXEnabled,
-  requireAuth(0.005, "general"),
+  requireAuth(0.005, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -719,7 +719,7 @@ router.post(
 router.post(
   "/tiktok/delete",
   requireTikTokEnabled,
-  requireAuth(0.001, "general"),
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -737,7 +737,7 @@ router.post(
 router.post(
   "/tiktok/profile",
   requireTikTokEnabled,
-  requireAuth(0.001, "general"),
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -754,7 +754,7 @@ router.post(
 router.post(
   "/tiktok/avatar",
   requireTikTokEnabled,
-  requireAuth(0.005, "general"),
+  requireAuth(0.005, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
