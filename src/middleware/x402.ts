@@ -114,6 +114,7 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
           facilitator: SELF_FACILITATOR_URL,
           feePayer: SOLANA_FEE_PAYER,
         },
+        extensions: { bazaar },
       },
       {
         scheme: "exact",
@@ -131,12 +132,12 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
           // discoverable in the x402 Bazaar.
           facilitator: FACILITATOR_URL,
         },
+        extensions: { bazaar },
       },
     ],
-    // Per-route bazaar extension. The CDP Bazaar crawler looks for this on the
-    // 402 payload to index the endpoint. Per-network `accepts[].extensions` is
-    // also populated so downstream facilitators that read from `accepts` can
-    // still pick it up.
+    // Top-level + per-network bazaar extension. The CDP Bazaar crawler reads
+    // the top-level form; some downstream facilitators read from accepts[].
+    // Populate both so neither path misses us.
     extensions: {
       bazaar,
     },
