@@ -16,6 +16,7 @@ import { execSync, spawnSync } from 'child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from 'fs'
 import { homedir } from 'os'
 import { join, dirname } from 'path'
+import { createConnection } from 'net'
 
 const AGENTOS_DIR = join(homedir(), '.agentos')
 const SSH_DIR = join(AGENTOS_DIR, 'ssh')
@@ -225,4 +226,199 @@ export async function waitForRunning(
     delay = Math.min(delay * 1.4, 5_000)
   }
   throw new Error(`Server did not reach 'running' state within ${opts.timeoutMs ?? 120_000}ms`)
+}
+
+/**
+ * TCP-probe `host:port` once with a hard timeout. Resolves true on connect,
+ * false on RST/refused/timeout. Used as the second readiness gate after
+ * Hetzner reports `running` — Hetzner's status flips before the OS finishes
+ * booting and sshd binds, so we need an independent signal that port 22 is
+ * actually listening.
+ */
+export function tcpProbe(host: string, port: number, timeoutMs: number = 3000): Promise<boolean> {
+  return new Promise(resolve => {
+    const sock = createConnection({ host, port })
+    let done = false
+    const finish = (ok: boolean) => {
+      if (done) return
+      done = true
+      try { sock.destroy() } catch {}
+      resolve(ok)
+    }
+    sock.setTimeout(timeoutMs)
+    sock.once('connect', () => finish(true))
+    sock.once('timeout', () => finish(false))
+    sock.once('error', () => finish(false))
+  })
+}
+
+/**
+ * Probe an SSH endpoint with the user's key, asking sshd to run `true` and
+ * exit. Confirms three things at once: sshd is up, the key is in
+ * authorized_keys, and the user can actually open a session. We pass
+ * `BatchMode=yes` so ssh refuses to fall back to password prompts (which
+ * would hang in a non-interactive runner).
+ *
+ * Returns true on exit code 0; false on anything else (connection refused,
+ * permission denied, host key mismatch, timeout). The caller can decide
+ * whether to retry — most "fresh box" failures resolve in 10–30s as
+ * cloud-init finishes touching authorized_keys.
+ */
+export function sshProbe(ip: string, keyPath: string, timeoutSec: number = 5): boolean {
+  if (!existsSync(keyPath)) return false
+  const r = spawnSync('ssh', [
+    '-i', keyPath,
+    '-o', 'BatchMode=yes',
+    '-o', `ConnectTimeout=${timeoutSec}`,
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'UserKnownHostsFile=' + join(AGENTOS_DIR, 'ssh', 'known_hosts'),
+    `root@${ip}`,
+    'true',
+  ], { stdio: 'pipe', timeout: (timeoutSec + 2) * 1000 })
+  return r.status === 0
+}
+
+export type ReadinessCheck = 'pass' | 'fail' | 'skipped' | 'timeout'
+
+export interface ReadinessResult {
+  ready: boolean
+  ip: string | null
+  status: string | null
+  /** Per-gate result so the caller can branch on which one tripped. */
+  checks: {
+    hetznerStatus: ReadinessCheck
+    port22: ReadinessCheck
+    ssh: ReadinessCheck
+  }
+  elapsedMs: number
+  /** Diagnostic string when `ready === false`. */
+  reason?: string
+}
+
+/**
+ * Three-gate readiness chain used by `compute deploy --wait` and `compute
+ * wait <id>`:
+ *
+ *   1. Hetzner status flips to `running`.
+ *   2. TCP port 22 accepts connections.
+ *   3. (Optional) `ssh -i <key> root@<ip> 'true'` exits 0.
+ *
+ * Gate 3 is skipped when `keyPath` is undefined or the file doesn't exist —
+ * e.g. user deployed with `--ssh-key <hetzner-id>` and we don't have the
+ * private key locally. They get gates 1+2 and a documented "ssh: skipped"
+ * marker so they know the credential check wasn't done.
+ *
+ * The function shares one wall-clock budget across all three gates so a slow
+ * Hetzner provisioning step doesn't get extra time at the SSH probe's
+ * expense. Default 240s is enough for a fresh Ubuntu box that has to download
+ * Node 22 + install OpenClaw via npm during cloud-init.
+ */
+export async function waitForReady(opts: {
+  getStatus: () => Promise<{ status: string; ipv4: string | null }>
+  keyPath?: string
+  timeoutMs?: number
+  /** Optional progress callback fired on each gate transition. Invoked once with `{ stage, message }` per stage entry; never called from within the inner polling loops. */
+  onProgress?: (event: { stage: 'status' | 'port22' | 'ssh'; message: string }) => void
+}): Promise<ReadinessResult> {
+  const startedAt = Date.now()
+  const deadline = startedAt + (opts.timeoutMs ?? 240_000)
+  const checks: ReadinessResult['checks'] = {
+    hetznerStatus: 'fail',
+    port22: 'skipped',
+    ssh: 'skipped',
+  }
+  let ip: string | null = null
+  let status: string | null = null
+
+  // Gate 1: Hetzner status → running
+  opts.onProgress?.({ stage: 'status', message: 'Waiting for Hetzner status=running…' })
+  let delay = 1_000
+  while (Date.now() < deadline) {
+    const s = await opts.getStatus().catch(() => null)
+    if (s) {
+      status = s.status
+      ip = s.ipv4
+      if (s.status === 'running' && s.ipv4) {
+        checks.hetznerStatus = 'pass'
+        break
+      }
+    }
+    await new Promise(r => setTimeout(r, delay))
+    delay = Math.min(delay * 1.4, 5_000)
+  }
+  if (checks.hetznerStatus !== 'pass') {
+    checks.hetznerStatus = 'timeout'
+    return {
+      ready: false,
+      ip,
+      status,
+      checks,
+      elapsedMs: Date.now() - startedAt,
+      reason: `Hetzner status did not reach 'running' (last seen: ${status ?? 'unknown'})`,
+    }
+  }
+
+  // Gate 2: TCP port 22
+  opts.onProgress?.({ stage: 'port22', message: 'Probing port 22…' })
+  checks.port22 = 'fail'
+  let port22Open = false
+  delay = 1_000
+  while (Date.now() < deadline) {
+    if (await tcpProbe(ip!, 22, 3_000)) {
+      checks.port22 = 'pass'
+      port22Open = true
+      break
+    }
+    await new Promise(r => setTimeout(r, delay))
+    delay = Math.min(delay * 1.4, 5_000)
+  }
+  if (!port22Open) {
+    checks.port22 = 'timeout'
+    return {
+      ready: false,
+      ip,
+      status,
+      checks,
+      elapsedMs: Date.now() - startedAt,
+      reason: `Server is running but port 22 did not open within the timeout`,
+    }
+  }
+
+  // Gate 3: SSH credential probe (optional)
+  if (opts.keyPath && existsSync(opts.keyPath)) {
+    opts.onProgress?.({ stage: 'ssh', message: `Verifying SSH login with ${opts.keyPath}…` })
+    checks.ssh = 'fail'
+    let sshOk = false
+    delay = 2_000
+    while (Date.now() < deadline) {
+      if (sshProbe(ip!, opts.keyPath, 5)) {
+        checks.ssh = 'pass'
+        sshOk = true
+        break
+      }
+      await new Promise(r => setTimeout(r, delay))
+      delay = Math.min(delay * 1.4, 5_000)
+    }
+    if (!sshOk) {
+      checks.ssh = 'timeout'
+      return {
+        ready: false,
+        ip,
+        status,
+        checks,
+        elapsedMs: Date.now() - startedAt,
+        reason: `Port 22 is open but ssh -i ${opts.keyPath} root@${ip} did not authenticate. Check that the public half is in authorized_keys (cloud-init may still be running).`,
+      }
+    }
+  } else {
+    checks.ssh = 'skipped'
+  }
+
+  return {
+    ready: true,
+    ip,
+    status,
+    checks,
+    elapsedMs: Date.now() - startedAt,
+  }
 }
