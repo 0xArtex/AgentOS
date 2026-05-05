@@ -21,3 +21,4 @@ node_modules/
 # Discovery page build inputs (source videos + design refs).
 # Extracted WebP frames live under public/discovery/frames/ and ARE committed.
 /discovery-build/
+tmp/

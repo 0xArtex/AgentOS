@@ -79,7 +79,7 @@ function render(node: React.ReactElement) {
 const BOOLEAN_FLAGS = new Set([
   'help', 'version', 'managed', 'quiet', 'confirm', 'json', 'no-color',
   // compute deploy/ssh flags
-  'wait', 'generate-ssh-key', 'generate',
+  'wait', 'generate-ssh-key', 'generate', 'progress',
 ])
 
 function parse(argv: string[]) {
@@ -870,6 +870,30 @@ async function main() {
               || (pubkeyFile ? pubkeyFile.replace(/\.pub$/, '').replace('~', homedir()) : undefined)
               || (explicitKeyPath ? explicitKeyPath.replace('~', homedir()) : undefined)
 
+            // --progress (boolean) emits NDJSON gate-transition events to
+            // stderr in agent mode. Stdout still gets one final JSON object,
+            // so jq pipelines on stdout aren't disturbed. Long-running
+            // deploys without --progress stay silent until done.
+            const wantProgress = flags.progress === true
+            const emitProgress = (event: { stage: string; message: string }) => {
+              if (AGENT_MODE && wantProgress) {
+                process.stderr.write(JSON.stringify({ event: 'progress', ...event }) + '\n')
+              }
+            }
+            // Once we have an IP, also emit a `created` event so even a
+            // 10-minute-silent install isn't a black box — agents that
+            // pass --progress get an ack right after the deploy returns.
+            if (AGENT_MODE && wantProgress && data?.ipv4) {
+              process.stderr.write(JSON.stringify({
+                event: 'created',
+                id: data.id,
+                name: data.name,
+                ipv4: data.ipv4,
+                installs: expectedInstalls,
+                waitTimeoutSec,
+              }) + '\n')
+            }
+
             let finalData: any = data
             let readiness: any = undefined
             if (wantWait && data?.id) {
@@ -883,7 +907,10 @@ async function main() {
                 keyPath: localKeyPath && existsSync(localKeyPath) ? localKeyPath : undefined,
                 timeoutMs: waitTimeoutSec * 1000,
                 expectedInstalls,
-                onProgress: ev => spin2.update(`Waiting: ${ev.message}`),
+                onProgress: ev => {
+                  spin2.update(`Waiting: ${ev.message}`)
+                  emitProgress(ev)
+                },
               })
               readiness = {
                 ready: result.ready,
@@ -891,6 +918,7 @@ async function main() {
                 elapsedMs: result.elapsedMs,
                 ...(result.reason ? { reason: result.reason } : {}),
                 ...(result.installStatus ? { installStatus: result.installStatus } : {}),
+                ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
               }
               if (result.ready) {
                 const passed = ['status=running', 'port22=open']
@@ -967,6 +995,7 @@ async function main() {
             const waitTimeoutSec = flags['wait-timeout']
               ? Math.max(30, Math.min(900, parseInt(String(flags['wait-timeout']), 10)))
               : defaultTimeout
+            const wantProgressWait = flags.progress === true
             const spin = new Spinner()
             spin.start('Probing readiness…')
             const result = await csshMod.waitForReady({
@@ -977,7 +1006,12 @@ async function main() {
               keyPath: keyPath && existsSync(keyPath) ? keyPath : undefined,
               timeoutMs: waitTimeoutSec * 1000,
               expectedInstalls,
-              onProgress: ev => spin.update(`Probing: ${ev.message}`),
+              onProgress: ev => {
+                spin.update(`Probing: ${ev.message}`)
+                if (AGENT_MODE && wantProgressWait) {
+                  process.stderr.write(JSON.stringify({ event: 'progress', ...ev }) + '\n')
+                }
+              },
             })
             spin.stop(result.ready ? `Ready in ${(result.elapsedMs / 1000).toFixed(1)}s` : `Not ready: ${result.reason}`, result.ready)
             const out: any = {
@@ -989,6 +1023,7 @@ async function main() {
               elapsedMs: result.elapsedMs,
               ...(result.reason ? { reason: result.reason } : {}),
               ...(result.installStatus ? { installStatus: result.installStatus } : {}),
+              ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
             }
             if (keyPath && result.ip) out.sshCommand = csshMod.buildSshCommand(result.ip, keyPath)
             // Exit with NOT_FOUND if any gate failed so shell scripts can
