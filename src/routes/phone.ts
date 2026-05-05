@@ -358,7 +358,7 @@ router.get("/calls/:id", requireAuth(0.02, "general", { discoverable: false }), 
  * POST /phone/calls/:callControlId/speak — TTS on active call
  * Cost: 0.05 USDC
  */
-router.post("/calls/:callControlId/speak", requireAuth(0.08, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/calls/:callControlId/speak", requireAuth(0.08, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { text, voice, language } = req.body as { text: string; voice?: string; language?: string };
     if (!text) {
@@ -412,7 +412,7 @@ router.post("/calls/:callControlId/dtmf", requireAuth(0.02, "general", { discove
  * POST /phone/calls/:callControlId/gather — Collect DTMF input from caller
  * Cost: 0.05 USDC
  */
-router.post("/calls/:callControlId/gather", requireAuth(0.08, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/calls/:callControlId/gather", requireAuth(0.08, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { minDigits, maxDigits, timeoutMillis, terminatingDigit, prompt, promptVoice } = req.body as any;
     await voiceService.gatherDtmf(String(req.params.callControlId), {
@@ -428,7 +428,7 @@ router.post("/calls/:callControlId/gather", requireAuth(0.08, "general", { disco
  * POST /phone/calls/:callControlId/record — Start recording
  * Cost: 0.05 USDC
  */
-router.post("/calls/:callControlId/record", requireAuth(0.10, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/calls/:callControlId/record", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { format } = req.body as { format?: string };
     await voiceService.startRecording(String(req.params.callControlId), format);
@@ -442,7 +442,7 @@ router.post("/calls/:callControlId/record", requireAuth(0.10, "general", { disco
  * POST /phone/calls/:callControlId/record/stop — Stop recording
  * Cost: free
  */
-router.post("/calls/:callControlId/record/stop", requireAuth(0.02, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/calls/:callControlId/record/stop", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     await voiceService.stopRecording(String(req.params.callControlId));
     res.json({ success: true, message: "Recording stopped" });
@@ -481,7 +481,7 @@ router.post("/calls/:callControlId/answer", requireAuth(0.02, "general", { disco
  * POST /phone/calls/:callControlId/transfer — Transfer call to another number
  * Cost: 0.10 USDC
  */
-router.post("/calls/:callControlId/transfer", requireAuth(0.10, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/calls/:callControlId/transfer", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { to } = req.body as { to: string };
     if (!to) {
