@@ -6,8 +6,34 @@ import crypto from "crypto";
 
 const HCLOUD_API = "https://api.hetzner.cloud/v1";
 
-function generateCloudInit(): string {
+/**
+ * Validate an OpenSSH public key string before splicing it into cloud-init.
+ * Cloud-init runs as root on a fresh box — we MUST NOT let arbitrary input
+ * land in the shell heredoc. Any invalid byte → throw, caller turns it into a
+ * 400 before the Hetzner API is touched.
+ *
+ * Allowed key types match what `routes/compute.ts:setup-ssh` already accepts.
+ * Stripped to single-line; comment field is allowed (alphanum + . _ - @).
+ */
+function assertSshPublicKey(key: string): string {
+  const trimmed = key.trim()
+  if (trimmed.length === 0 || trimmed.length > 16384) {
+    throw new Error('sshPublicKey must be 1–16384 chars');
+  }
+  if (!/^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521))\s+[A-Za-z0-9+/=]+(\s+[\w.@-]+)?$/.test(trimmed)) {
+    throw new Error("sshPublicKey must be an OpenSSH public key (e.g. 'ssh-ed25519 AAAA... [comment]')");
+  }
+  return trimmed;
+}
+
+function generateCloudInit(opts: { userPubkey?: string } = {}): string {
   const platformPubKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAeOkVwRfQpLUemQ6HwbglAPjv1WioahHED/SXSaK7r+ agentos-platform-temp';
+  // userPubkey was already validated by the route layer via assertSshPublicKey;
+  // it cannot contain shell metacharacters by construction. We still wrap it in
+  // single quotes so the worst-case typo doesn't break the heredoc.
+  const userKeyLine = opts.userPubkey
+    ? `echo '${opts.userPubkey}' >> /root/.ssh/authorized_keys`
+    : '# (no user public key provided at deploy time — call POST /compute/servers/:id/setup-ssh to inject one)';
   return `#!/bin/bash
 set -euo pipefail
 
@@ -15,6 +41,7 @@ set -euo pipefail
 # Inject platform temp key for provisioning (removed during SSH handoff)
 mkdir -p /root/.ssh && chmod 700 /root/.ssh
 echo '${platformPubKey}' >> /root/.ssh/authorized_keys
+${userKeyLine}
 chmod 600 /root/.ssh/authorized_keys
 
 # Clear Hetzner's forced password change (blocks SSH key auth otherwise)
@@ -91,6 +118,23 @@ async function hcloud(method: string, path: string, body?: any): Promise<any> {
 
 /**
  * Create a server on Hetzner Cloud.
+ *
+ * SSH access model:
+ *   - `sshKeyIds`: numeric IDs of keys already uploaded via `POST /compute/ssh-keys`.
+ *     Hetzner injects these into `authorized_keys` *before* cloud-init runs.
+ *   - `sshPublicKey`: a raw OpenSSH public key string. Spliced into cloud-init so
+ *     it lands in `authorized_keys` while we're already touching the file there.
+ *     Validated by `assertSshPublicKey` at the route boundary; do not pass
+ *     untrusted input straight to this argument.
+ *   - `installOpenClaw=true`: cloud-init runs and **disables password auth**.
+ *     Password Hetzner returns is therefore useless after first boot. Caller
+ *     must hand in a key (`sshKeyIds` or `sshPublicKey`), or use the
+ *     `setup-ssh` route after the fact, or accept that they'll only access
+ *     the box through the OpenClaw API/gateway.
+ *
+ * `passwordUsable` in the return payload is the source of truth for the route
+ * layer: false → strip `rootPassword` from the API response, surface handoff
+ * guidance instead.
  */
 export async function createServer(
   name: string,
@@ -99,8 +143,9 @@ export async function createServer(
   owner: string,
   sshKeyIds?: number[],
   installOpenClaw?: boolean,
-  location?: string
-): Promise<Server> {
+  location?: string,
+  sshPublicKey?: string
+): Promise<Server & { passwordUsable: boolean }> {
   if (!isValidServerType(serverType)) {
     const valid = getServerPlans().map(p => p.type).join(", ");
     throw new Error(`Unknown or deprecated server type '${serverType}'. Valid types right now: ${valid}`);
@@ -119,12 +164,20 @@ export async function createServer(
     payload.ssh_keys = sshKeyIds;
   }
 
+  // Validate before we touch any external API. assertSshPublicKey throws on
+  // shell-metachar input — caller must turn that into a 400.
+  const safeUserKey = sshPublicKey ? assertSshPublicKey(sshPublicKey) : undefined;
+
   if (installOpenClaw) {
-    payload.user_data = generateCloudInit();
+    payload.user_data = generateCloudInit({ userPubkey: safeUserKey });
   }
 
   const data = await hcloud("POST", "/servers", payload);
   const s = data.server;
+
+  // Cloud-init disables password auth — once it runs, the password Hetzner
+  // returned is no good. Tell the caller so they don't ship it to the user.
+  const passwordUsable = !installOpenClaw;
 
   const server: Server = {
     id: String(s.id),
@@ -137,11 +190,14 @@ export async function createServer(
     owner,
     priceMonthly: pricing,
     createdAt: s.created,
+    // We always store the password locally — `setup-ssh` uses its presence as
+    // a "pre-handoff" sentinel. The route layer decides whether to expose it
+    // to the API caller based on `passwordUsable`.
     rootPassword: data.root_password ?? null,
   };
 
   storage.setServer(server.id, server);
-  return server;
+  return { ...server, passwordUsable };
 }
 
 /**

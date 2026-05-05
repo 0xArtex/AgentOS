@@ -142,11 +142,12 @@ router.delete("/ssh-keys/:id", requireAuth(0.01, 'general'), async (req: Authent
  */
 router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, serverType, image, sshKeyIds, location, installOpenClaw } = req.body as {
+    const { name, serverType, image, sshKeyIds, sshPublicKey, location, installOpenClaw } = req.body as {
       name: string;
       serverType: string;
       image?: string;
       sshKeyIds?: number[];
+      sshPublicKey?: string;
       location?: string;
       installOpenClaw?: boolean;
     };
@@ -155,29 +156,94 @@ router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async 
       res.status(400).json({
         error: "Missing Required Fields",
         message: "Both 'name' and 'serverType' are required",
-        hint: "GET /compute/plans for available types. Include sshKeyIds from POST /compute/ssh-keys."
+        hint: "GET /compute/plans for available types. Include sshPublicKey or sshKeyIds for SSH access."
       });
       return;
     }
 
     const owner = req.agentId || req.payment?.payer || "unknown";
 
-    const server = await computeService.createServer(
-      name,
-      serverType as any,
-      image ?? "ubuntu-24.04",
-      owner,
-      sshKeyIds,
-      installOpenClaw,
-      location
-    );
+    let result: Awaited<ReturnType<typeof computeService.createServer>>;
+    try {
+      result = await computeService.createServer(
+        name,
+        serverType as any,
+        image ?? "ubuntu-24.04",
+        owner,
+        sshKeyIds,
+        installOpenClaw,
+        location,
+        sshPublicKey
+      );
+    } catch (createErr: any) {
+      // sshPublicKey validation errors should surface as 400, not 500.
+      if (/sshPublicKey/.test(createErr?.message || '')) {
+        res.status(400).json({ error: 'Invalid SSH Public Key', message: createErr.message });
+        return;
+      }
+      throw createErr;
+    }
+    const { passwordUsable, ...server } = result;
+
+    // Build an explicit `sshAccess` block so the caller can branch
+    // deterministically — agents shouldn't have to interpret presence/absence
+    // of a `rootPassword` field to know how to connect.
+    const ip = server.ipv4 || "<ip>";
+    const userKeyAttached = !!sshPublicKey || (sshKeyIds && sshKeyIds.length > 0);
+    let sshAccess: Record<string, any>;
+    let response: Record<string, any>;
+
+    if (passwordUsable && server.rootPassword) {
+      // No cloud-init ran. Hetzner's default sshd allows password root login.
+      sshAccess = {
+        method: 'password',
+        command: `ssh root@${ip}`,
+        rootPassword: server.rootPassword,
+        note: 'Save this password — we do not store a recoverable copy. Switch to SSH key auth on first login.',
+      };
+      response = { ...server, sshAccess };
+    } else if (userKeyAttached) {
+      // Cloud-init disables password auth, but the user provided a key — they
+      // can SSH in as soon as the box finishes provisioning.
+      sshAccess = {
+        method: 'ssh-key',
+        command: `ssh root@${ip}`,
+        note: 'Your public key was injected at boot. Cloud-init takes ~60s to finish; SSH may be reachable a bit before that.',
+      };
+      // Strip the dead-on-arrival password from the response so callers don't
+      // try to use it.
+      const { rootPassword: _drop, ...visible } = server;
+      response = { ...visible, sshAccess };
+    } else {
+      // Cloud-init ran but no user key was provided. Server is reachable only
+      // via the platform's temporary key during provisioning. User must
+      // either inject their key via setup-ssh or drive the box entirely
+      // through the AgentOS-managed APIs (configure-openclaw etc.).
+      sshAccess = {
+        method: 'platform-provisioning',
+        note: "We hold a temporary key during provisioning; you don't have direct SSH access yet.",
+        howToGetSsh: {
+          endpoint: `POST /compute/servers/${server.id}/setup-ssh`,
+          body: { publicKey: 'ssh-ed25519 AAAA... [comment]' },
+          cli: `agentos compute setup-ssh --id ${server.id} --pubkey "ssh-ed25519 AAAA..."`,
+          effect: 'Injects your public key, removes our temporary key, locks the root password. After this, only you can SSH in.',
+        },
+        alternatives: [
+          'Pass `sshPublicKey` next time you call POST /compute/servers — it will land in authorized_keys at first boot, no second round-trip.',
+          'If you only need API access (not SSH), call POST /compute/servers/{id}/configure-openclaw to drive the box through the OpenClaw gateway.',
+        ],
+      };
+      const { rootPassword: _drop, ...visible } = server;
+      response = { ...visible, sshAccess };
+    }
 
     res.status(201).json({
-      ...server,
-      message: "Server created. SSH in with: ssh root@" + (server.ipv4 || "<ip>"),
-      note: server.rootPassword
-        ? "Root password provided below. Save it — we don't store it."
-        : "Use your SSH key to connect.",
+      ...response,
+      message: passwordUsable
+        ? `Server created at ${ip}.`
+        : userKeyAttached
+          ? `Server created at ${ip}. SSH ready once cloud-init finishes (~60s).`
+          : `Server created at ${ip}. Run setup-ssh to get SSH access.`,
     });
   } catch (err: any) {
     console.error("[compute] Create error:", err);

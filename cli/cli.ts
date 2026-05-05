@@ -670,7 +670,8 @@ async function main() {
             footerLeft: 'Compute operations',
             commands: [
               { name: 'plans', description: 'List VPS plans' },
-              { name: 'deploy', description: 'Deploy a VPS', hint: '--name my-vps --type cx23' },
+              { name: 'deploy', description: 'Deploy a VPS', hint: '--name my-vps --type cx23 [--pubkey "ssh-ed25519 ..."]' },
+              { name: 'setup-ssh', description: 'Inject your SSH key into a deployed VPS', hint: '--id SERVER_ID --pubkey-file ~/.ssh/id_ed25519.pub' },
               { name: 'list', description: 'List servers' },
               { name: 'delete', description: 'Delete a server', hint: '--id SERVER_ID' },
             ],
@@ -703,43 +704,53 @@ async function main() {
           case 'deploy': {
             const name = flags.name as string || 'agent-' + Date.now()
             const type = flags.type as string || 'cx23'
+            // Deploy-time SSH key injection. We accept --pubkey "ssh-..." OR a
+            // path via --pubkey-file (resolved synchronously). Keeps the user
+            // from getting locked out of their own server (cloud-init disables
+            // password auth, so the rootPassword Hetzner returns is dead-on-
+            // arrival without a key).
+            let sshPublicKey = (flags.pubkey as string) || (flags['ssh-key'] as string) || (flags.publicKey as string)
+            const pubkeyFile = (flags['pubkey-file'] as string) || (flags['ssh-key-file'] as string)
+            if (!sshPublicKey && pubkeyFile) {
+              try {
+                sshPublicKey = readFileSync(pubkeyFile.replace('~', homedir()), 'utf8').trim()
+              } catch (e: any) {
+                err(`Could not read --pubkey-file ${pubkeyFile}: ${e.message}`, EXIT.NOT_FOUND)
+              }
+            }
             const spin = new Spinner()
             spin.start('Deploying VPS...')
-            const data = await ao.computeDeploy(name, type)
+            const data = await ao.computeDeploy(name, type, sshPublicKey ? { sshPublicKey } : {})
             spin.stop('VPS deployed', true)
             return print(data)
-            const ip = data.ipv4 || data.ip || 'deploying...'
-            render(React.createElement(ComputeDeployScreen, {
-              version: VERSION,
-              ip,
-              id: data.id || '',
-              type,
-              name,
-            }))
-            addServer({ id: data.id, ip, type, name, createdAt: new Date().toISOString() })
-            log(`compute deploy: ${ip} (${type})`)
-            break
+          }
+          case 'setup-ssh': {
+            const id = (flags.id as string) || positional[0]
+            if (!id) err('--id SERVER_ID required (or pass it as the first positional arg)', EXIT.BAD_INPUT)
+            let pubkey = (flags.pubkey as string) || (flags['ssh-key'] as string) || (flags.publicKey as string)
+            const pubkeyFile = (flags['pubkey-file'] as string) || (flags['ssh-key-file'] as string)
+            if (!pubkey && pubkeyFile) {
+              try {
+                pubkey = readFileSync(pubkeyFile.replace('~', homedir()), 'utf8').trim()
+              } catch (e: any) {
+                err(`Could not read --pubkey-file ${pubkeyFile}: ${e.message}`, EXIT.NOT_FOUND)
+              }
+            }
+            if (!pubkey) err('--pubkey "ssh-ed25519 AAAA..." (or --pubkey-file ~/.ssh/id_ed25519.pub) required', EXIT.BAD_INPUT)
+            const data = await ao.computeSetupSsh(id, pubkey)
+            return print(data)
           }
           case 'list': {
             const data = await ao.computeList()
             return print(data)
-            const servers = (data.servers || []).map((s: any) => ({
-              ip: String(s.ipv4 || s.ip || 'unknown'),
-              type: String(s.serverType || s.type || 'unknown'),
-              status: String(s.status || 'unknown'),
-            }))
-            render(React.createElement(ComputeListScreen, { version: VERSION, servers }))
-            break
           }
           case 'delete': {
             const id = flags.id as string || positional[0]
             if (!id) err('--id SERVER_ID required')
             const data = await ao.computeDelete(id)
             return print(data)
-            render(React.createElement(SuccessScreen, { version: VERSION, title: 'server deleted', subtitle: id, details: [{ label: 'ID', value: id }], footerLeft: 'Server removed' }))
-            break
           }
-          default: err(`Unknown compute command: ${subcommand}. Try: plans, deploy, list, delete`)
+          default: err(`Unknown compute command: ${subcommand}. Try: plans, deploy, setup-ssh, list, delete`)
         }
         break
       }

@@ -381,8 +381,20 @@ export class AgentOS {
     return this.request('GET', '/compute/plans')
   }
 
-  async computeDeploy(name: string, serverType: string): Promise<any> {
-    return this.request('POST', '/compute/servers', { name, serverType, image: 'ubuntu-24.04', installOpenClaw: true })
+  async computeDeploy(
+    name: string,
+    serverType: string,
+    opts: { sshPublicKey?: string; sshKeyIds?: number[]; installOpenClaw?: boolean } = {},
+  ): Promise<any> {
+    const body: Record<string, unknown> = {
+      name,
+      serverType,
+      image: 'ubuntu-24.04',
+      installOpenClaw: opts.installOpenClaw ?? true,
+    }
+    if (opts.sshPublicKey) body.sshPublicKey = opts.sshPublicKey
+    if (opts.sshKeyIds?.length) body.sshKeyIds = opts.sshKeyIds
+    return this.request('POST', '/compute/servers', body)
   }
 
   async computeList(): Promise<any> {
@@ -391,6 +403,15 @@ export class AgentOS {
 
   async computeDelete(serverId: string): Promise<any> {
     return this.request('DELETE', `/compute/servers/${serverId}`)
+  }
+
+  /**
+   * Inject your SSH public key into a freshly-deployed VPS, remove the
+   * platform's temporary key, and lock the root password. After this call,
+   * only your key can SSH into the box.
+   */
+  async computeSetupSsh(serverId: string, publicKey: string): Promise<any> {
+    return this.request('POST', `/compute/servers/${serverId}/setup-ssh`, { publicKey })
   }
 
   // ── Domains ──
