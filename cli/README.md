@@ -260,15 +260,38 @@ agentos compute exec my-vps -- tail -200 /var/log/agentos/hermes-install.log
 
 #### Streaming progress
 
-Add `--progress` (agent mode only) to emit one NDJSON event per readiness gate transition to stderr — useful when an install takes minutes and you want to see what's happening without breaking the single-JSON-on-stdout contract:
+In agent mode, `compute deploy --wait` and `compute wait` emit one NDJSON event per gate transition to **stderr** — by default. Stdout still gets one final JSON object so `jq` pipelines aren't disturbed; stderr is the live event stream you can `tail -f` while a long install runs.
 
 ```bash
-agentos compute deploy --type cx22 --install hermes --json --progress 2>progress.ndjson
-# stdout: one JSON object at the end
-# stderr: {"event":"progress","stage":"status",...}
-#         {"event":"progress","stage":"port22",...}
-#         {"event":"progress","stage":"ssh",...}
-#         {"event":"progress","stage":"installs",...}
+agentos compute deploy --type cx22 --install hermes --json
+```
+
+Stderr stream (real-time):
+
+```jsonc
+{"event":"created","id":"12345","ipv4":"1.2.3.4","installs":["hermes"],"waitTimeoutSec":600}
+{"event":"progress","stage":"status","message":"Waiting for Hetzner status=running…"}
+{"event":"progress","stage":"port22","message":"Probing port 22…"}
+{"event":"progress","stage":"ssh","message":"Verifying SSH login..."}
+{"event":"progress","stage":"installs","message":"Waiting for installs to finish: hermes…"}
+```
+
+Stdout (at the end):
+
+```jsonc
+{ "id": "12345", "ipv4": "1.2.3.4", "sshCommand": "ssh -i ... root@1.2.3.4", "readiness": { ... } }
+```
+
+Add `--no-progress` to silence the stderr stream:
+
+```bash
+agentos compute deploy --type cx22 --install hermes --json --no-progress
+```
+
+Capture stderr for later analysis (POSIX shell redirection, not a CLI flag):
+
+```bash
+agentos compute deploy --type cx22 --install hermes --json 2>progress.ndjson
 ```
 
 #### SSH-key management

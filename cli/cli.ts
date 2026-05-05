@@ -870,19 +870,24 @@ async function main() {
               || (pubkeyFile ? pubkeyFile.replace(/\.pub$/, '').replace('~', homedir()) : undefined)
               || (explicitKeyPath ? explicitKeyPath.replace('~', homedir()) : undefined)
 
-            // --progress (boolean) emits NDJSON gate-transition events to
-            // stderr in agent mode. Stdout still gets one final JSON object,
-            // so jq pipelines on stdout aren't disturbed. Long-running
-            // deploys without --progress stay silent until done.
-            const wantProgress = flags.progress === true
+            // Progress events to stderr — default ON in agent mode so a
+            // long deploy isn't a 10-minute silence. Pass --no-progress to
+            // opt out. Stdout still gets one final JSON object, so jq
+            // pipelines on stdout aren't disturbed either way.
+            //
+            // We only emit when --wait is in effect; without --wait the
+            // deploy returns immediately and stdout already has everything,
+            // so stderr noise would be redundant.
+            const wantProgress = flags.progress !== false
             const emitProgress = (event: { stage: string; message: string }) => {
               if (AGENT_MODE && wantProgress) {
                 process.stderr.write(JSON.stringify({ event: 'progress', ...event }) + '\n')
               }
             }
-            // Once we have an IP, also emit a `created` event so even a
-            // 10-minute-silent install isn't a black box — agents that
-            // pass --progress get an ack right after the deploy returns.
+            // Emit a `created` ack right after the deploy returns from the
+            // API, before the readiness chain starts. Agents watching
+            // stderr now know the server got provisioned within seconds —
+            // any subsequent silence is the install running, not us hung.
             if (AGENT_MODE && wantProgress && data?.ipv4) {
               process.stderr.write(JSON.stringify({
                 event: 'created',
@@ -995,7 +1000,7 @@ async function main() {
             const waitTimeoutSec = flags['wait-timeout']
               ? Math.max(30, Math.min(900, parseInt(String(flags['wait-timeout']), 10)))
               : defaultTimeout
-            const wantProgressWait = flags.progress === true
+            const wantProgressWait = flags.progress !== false
             const spin = new Spinner()
             spin.start('Probing readiness…')
             const result = await csshMod.waitForReady({
