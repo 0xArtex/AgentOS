@@ -181,7 +181,7 @@ export interface ServerPlan {
 // GET /v1/server_types). The old static `SERVER_PLANS` / `SERVER_PRICING`
 // constants were removed because they hardcoded types that get deprecated.
 
-export type ServerAction = "reboot" | "poweron" | "poweroff" | "rebuild" | "reset";
+export type ServerAction = "reboot" | "poweron" | "poweroff" | "rebuild" | "reset" | "reset_password" | "request_console";
 
 export interface Server {
   id: string;

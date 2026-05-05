@@ -283,34 +283,138 @@ router.get("/servers/:id", requireAuth(0.01, 'general'), async (req: Authenticat
 });
 
 /**
- * POST /compute/servers/:id/actions — Perform server action (reboot, poweron, poweroff, rebuild, reset)
- * Cost: 0.05 USDC
+ * POST /compute/servers/:id/actions — Perform server action.
+ *
+ * Supported actions:
+ *   - reboot          graceful restart
+ *   - poweron         power on a stopped server
+ *   - poweroff        graceful shutdown (data preserved)
+ *   - reset           hard restart (no graceful shutdown)
+ *   - rebuild         reinstall OS — wipes disk, runs cloud-init, keeps IP
+ *   - reset_password  rotate root password (Hetzner-side); useless for SSH
+ *                     unless sshd_config has PasswordAuthentication=on
+ *   - request_console short-lived noVNC console URL — break-glass when SSH
+ *                     is broken (cloud-init failed, sshd misconfigured, etc.)
+ *
+ * Cost: 0.10 USDC
  */
 router.post("/servers/:id/actions", requireAuth(0.10, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { action, image } = req.body as { action: string; image?: string };
-    const validActions: ServerAction[] = ["reboot", "poweron", "poweroff", "rebuild", "reset"];
+    const validActions: ServerAction[] = ["reboot", "poweron", "poweroff", "rebuild", "reset", "reset_password", "request_console"];
 
     if (!action || !validActions.includes(action as ServerAction)) {
       res.status(400).json({
         error: "Invalid Action",
         message: `Action must be one of: ${validActions.join(", ")}`,
-        hint: "reboot = graceful restart, reset = hard restart, rebuild = reinstall OS (data lost!)"
+        hint: "reboot/reset = restart, rebuild = reinstall (data lost!), reset_password = rotate root password, request_console = noVNC break-glass URL",
       });
       return;
     }
 
     const result = await computeService.serverAction(String(req.params.id), action as ServerAction, image);
+    const serverId = String(req.params.id);
+
+    // reset_password and request_console need bespoke response shapes — they
+    // hand back data that isn't relevant for the lifecycle actions and we
+    // want callers to not have to dig through `result.action` for it.
+    if (action === "reset_password") {
+      res.json({
+        action,
+        serverId,
+        rootPassword: result?.root_password ?? null,
+        note: "Root password rotated. SSH login by password will only work if sshd is configured to accept it — AgentOS-deployed boxes (installOpenClaw=true) disable password auth at first boot, so this password is for console use or after manually re-enabling password auth. Use POST /compute/servers/:id/setup-ssh to inject an SSH key for SSH access.",
+      });
+      return;
+    }
+    if (action === "request_console") {
+      res.json({
+        action,
+        serverId,
+        wssUrl: result?.wss_url ?? null,
+        password: result?.password ?? null,
+        expiresAt: result?.expires ?? null,
+        note: "Open wssUrl in a browser within ~1 minute. Authenticate with the password above. This is the host-VM console (noVNC) — works even when SSH is unreachable.",
+      });
+      return;
+    }
+
+    // Lifecycle actions — pass through Hetzner's action status.
     res.json({
-      action: action,
-      serverId: String(req.params.id),
-      status: result?.status || "running",
+      action,
+      serverId,
+      status: result?.action?.status || result?.status || "running",
       message: action === "rebuild"
         ? "Server is being rebuilt. All data will be lost."
         : `Server ${action} initiated.`,
     });
   } catch (err: any) {
     res.status(500).json({ error: "Action Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /compute/servers/:id/exec — Run a single command on the server via the
+ * platform's temporary SSH key.
+ *
+ * Pre-handoff only: returns 410 once `setup-ssh` has run (the platform key
+ * was removed from authorized_keys, so we no longer have a way in). After
+ * handoff, the user is the only entity that can reach the server, which is
+ * the whole point of the handoff — `run_command` from our side would be a
+ * back door, so we honour the contract and refuse.
+ *
+ * Cost: 0.05 USDC. Validate inputs strictly: command + args[] are POSIX-quoted
+ * service-side before being passed to ssh as a single remote-shell argument,
+ * so user input never interpolates into our own shell.
+ */
+router.post("/servers/:id/exec", rateLimit(20, 60_000), requireAuth(0.05, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const serverId = String(req.params.id);
+    const { command, args, timeoutSec } = req.body as { command?: unknown; args?: unknown; timeoutSec?: unknown };
+
+    if (typeof command !== 'string' || command.length === 0 || command.length > 256) {
+      return res.status(400).json({
+        error: "Invalid command",
+        hint: "command must be a non-empty string up to 256 chars (e.g. 'systemctl', 'bash')",
+      });
+    }
+    const argList: string[] = Array.isArray(args) ? args.filter((a): a is string => typeof a === 'string') : [];
+    if (Array.isArray(args) && argList.length !== args.length) {
+      return res.status(400).json({ error: "Invalid args", hint: "args must be a string[]" });
+    }
+    // Total payload guard. ssh's `argv[N]` becomes the remote shell command;
+    // a 64KiB cap is plenty for any sensible operation and prevents abuse.
+    const totalLen = command.length + argList.reduce((n, a) => n + a.length, 0);
+    if (totalLen > 65536) {
+      return res.status(400).json({ error: "Command too long", hint: "Total of command + args must fit in 64KiB" });
+    }
+
+    const row = db.prepare("SELECT ipv4, root_password FROM servers WHERE id = ?").get(serverId) as any;
+    if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
+    if (!row.root_password) {
+      return res.status(410).json({
+        error: "Server is past SSH handoff — platform no longer has SSH access",
+        hint: "Once you call POST /compute/servers/:id/setup-ssh, only your key works. Use your own SSH session to run commands.",
+      });
+    }
+
+    const startedAt = Date.now();
+    const result = await computeService.execOnServer(serverId, command, argList, {
+      timeoutSec: typeof timeoutSec === 'number' ? timeoutSec : undefined,
+    });
+    res.json({
+      action: 'exec',
+      serverId,
+      command,
+      args: argList,
+      stdout: result.stdout,
+      stderr: result.stderr,
+      exitCode: result.exitCode,
+      durationMs: Date.now() - startedAt,
+    });
+  } catch (err: any) {
+    console.error("[compute] Exec error:", err);
+    res.status(500).json({ error: "Exec failed", message: err.message?.split("\n")[0] || "Failed" });
   }
 });
 

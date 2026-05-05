@@ -267,7 +267,81 @@ export async function serverAction(id: string, action: ServerAction, image?: str
   }
 
   const data = await hcloud("POST", `/servers/${id}/actions/${action}`, body);
-  return data.action;
+
+  // reset_password is the only action besides create that hands back a usable
+  // root password. Persist it so `compute setup-ssh`'s pre-handoff sentinel
+  // (root_password != null in the DB) still works after a password rotation,
+  // and so a follow-up `compute info` can show the current password.
+  if (action === "reset_password" && data.root_password) {
+    server.rootPassword = data.root_password;
+    storage.setServer(id, server);
+  }
+
+  // Hetzner returns auxiliary fields alongside the action object on a couple
+  // of action endpoints (root_password on reset_password, wss_url + password
+  // on request_console). Forwarding the whole top-level response — instead
+  // of just `data.action` — lets the route layer surface those fields
+  // without us having to special-case here.
+  return data;
+}
+
+/**
+ * Run a single command on a freshly-deployed server via the platform's
+ * temporary SSH key. Pre-handoff only: once `setup-ssh` has run, the platform
+ * key is gone and `root_password` is NULL in the DB — caller gets 410 from
+ * the route layer in that state.
+ *
+ * `command` and `args` are passed as separate argv elements through ssh's
+ * remote-shell layer. We POSIX-quote each element on this side so the remote
+ * shell sees them as distinct words; we never let user-supplied bytes
+ * interpolate into our own shell.
+ */
+export async function execOnServer(
+  id: string,
+  command: string,
+  args: string[],
+  opts: { timeoutSec?: number } = {},
+): Promise<{ stdout: string; stderr: string; exitCode: number; durationMs: number }> {
+  const server = storage.getServer(id);
+  if (!server) throw new Error(`Server ${id} not found`);
+  if (!server.ipv4) throw new Error(`Server ${id} has no public IPv4 yet`);
+
+  const { spawnSync } = await import("child_process");
+  const PLATFORM_KEY = "/root/.ssh/id_ed25519_platform";
+  const timeoutSec = Math.max(1, Math.min(120, opts.timeoutSec ?? 30));
+
+  // POSIX shell-quote every argv element. Single-quote-wrap and escape
+  // embedded single quotes via the standard `'\''` trick. Anything that
+  // matches our safe-char set is passed through bare — purely cosmetic, the
+  // semantics are identical.
+  const quote = (s: string): string => {
+    if (/^[A-Za-z0-9._/:@%+=-]+$/.test(s)) return s;
+    return "'" + s.replace(/'/g, "'\\''") + "'";
+  };
+  const remoteCmd = [command, ...args].map(quote).join(" ");
+
+  const r = spawnSync(
+    "ssh",
+    [
+      "-i", PLATFORM_KEY,
+      "-o", "StrictHostKeyChecking=no",
+      "-o", "UserKnownHostsFile=/dev/null",
+      "-o", "BatchMode=yes",
+      "-o", `ConnectTimeout=${Math.min(15, timeoutSec)}`,
+      `root@${server.ipv4}`,
+      remoteCmd,
+    ],
+    { timeout: timeoutSec * 1000, stdio: "pipe", maxBuffer: 1024 * 1024 },
+  );
+
+  return {
+    stdout: r.stdout?.toString() ?? "",
+    stderr: r.stderr?.toString() ?? "",
+    // status === null when the process was killed by timeout; surface that as
+    // 124 (the conventional `timeout(1)` exit code) rather than `null`.
+    exitCode: r.status === null ? 124 : r.status,
+    durationMs: 0, // route layer fills this from a wall-clock measurement
+  };
 }
 
 export async function resizeServer(id: string, serverType: ServerType, upgradeDisk: boolean = false): Promise<any> {
