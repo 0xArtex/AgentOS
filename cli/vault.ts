@@ -379,6 +379,22 @@ function encryptWithRawKey(plaintext: string, keyHex: string): EncryptedBlob {
   }
 }
 
+/**
+ * Distinguish "ethers module can't even load" (missing dependency, broken
+ * install) from "ethers loaded but threw mid-derivation" (genuinely odd
+ * input). The former is an environment problem; the latter is a real
+ * derivation failure. Callers — especially the integrity check — must NOT
+ * treat them the same: missing-ethers cascading into "wallet tampered" was
+ * the false-positive in the user report.
+ */
+function loadEthers(): typeof import('ethers') | { __loadError: Error } {
+  try {
+    return require('ethers')
+  } catch (e: any) {
+    return { __loadError: e instanceof Error ? e : new Error(String(e)) }
+  }
+}
+
 function deriveAllAccounts(mnemonic: string): AccountInfo[] {
   const accounts: AccountInfo[] = []
   const seed = bip39.mnemonicToSeedSync(mnemonic)
@@ -393,15 +409,34 @@ function deriveAllAccounts(mnemonic: string): AccountInfo[] {
     })
   } catch {}
 
+  // ethers MUST be present (it's a declared dependency). If `require('ethers')`
+  // throws, that's an environment problem — surface it loudly rather than
+  // silently producing a partial account list. A partial list cascades into
+  // verifyIntegrity()'s "Chain eip155:1 present in file but not derivable
+  // from mnemonic" error, which gets reported as `SECURITY: wallet file
+  // integrity check failed` and makes the user think their wallet was
+  // tampered with. (Issue: 2026-05-05 user feedback after upgrade from
+  // 0.7.17 → 0.7.20.)
+  const ethersMod: any = loadEthers()
+  if (ethersMod.__loadError) {
+    throw new Error(
+      `Could not load 'ethers'. Reinstall the CLI: 'npm i -g @agntos/agentos@latest'. ` +
+      `Underlying error: ${ethersMod.__loadError.message}`
+    )
+  }
   try {
-    const { ethers } = require('ethers')
-    const hd = ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0")
+    const hd = ethersMod.ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0")
     accounts.push({
       chainId: 'eip155:1',
       address: hd.address,
       derivationPath: "m/44'/60'/0'/0/0",
     })
-  } catch {}
+  } catch (e: any) {
+    // ethers loaded but derivation threw. Truly anomalous — re-raise so the
+    // integrity check sees a hard failure rather than a missing-account
+    // false-positive.
+    throw new Error(`EVM (eip155:1) account derivation failed: ${e?.message || e}`)
+  }
 
   return accounts
 }
