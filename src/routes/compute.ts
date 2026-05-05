@@ -9,10 +9,17 @@ const router = Router();
 
 const PLATFORM_KEY = '/root/.ssh/id_ed25519_platform';
 
-/** Build SSH command — prefer platform key, fallback to password */
+/** Build SSH command — prefer platform key, fallback to password.
+ *
+ * `-q` (quiet) suppresses ssh's MOTD/banner chatter; `-T` refuses pseudo-tty
+ * allocation so the remote bash never tries to set terminal modes (issue #85
+ * symptom: "tcsetattr: Inappropriate ioctl for device" + "logout" leaking
+ * through stderr from a remote login shell). These flags are defensive —
+ * non-interactive ssh shouldn't need a tty anyway.
+ */
 function sshCmd(ip: string, pw?: string | null): string {
   // Always try platform key first (injected by cloud-init)
-  return `ssh -i ${PLATFORM_KEY} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -o PasswordAuthentication=no root@${ip}`;
+  return `ssh -i ${PLATFORM_KEY} -q -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -o PasswordAuthentication=no root@${ip}`;
 }
 
 /**

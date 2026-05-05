@@ -899,6 +899,24 @@ async function main() {
               }) + '\n')
             }
 
+            // Persist a local cache entry IMMEDIATELY — before the readiness
+            // chain. Issue #85: if --wait hangs/times out, a follow-up
+            // `compute wait <id>` or `compute ssh <id>` would otherwise find
+            // nothing in cache and silently skip the SSH + install gates.
+            // Saving here means the cache always has the server's IP, name,
+            // and key path, even when the wait portion of the deploy fails.
+            try {
+              csshMod.saveDeployedServer({
+                id: String(data.id || ''),
+                name: String(data.name || name),
+                ipv4: data.ipv4 ?? null,
+                serverType: String(data.serverType || type),
+                sshPrivateKeyPath: localKeyPath && existsSync(localKeyPath) ? localKeyPath : undefined,
+                sshKeyIds,
+                deployedAt: new Date().toISOString(),
+              })
+            } catch {}
+
             let finalData: any = data
             let readiness: any = undefined
             if (wantWait && data?.id) {
@@ -921,6 +939,7 @@ async function main() {
                 ready: result.ready,
                 checks: result.checks,
                 elapsedMs: result.elapsedMs,
+                ...(result.skipReasons ? { skipReasons: result.skipReasons } : {}),
                 ...(result.reason ? { reason: result.reason } : {}),
                 ...(result.installStatus ? { installStatus: result.installStatus } : {}),
                 ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
@@ -940,19 +959,23 @@ async function main() {
               }
             }
 
-            // Persist a local cache entry so `compute ssh <name>` can resolve
-            // names without paying for a `GET /compute/servers` round-trip.
-            try {
-              csshMod.saveDeployedServer({
-                id: String(finalData.id || data.id || ''),
-                name: String(finalData.name || data.name || name),
-                ipv4: (finalData.ipv4 || data.ipv4) ?? null,
-                serverType: String(finalData.serverType || data.serverType || type),
-                sshPrivateKeyPath: localKeyPath && existsSync(localKeyPath) ? localKeyPath : undefined,
-                sshKeyIds,
-                deployedAt: new Date().toISOString(),
-              })
-            } catch {}
+            // Refresh the cache entry if --wait found a different IP than
+            // the create call returned (Hetzner sometimes assigns the v4
+            // post-provisioning). Only fires when wait actually ran;
+            // otherwise the pre-wait save above is already authoritative.
+            if (wantWait && finalData.ipv4 !== data.ipv4) {
+              try {
+                csshMod.saveDeployedServer({
+                  id: String(finalData.id || data.id || ''),
+                  name: String(finalData.name || data.name || name),
+                  ipv4: (finalData.ipv4 || data.ipv4) ?? null,
+                  serverType: String(finalData.serverType || data.serverType || type),
+                  sshPrivateKeyPath: localKeyPath && existsSync(localKeyPath) ? localKeyPath : undefined,
+                  sshKeyIds,
+                  deployedAt: new Date().toISOString(),
+                })
+              } catch {}
+            }
 
             // Surface where the generated key landed in the response so users
             // (especially agents in non-TTY runs) know what to ssh -i. When we
@@ -1026,6 +1049,7 @@ async function main() {
               ipv4: result.ip,
               checks: result.checks,
               elapsedMs: result.elapsedMs,
+              ...(result.skipReasons ? { skipReasons: result.skipReasons } : {}),
               ...(result.reason ? { reason: result.reason } : {}),
               ...(result.installStatus ? { installStatus: result.installStatus } : {}),
               ...(result.diagnostics ? { diagnostics: result.diagnostics } : {}),
