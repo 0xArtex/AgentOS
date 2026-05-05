@@ -23,20 +23,32 @@ const SOLANA_RPC = process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solan
 const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 const BASE_CHAIN_ID = 8453
 
+/**
+ * A single PaymentRequirements entry from the 402 response (one per chain).
+ * Keeps the full server-supplied object so it can be echoed back verbatim
+ * in the PaymentPayload's `accepted` field — the canonical x402 v2 client
+ * (`@x402/core/client/createPaymentPayload`) and the CDP facilitator's zod
+ * validators both reject a stubbed `{ scheme, network }`.
+ */
 interface PaymentOption {
   amount: bigint
   payTo: string
   feePayer: string
   asset: string
   network: string
+  /** Full PaymentRequirements object — echo this into `paymentPayload.accepted`. */
+  requirements: Record<string, any>
 }
 
 /**
- * Parse a 402 response. Returns available payment options by chain.
+ * Parse a 402 response. Returns available payment options by chain plus the
+ * top-level `resource` block so callers can echo it into the PaymentPayload.
  */
 export function parsePaymentRequired(data: any): {
   solana: PaymentOption | null
   base: PaymentOption | null
+  resource: any
+  extensions: any
 } {
   const accepts = data.accepts || []
   const sol = accepts.find((a: any) => a.network?.startsWith('solana:'))
@@ -48,6 +60,7 @@ export function parsePaymentRequired(data: any): {
       feePayer: sol.extra?.feePayer || '',
       asset: sol.asset || USDC_MINT,
       network: sol.network,
+      requirements: sol,
     } : null,
     base: evm ? {
       amount: BigInt(evm.amount),
@@ -55,7 +68,10 @@ export function parsePaymentRequired(data: any): {
       feePayer: '', // facilitator handles gas
       asset: evm.asset || BASE_USDC,
       network: evm.network,
+      requirements: evm,
     } : null,
+    resource: data.resource,
+    extensions: data.extensions,
   }
 }
 
@@ -253,6 +269,39 @@ async function buildEvmPaymentAuthorization(
 }
 
 /**
+ * Construct a spec-compliant x402 v2 PaymentPayload.
+ *
+ * The canonical shape (from `@x402/core` types — `PaymentPayload`) is:
+ *
+ *   { x402Version, resource, accepted: <full PaymentRequirements>, payload, extensions? }
+ *
+ * Echoing the FULL `accepted` object (asset, amount, payTo, maxTimeoutSeconds,
+ * extra) and the top-level `resource` block is non-negotiable on the EVM/CDP
+ * facilitator path: Coinbase's API runs zod validation on `paymentPayload` and
+ * rejects stubbed `{ scheme, network }` inputs with `cdp_verify_failed`. Our
+ * own SVM verifier reads only `payload.transaction` and ignores `accepted`,
+ * which is why the bug only manifested on Base.
+ *
+ * `extensions` is preserved opportunistically — the spec marks it optional and
+ * some facilitators read flags out of it, so passing it through is harmless.
+ */
+function buildSpecCompliantPayload(opts: {
+  payload: Record<string, unknown>
+  requirements: Record<string, any>
+  resource?: any
+  extensions?: any
+}): Record<string, any> {
+  const out: Record<string, any> = {
+    x402Version: 2,
+    accepted: opts.requirements,
+    payload: opts.payload,
+  }
+  if (opts.resource !== undefined) out.resource = opts.resource
+  if (opts.extensions !== undefined) out.extensions = opts.extensions
+  return out
+}
+
+/**
  * Like paidRequest, but returns the raw Response from the final paid call
  * so the caller can consume a streaming body (e.g. text/event-stream for i402).
  *
@@ -298,31 +347,36 @@ export async function paidStreamRequest(
   if (preferredChain === 'base') {
     const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
     if (!auth) throw new Error('Failed to build EVM payment authorization')
-    paymentPayload = {
-      x402Version: 2,
-      scheme: 'exact',
-      network: selected.network,
+    paymentPayload = buildSpecCompliantPayload({
       payload: { signature: auth.signature, authorization: auth.authorization },
-      accepted: { scheme: 'exact', network: selected.network },
-    }
+      requirements: selected.requirements,
+      resource: options.resource,
+      extensions: options.extensions,
+    })
     payer = auth.payer
   } else {
     const tx = await buildPaymentTransaction(selected.payTo, selected.amount, selected.feePayer, undefined, passphrase)
     if (!tx) throw new Error('Failed to build Solana payment transaction')
-    paymentPayload = {
-      x402Version: 2,
+    paymentPayload = buildSpecCompliantPayload({
       payload: { transaction: tx.transaction },
-      accepted: { scheme: 'exact', network: selected.network },
-    }
+      requirements: selected.requirements,
+      resource: options.resource,
+      extensions: options.extensions,
+    })
     payer = tx.payer
   }
 
+  const encoded = Buffer.from(JSON.stringify(paymentPayload)).toString('base64')
   const paidOpts: RequestInit = {
     method,
     headers: {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
-      'Payment-Signature': Buffer.from(JSON.stringify(paymentPayload)).toString('base64'),
+      // Spec header is `X-PAYMENT`; legacy `Payment-Signature` is sent for
+      // backward compat with our older server build (drops a release after
+      // both ends are confirmed on X-PAYMENT only).
+      'X-PAYMENT': encoded,
+      'Payment-Signature': encoded,
     },
   }
   if (body) paidOpts.body = JSON.stringify(body)
@@ -405,26 +459,26 @@ export async function paidRequest(
       const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
       if (!auth) throw new Error('Failed to build EVM payment authorization — no wallet configured')
 
-      paymentPayload = {
-        x402Version: 2,
-        scheme: 'exact',
-        network: selected.network,
+      paymentPayload = buildSpecCompliantPayload({
         payload: {
           signature: auth.signature,
           authorization: auth.authorization,
         },
-        accepted: { scheme: 'exact', network: selected.network },
-      }
+        requirements: selected.requirements,
+        resource: options.resource,
+        extensions: options.extensions,
+      })
       payer = auth.payer
     } else {
       const tx = await buildPaymentTransaction(selected.payTo, selected.amount, selected.feePayer, undefined, passphrase)
       if (!tx) throw new Error('Failed to build Solana payment transaction — no wallet configured')
 
-      paymentPayload = {
-        x402Version: 2,
+      paymentPayload = buildSpecCompliantPayload({
         payload: { transaction: tx.transaction },
-        accepted: { scheme: 'exact', network: selected.network },
-      }
+        requirements: selected.requirements,
+        resource: options.resource,
+        extensions: options.extensions,
+      })
       payer = tx.payer
     }
 
@@ -432,11 +486,16 @@ export async function paidRequest(
 
     const chosenChain = preferredChain
 
+    const encoded = Buffer.from(JSON.stringify(paymentPayload)).toString('base64')
     const paidOpts: RequestInit = {
       method,
       headers: {
         'Content-Type': 'application/json',
-        'Payment-Signature': Buffer.from(JSON.stringify(paymentPayload)).toString('base64'),
+        // Spec header is `X-PAYMENT`; legacy `Payment-Signature` kept for
+        // back-compat with older AgentOS server builds (drop a release after
+        // both ends are confirmed on X-PAYMENT only).
+        'X-PAYMENT': encoded,
+        'Payment-Signature': encoded,
       },
     }
     if (body && allowsBody) paidOpts.body = JSON.stringify(body)
