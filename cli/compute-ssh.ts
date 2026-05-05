@@ -266,8 +266,16 @@ export function tcpProbe(host: string, port: number, timeoutMs: number = 3000): 
  */
 export function sshProbe(ip: string, keyPath: string, timeoutSec: number = 5): boolean {
   if (!existsSync(keyPath)) return false
+  // -q (quiet): suppress ssh's own MOTD/banner/warning chatter.
+  // -T: refuse to allocate a pseudo-tty. Some sshd configs and login-shell
+  //     setups on the remote print "tcsetattr: Inappropriate ioctl for
+  //     device" + "logout" through stderr when the remote bash thinks it
+  //     should manipulate terminal modes — issue #85. Forcing -T removes
+  //     the entire class of failure.
   const r = spawnSync('ssh', [
     '-i', keyPath,
+    '-q',
+    '-T',
     '-o', 'BatchMode=yes',
     '-o', `ConnectTimeout=${timeoutSec}`,
     '-o', 'StrictHostKeyChecking=accept-new',
@@ -291,6 +299,18 @@ export interface ReadinessResult {
     ssh: ReadinessCheck
     /** Only populated when the deploy requested an install recipe. */
     installs?: ReadinessCheck
+  }
+  /**
+   * Per-gate explanation when `checks.<gate> === 'skipped'`. Omitted for
+   * `pass`/`fail`/`timeout` since those are self-explanatory. Lets agents
+   * (and humans) immediately see WHY a gate didn't run instead of having
+   * to reason about it from the call shape — issue #85 had a `compute
+   * wait --install hermes` return ssh+installs as `skipped` with no
+   * indication that the cause was a missing local key path.
+   */
+  skipReasons?: {
+    ssh?: string
+    installs?: string
   }
   elapsedMs: number
   /** Diagnostic string when `ready === false`. */
@@ -317,8 +337,11 @@ export interface ReadinessResult {
  */
 function sshRun(ip: string, keyPath: string, command: string, timeoutSec: number = 10): { stdout: string; status: number } {
   if (!existsSync(keyPath)) return { stdout: '', status: 127 }
+  // -q + -T: see sshProbe for rationale. Same defensive flags everywhere.
   const r = spawnSync('ssh', [
     '-i', keyPath,
+    '-q',
+    '-T',
     '-o', 'BatchMode=yes',
     '-o', `ConnectTimeout=${Math.min(15, timeoutSec)}`,
     '-o', 'StrictHostKeyChecking=accept-new',
@@ -535,6 +558,7 @@ export async function waitForReady(opts: {
   }
 
   // Gate 3: SSH credential probe (optional)
+  const skipReasons: NonNullable<ReadinessResult['skipReasons']> = {}
   if (opts.keyPath && existsSync(opts.keyPath)) {
     opts.onProgress?.({ stage: 'ssh', message: `Verifying SSH login with ${opts.keyPath}…` })
     checks.ssh = 'fail'
@@ -562,6 +586,9 @@ export async function waitForReady(opts: {
     }
   } else {
     checks.ssh = 'skipped'
+    skipReasons.ssh = opts.keyPath
+      ? `Private key not found at ${opts.keyPath}.`
+      : 'No local SSH key path supplied. Pass --key <path> to enable the SSH credential probe, or run from the host where the key was generated.'
   }
 
   // Gate 4: Install marker (optional). Cloud-init writes
@@ -628,6 +655,9 @@ export async function waitForReady(opts: {
       // Install was requested but we have no local key to SSH in with — can't
       // poll the marker. Mark skipped so the caller knows the gate didn't run.
       checks.installs = 'skipped'
+      skipReasons.installs = opts.keyPath
+        ? `Private key not found at ${opts.keyPath}; can't read /etc/agentos/install-status.json.`
+        : 'No local SSH key path supplied; can\'t read /etc/agentos/install-status.json. Pass --key <path>, or check the marker manually: agentos compute exec <id> -- cat /etc/agentos/install-status.json'
     }
   }
 
@@ -636,6 +666,7 @@ export async function waitForReady(opts: {
     ip,
     status,
     checks,
+    ...(Object.keys(skipReasons).length > 0 ? { skipReasons } : {}),
     elapsedMs: Date.now() - startedAt,
     installStatus,
   }

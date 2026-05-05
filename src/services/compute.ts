@@ -501,10 +501,16 @@ export async function execOnServer(
   };
   const remoteCmd = [command, ...args].map(quote).join(" ");
 
+  // -q (quiet) + -T (no PTY): same defensive flags as the CLI's
+  // sshProbe/sshRun. Without these, a remote login shell can leak
+  // "tcsetattr: Inappropriate ioctl for device" + "logout" through stderr
+  // (issue #85). Non-interactive ssh doesn't need a tty.
   const r = spawnSync(
     "ssh",
     [
       "-i", PLATFORM_KEY,
+      "-q",
+      "-T",
       "-o", "StrictHostKeyChecking=no",
       "-o", "UserKnownHostsFile=/dev/null",
       "-o", "BatchMode=yes",
