@@ -33,12 +33,15 @@ agentos setup --keyfile ~/.config/solana/id.json --chain solana
 
 agentos phone search --country US
 agentos email create --name my-agent --wallet SOL_PUBKEY
-agentos compute deploy --name my-vps --type cx23
+agentos compute deploy --type cx23 --json  # auto-key, auto-wait, verified ssh — JSON out
+agentos compute ssh my-vps                 # drop into the new box
 agentos domain buy --name myagent.dev
 agentos wallet create
 agentos twitter buy                        # $5 USDC → ready X account from the pool
 agentos twitter post @handle --body "gm"   # post immediately, no setup
 ```
+
+Agents: pipe stdout into `jq`, branch on `$?` against the [exit code table](cli/README.md#exit-codes). Force JSON on a TTY with `--json` or `AGENTOS_JSON=1`.
 
 Or run without installing: `npx @agntos/agentos phone search --country US`
 

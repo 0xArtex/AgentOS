@@ -175,12 +175,85 @@ End-to-end encrypted inboxes at `<name>@agntos.dev`. Messages are encrypted at r
 
 VPS instances on Hetzner-class hardware. Plans are listed live; the `cx23` plan is a 4 vCPU / 8 GB / 80 GB SSD baseline.
 
+#### Golden path
+
+The bare command is a one-liner: it auto-generates an ed25519 keypair, deploys, blocks until the server is reachable, verifies SSH actually works, and returns a usable shell command in the JSON response.
+
+```bash
+agentos compute deploy --type cx23 --json
+```
+
+That single call:
+1. Generates `~/.agentos/ssh/<server-name>/id_ed25519{,.pub}` (chmod 600).
+2. Inlines the public key into Hetzner's cloud-init so it's in `authorized_keys` at first boot.
+3. Pays the $6 deploy fee via x402 (Solana or Base USDC).
+4. Polls until Hetzner reports `status=running` (gate 1).
+5. TCP-probes port 22 until sshd accepts (gate 2).
+6. Runs `ssh -i <key> root@<ip> 'true'` to confirm authentication (gate 3).
+7. Returns JSON with a top-level `sshCommand` and a `readiness` block.
+
+Drop into the new VPS:
+
+```bash
+agentos compute ssh <name>
+```
+
+Names resolve from a local cache populated by `compute deploy`; `compute ssh` looks up the IP and path to the matching private key without a paid API round-trip.
+
+#### SSH-key management
+
+| Command | Cost | Notes |
+|---|---|---|
+| `agentos compute ssh-key add <pubkey-file> [--name "label"]` | $0.10 | Upload an SSH public key to Hetzner. Returns numeric `id` you can pass to `--ssh-key`. Reusable across deploys. |
+| `agentos compute ssh-key list` | $0.01 | List uploaded keys with fingerprints. |
+| `agentos compute ssh-key delete <id>` | $0.01 | Remove a key from Hetzner. Existing servers keep the key in `authorized_keys`. |
+
+#### Deploy
+
 | Command | Cost | Notes |
 |---|---|---|
 | `agentos compute plans` | free | List server types and monthly pricing. |
-| `agentos compute deploy --name my-vps --type cx23` | $6.00 | Deployment fee. Monthly server cost is metered separately. |
+| `agentos compute deploy [--type cx23] [--name N]` | $6.00 | Golden path (auto-key, auto-wait, verified). Deployment fee; monthly server cost is metered separately. |
+| `agentos compute deploy --ssh-key <id>` | $6.00 | Use a pre-uploaded Hetzner key (numeric ID from `ssh-key list`). Preferred for repeatable deploys. |
+| `agentos compute deploy --pubkey-file ~/.ssh/id_ed25519.pub` | $6.00 | Inline an existing key without uploading to Hetzner first. |
+| `agentos compute deploy --pubkey "ssh-ed25519 AAAA..."` | $6.00 | Same, raw key string instead of a file. |
+| `agentos compute deploy --no-generate-ssh-key` | $6.00 | Opt out of auto-generation. Server boots with the platform's temp key only — call `setup-ssh` later or you can't get in. |
+| `agentos compute deploy --no-wait` | $6.00 | Fire-and-forget. Returns as soon as Hetzner accepts the create call. |
+| `agentos compute deploy --wait-timeout 300` | $6.00 | Override the default 240s readiness budget (clamped 30–900). |
+
+The four key sources (`--ssh-key <id>`, `--pubkey-file`, `--pubkey`, `--generate-ssh-key`) are mutually exclusive — passing more than one returns exit 2 with a clear error.
+
+#### Wait + SSH
+
+| Command | Cost | Notes |
+|---|---|---|
+| `agentos compute wait <name|id> [--key <path>] [--wait-timeout <sec>]` | $0.01 | Run the readiness chain against an existing server. Useful when the original deploy ran without `--wait` or its wait timed out. Exits `4` (NOT_FOUND) when not ready, `0` when all gates pass. Stdout always carries the full readiness JSON. |
+| `agentos compute ssh <name|id>` | free | Drop into the server (TTY mode) or print the equivalent `ssh -i <key> root@<ip>` command (agent mode). Resolves from local cache; no paid API call. |
+| `agentos compute setup-ssh <id> --pubkey-file ~/.ssh/id.pub` | $0.01 | Inject your public key into a server you didn't supply a key for at deploy time. Locks the root password and removes the platform's temporary key — after this, only your key works. |
+
+#### Lifecycle + actions
+
+Each takes `<name|id>` from the local cache (or a numeric Hetzner id directly).
+
+| Command | Cost | Notes |
+|---|---|---|
+| `agentos compute reboot <name|id>` | $0.10 | Graceful restart. |
+| `agentos compute poweroff <name|id>` | $0.10 | Graceful shutdown — data preserved. |
+| `agentos compute poweron <name|id>` | $0.10 | Power on a stopped server. |
+| `agentos compute reset <name|id>` | $0.10 | Hard restart, no graceful shutdown. |
+| `agentos compute rebuild <name|id> [--image ubuntu-24.04]` | $0.10 | Reinstall OS — wipes disk, re-runs cloud-init, keeps IP. |
+| `agentos compute reset-password <name|id>` | $0.10 | Rotate the root password (Hetzner-side). On AgentOS-deployed boxes, password auth is disabled by cloud-init — the new password is for console use or after manually re-enabling password auth. Use `setup-ssh` for SSH access. |
+| `agentos compute console <name|id>` | $0.10 | Get a noVNC console URL (`wssUrl` + `password`, expires ~1 minute). Break-glass when SSH is unreachable (cloud-init failed, sshd misconfigured). |
+| `agentos compute exec <name|id> -- <command> [args...]` | $0.05 | Run a single command pre-handoff via the platform's temporary SSH key. Returns `{stdout, stderr, exitCode, durationMs}`. Returns `410 Gone` once `setup-ssh` has run (the platform key is removed at handoff). 30s default timeout. |
 | `agentos compute list` | $0.01 | List your servers. |
-| `agentos compute delete --id <SERVER_ID>` | $0.10 | Terminate and stop billing. |
+| `agentos compute delete <name|id>` | $0.10 | Terminate and stop billing. |
+
+The `--` separator (POSIX convention) tells the parser everything after it is for the remote shell, not local CLI flags. Useful when the remote command takes its own dash-prefixed args:
+
+```bash
+agentos compute exec my-vps -- systemctl status --no-pager openclaw
+agentos compute exec my-vps -- bash -c 'cloud-init clean && cloud-init init --all'
+```
 
 ### Domains
 
@@ -298,9 +371,16 @@ ao.emailThreads(inboxId: string)
 
 // Compute
 ao.computePlans()
-ao.computeDeploy(name: string, type: string)
+ao.computeDeploy(name: string, type: string, opts?: { sshPublicKey?: string; sshKeyIds?: number[]; installOpenClaw?: boolean })
 ao.computeList()
+ao.computeGet(serverId: string)
 ao.computeDelete(serverId: string)
+ao.computeAction(serverId: string, action: string, opts?: { image?: string })  // reboot | poweron | poweroff | reset | rebuild | reset_password | request_console
+ao.computeExec(serverId: string, command: string, args?: string[], opts?: { timeoutSec?: number })  // pre-handoff only
+ao.computeSetupSsh(serverId: string, publicKey: string)  // inject key, lock password, hand off
+ao.computeSshKeyAdd(name: string, publicKey: string)
+ao.computeSshKeyList()
+ao.computeSshKeyDelete(id: number | string)
 
 // Domains
 ao.domainCheck(domain: string)

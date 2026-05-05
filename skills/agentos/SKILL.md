@@ -47,10 +47,22 @@ agentos email send --id ID --to x@y.com --subject "Hi" --body "..."  # Send ($0.
 agentos email threads --id INBOX_ID                    # List threads ($0.02)
 
 # Compute
-agentos compute plans                            # List VPS plans (free)
-agentos compute deploy --name my-vps --type cx23 # Deploy VPS (from $8/mo)
-agentos compute list                             # List servers
-agentos compute delete --id SERVER_ID            # Delete server
+agentos compute plans                                       # List VPS plans (free)
+agentos compute deploy --type cx23 --json                   # Golden path: auto-key, wait, verified ($6 + monthly)
+agentos compute deploy --type cx23 --ssh-key 12345 --json   # Use a pre-uploaded Hetzner key
+agentos compute deploy --type cx23 --pubkey-file ~/.ssh/id_ed25519.pub --json  # Use existing key
+agentos compute deploy --type cx23 --no-wait --json         # Fire-and-forget
+agentos compute ssh-key add ~/.ssh/id_ed25519.pub           # Upload key to Hetzner ($0.10) — returns numeric id
+agentos compute ssh-key list                                # List uploaded keys ($0.01)
+agentos compute wait <name|id>                              # Block until status=running, port 22 open, SSH verified
+agentos compute ssh <name|id>                               # SSH in (TTY) or print ssh command (agent mode)
+agentos compute exec <name|id> -- <command> [args...]       # Run command pre-handoff ($0.05)
+agentos compute reset-password <name|id>                    # Rotate root password ($0.10)
+agentos compute console <name|id>                           # noVNC URL — break-glass when SSH broken ($0.10)
+agentos compute reboot|poweroff|poweron|reset|rebuild <name|id>  # Lifecycle actions ($0.10)
+agentos compute setup-ssh <id> --pubkey-file ~/.ssh/id.pub  # Inject key post-deploy ($0.01)
+agentos compute list                                        # List servers
+agentos compute delete <name|id>                            # Delete server ($0.10)
 
 # Domains
 agentos domain check --name example.dev   # Check availability (free)
@@ -118,10 +130,14 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | **Compute** | | |
 | List plans | `GET /compute/plans` | Free |
 | Upload SSH key | `POST /compute/ssh-keys` | 0.10 |
-| Create server | `POST /compute/servers` | 8.00-40.00 |
-| List servers | `GET /compute/servers` | 0.02 |
-| Server status | `GET /compute/servers/:id` | 0.02 |
-| Server action | `POST /compute/servers/:id/actions` | 0.10 |
+| List SSH keys | `GET /compute/ssh-keys` | 0.01 |
+| Delete SSH key | `DELETE /compute/ssh-keys/:id` | 0.01 |
+| Create server | `POST /compute/servers` *(accepts `sshPublicKey` or `sshKeyIds[]`; returns `sshAccess` block)* | 6.00 |
+| List servers | `GET /compute/servers` | 0.01 |
+| Server status | `GET /compute/servers/:id` | 0.01 |
+| Server action | `POST /compute/servers/:id/actions` *(reboot, poweron, poweroff, reset, rebuild, **reset_password**, **request_console**)* | 0.10 |
+| Run command (pre-handoff) | `POST /compute/servers/:id/exec` | 0.05 |
+| SSH key handoff | `POST /compute/servers/:id/setup-ssh` | 0.01 |
 | Resize server | `POST /compute/servers/:id/resize` | 0.10 |
 | Delete server | `DELETE /compute/servers/:id` | 0.10 |
 | **Domains** | | |
@@ -155,6 +171,40 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Security scan | `GET /compute/skills/:slug/security` | Free |
 
 All paid endpoints use **x402** — make the request, get a 402, pay with USDC, done.
+
+## Agent mode
+
+The CLI auto-detects when stdout isn't a TTY and switches to a machine-parseable contract: clean JSON on stdout, structured `{error, exitCode, hint}` on stderr for failures, no spinners or ANSI decoration. Force it on a TTY with `--json` or `AGENTOS_JSON=1`.
+
+Streaming commands (`agentos chat run`) emit **NDJSON** in agent mode — one JSON event per line — so you can `for await` over stdout in a pipeline.
+
+### Stable exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Success |
+| 1 | Generic failure |
+| 2 | Bad input (missing/invalid flag or argument) |
+| 3 | Auth failed (bad token/session) |
+| 4 | Not found (wallet, server, etc.) |
+| 5 | Network unreachable |
+| 6 | x402 payment failed |
+| 7 | Vault tamper / security check failed — do not retry |
+
+```bash
+agentos compute deploy --type cx23 --json | jq .sshCommand
+agentos compute exec my-vps -- echo hi --json 2>err.log; [ $? -eq 0 ] || cat err.log
+```
+
+## VPS golden path
+
+`agentos compute deploy --type cx23 --json` is a one-liner that:
+1. Generates an ed25519 keypair locally (`~/.agentos/ssh/<name>/id_ed25519`).
+2. Pays $6 USDC via x402, deploys via Hetzner Cloud.
+3. Waits until `status=running`, port 22 is open, and `ssh -i <key> root@<ip> 'true'` returns 0.
+4. Returns JSON with a top-level `sshCommand` and a `readiness` block showing each gate.
+
+After it returns, `agentos compute ssh <name>` drops you in (TTY) or prints the ssh command (agent mode). Everything resolves from a local cache — no paid round-trip.
 
 ## Authentication
 
