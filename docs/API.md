@@ -230,11 +230,16 @@ Full pricing table (no payment required).
       "update_dns": "0.10"
     },
     "compute": {
-      "create_server": "5.00",
+      "create_server": "6.00",
       "list_servers": "0.01",
       "get_server": "0.01",
       "delete_server": "0.10",
-      "upload_ssh_key": "0.10"
+      "server_action": "0.10",
+      "exec_command": "0.05",
+      "setup_ssh": "0.01",
+      "upload_ssh_key": "0.10",
+      "list_ssh_keys": "0.01",
+      "delete_ssh_key": "0.01"
     },
     "apikeys": {
       "provision_key": "1.00",
@@ -629,7 +634,7 @@ Create a new cloud server (Hetzner Cloud).
 
 | Field | Details |
 |-------|---------|
-| **Cost** | 5.00 USDC |
+| **Cost** | 6.00 USDC |
 | **Rate Limit** | 5 req / 60s |
 
 **Request:**
@@ -641,7 +646,7 @@ curl -X POST https://api.agentos.dev/compute/servers \
     "name": "my-agent-server",
     "serverType": "cx22",
     "image": "ubuntu-24.04",
-    "sshKeyIds": [12345]
+    "sshPublicKey": "ssh-ed25519 AAAAC3..."
   }'
 ```
 
@@ -650,7 +655,9 @@ curl -X POST https://api.agentos.dev/compute/servers \
 | `name` | string | ✅ | Server name |
 | `serverType` | string | ✅ | Server tier: `cx22`, `cx32`, `cx42`, `cx52` |
 | `image` | string | ❌ | OS image (default: `ubuntu-24.04`) |
-| `sshKeyIds` | number[] | ❌ | SSH key IDs to install |
+| `sshPublicKey` | string | ❌ | OpenSSH-format public key, inlined into cloud-init at first boot. Validated server-side; bad input fails as 400 before Hetzner is touched. |
+| `sshKeyIds` | number[] | ❌ | IDs of pre-uploaded keys (from `POST /compute/ssh-keys`). Hetzner injects them before cloud-init runs. |
+| `installOpenClaw` | boolean | ❌ | Default `true`. Runs cloud-init that hardens sshd (disables password auth), installs OpenClaw, sets up the firewall. Set to `false` to get a vanilla Ubuntu box; password auth stays enabled and the returned `rootPassword` works. |
 
 **Server Types:**
 
@@ -661,7 +668,9 @@ curl -X POST https://api.agentos.dev/compute/servers \
 | `cx42` | 8 | 16 GB | $20.00 |
 | `cx52` | 16 | 32 GB | $40.00 |
 
-**Response (201):**
+**Response (201) — branches on whether cloud-init runs and a key was attached:**
+
+When `installOpenClaw=true` and a key was attached (`sshPublicKey` or `sshKeyIds`):
 ```json
 {
   "id": "srv_jkl012",
@@ -674,7 +683,50 @@ curl -X POST https://api.agentos.dev/compute/servers \
   "owner": "7xKXt...",
   "priceMonthly": "5.00",
   "createdAt": "2025-01-15T10:30:00Z",
-  "rootPassword": "auto-generated-password"
+  "sshAccess": {
+    "method": "ssh-key",
+    "command": "ssh root@203.0.113.50",
+    "note": "Your public key was injected at boot. Cloud-init takes ~60s to finish; SSH may be reachable a bit before that."
+  },
+  "message": "Server created at 203.0.113.50. SSH ready once cloud-init finishes (~60s)."
+}
+```
+
+When `installOpenClaw=true` and **no** key was attached (server is reachable only via the platform's temporary key during provisioning):
+```json
+{
+  "id": "srv_jkl012",
+  "ipv4": "203.0.113.50",
+  "sshAccess": {
+    "method": "platform-provisioning",
+    "note": "We hold a temporary key during provisioning; you don't have direct SSH access yet.",
+    "howToGetSsh": {
+      "endpoint": "POST /compute/servers/srv_jkl012/setup-ssh",
+      "body": { "publicKey": "ssh-ed25519 AAAA... [comment]" },
+      "cli": "agentos compute setup-ssh --id srv_jkl012 --pubkey \"ssh-ed25519 AAAA...\"",
+      "effect": "Injects your public key, removes our temporary key, locks the root password."
+    },
+    "alternatives": [
+      "Pass `sshPublicKey` next time you call POST /compute/servers — no second round-trip.",
+      "Drive the box through POST /compute/servers/{id}/configure-openclaw if you only need API access."
+    ]
+  },
+  "message": "Server created at 203.0.113.50. Run setup-ssh to get SSH access."
+}
+```
+
+When `installOpenClaw=false` (vanilla Ubuntu, password auth left enabled):
+```json
+{
+  "id": "srv_jkl012",
+  "ipv4": "203.0.113.50",
+  "rootPassword": "auto-generated-password",
+  "sshAccess": {
+    "method": "password",
+    "command": "ssh root@203.0.113.50",
+    "rootPassword": "auto-generated-password",
+    "note": "Save this password — we do not store a recoverable copy. Switch to SSH key auth on first login."
+  }
 }
 ```
 
@@ -780,6 +832,152 @@ curl -X POST https://api.agentos.dev/compute/ssh-keys \
 {
   "id": 12345,
   "name": "my-key"
+}
+```
+
+#### `GET /compute/ssh-keys` and `DELETE /compute/ssh-keys/:id`
+
+List uploaded keys (cost: 0.01 USDC) and delete a key by id (cost: 0.01 USDC). Returns `{ sshKeys: [{ id, name, fingerprint }] }` and `{ deleted: true, id }` respectively.
+
+---
+
+#### `POST /compute/servers/:id/actions`
+
+Perform a lifecycle or management action on a server.
+
+| Field | Details |
+|-------|---------|
+| **Cost** | 0.10 USDC |
+
+| `action` | What it does |
+|---|---|
+| `reboot` | Graceful restart |
+| `poweron` | Power on a stopped server |
+| `poweroff` | Graceful shutdown — data preserved |
+| `reset` | Hard restart, no graceful shutdown |
+| `rebuild` | Reinstall OS — wipes disk, re-runs cloud-init, keeps IP. Pass `image` to override (default: `ubuntu-24.04`). |
+| `reset_password` | Rotate the root password (Hetzner-side). Returns the new password in `rootPassword` and updates our local record. **Does not re-enable password SSH** — on AgentOS-deployed servers, sshd is configured `PasswordAuthentication=no`, so the new password is for console use or after manually re-enabling password auth in `/etc/ssh/sshd_config`. |
+| `request_console` | Get a short-lived noVNC console URL. Useful break-glass when SSH is unreachable. Response: `{ wssUrl, password, expiresAt }`. Open `wssUrl` in a browser within ~1 minute. |
+
+**Request:**
+```bash
+curl -X POST https://api.agentos.dev/compute/servers/srv_jkl012/actions \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: <tx-signature>" \
+  -d '{ "action": "reset_password" }'
+```
+
+**Response (200) — `reset_password`:**
+```json
+{
+  "action": "reset_password",
+  "serverId": "srv_jkl012",
+  "rootPassword": "new-rotated-password",
+  "note": "Root password rotated. SSH login by password will only work if sshd accepts it."
+}
+```
+
+**Response (200) — `request_console`:**
+```json
+{
+  "action": "request_console",
+  "serverId": "srv_jkl012",
+  "wssUrl": "wss://console.hetzner.cloud/?token=...",
+  "password": "<console-password>",
+  "expiresAt": "2025-01-15T10:31:00Z",
+  "note": "Open wssUrl in a browser within ~1 minute."
+}
+```
+
+---
+
+#### `POST /compute/servers/:id/setup-ssh`
+
+Inject the user's public key into a deployed server, remove the platform's temporary key, lock the root password. After this call, only the user can SSH into the box — the platform has no further access.
+
+| Field | Details |
+|-------|---------|
+| **Cost** | 0.01 USDC |
+
+**Request:**
+```bash
+curl -X POST https://api.agentos.dev/compute/servers/srv_jkl012/setup-ssh \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: <tx-signature>" \
+  -d '{ "publicKey": "ssh-ed25519 AAAAC3... user@host" }'
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `publicKey` | string | ✅ | OpenSSH-format public key. Strict regex validation: `ssh-ed25519`, `ssh-rsa`, `ssh-dss`, `ecdsa-sha2-nistp256/384/521`. Up to 16384 chars. |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "message": "SSH key injected, password auth disabled, root password deleted from platform. Only your key can access this server now.",
+  "ip": "203.0.113.50",
+  "ssh": "ssh -i <your-key> root@203.0.113.50"
+}
+```
+
+Returns 400 if the server has already been through handoff (`root_password` is NULL in the local record).
+
+---
+
+#### `POST /compute/servers/:id/exec`
+
+Run a single command on a freshly-deployed server via the platform's temporary SSH key. **Pre-handoff only** — returns `410 Gone` once `setup-ssh` has run, since the platform's key is removed at handoff and we no longer have access.
+
+| Field | Details |
+|-------|---------|
+| **Cost** | 0.05 USDC |
+| **Rate Limit** | 20 req / 60s |
+
+**Request:**
+```bash
+curl -X POST https://api.agentos.dev/compute/servers/srv_jkl012/exec \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: <tx-signature>" \
+  -d '{
+    "command": "systemctl",
+    "args": ["status", "openclaw"],
+    "timeoutSec": 30
+  }'
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `command` | string | ✅ | The binary to run (1–256 chars). |
+| `args` | string[] | ❌ | Argument list. Each is POSIX shell-quoted server-side and passed to ssh as a distinct argv element — no shell interpolation on our side. Total payload (`command` + `args`) capped at 64KiB. |
+| `timeoutSec` | number | ❌ | Wall-clock timeout, 1–120s (default 30). Exceeding it returns `exitCode: 124`. |
+
+For pipelines / shell-builtins, wrap in `bash -c`:
+```json
+{ "command": "bash", "args": ["-c", "cloud-init clean && cloud-init init --all"] }
+```
+
+**Response (200):**
+```json
+{
+  "action": "exec",
+  "serverId": "srv_jkl012",
+  "command": "systemctl",
+  "args": ["status", "openclaw"],
+  "stdout": "● openclaw.service - OpenClaw Gateway\n   Active: active (running)...",
+  "stderr": "",
+  "exitCode": 0,
+  "durationMs": 873
+}
+```
+
+Stdout/stderr are each capped at 1MiB.
+
+**Response (410) — post-handoff:**
+```json
+{
+  "error": "Server is past SSH handoff — platform no longer has SSH access",
+  "hint": "Once you call POST /compute/servers/:id/setup-ssh, only your key works. Use your own SSH session to run commands."
 }
 ```
 
