@@ -169,6 +169,36 @@ function deriveEvmFromVaultFile(data: WalletFile): string | null {
 }
 
 /**
+ * Backfill an `eip155:1` account entry into a legacy wallet's JSON file so
+ * subsequent reads don't have to derive on the fly. Locked + atomic write so
+ * concurrent CLI invocations don't corrupt the file.
+ *
+ * Failures here are non-fatal — the caller still has the derived address in
+ * memory; this is purely a cache-on-disk optimization.
+ */
+function persistEvmAccount(filePath: string, address: string): void {
+  const release = acquireLock(filePath)
+  try {
+    // Re-read inside the lock so we merge with whatever the file currently
+    // holds — another writer (e.g. concurrent `wallet info`) may have already
+    // backfilled and we don't want to clobber unrelated changes.
+    const fresh = JSON.parse(readFileSync(filePath, 'utf8')) as WalletFile
+    if (!Array.isArray(fresh.accounts)) return
+    if (fresh.accounts.some(a => a.chainId?.startsWith('eip155:'))) return // already has one
+    fresh.accounts.push({
+      chainId: 'eip155:1',
+      address,
+      derivationPath: "m/44'/60'/0'/0/0",
+    })
+    atomicWriteFileSync(filePath, JSON.stringify(fresh, null, 2))
+  } catch {
+    // Swallow — backfill is best-effort. The lazy derive still works on next read.
+  } finally {
+    release()
+  }
+}
+
+/**
  * List all wallets in the local vault.
  * Corrupted files are skipped with a warning — one bad file never breaks the whole listing.
  */
@@ -178,19 +208,25 @@ export function listVaultWallets(): VaultWalletSummary[] {
 
   const wallets: VaultWalletSummary[] = []
   for (const f of readdirSync(dir).filter(x => x.endsWith('.json'))) {
+    const filePath = join(dir, f)
     try {
-      const data = JSON.parse(readFileSync(join(dir, f), 'utf8')) as WalletFile
+      const data = JSON.parse(readFileSync(filePath, 'utf8')) as WalletFile
       if (!data?.id || !Array.isArray(data.accounts)) {
         console.warn(`[vault] skipping ${f}: missing required fields`)
         continue
       }
       const sol = data.accounts.find(a => a.chainId?.startsWith('solana:'))?.address || null
+      let evm = data.accounts.find(a => a.chainId?.startsWith('eip155:'))?.address || null
       // Legacy wallets predate EVM-account storage. Fall back to deriving
-      // from the same mnemonic so `wallet list` / `wallet info` show Base
-      // alongside Solana without forcing a re-import.
-      const evm = data.accounts.find(a => a.chainId?.startsWith('eip155:'))?.address
-        || deriveEvmFromVaultFile(data)
-        || null
+      // from the same mnemonic, then persist the result so the next read
+      // finds it in `accounts` directly.
+      if (!evm) {
+        const derived = deriveEvmFromVaultFile(data)
+        if (derived) {
+          evm = derived
+          persistEvmAccount(filePath, derived)
+        }
+      }
       wallets.push({ id: data.id, name: data.name, mode: data.mode || 'legacy', solanaAddress: sol, evmAddress: evm, createdAt: data.created_at })
     } catch (e: any) {
       console.warn(`[vault] skipping ${f}: ${e.message.split('\n')[0]}`)
