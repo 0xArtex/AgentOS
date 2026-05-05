@@ -601,7 +601,7 @@ router.post("/inbound", urlencoded({ extended: true, limit: '25mb' }), async (re
 /**
  * GET /email/inboxes/:id/threads — List threads in an inbox
  */
-router.get("/inboxes/:id/threads", x402(0.02, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/inboxes/:id/threads", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const inboxId = req.params.id as string;
     const inbox = emailService.getInbox(inboxId);
@@ -647,7 +647,7 @@ router.get("/threads/:threadId/messages", x402(0.02, { discoverable: false }), a
 /**
  * GET /email/attachments/:attachmentId — Download an attachment
  */
-router.get("/attachments/:attachmentId", x402(0.02, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/attachments/:attachmentId", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const att = storage.getEmailAttachment?.(req.params.attachmentId as string);
     if (!att) { res.status(404).json({ error: "Attachment not found" }); return; }

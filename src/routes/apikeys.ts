@@ -10,7 +10,7 @@ const router = Router();
  * POST /apikeys — Provision a new API key
  * Cost: 1.00 USDC
  */
-router.post("/", rateLimit(10, 60_000), x402(1.0), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/", rateLimit(10, 60_000), x402(1.0, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { provider, label } = req.body as { provider: ApiKeyProvider; label?: string };
 
@@ -31,7 +31,7 @@ router.post("/", rateLimit(10, 60_000), x402(1.0), async (req: AuthenticatedRequ
  * GET /apikeys — List active keys
  * Cost: 0.01 USDC
  */
-router.get("/", x402(0.01), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/", x402(0.01, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const keys = await apikeysService.listKeys(req.agentId || req.payment?.payer || "unknown");
     res.json({ keys });
@@ -44,7 +44,7 @@ router.get("/", x402(0.01), async (req: AuthenticatedRequest, res: Response) => 
  * DELETE /apikeys/:id — Revoke a key
  * Cost: 0.01 USDC. Only the original owner can revoke.
  */
-router.delete("/:id", x402(0.01), async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/:id", x402(0.01, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const owner = req.payment?.payer || req.agentId;
     if (!owner) {
