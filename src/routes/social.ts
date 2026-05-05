@@ -516,7 +516,7 @@ router.post(
 router.post(
   "/twitter/buy",
   requireXEnabled,
-  requireAuth(5.0, "general", { discoverable: false }),
+  requireAuth(5.0, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const { country, age_category } = (req.body || {}) as {
       country?: string;
