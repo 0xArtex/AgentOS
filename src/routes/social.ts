@@ -596,7 +596,7 @@ function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | 
 router.post(
   "/tiktok/login",
   requireTikTokEnabled,
-  requireAuth(0.02, "general"),
+  requireAuth(0.02, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const {
       account_id,
@@ -662,7 +662,7 @@ router.post(
 router.post(
   "/tiktok/post",
   requireTikTokEnabled,
-  requireAuth(0.01, "general"),
+  requireAuth(0.01, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -683,7 +683,7 @@ router.post(
 router.post(
   "/tiktok/follow",
   requireTikTokEnabled,
-  requireAuth(0.001, "general"),
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -701,7 +701,7 @@ router.post(
 router.post(
   "/tiktok/like",
   requireTikTokEnabled,
-  requireAuth(0.001, "general"),
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
