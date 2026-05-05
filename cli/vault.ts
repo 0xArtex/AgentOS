@@ -148,6 +148,27 @@ function keypairFromMnemonic(mnemonic: string): Keypair {
 }
 
 /**
+ * Derive the Base/EVM address for a wallet whose `accounts` array doesn't
+ * include an `eip155:` entry yet (legacy wallets predate EVM-account storage).
+ * Reuses the OS credential-store session secret — never prompts.
+ *
+ * Returns null if derivation isn't possible (raw private-key wallet, missing
+ * session secret, or any decrypt failure). Caller treats that as "no Base
+ * address to show" rather than an error.
+ */
+function deriveEvmFromVaultFile(data: WalletFile): string | null {
+  if (data.key_type !== 'mnemonic') return null
+  try {
+    const mnemonic = resolveMnemonic(data)
+    const { ethers } = require('ethers')
+    const hd = ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0")
+    return hd.address as string
+  } catch {
+    return null
+  }
+}
+
+/**
  * List all wallets in the local vault.
  * Corrupted files are skipped with a warning — one bad file never breaks the whole listing.
  */
@@ -164,7 +185,12 @@ export function listVaultWallets(): VaultWalletSummary[] {
         continue
       }
       const sol = data.accounts.find(a => a.chainId?.startsWith('solana:'))?.address || null
-      const evm = data.accounts.find(a => a.chainId?.startsWith('eip155:'))?.address || null
+      // Legacy wallets predate EVM-account storage. Fall back to deriving
+      // from the same mnemonic so `wallet list` / `wallet info` show Base
+      // alongside Solana without forcing a re-import.
+      const evm = data.accounts.find(a => a.chainId?.startsWith('eip155:'))?.address
+        || deriveEvmFromVaultFile(data)
+        || null
       wallets.push({ id: data.id, name: data.name, mode: data.mode || 'legacy', solanaAddress: sol, evmAddress: evm, createdAt: data.created_at })
     } catch (e: any) {
       console.warn(`[vault] skipping ${f}: ${e.message.split('\n')[0]}`)
