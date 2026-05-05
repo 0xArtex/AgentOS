@@ -414,6 +414,28 @@ export class AgentOS {
     return this.request('POST', `/compute/servers/${serverId}/setup-ssh`, { publicKey })
   }
 
+  // ── SSH keys (Hetzner-managed, stable IDs) ──
+  //
+  // The numeric ID returned by `computeSshKeyAdd` is what `computeDeploy({
+  // sshKeyIds: [...] })` consumes. Hetzner injects them into authorized_keys
+  // at first boot — same outcome as inline `sshPublicKey`, but the key is
+  // reusable across deploys without re-uploading.
+  async computeSshKeyAdd(name: string, publicKey: string): Promise<any> {
+    return this.request('POST', '/compute/ssh-keys', { name, publicKey })
+  }
+
+  async computeSshKeyList(): Promise<any> {
+    return this.request('GET', '/compute/ssh-keys')
+  }
+
+  async computeSshKeyDelete(id: number | string): Promise<any> {
+    return this.request('DELETE', `/compute/ssh-keys/${id}`)
+  }
+
+  async computeGet(serverId: string): Promise<any> {
+    return this.request('GET', `/compute/servers/${serverId}`)
+  }
+
   // ── Domains ──
   async domainCheck(domain: string): Promise<any> {
     return this.request('GET', `/domains/check?domain=${domain}`)
