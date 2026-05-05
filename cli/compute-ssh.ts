@@ -289,36 +289,81 @@ export interface ReadinessResult {
     hetznerStatus: ReadinessCheck
     port22: ReadinessCheck
     ssh: ReadinessCheck
+    /** Only populated when the deploy requested an install recipe. */
+    installs?: ReadinessCheck
   }
   elapsedMs: number
   /** Diagnostic string when `ready === false`. */
   reason?: string
+  /** Parsed contents of /etc/agentos/install-status.json on success. */
+  installStatus?: { installs: string[]; completed_at: string; status: string }
 }
 
 /**
- * Three-gate readiness chain used by `compute deploy --wait` and `compute
+ * Read /etc/agentos/install-status.json from the server via SSH. Returns the
+ * parsed object on success, null if the file doesn't exist yet (cloud-init
+ * still running) or can't be parsed. Used as gate 4 of the readiness chain
+ * when a deploy requested install recipes.
+ */
+export function readInstallStatus(ip: string, keyPath: string, timeoutSec: number = 8):
+  | { installs: string[]; completed_at: string; status: string }
+  | null
+{
+  if (!existsSync(keyPath)) return null
+  const r = spawnSync('ssh', [
+    '-i', keyPath,
+    '-o', 'BatchMode=yes',
+    '-o', `ConnectTimeout=${Math.min(15, timeoutSec)}`,
+    '-o', 'StrictHostKeyChecking=accept-new',
+    '-o', 'UserKnownHostsFile=' + join(AGENTOS_DIR, 'ssh', 'known_hosts'),
+    `root@${ip}`,
+    // 2>/dev/null suppresses the "no such file" error so the missing-file
+    // case is just an empty stdout, not a parse failure with stderr noise.
+    'cat /etc/agentos/install-status.json 2>/dev/null',
+  ], { stdio: 'pipe', timeout: (timeoutSec + 2) * 1000, encoding: 'utf-8' })
+  if (r.status !== 0) return null
+  const out = (r.stdout ?? '').trim()
+  if (!out) return null
+  try {
+    const parsed = JSON.parse(out)
+    if (parsed && typeof parsed === 'object' && parsed.status === 'ok' && Array.isArray(parsed.installs)) {
+      return parsed as any
+    }
+  } catch {}
+  return null
+}
+
+/**
+ * Four-gate readiness chain used by `compute deploy --wait` and `compute
  * wait <id>`:
  *
  *   1. Hetzner status flips to `running`.
  *   2. TCP port 22 accepts connections.
  *   3. (Optional) `ssh -i <key> root@<ip> 'true'` exits 0.
+ *   4. (Optional) /etc/agentos/install-status.json exists with `status: ok`
+ *      and contains every recipe in `expectedInstalls`. Skipped when no
+ *      installs were requested at deploy time, OR when we don't have a
+ *      private key path to SSH in with.
  *
  * Gate 3 is skipped when `keyPath` is undefined or the file doesn't exist —
  * e.g. user deployed with `--ssh-key <hetzner-id>` and we don't have the
  * private key locally. They get gates 1+2 and a documented "ssh: skipped"
  * marker so they know the credential check wasn't done.
  *
- * The function shares one wall-clock budget across all three gates so a slow
- * Hetzner provisioning step doesn't get extra time at the SSH probe's
- * expense. Default 240s is enough for a fresh Ubuntu box that has to download
- * Node 22 + install OpenClaw via npm during cloud-init.
+ * The function shares one wall-clock budget across all four gates so a slow
+ * Hetzner provisioning step doesn't steal time from the install poll. Default
+ * 240s is enough for the SSH gates with no install; bump via `timeoutMs` (the
+ * CLI defaults to 600s when an install is requested, since Hermes pulls
+ * Python 3.11 + several hundred MB of pip packages).
  */
 export async function waitForReady(opts: {
   getStatus: () => Promise<{ status: string; ipv4: string | null }>
   keyPath?: string
   timeoutMs?: number
+  /** Recipe names that the deploy requested; the gate-4 marker file must contain all of them with status=ok. */
+  expectedInstalls?: string[]
   /** Optional progress callback fired on each gate transition. Invoked once with `{ stage, message }` per stage entry; never called from within the inner polling loops. */
-  onProgress?: (event: { stage: 'status' | 'port22' | 'ssh'; message: string }) => void
+  onProgress?: (event: { stage: 'status' | 'port22' | 'ssh' | 'installs'; message: string }) => void
 }): Promise<ReadinessResult> {
   const startedAt = Date.now()
   const deadline = startedAt + (opts.timeoutMs ?? 240_000)
@@ -414,11 +459,58 @@ export async function waitForReady(opts: {
     checks.ssh = 'skipped'
   }
 
+  // Gate 4: Install marker (optional). Cloud-init writes
+  // /etc/agentos/install-status.json once every requested recipe finishes.
+  // We poll it via SSH every 5s; still subject to the shared deadline.
+  let installStatus: ReadinessResult['installStatus']
+  if (opts.expectedInstalls && opts.expectedInstalls.length > 0) {
+    if (opts.keyPath && existsSync(opts.keyPath)) {
+      checks.installs = 'fail'
+      opts.onProgress?.({ stage: 'installs', message: `Waiting for installs to finish: ${opts.expectedInstalls.join(', ')}…` })
+      let installOk = false
+      delay = 5_000
+      while (Date.now() < deadline) {
+        const s = readInstallStatus(ip!, opts.keyPath, 8)
+        if (s) {
+          // Confirm every requested recipe shows up in the marker. The server
+          // writes them in install order, so set-equality is sufficient.
+          const have = new Set(s.installs)
+          const missing = opts.expectedInstalls.filter(r => !have.has(r))
+          if (missing.length === 0) {
+            checks.installs = 'pass'
+            installStatus = s
+            installOk = true
+            break
+          }
+        }
+        await new Promise(r => setTimeout(r, delay))
+        delay = Math.min(delay * 1.2, 8_000)
+      }
+      if (!installOk) {
+        checks.installs = 'timeout'
+        return {
+          ready: false,
+          ip,
+          status,
+          checks,
+          elapsedMs: Date.now() - startedAt,
+          reason: `Install did not complete within the timeout. Recipes requested: ${opts.expectedInstalls.join(', ')}. Tail the cloud-init log: agentos compute exec <id> -- tail -200 /var/log/cloud-init-output.log`,
+          installStatus,
+        }
+      }
+    } else {
+      // Install was requested but we have no local key to SSH in with — can't
+      // poll the marker. Mark skipped so the caller knows the gate didn't run.
+      checks.installs = 'skipped'
+    }
+  }
+
   return {
     ready: true,
     ip,
     status,
     checks,
     elapsedMs: Date.now() - startedAt,
+    installStatus,
   }
 }

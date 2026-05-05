@@ -70,6 +70,24 @@ router.get("/plans", (_req, res: Response) => {
   });
 });
 
+/**
+ * GET /compute/install-recipes — List available agent install recipes
+ *
+ * Free — no auth required. Tells agents what they can pass to `--install` /
+ * the `install` field on POST /compute/servers. Each recipe runs as part of
+ * cloud-init and writes /etc/agentos/install-status.json on completion.
+ */
+router.get("/install-recipes", (_req, res: Response) => {
+  res.json({
+    recipes: computeService.listInstallRecipes(),
+    usage: {
+      api: "POST /compute/servers with body { install: \"hermes\" } or { install: [\"hermes\", \"openclaw\"] }",
+      cli: "agentos compute deploy --type cx22 --install hermes",
+      marker: "Cloud-init writes /etc/agentos/install-status.json when all requested recipes finish. The CLI's deploy --wait polls this as gate 4.",
+    },
+  });
+});
+
 // ── SSH Keys ──────────────────────────────────────────────────
 
 /**
@@ -140,9 +158,58 @@ router.delete("/ssh-keys/:id", requireAuth(0.01, 'general'), async (req: Authent
  * POST /compute/servers — Create a server
  * Cost: varies by plan (6-50 USDC)
  */
-router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async (req: AuthenticatedRequest, res: Response) => {
+/**
+ * Pre-payment validation for POST /compute/servers. Runs BEFORE requireAuth
+ * so an obviously-bad request (typo in install recipe, malformed SSH key)
+ * fails as a 400 without the caller paying $6 USDC.
+ *
+ * Anything that depends on application state (existing server count,
+ * Hetzner-side conflicts, etc.) is left to the post-payment route handler —
+ * those can't be cheaply checked up-front and the failure mode is rare
+ * enough that paying first is acceptable.
+ */
+function validateCreateServerBody(req: AuthenticatedRequest, res: Response, next: any): void {
+  const { install, sshPublicKey } = req.body as { install?: string | string[]; sshPublicKey?: string };
+
+  if (install !== undefined) {
+    const list = Array.isArray(install)
+      ? install
+      : typeof install === 'string'
+        ? install.split(',').map(s => s.trim())
+        : null;
+    if (list === null) {
+      res.status(400).json({ error: 'Invalid install field', message: '`install` must be a string or string[]' });
+      return;
+    }
+    for (const r of list) {
+      if (r.length === 0) continue;
+      if (!computeService.isKnownRecipe(r)) {
+        const known = computeService.listInstallRecipes().map(x => x.name).join(', ');
+        res.status(400).json({
+          error: 'Invalid install recipe',
+          message: `Unknown install recipe '${r}'. Known recipes: ${known}`,
+          hint: 'GET /compute/install-recipes (free) for the live list.',
+        });
+        return;
+      }
+    }
+  }
+
+  if (sshPublicKey !== undefined && typeof sshPublicKey === 'string') {
+    try {
+      computeService.assertSshPublicKey(sshPublicKey);
+    } catch (e: any) {
+      res.status(400).json({ error: 'Invalid SSH Public Key', message: e.message });
+      return;
+    }
+  }
+
+  next();
+}
+
+router.post("/servers", validateCreateServerBody, requireAuth(6.0, 'server'), rateLimit(5, 60_000), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    const { name, serverType, image, sshKeyIds, sshPublicKey, location, installOpenClaw } = req.body as {
+    const { name, serverType, image, sshKeyIds, sshPublicKey, location, installOpenClaw, install } = req.body as {
       name: string;
       serverType: string;
       image?: string;
@@ -150,6 +217,7 @@ router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async 
       sshPublicKey?: string;
       location?: string;
       installOpenClaw?: boolean;
+      install?: string | string[];
     };
 
     if (!name || !serverType) {
@@ -159,6 +227,30 @@ router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async 
         hint: "GET /compute/plans for available types. Include sshPublicKey or sshKeyIds for SSH access."
       });
       return;
+    }
+
+    // Resolve the install list. `install` (new, explicit) wins over the legacy
+    // `installOpenClaw` boolean. Either format normalizes to a string[] of
+    // recipe names that the service layer validates against the allowlist.
+    //
+    //   install: ["hermes"]                  → installs: ["hermes"]
+    //   install: "hermes,openclaw"           → installs: ["hermes","openclaw"]
+    //   install: undefined, installOpenClaw  → preserve legacy behavior
+    let installs: string[];
+    if (install !== undefined) {
+      const raw = Array.isArray(install)
+        ? install
+        : typeof install === 'string'
+          ? install.split(',').map(s => s.trim())
+          : [];
+      installs = raw.filter(s => s.length > 0);
+    } else if (installOpenClaw === false) {
+      installs = [];
+    } else {
+      // No install field, no explicit opt-out → keep the existing default of
+      // OpenClaw. Backwards compatible with every CLI version shipped before
+      // 0.7.17.
+      installs = ['openclaw'];
     }
 
     const owner = req.agentId || req.payment?.payer || "unknown";
@@ -171,19 +263,25 @@ router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async 
         image ?? "ubuntu-24.04",
         owner,
         sshKeyIds,
-        installOpenClaw,
+        installs,
         location,
         sshPublicKey
       );
     } catch (createErr: any) {
-      // sshPublicKey validation errors should surface as 400, not 500.
-      if (/sshPublicKey/.test(createErr?.message || '')) {
-        res.status(400).json({ error: 'Invalid SSH Public Key', message: createErr.message });
+      const msg = createErr?.message || '';
+      // sshPublicKey validation errors → 400, not 500.
+      if (/sshPublicKey/.test(msg)) {
+        res.status(400).json({ error: 'Invalid SSH Public Key', message: msg });
+        return;
+      }
+      // Unknown install recipe → 400 with the allowlist so the caller can fix.
+      if (/Unknown install recipe/.test(msg)) {
+        res.status(400).json({ error: 'Invalid install recipe', message: msg });
         return;
       }
       throw createErr;
     }
-    const { passwordUsable, ...server } = result;
+    const { passwordUsable, installs: resolvedInstalls, ...server } = result;
 
     // Build an explicit `sshAccess` block so the caller can branch
     // deterministically — agents shouldn't have to interpret presence/absence
@@ -237,13 +335,28 @@ router.post("/servers", requireAuth(6.0, 'server'), rateLimit(5, 60_000), async 
       response = { ...visible, sshAccess };
     }
 
+    // Surface the resolved install list so callers know what got requested
+    // (independent of whether it actually finished — the readiness chain's
+    // gate-4 marker file confirms completion).
+    if (resolvedInstalls.length > 0) {
+      response.installs = resolvedInstalls;
+      response.installStatus = {
+        marker: '/etc/agentos/install-status.json',
+        note: `Cloud-init runs ${resolvedInstalls.length} install recipe(s) in sequence. The CLI's deploy --wait gate 4 polls the marker file via SSH; if you skipped --wait, you can check it yourself with: agentos compute exec ${server.id} -- cat /etc/agentos/install-status.json`,
+      };
+    }
+
+    const installSummary = resolvedInstalls.length > 0
+      ? ` Installing: ${resolvedInstalls.join(', ')}.`
+      : '';
+
     res.status(201).json({
       ...response,
       message: passwordUsable
-        ? `Server created at ${ip}.`
+        ? `Server created at ${ip}.${installSummary}`
         : userKeyAttached
-          ? `Server created at ${ip}. SSH ready once cloud-init finishes (~60s).`
-          : `Server created at ${ip}. Run setup-ssh to get SSH access.`,
+          ? `Server created at ${ip}. SSH ready once cloud-init finishes (~60s).${installSummary}`
+          : `Server created at ${ip}. Run setup-ssh to get SSH access.${installSummary}`,
     });
   } catch (err: any) {
     console.error("[compute] Create error:", err);

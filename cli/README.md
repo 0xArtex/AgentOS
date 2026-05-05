@@ -200,6 +200,38 @@ agentos compute ssh <name>
 
 Names resolve from a local cache populated by `compute deploy`; `compute ssh` looks up the IP and path to the matching private key without a paid API round-trip.
 
+#### Bootstrap an agent runtime (`--install`)
+
+Pass `--install <recipe>` to bake an AI-agent runtime into the deploy. Cloud-init runs the recipe before SSH gets handed back to you, and the readiness chain gains a fourth gate that polls `/etc/agentos/install-status.json` until every requested recipe reports `status: ok`.
+
+```bash
+# Deploy with Hermes Agent (Nous Research) bootstrapped at first boot
+agentos compute deploy --type cx22 --install hermes --json
+
+# Multiple recipes — runs in order
+agentos compute deploy --type cx22 --install hermes,openclaw --json
+
+# Discover what's installable
+agentos compute install-recipes --json
+
+# Vanilla Ubuntu — no runtime, password auth stays enabled
+agentos compute deploy --type cx22 --no-install --json
+```
+
+| Recipe | What lands on the box |
+|---|---|
+| `openclaw` *(default when `--install` is omitted)* | Node 22 + `openclaw` and `clawhub` global npm packages. Provisioning marker at `/etc/openclaw/provision.json`. |
+| `hermes` | [Hermes Agent](https://github.com/NousResearch/hermes-agent) — Nous Research's self-improving AI agent. Installed via the official `scripts/install.sh --skip-setup`, lands at `/usr/local/bin/hermes`. Pulls Python 3.11 + a few hundred MB of pip packages — adds 2–4 minutes to the deploy. After the deploy, run `agentos compute exec <name> -- hermes setup` (or SSH in and run `hermes setup`) to pick a model provider. |
+
+Recipe validation is **pre-payment**: passing `--install bogus` exits with `EXIT.BAD_INPUT` (2) before any USDC is charged. The CLI defaults `--wait-timeout` to 600s when `--install` is set; override with `--wait-timeout <seconds>` (clamped 30–900).
+
+Cloud-init logs go to `/var/log/cloud-init-output.log`; per-recipe logs land under `/var/log/agentos/`. Tail them post-deploy with:
+
+```bash
+agentos compute exec <name> -- tail -200 /var/log/cloud-init-output.log
+agentos compute exec <name> -- tail -200 /var/log/agentos/hermes-install.log
+```
+
 #### SSH-key management
 
 | Command | Cost | Notes |
@@ -213,13 +245,17 @@ Names resolve from a local cache populated by `compute deploy`; `compute ssh` lo
 | Command | Cost | Notes |
 |---|---|---|
 | `agentos compute plans` | free | List server types and monthly pricing. |
+| `agentos compute install-recipes` | free | List recipes you can pass to `--install`. |
 | `agentos compute deploy [--type cx23] [--name N]` | $6.00 | Golden path (auto-key, auto-wait, verified). Deployment fee; monthly server cost is metered separately. |
+| `agentos compute deploy --install hermes` | $6.00 | Bootstrap an agent runtime (Hermes Agent, OpenClaw) via cloud-init; deploy waits until `/etc/agentos/install-status.json` reports `ok`. |
+| `agentos compute deploy --install hermes,openclaw` | $6.00 | Multiple recipes, run in order. |
+| `agentos compute deploy --no-install` | $6.00 | Skip cloud-init entirely → vanilla Ubuntu, password auth stays enabled, returned `rootPassword` works. |
 | `agentos compute deploy --ssh-key <id>` | $6.00 | Use a pre-uploaded Hetzner key (numeric ID from `ssh-key list`). Preferred for repeatable deploys. |
 | `agentos compute deploy --pubkey-file ~/.ssh/id_ed25519.pub` | $6.00 | Inline an existing key without uploading to Hetzner first. |
 | `agentos compute deploy --pubkey "ssh-ed25519 AAAA..."` | $6.00 | Same, raw key string instead of a file. |
 | `agentos compute deploy --no-generate-ssh-key` | $6.00 | Opt out of auto-generation. Server boots with the platform's temp key only — call `setup-ssh` later or you can't get in. |
 | `agentos compute deploy --no-wait` | $6.00 | Fire-and-forget. Returns as soon as Hetzner accepts the create call. |
-| `agentos compute deploy --wait-timeout 300` | $6.00 | Override the default 240s readiness budget (clamped 30–900). |
+| `agentos compute deploy --wait-timeout 300` | $6.00 | Override the default 240s readiness budget (600s when `--install` is set). Clamped 30–900. |
 
 The four key sources (`--ssh-key <id>`, `--pubkey-file`, `--pubkey`, `--generate-ssh-key`) are mutually exclusive — passing more than one returns exit 2 with a clear error.
 
@@ -371,7 +407,8 @@ ao.emailThreads(inboxId: string)
 
 // Compute
 ao.computePlans()
-ao.computeDeploy(name: string, type: string, opts?: { sshPublicKey?: string; sshKeyIds?: number[]; installOpenClaw?: boolean })
+ao.computeInstallRecipes()                                                      // discover --install names (free)
+ao.computeDeploy(name: string, type: string, opts?: { sshPublicKey?: string; sshKeyIds?: number[]; installOpenClaw?: boolean; install?: string | string[] })
 ao.computeList()
 ao.computeGet(serverId: string)
 ao.computeDelete(serverId: string)

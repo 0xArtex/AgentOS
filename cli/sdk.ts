@@ -323,7 +323,17 @@ export class AgentOS {
       }
     }
 
-    if (data.error) throw new Error(data.error)
+    if (data.error) {
+      // Surface the server's `message` and `hint` if present — the bare
+      // `error` field is often a category label ("Invalid install recipe")
+      // while the actual specifics (which recipe, what's allowed) live in
+      // `message` and `hint`. CLI's err() formatter renders multi-line
+      // messages cleanly.
+      const parts: string[] = [String(data.error)]
+      if (data.message && data.message !== data.error) parts.push(String(data.message))
+      if (data.hint) parts.push(`Hint: ${data.hint}`)
+      throw new Error(parts.join(' — '))
+    }
     return data
   }
 
@@ -381,20 +391,41 @@ export class AgentOS {
     return this.request('GET', '/compute/plans')
   }
 
+  /**
+   * Deploy a Hetzner Cloud server.
+   *
+   * `install` controls what cloud-init bootstraps on the server. When set
+   * (string or array), it overrides the legacy `installOpenClaw` boolean.
+   * Pass `[]` for a vanilla Ubuntu box (cloud-init skipped, password auth
+   * stays enabled). Discoverable via `GET /compute/install-recipes`.
+   */
   async computeDeploy(
     name: string,
     serverType: string,
-    opts: { sshPublicKey?: string; sshKeyIds?: number[]; installOpenClaw?: boolean } = {},
+    opts: {
+      sshPublicKey?: string
+      sshKeyIds?: number[]
+      installOpenClaw?: boolean
+      install?: string | string[]
+    } = {},
   ): Promise<any> {
     const body: Record<string, unknown> = {
       name,
       serverType,
       image: 'ubuntu-24.04',
-      installOpenClaw: opts.installOpenClaw ?? true,
+    }
+    if (opts.install !== undefined) {
+      body.install = opts.install
+    } else if (opts.installOpenClaw !== undefined) {
+      body.installOpenClaw = opts.installOpenClaw
     }
     if (opts.sshPublicKey) body.sshPublicKey = opts.sshPublicKey
     if (opts.sshKeyIds?.length) body.sshKeyIds = opts.sshKeyIds
     return this.request('POST', '/compute/servers', body)
+  }
+
+  async computeInstallRecipes(): Promise<any> {
+    return this.request('GET', '/compute/install-recipes')
   }
 
   async computeList(): Promise<any> {
