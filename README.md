@@ -58,7 +58,7 @@ Visual node-based agent deployment: [agntos.dev/dashboard.html](https://agntos.d
 | **Phone** | ✅ Live | $2/number, $0.05/SMS, $0.10/call |
 | **Voice Calls** | ✅ Live | TTS, DTMF, record, transfer, gather |
 | **Email** | ✅ Live | $2/inbox, E2E encrypted (NaCl box) |
-| **Compute** | ✅ Live | $8-40/mo VPS, SSH hardened, OpenClaw pre-installed |
+| **Compute** | ✅ Live | $5–64/mo VPS + $6 one-time deploy fee. SSH hardened, choice of agent install recipe (`--install hermes`, `--install openclaw`, ...), location selection across 6 Hetzner datacenters. |
 | **Domains** | ✅ Live | Dynamic pricing, DNS management included |
 | **Wallet** | ✅ Live | Non-custodial smart wallets on Base + Solana |
 | **Skills** | ✅ Live | 3500+ from ClawHub, one-click install |
@@ -77,7 +77,7 @@ Agent calls API → gets 402 → pays USDC (Solana or Base) → service provisio
 
 Your wallet is your identity. Pay with USDC, your wallet address owns the resource. No API keys. No signup.
 
-## Quick Start
+## Three ways to use AgentOS
 
 ### 1. Call any endpoint → get 402 → pay with USDC → done
 ```bash
@@ -89,7 +89,7 @@ curl -X POST https://agntos.dev/phone/numbers \
 
 # Pay via x402 — your wallet address becomes the owner
 curl -X POST https://agntos.dev/phone/numbers \
-  -H "Payment-Signature: <x402-payment>" \
+  -H "X-PAYMENT: <base64-encoded x402 payment payload>" \
   -H "Content-Type: application/json" \
   -d '{"country": "US"}'
 # → phone number provisioned, owned by your wallet
@@ -134,7 +134,7 @@ All paid endpoints accept USDC via the x402 protocol:
 
 1. Call any endpoint → get `402` with `PAYMENT-REQUIRED` header
 2. Build a USDC transfer to the treasury
-3. Send it in the `Payment-Signature` header
+3. Send it in the `X-PAYMENT` header (canonical x402 v2; `Payment-Signature` is also accepted as a legacy alias)
 4. Server verifies onchain → returns the response
 
 **Networks:** Solana mainnet + Base (EVM)

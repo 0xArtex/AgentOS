@@ -1,10 +1,10 @@
 # AgentOS API Reference
 
-> **Base URL:** `https://api.agentos.dev` (or your self-hosted instance)
+> **Base URL:** `https://agntos.dev` (or your self-hosted instance)
 >
-> **Protocol:** x402 — Pay-per-call with USDC on Solana
+> **Protocol:** [x402 v2](https://github.com/coinbase/x402) — pay-per-call with USDC on **Solana mainnet** or **Base** (EIP-3009 gasless)
 >
-> **Version:** 0.1.0
+> **Discoverable in:** [x402scan](https://x402scan.com), the [Coinbase x402 Bazaar](https://api.cdp.coinbase.com/platform/v2/x402), and any explorer crawling `/.well-known/x402` or `/openapi.json`.
 
 ---
 
@@ -25,58 +25,73 @@
 
 ## Authentication (x402 Payment Protocol)
 
-AgentOS uses the **x402** payment protocol. Instead of API keys, you pay per request with USDC on Solana.
+AgentOS uses the **x402 v2** payment protocol. Instead of API keys, your wallet signs a payment authorization per request — and your wallet address becomes the resource owner.
+
+### Two supported chains
+
+| Chain | Asset | Mechanism |
+|-------|-------|-----------|
+| **Solana mainnet** | USDC SPL (`EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`) | Co-signed SPL `TransferChecked` — server pays SOL fees |
+| **Base** | USDC ERC-20 (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) | EIP-3009 `transferWithAuthorization` — gasless via the AgentOS facilitator (CDP-routed for Bazaar discoverability) |
 
 ### How It Works
 
-1. **Send USDC** to the AgentOS treasury wallet on Solana
-2. **Include the transaction signature** in the `X-Payment` header
-3. **AgentOS verifies** the transaction on-chain and processes your request
+1. **Call any paid endpoint without a payment header** → server returns `402 Payment Required` with the full `accepts[]` array describing what each chain wants (treasury address, amount, scheme, network).
+2. **Pick a chain** the `accepts[]` list offers, build the matching payload (signed Solana tx OR signed EIP-3009 authorization), and base64-encode it.
+3. **Retry the request** with the payload in the `X-PAYMENT` header (canonical x402 v2; `Payment-Signature` is also accepted as a legacy alias).
+4. **Server verifies and settles** through the appropriate facilitator → returns the response. The settled tx hash comes back in the `Payment-Response` / `PAYMENT-RESPONSE` header.
 
-### Payment Header
+The CLI handles all of this — `npm i -g @agntos/agentos` and call `agentos compute deploy ...`. Direct HTTP examples below show the on-the-wire shape for callers writing their own client.
 
-```
-X-Payment: <solana-transaction-signature>
-```
-
-### Payment Flow Example
-
-```bash
-# Step 1: Send USDC to treasury (use Solana CLI, SDK, or wallet)
-# Treasury: (check GET /api for current address)
-# Amount: depends on endpoint (see pricing)
-
-# Step 2: Get the transaction signature from Step 1
-TX_SIG="5UfDuX...your_solana_tx_signature"
-
-# Step 3: Call the API with the signature
-curl -X POST https://api.agentos.dev/phone/numbers \
-  -H "Content-Type: application/json" \
-  -H "X-Payment: $TX_SIG" \
-  -d '{"country": "US"}'
-```
-
-### Payment Verification
-
-AgentOS verifies that:
-- The transaction exists and is **confirmed** on Solana
-- It contains a **USDC SPL token transfer** to the treasury wallet
-- The transfer amount **meets or exceeds** the endpoint's minimum cost
-
-If verification fails, you'll receive a `402 Payment Required` response with details.
-
-### 402 Response (No Payment)
+### 402 Challenge (no payment yet)
 
 ```json
 {
-  "error": "Payment Required",
-  "message": "Include a Solana USDC transaction signature in the X-Payment header",
-  "protocol": "x402",
-  "treasury": "<treasury-wallet-address>",
-  "currency": "USDC",
-  "network": "solana"
+  "x402Version": 2,
+  "resource": { "url": "https://agntos.dev/phone/numbers", "description": "...", "mimeType": "application/json" },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp",
+      "amount": "2000000",
+      "payTo": "B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3",
+      "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "maxTimeoutSeconds": 60,
+      "extra": { "name": "AgentOS", "feePayer": "...", "facilitator": "https://agntos.dev/x402" }
+    },
+    {
+      "scheme": "exact",
+      "network": "eip155:8453",
+      "amount": "2000000",
+      "payTo": "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "maxTimeoutSeconds": 60,
+      "extra": { "name": "USD Coin", "version": "2", "facilitator": "https://api.cdp.coinbase.com/platform/v2/x402" }
+    }
+  ]
 }
 ```
+
+`amount` is in the asset's smallest unit (USDC has 6 decimals → `2000000` = $2.00).
+
+### Paid request (canonical x402 v2 PaymentPayload)
+
+```http
+POST /phone/numbers HTTP/1.1
+Content-Type: application/json
+X-PAYMENT: <base64 of:>
+{
+  "x402Version": 2,
+  "resource": { ... echoed from the 402 above ... },
+  "accepted": { ... full PaymentRequirements echoed verbatim from accepts[] ... },
+  "payload": {
+    "signature": "0x... (EVM EIP-3009)",
+    "authorization": { "from": "...", "to": "...", "value": "2000000", "validAfter": "0", "validBefore": "...", "nonce": "0x..." }
+  }
+}
+```
+
+Echoing the **full** `accepted` object (not a stub) is required — the CDP facilitator runs zod validation on the wire payload and rejects partial matches. The CLI's `pay.ts` builds this correctly; if you're rolling your own client, mirror `@x402/core/client/x402Client.createPaymentPayload`.
 
 ---
 
@@ -107,41 +122,53 @@ All errors return JSON:
 
 ### Payment-Specific Errors
 
-**Transaction not found:**
+x402 v2 returns a fresh 402 with the standard `accepts[]` block plus a `message` describing why the previous attempt failed. Common reasons:
+
+**Wallet has no USDC on the chosen chain:**
+
 ```json
 {
-  "error": "Transaction not found",
-  "message": "Could not find transaction on Solana. It may not be confirmed yet.",
-  "signature": "5UfDuX..."
+  "error": "Payment Required",
+  "message": "Payment verification failed: insufficient_funds"
 }
 ```
 
-**Transaction failed on-chain:**
+Top up the wallet for the chain you set as `defaultPayChain`, or switch chains: `agentos wallet use <id> --chain solana|base`.
+
+**Malformed payload (most common when rolling your own client):**
+
 ```json
 {
-  "error": "Transaction failed",
-  "message": "The referenced transaction failed on-chain.",
-  "signature": "5UfDuX..."
+  "error": "Payment Required",
+  "message": "Payment verification failed: cdp_error: invalid_payload: ..."
 }
 ```
 
-**No USDC transfer detected:**
+The CDP facilitator runs zod validation on the wire payload. The `accepted` field MUST be the full PaymentRequirements object echoed verbatim from the 402's `accepts[]` — not a `{scheme, network}` stub. See the "Paid request" example above.
+
+**EIP-3009 signature recovery failed (Base only):**
+
 ```json
-{
-  "error": "No valid USDC transfer found",
-  "message": "Transaction must include a USDC transfer to <treasury>"
-}
+{ "error": "Payment Required", "message": "Payment verification failed: invalid_exact_evm_payload_signature" }
 ```
 
-**Insufficient payment:**
+EIP-712 domain mismatch — most often `chainId`, `verifyingContract`, `name`, or `version` differs between the signer's domain and what the contract expects. For Base USDC: `chainId=8453`, `verifyingContract=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`, `name="USD Coin"`, `version="2"`.
+
+**Authorization expired or not yet valid:**
+
 ```json
-{
-  "error": "Insufficient payment",
-  "message": "This endpoint requires 5.00 USDC, but transaction contains 1.00 USDC",
-  "required": 5.0,
-  "received": 1.0
-}
+{ "error": "Payment Required", "message": "Payment verification failed: invalid_exact_evm_payload_authorization_valid_before" }
 ```
+
+`validBefore` must be at least ~6 seconds in the future. The CLI sets it to `now + 3600s` automatically.
+
+**Replay (header reuse):**
+
+```json
+{ "error": "Payment Required", "message": "Payment header already consumed. Build a fresh x402 payment for each request." }
+```
+
+Each x402 payload is one-shot. Build a new authorization (with a new nonce for EIP-3009, new blockhash for Solana) per request.
 
 ---
 
@@ -265,7 +292,7 @@ Provision a new phone number via Twilio.
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/phone/numbers \
+curl -X POST https://agntos.dev/phone/numbers \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -303,7 +330,7 @@ Retrieve SMS messages for a phone number.
 
 **Request:**
 ```bash
-curl https://api.agentos.dev/phone/numbers/phn_abc123/messages \
+curl https://agntos.dev/phone/numbers/phn_abc123/messages \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -336,7 +363,7 @@ Send an SMS message.
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/phone/numbers/phn_abc123/send \
+curl -X POST https://agntos.dev/phone/numbers/phn_abc123/send \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -377,7 +404,7 @@ Create a new email inbox.
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/email/inboxes \
+curl -X POST https://agntos.dev/email/inboxes \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{"name": "my-agent"}'
@@ -411,7 +438,7 @@ Get messages for an inbox.
 
 **Request:**
 ```bash
-curl https://api.agentos.dev/email/inboxes/inbox_def456/messages \
+curl https://agntos.dev/email/inboxes/inbox_def456/messages \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -446,7 +473,7 @@ Send an email from an inbox.
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/email/inboxes/inbox_def456/send \
+curl -X POST https://agntos.dev/email/inboxes/inbox_def456/send \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -517,7 +544,7 @@ Register a new domain.
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/domains \
+curl -X POST https://agntos.dev/domains \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -558,7 +585,7 @@ Get domain status and DNS records.
 
 **Request:**
 ```bash
-curl https://api.agentos.dev/domains/dom_ghi789 \
+curl https://agntos.dev/domains/dom_ghi789 \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -591,7 +618,7 @@ Update DNS records for a domain.
 
 **Request:**
 ```bash
-curl -X PUT https://api.agentos.dev/domains/dom_ghi789/dns \
+curl -X PUT https://agntos.dev/domains/dom_ghi789/dns \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -636,7 +663,7 @@ Each entry has the location slug, city, country, network zone, and the live depl
 
 **Request:**
 ```bash
-curl https://api.agentos.dev/compute/locations
+curl https://agntos.dev/compute/locations
 ```
 
 **Response (200):**
@@ -659,7 +686,7 @@ Optional `?location=fsn1` query param filters to types deployable in that locati
 
 **Request:**
 ```bash
-curl "https://api.agentos.dev/compute/plans?location=fsn1"
+curl "https://agntos.dev/compute/plans?location=fsn1"
 ```
 
 ---
@@ -670,7 +697,7 @@ List the agent runtime install recipes that the `install` field on `POST /comput
 
 **Request:**
 ```bash
-curl https://api.agentos.dev/compute/install-recipes
+curl https://agntos.dev/compute/install-recipes
 ```
 
 **Response (200):**
@@ -688,7 +715,7 @@ curl https://api.agentos.dev/compute/install-recipes
   ],
   "usage": {
     "api": "POST /compute/servers with body { install: \"hermes\" } or { install: [\"hermes\", \"openclaw\"] }",
-    "cli": "agentos compute deploy --type cx22 --install hermes",
+    "cli": "agentos compute deploy --type cx23 --install hermes",
     "marker": "Cloud-init writes /etc/agentos/install-status.json when all requested recipes finish. The CLI's deploy --wait polls this as gate 4."
   }
 }
@@ -707,12 +734,12 @@ Create a new cloud server (Hetzner Cloud).
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/compute/servers \
+curl -X POST https://agntos.dev/compute/servers \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
     "name": "my-agent-server",
-    "serverType": "cx22",
+    "serverType": "cx23",
     "image": "ubuntu-24.04",
     "sshPublicKey": "ssh-ed25519 AAAAC3..."
   }'
@@ -720,24 +747,16 @@ curl -X POST https://api.agentos.dev/compute/servers \
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `name` | string | ✅ | Server name |
-| `serverType` | string | ✅ | Server tier: `cx22`, `cx32`, `cx42`, `cx52` |
-| `image` | string | ❌ | OS image (default: `ubuntu-24.04`) |
+| `name` | string | ✅ | Lowercase RFC 1123 hostname. 1–253 chars of `[a-z0-9.-]`, starting and ending alphanumeric. No uppercase, no underscores. Validated pre-payment. |
+| `serverType` | string | ✅ | Server tier slug. The valid set is live — query `GET /compute/plans` (free). Common entry points: `cax11` (ARM, $5), `cx23` (Intel x86, $5), `cpx11` (AMD x86, $5). |
+| `image` | string | ❌ | OS image (default: `ubuntu-24.04`). |
 | `sshPublicKey` | string | ❌ | OpenSSH-format public key, inlined into cloud-init at first boot. Validated **before** payment — bad input fails as 400 with no USDC charged. |
 | `sshKeyIds` | number[] | ❌ | IDs of pre-uploaded keys (from `POST /compute/ssh-keys`). Hetzner injects them before cloud-init runs. |
 | `install` | string \| string[] | ❌ | Install recipe(s) to bootstrap during cloud-init. Comma-separated string or array. Each name must appear in `GET /compute/install-recipes`. Validated **before** payment — typos fail as 400 with no USDC charged. Overrides `installOpenClaw`. Examples: `"hermes"`, `["hermes", "openclaw"]`. |
 | `location` | string | ❌ | Hetzner datacenter slug (`fsn1`, `nbg1`, `hel1`, `ash`, `hil`, `sin`). Validated against `GET /compute/locations` AND against type+location compatibility, both pre-payment. `cax11 + ash` returns 400 with `Try one of: fsn1` instead of 422 after x402 settles. |
-| `name` | string | ✅ | Lowercase RFC 1123 hostname. 1–253 chars of `[a-z0-9.-]`, starting and ending alphanumeric. No uppercase, no underscores. Validated pre-payment. |
 | `installOpenClaw` | boolean | ❌ | Legacy. Default `true` (= `install: ["openclaw"]`). `false` skips cloud-init entirely (vanilla Ubuntu, password auth on). Ignored when `install` is set. |
 
-**Server Types:**
-
-| Type | vCPU | RAM | Monthly |
-|------|------|-----|---------|
-| `cx22` | 2 | 4 GB | $5.00 |
-| `cx32` | 4 | 8 GB | $10.00 |
-| `cx42` | 8 | 16 GB | $20.00 |
-| `cx52` | 16 | 32 GB | $40.00 |
+**Server Types:** the catalog is live — query `GET /compute/plans` (or the per-location `?location=fsn1` filter) for the current set with vCPU / RAM / disk / pricing. Hetzner deprecates and adds types on their own schedule, so any hardcoded list here would drift. Per-type cross-location availability is in `availableLocations[]` on each plan row.
 
 **Response (201) — branches on whether cloud-init runs and a key was attached:**
 
@@ -746,7 +765,7 @@ When cloud-init runs (default OR `install` set) and a key was attached (`sshPubl
 {
   "id": "srv_jkl012",
   "name": "my-agent-server",
-  "serverType": "cx22",
+  "serverType": "cx23",
   "image": "ubuntu-24.04",
   "status": "initializing",
   "ipv4": "203.0.113.50",
@@ -818,7 +837,7 @@ List all servers owned by the payer.
 
 **Request:**
 ```bash
-curl https://api.agentos.dev/compute/servers \
+curl https://agntos.dev/compute/servers \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -829,7 +848,7 @@ curl https://api.agentos.dev/compute/servers \
     {
       "id": "srv_jkl012",
       "name": "my-agent-server",
-      "serverType": "cx22",
+      "serverType": "cx23",
       "status": "running",
       "ipv4": "203.0.113.50"
     }
@@ -849,7 +868,7 @@ Get detailed server status.
 
 **Request:**
 ```bash
-curl https://api.agentos.dev/compute/servers/srv_jkl012 \
+curl https://agntos.dev/compute/servers/srv_jkl012 \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -865,7 +884,7 @@ Rename a deployed server. Metadata-only — doesn't reboot or otherwise affect t
 
 **Request:**
 ```bash
-curl -X PUT https://api.agentos.dev/compute/servers/srv_jkl012 \
+curl -X PUT https://agntos.dev/compute/servers/srv_jkl012 \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{"name":"hermes-bot-prod"}'
@@ -898,7 +917,7 @@ Terminate a server.
 
 **Request:**
 ```bash
-curl -X DELETE https://api.agentos.dev/compute/servers/srv_jkl012 \
+curl -X DELETE https://agntos.dev/compute/servers/srv_jkl012 \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -922,7 +941,7 @@ Upload an SSH public key for use when creating servers.
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/compute/ssh-keys \
+curl -X POST https://agntos.dev/compute/ssh-keys \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -970,7 +989,7 @@ Perform a lifecycle or management action on a server.
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/compute/servers/srv_jkl012/actions \
+curl -X POST https://agntos.dev/compute/servers/srv_jkl012/actions \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{ "action": "reset_password" }'
@@ -1010,7 +1029,7 @@ Inject the user's public key into a deployed server, remove the platform's tempo
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/compute/servers/srv_jkl012/setup-ssh \
+curl -X POST https://agntos.dev/compute/servers/srv_jkl012/setup-ssh \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{ "publicKey": "ssh-ed25519 AAAAC3... user@host" }'
@@ -1045,7 +1064,7 @@ Run a single command on a freshly-deployed server via the platform's temporary S
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/compute/servers/srv_jkl012/exec \
+curl -X POST https://agntos.dev/compute/servers/srv_jkl012/exec \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -1105,7 +1124,7 @@ Provision a new API key for a third-party service.
 
 **Request:**
 ```bash
-curl -X POST https://api.agentos.dev/apikeys \
+curl -X POST https://agntos.dev/apikeys \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -1156,7 +1175,7 @@ List all active API keys for the payer.
 
 **Request:**
 ```bash
-curl https://api.agentos.dev/apikeys \
+curl https://agntos.dev/apikeys \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -1187,7 +1206,7 @@ Revoke an API key.
 
 **Request:**
 ```bash
-curl -X DELETE https://api.agentos.dev/apikeys/key_mno345 \
+curl -X DELETE https://agntos.dev/apikeys/key_mno345 \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -1205,13 +1224,13 @@ curl -X DELETE https://api.agentos.dev/apikeys/key_mno345 \
 
 ```bash
 # 1. Check pricing (free)
-curl https://api.agentos.dev/pricing
+curl https://agntos.dev/pricing
 
 # 2. Send 1.00 USDC to the treasury wallet on Solana
 #    (use solana CLI, @solana/web3.js, or any wallet)
 
 # 3. Use the transaction signature to create an email inbox
-curl -X POST https://api.agentos.dev/email/inboxes \
+curl -X POST https://agntos.dev/email/inboxes \
   -H "Content-Type: application/json" \
   -H "X-Payment: 5UfDuX7hJ3Rg...your-tx-sig" \
   -d '{"name": "my-ai-agent"}'

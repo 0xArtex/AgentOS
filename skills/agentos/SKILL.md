@@ -51,7 +51,7 @@ agentos compute plans [--location fsn1]                     # List VPS plans (fr
 agentos compute locations                                   # List datacenters + per-location server-type availability (free)
 agentos compute install-recipes                             # List bootstrappable agent runtimes (free)
 agentos compute deploy --type cx23 --json                   # Golden path: auto-key, wait, verified ($6 + monthly)
-agentos compute deploy --type cx22 --install hermes --json  # Deploy + bootstrap Hermes Agent (Nous Research)
+agentos compute deploy --type cx23 --install hermes --json  # Deploy + bootstrap Hermes Agent (Nous Research)
 agentos compute deploy --type cax11 --location fsn1 --json  # Pin to a specific datacenter
 agentos compute deploy --type cx23 --install hermes,openclaw --json  # Multiple recipes
 agentos compute deploy --type cx23 --no-install --json      # Vanilla Ubuntu (password auth on)
@@ -219,7 +219,7 @@ After it returns, `agentos compute ssh <name>` drops you in (TTY) or prints the 
 ### Bootstrap an agent runtime in one call
 
 ```bash
-agentos compute deploy --type cx22 --install hermes --json
+agentos compute deploy --type cx23 --install hermes --json
 ```
 
 Cloud-init runs the recipe at first boot. Available recipes (live list at `GET /compute/install-recipes`):
