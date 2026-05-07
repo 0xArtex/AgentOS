@@ -206,16 +206,16 @@ Pass `--install <recipe>` to bake an AI-agent runtime into the deploy. Cloud-ini
 
 ```bash
 # Deploy with Hermes Agent (Nous Research) bootstrapped at first boot
-agentos compute deploy --type cx22 --install hermes --json
+agentos compute deploy --type cx23 --install hermes --json
 
 # Multiple recipes — runs in order
-agentos compute deploy --type cx22 --install hermes,openclaw --json
+agentos compute deploy --type cx23 --install hermes,openclaw --json
 
 # Discover what's installable
 agentos compute install-recipes --json
 
 # Vanilla Ubuntu — no runtime, password auth stays enabled
-agentos compute deploy --type cx22 --no-install --json
+agentos compute deploy --type cx23 --no-install --json
 ```
 
 | Recipe | What lands on the box |
@@ -263,7 +263,7 @@ agentos compute exec my-vps -- tail -200 /var/log/agentos/hermes-install.log
 In agent mode, `compute deploy --wait` and `compute wait` emit one NDJSON event per gate transition to **stderr** — by default. Stdout still gets one final JSON object so `jq` pipelines aren't disturbed; stderr is the live event stream you can `tail -f` while a long install runs.
 
 ```bash
-agentos compute deploy --type cx22 --install hermes --json
+agentos compute deploy --type cx23 --install hermes --json
 ```
 
 Stderr stream (real-time):
@@ -285,13 +285,13 @@ Stdout (at the end):
 Add `--no-progress` to silence the stderr stream:
 
 ```bash
-agentos compute deploy --type cx22 --install hermes --json --no-progress
+agentos compute deploy --type cx23 --install hermes --json --no-progress
 ```
 
 Capture stderr for later analysis (POSIX shell redirection, not a CLI flag):
 
 ```bash
-agentos compute deploy --type cx22 --install hermes --json 2>progress.ndjson
+agentos compute deploy --type cx23 --install hermes --json 2>progress.ndjson
 ```
 
 #### SSH-key management
