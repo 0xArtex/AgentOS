@@ -47,10 +47,12 @@ agentos email send --id ID --to x@y.com --subject "Hi" --body "..."  # Send ($0.
 agentos email threads --id INBOX_ID                    # List threads ($0.02)
 
 # Compute
-agentos compute plans                                       # List VPS plans (free)
+agentos compute plans [--location fsn1]                     # List VPS plans (free); optionally filter by location
+agentos compute locations                                   # List datacenters + per-location server-type availability (free)
 agentos compute install-recipes                             # List bootstrappable agent runtimes (free)
 agentos compute deploy --type cx23 --json                   # Golden path: auto-key, wait, verified ($6 + monthly)
 agentos compute deploy --type cx22 --install hermes --json  # Deploy + bootstrap Hermes Agent (Nous Research)
+agentos compute deploy --type cax11 --location fsn1 --json  # Pin to a specific datacenter
 agentos compute deploy --type cx23 --install hermes,openclaw --json  # Multiple recipes
 agentos compute deploy --type cx23 --no-install --json      # Vanilla Ubuntu (password auth on)
 agentos compute deploy --type cx23 --ssh-key 12345 --json   # Use a pre-uploaded Hetzner key
@@ -60,6 +62,7 @@ agentos compute ssh-key list                                # List uploaded keys
 agentos compute wait <name|id> [--install hermes]           # Block until ready (gates: status=running, port 22, SSH, install marker)
 agentos compute ssh <name|id>                               # SSH in (TTY) or print ssh command (agent mode)
 agentos compute exec <name|id> -- <command> [args...]       # Run command pre-handoff ($0.05)
+agentos compute rename <name|id> <new-name>                 # Rename a deployed VPS ($0.01, no reboot)
 agentos compute reset-password <name|id>                    # Rotate root password ($0.10)
 agentos compute console <name|id>                           # noVNC URL — break-glass when SSH broken ($0.10)
 agentos compute reboot|poweroff|poweron|reset|rebuild <name|id>  # Lifecycle actions ($0.10)
@@ -131,14 +134,16 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Download attachment | `GET /email/attachments/:id` | 0.02 |
 | Register webhook | `POST /email/webhooks` | 0.02 |
 | **Compute** | | |
-| List plans | `GET /compute/plans` | Free |
+| List plans | `GET /compute/plans` *(optional `?location=fsn1` filter; rows include `availableLocations[]`)* | Free |
+| List locations | `GET /compute/locations` *(datacenters + per-location server-type availability)* | Free |
 | List install recipes | `GET /compute/install-recipes` | Free |
 | Upload SSH key | `POST /compute/ssh-keys` | 0.10 |
 | List SSH keys | `GET /compute/ssh-keys` | 0.01 |
 | Delete SSH key | `DELETE /compute/ssh-keys/:id` | 0.01 |
-| Create server | `POST /compute/servers` *(accepts `sshPublicKey`, `sshKeyIds[]`, `install` recipe; returns `sshAccess` + `installs` blocks)* | 6.00 |
+| Create server | `POST /compute/servers` *(accepts `sshPublicKey`, `sshKeyIds[]`, `install` recipe, `location`; pre-payment validates name + type+location compat; returns `sshAccess` + `installs` blocks)* | 6.00 |
 | List servers | `GET /compute/servers` | 0.01 |
 | Server status | `GET /compute/servers/:id` | 0.01 |
+| Rename server | `PUT /compute/servers/:id` *(metadata-only, no reboot)* | 0.01 |
 | Server action | `POST /compute/servers/:id/actions` *(reboot, poweron, poweroff, reset, rebuild, **reset_password**, **request_console**)* | 0.10 |
 | Run command (pre-handoff) | `POST /compute/servers/:id/exec` | 0.05 |
 | SSH key handoff | `POST /compute/servers/:id/setup-ssh` | 0.01 |
