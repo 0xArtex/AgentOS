@@ -1,7 +1,16 @@
 import { config } from "../config";
 import { storage } from "./storage";
 import { Server, ServerType, ServerAction } from "../types";
-import { getServerPlans, getServerPricing, isValidServerType } from "./hcloud-types";
+import {
+  getServerPlans,
+  getServerPricing,
+  isValidServerType,
+  getLocations as getCachedLocations,
+  isValidLocation,
+  locationsForType,
+  isTypeAvailableInLocation,
+  type LocationInfo,
+} from "./hcloud-types";
 import crypto from "crypto";
 
 const HCLOUD_API = "https://api.hetzner.cloud/v1";
@@ -552,8 +561,12 @@ export async function resizeServer(id: string, serverType: ServerType, upgradeDi
   return data.action;
 }
 
-export function getPlans() {
-  return getServerPlans().map(p => ({
+export function getPlans(opts: { location?: string } = {}) {
+  const all = getServerPlans();
+  const filtered = opts.location
+    ? all.filter(p => isTypeAvailableInLocation(p.type, opts.location!))
+    : all;
+  return filtered.map(p => ({
     type: p.type,
     vcpu: p.vcpu,
     ramGb: p.ram,
@@ -562,5 +575,55 @@ export function getPlans() {
     arch: p.arch,
     priceUsdc: p.priceUsdc,
     priceUsdcMonthly: p.priceUsdc,
+    /** Where this type is currently deployable. Pulled live from /v1/datacenters. */
+    availableLocations: locationsForType(p.type),
   }));
+}
+
+/** Public list of Hetzner locations + per-location server-type availability. */
+export function getLocations(): LocationInfo[] {
+  return getCachedLocations();
+}
+
+// Re-exports so route code can stay on the `computeService.*` namespace
+// instead of pulling from two different services.
+export { isValidLocation, isTypeAvailableInLocation, locationsForType } from "./hcloud-types";
+
+/**
+ * Hetzner's hostname rules per their docs: lowercase RFC 1123 hostname, up
+ * to 253 chars, only letters / digits / hyphens / dots, must start and end
+ * with an alphanumeric. Lowercase-only is enforced at the API layer (Hetzner
+ * forbids uppercase to prevent ambiguous DNS resolution between Server1 and
+ * server1). We validate before the API call so a bad name fails pre-payment
+ * with a clear message instead of bouncing off Hetzner's 422 — saves $6.
+ */
+export function assertServerName(name: unknown, field: string = 'name'): string {
+  if (typeof name !== 'string') {
+    throw new Error(`${field} must be a string`);
+  }
+  if (!/^[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?$/.test(name)) {
+    throw new Error(
+      `${field} must be lowercase RFC 1123: 1–253 chars of [a-z0-9.-], starting and ending alphanumeric, no uppercase or underscores. Got: ${JSON.stringify(name)}`
+    );
+  }
+  return name;
+}
+
+/**
+ * Rename a server via Hetzner's PUT /servers/:id. Metadata-only; doesn't
+ * cycle the box. Local DB record is updated on success so the cached name
+ * stays consistent with Hetzner.
+ */
+export async function renameServer(id: string, newName: string): Promise<Server> {
+  const server = storage.getServer(id);
+  if (!server) throw new Error(`Server ${id} not found`);
+  assertServerName(newName);
+
+  const data = await hcloud("PUT", `/servers/${id}`, { name: newName });
+  const updated: Server = {
+    ...server,
+    name: data.server?.name ?? newName,
+  };
+  storage.setServer(id, updated);
+  return updated;
 }

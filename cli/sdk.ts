@@ -387,8 +387,13 @@ export class AgentOS {
   }
 
   // ── Compute ──
-  async computePlans(): Promise<any> {
-    return this.request('GET', '/compute/plans')
+  async computePlans(opts: { location?: string } = {}): Promise<any> {
+    const qs = opts.location ? `?location=${encodeURIComponent(opts.location)}` : ''
+    return this.request('GET', `/compute/plans${qs}`)
+  }
+
+  async computeLocations(): Promise<any> {
+    return this.request('GET', '/compute/locations')
   }
 
   /**
@@ -398,6 +403,11 @@ export class AgentOS {
    * (string or array), it overrides the legacy `installOpenClaw` boolean.
    * Pass `[]` for a vanilla Ubuntu box (cloud-init skipped, password auth
    * stays enabled). Discoverable via `GET /compute/install-recipes`.
+   *
+   * `location` picks a Hetzner datacenter slug (fsn1, nbg1, hel1, ash, hil,
+   * sin). The server validates type-vs-location compatibility pre-payment so
+   * cax11+ash fails as 400 with `Try one of: fsn1` instead of 422 after
+   * x402 settles. Discoverable via `GET /compute/locations`.
    */
   async computeDeploy(
     name: string,
@@ -407,6 +417,7 @@ export class AgentOS {
       sshKeyIds?: number[]
       installOpenClaw?: boolean
       install?: string | string[]
+      location?: string
     } = {},
   ): Promise<any> {
     const body: Record<string, unknown> = {
@@ -421,7 +432,16 @@ export class AgentOS {
     }
     if (opts.sshPublicKey) body.sshPublicKey = opts.sshPublicKey
     if (opts.sshKeyIds?.length) body.sshKeyIds = opts.sshKeyIds
+    if (opts.location) body.location = opts.location
     return this.request('POST', '/compute/servers', body)
+  }
+
+  /**
+   * Rename a deployed server. Metadata-only; doesn't reboot. Local server
+   * cache is updated by the CLI wrapper after a successful API call.
+   */
+  async computeRename(serverId: string, newName: string): Promise<any> {
+    return this.request('PUT', `/compute/servers/${serverId}`, { name: newName })
   }
 
   async computeInstallRecipes(): Promise<any> {

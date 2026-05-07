@@ -1,9 +1,12 @@
 /**
- * Hetzner Cloud server-type catalog. Fetched live at boot from
- * GET /v1/server_types so we never hardcode types that get deprecated.
+ * Hetzner Cloud server-type + location catalog. Fetched live at boot from
+ * GET /v1/server_types and GET /v1/datacenters so we never hardcode types
+ * that get deprecated and we can tell agents which type is deployable in
+ * which datacenter.
  *
  * - `refreshHcloudTypes()` — pull the live list, filter to non-deprecated
- *   shared types, compute USDC pricing from EUR monthly rates.
+ *   shared types, compute USDC pricing from EUR monthly rates, build the
+ *   location + per-datacenter availability map.
  * - In-memory cache, auto-refreshed every 6 hours.
  * - On fetch failure (e.g. HCLOUD_TOKEN missing or Hetzner outage), a
  *   conservative static fallback keeps the route alive but reduced.
@@ -33,7 +36,50 @@ interface HcloudServerType {
   }>;
 }
 
-let cache: { plans: ServerPlan[]; refreshedAt: number } | null = null;
+interface HcloudLocation {
+  id: number;
+  name: string;
+  city: string;
+  country: string;
+  description: string;
+  network_zone: string;
+  latitude: number;
+  longitude: number;
+}
+
+interface HcloudDatacenter {
+  id: number;
+  name: string;
+  description: string;
+  location: HcloudLocation;
+  server_types: {
+    supported: number[];
+    available: number[];
+    available_for_migration: number[];
+  };
+}
+
+export interface LocationInfo {
+  name: string;          // location slug, e.g. "fsn1"
+  city: string;
+  country: string;       // ISO-2
+  networkZone: string;   // "eu-central", "us-east", etc.
+  /** Server-type names currently DEPLOYABLE in this location (Hetzner's `available` list). */
+  availableTypes: string[];
+}
+
+let cache: {
+  plans: ServerPlan[];
+  /** Locations keyed by slug for fast lookup. */
+  locations: Map<string, LocationInfo>;
+  /**
+   * For each server type, the set of location slugs where it's currently
+   * deployable. Lets us answer "where can I run cax11?" without re-walking
+   * the location list every time.
+   */
+  typeLocationAvailability: Map<string, Set<string>>;
+  refreshedAt: number;
+} | null = null;
 let inflight: Promise<void> | null = null;
 
 const STATIC_FALLBACK: ServerPlan[] = [
@@ -76,6 +122,33 @@ async function fetchAllServerTypes(token: string): Promise<HcloudServerType[]> {
   return all;
 }
 
+async function fetchAllDatacenters(token: string): Promise<HcloudDatacenter[]> {
+  const all: HcloudDatacenter[] = [];
+  let page: number | null = 1;
+  while (page !== null) {
+    const url = `${HCLOUD_API}/datacenters?per_page=50&page=${page}`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => "");
+      throw new Error(`Hetzner /datacenters ${res.status}: ${text.slice(0, 200)}`);
+    }
+    const data = (await res.json()) as { datacenters?: HcloudDatacenter[]; meta?: { pagination?: { next_page: number | null } } };
+    all.push(...(data.datacenters ?? []));
+    page = data.meta?.pagination?.next_page ?? null;
+  }
+  return all;
+}
+
+function emptyExtras() {
+  return {
+    locations: new Map<string, LocationInfo>(),
+    typeLocationAvailability: new Map<string, Set<string>>(),
+  };
+}
+
 export async function refreshHcloudTypes(): Promise<void> {
   if (inflight) return inflight;
   inflight = (async () => {
@@ -83,13 +156,25 @@ export async function refreshHcloudTypes(): Promise<void> {
       const token = process.env.HCLOUD_TOKEN;
       if (!token) {
         console.warn("[hcloud-types] HCLOUD_TOKEN not set — using static fallback");
-        cache = { plans: STATIC_FALLBACK, refreshedAt: Date.now() };
+        cache = { plans: STATIC_FALLBACK, ...emptyExtras(), refreshedAt: Date.now() };
         return;
       }
 
-      const types = await fetchAllServerTypes(token);
+      // Fetch types and datacenters in parallel — both feed the same cache.
+      // If either fails, we'd rather fail the whole refresh than ship a
+      // half-populated cache (better to keep the previous one or fall back).
+      const [types, datacenters] = await Promise.all([
+        fetchAllServerTypes(token),
+        fetchAllDatacenters(token),
+      ]);
+
+      // Build plans (existing logic), keyed by name. We also keep a numeric-id
+      // → name map so we can resolve datacenter.server_types.available[]
+      // (which is numeric IDs) into our string-based plan names.
       const plans: ServerPlan[] = [];
+      const idToName = new Map<number, string>();
       for (const t of types) {
+        idToName.set(t.id, t.name);
         if (isDeprecated(t.deprecated)) continue;
         if (t.cpu_type !== "shared") continue;
         const prices = (t.prices ?? [])
@@ -115,12 +200,45 @@ export async function refreshHcloudTypes(): Promise<void> {
         return a.hetznerMonthly - b.hetznerMonthly;
       });
 
-      cache = { plans, refreshedAt: Date.now() };
-      console.log(`[hcloud-types] Loaded ${plans.length} active shared server types from Hetzner`);
+      // Build location + availability maps. Multiple datacenters can live in
+      // one location (e.g. fsn1-dc14, fsn1-dc15 both in fsn1). We aggregate
+      // their `available` sets so a type counts as "available in fsn1" if
+      // ANY datacenter in fsn1 has it.
+      const locations = new Map<string, LocationInfo>();
+      const typeLocationAvailability = new Map<string, Set<string>>();
+      for (const dc of datacenters) {
+        const locName = dc.location?.name;
+        if (!locName) continue;
+        let loc = locations.get(locName);
+        if (!loc) {
+          loc = {
+            name: locName,
+            city: dc.location.city,
+            country: dc.location.country,
+            networkZone: dc.location.network_zone,
+            availableTypes: [],
+          };
+          locations.set(locName, loc);
+        }
+        const availSet = new Set(loc.availableTypes);
+        for (const id of dc.server_types?.available ?? []) {
+          const typeName = idToName.get(id);
+          if (!typeName) continue;
+          availSet.add(typeName);
+          if (!typeLocationAvailability.has(typeName)) {
+            typeLocationAvailability.set(typeName, new Set());
+          }
+          typeLocationAvailability.get(typeName)!.add(locName);
+        }
+        loc.availableTypes = [...availSet].sort();
+      }
+
+      cache = { plans, locations, typeLocationAvailability, refreshedAt: Date.now() };
+      console.log(`[hcloud-types] Loaded ${plans.length} server types, ${locations.size} locations from Hetzner`);
     } catch (err: any) {
       console.error("[hcloud-types] Refresh failed:", err?.message || err);
       // Keep existing cache if any; otherwise fall back.
-      if (!cache) cache = { plans: STATIC_FALLBACK, refreshedAt: Date.now() };
+      if (!cache) cache = { plans: STATIC_FALLBACK, ...emptyExtras(), refreshedAt: Date.now() };
     } finally {
       inflight = null;
     }
@@ -154,4 +272,42 @@ export function isValidServerType(name: string): boolean {
 
 export function describeServerType(name: string): ServerPlan | undefined {
   return getServerPlans().find((p) => p.type === name);
+}
+
+/**
+ * Locations the user can target with `--location` on deploy. Each entry
+ * carries the city/country/network_zone and the list of server-type names
+ * currently deployable there.
+ */
+export function getLocations(): LocationInfo[] {
+  maybeRefreshInBackground();
+  return cache ? [...cache.locations.values()] : [];
+}
+
+export function isValidLocation(name: string): boolean {
+  maybeRefreshInBackground();
+  return !!cache && cache.locations.has(name);
+}
+
+/**
+ * Where can this server type be deployed? Returns the set of location slugs.
+ * Empty set when the type is unknown or no location data is loaded yet.
+ */
+export function locationsForType(typeName: string): string[] {
+  maybeRefreshInBackground();
+  const set = cache?.typeLocationAvailability.get(typeName);
+  return set ? [...set].sort() : [];
+}
+
+/**
+ * Pre-flight: does Hetzner currently deploy this type in this location?
+ * Returns true if the type+location combo is in the live cache OR if we
+ * have no location data at all (graceful degradation — let Hetzner be the
+ * source of truth in fallback mode).
+ */
+export function isTypeAvailableInLocation(typeName: string, locationName: string): boolean {
+  maybeRefreshInBackground();
+  if (!cache || cache.locations.size === 0) return true; // no data → don't block
+  const set = cache.typeLocationAvailability.get(typeName);
+  return !!set && set.has(locationName);
 }

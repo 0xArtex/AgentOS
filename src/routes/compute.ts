@@ -64,16 +64,40 @@ function sshWriteFile(ssh: string, remotePath: string, content: string, opts: { 
 // ── Plans (free, no auth) ─────────────────────────────────────
 
 /**
- * GET /compute/plans — List available server types with specs and pricing
- * Free — no auth required
+ * GET /compute/plans — List available server types with specs and pricing.
+ * Free — no auth required.
+ *
+ * Optional `?location=fsn1` filters to types deployable in that location.
+ * Each plan entry also carries an `availableLocations` array so callers
+ * without a location preference can still see where each type runs.
  */
-router.get("/plans", (_req, res: Response) => {
-  const plans = computeService.getPlans();
+router.get("/plans", (req: any, res: Response) => {
+  const locationParam = typeof req.query?.location === 'string' ? req.query.location : undefined;
+  const plans = computeService.getPlans({ location: locationParam });
   res.json({
     plans,
     currency: "USDC",
     billingPeriod: "monthly",
+    ...(locationParam ? { filteredBy: { location: locationParam } } : {}),
     note: "Pay via x402 protocol (Solana or Base USDC). Price includes setup.",
+  });
+});
+
+/**
+ * GET /compute/locations — List Hetzner Cloud locations + per-location
+ * server-type availability. Free, no auth.
+ *
+ * Each entry has the location slug, city, country, network zone, and the
+ * list of server-type names currently deployable there. Use this to pick
+ * a `--location` for `compute deploy` when the default location doesn't
+ * carry the type you want, OR when one location is capacity-constrained
+ * and you want to retry elsewhere.
+ */
+router.get("/locations", (_req, res: Response) => {
+  const locations = computeService.getLocations();
+  res.json({
+    locations,
+    note: "Pass `location` in POST /compute/servers (or `--location` on the CLI) to override the default. `availableTypes` is the live deployable list pulled from Hetzner's /v1/datacenters.",
   });
 });
 
@@ -176,7 +200,49 @@ router.delete("/ssh-keys/:id", requireAuth(0.01, 'general'), async (req: Authent
  * enough that paying first is acceptable.
  */
 function validateCreateServerBody(req: AuthenticatedRequest, res: Response, next: any): void {
-  const { install, sshPublicKey } = req.body as { install?: string | string[]; sshPublicKey?: string };
+  const { name, serverType, install, sshPublicKey, location } = req.body as {
+    name?: string;
+    serverType?: string;
+    install?: string | string[];
+    sshPublicKey?: string;
+    location?: string;
+  };
+
+  // Validate hostname BEFORE Hetzner so a typo (uppercase, underscores,
+  // leading hyphen) doesn't burn $6 USDC just to bounce off a 422.
+  if (name !== undefined) {
+    try {
+      computeService.assertServerName(name);
+    } catch (e: any) {
+      res.status(400).json({ error: 'Invalid server name', message: e.message });
+      return;
+    }
+  }
+
+  // Type + location compatibility: pre-flight against the live cache so
+  // 'cpx11 in some-eu-location' fails as 400 before payment, not as
+  // Hetzner's 422 'unsupported location for server type' after.
+  if (serverType !== undefined && location !== undefined) {
+    if (!computeService.isValidLocation(location)) {
+      res.status(400).json({
+        error: 'Invalid location',
+        message: `Unknown location '${location}'.`,
+        hint: 'GET /compute/locations (free) for the live list.',
+      });
+      return;
+    }
+    if (!computeService.isTypeAvailableInLocation(serverType, location)) {
+      const where = computeService.locationsForType(serverType);
+      res.status(400).json({
+        error: 'Type not available in location',
+        message: `Server type '${serverType}' is not deployable in location '${location}'.`,
+        hint: where.length > 0
+          ? `Try one of: ${where.join(', ')}.`
+          : 'GET /compute/locations (free) to see per-location availability.',
+      });
+      return;
+    }
+  }
 
   if (install !== undefined) {
     const list = Array.isArray(install)
@@ -1448,6 +1514,47 @@ router.post("/servers/:id/resize", requireAuth(0.10, 'general', { discoverable: 
     });
   } catch (err: any) {
     res.status(500).json({ error: "Resize Failed", message: err.message });
+  }
+});
+
+/**
+ * PUT /compute/servers/:id — Rename a server.
+ *
+ * Metadata-only operation; doesn't reboot or otherwise affect the running
+ * box. Validates the new name pre-payment so a typo (uppercase, leading
+ * hyphen, etc.) bounces as 400 before we charge or call Hetzner.
+ *
+ * Cost: 0.01 USDC.
+ */
+function validateRenameBody(req: AuthenticatedRequest, res: Response, next: any): void {
+  const { name } = req.body as { name?: string };
+  try {
+    computeService.assertServerName(name);
+  } catch (e: any) {
+    res.status(400).json({ error: 'Invalid server name', message: e.message });
+    return;
+  }
+  next();
+}
+
+router.put("/servers/:id", validateRenameBody, requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { name } = req.body as { name: string };
+    const updated = await computeService.renameServer(String(req.params.id), name);
+    res.json({
+      success: true,
+      id: updated.id,
+      name: updated.name,
+      ipv4: updated.ipv4,
+      message: `Server renamed to '${updated.name}'.`,
+    });
+  } catch (err: any) {
+    const msg = err?.message || "Rename failed";
+    if (/not found/i.test(msg)) {
+      res.status(404).json({ error: "Server not found", message: msg });
+      return;
+    }
+    res.status(500).json({ error: "Rename failed", message: msg });
   }
 });
 

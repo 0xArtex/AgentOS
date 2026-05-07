@@ -680,13 +680,15 @@ async function main() {
             subtitle: 'Server operations',
             footerLeft: 'Compute operations',
             commands: [
-              { name: 'plans', description: 'List VPS plans' },
+              { name: 'plans', description: 'List VPS plans (live from Hetzner)', hint: '[--location fsn1]' },
+              { name: 'locations', description: 'List Hetzner datacenters + per-location server-type availability' },
               { name: 'install-recipes', description: 'List available agent install recipes (hermes, openclaw, ...)' },
               { name: 'ssh-key', description: 'Manage Hetzner SSH keys', hint: 'add <pubkey-file> | list | delete <id>' },
-              { name: 'deploy', description: 'Deploy a VPS (golden path: auto-key, wait, verified SSH)', hint: '--type cx23 [--install hermes] [--no-wait]' },
+              { name: 'deploy', description: 'Deploy a VPS (golden path: auto-key, wait, verified SSH)', hint: '--type cx23 [--install hermes] [--location fsn1] [--no-wait]' },
               { name: 'wait', description: 'Block until status=running, port 22 open, SSH verified, installs done', hint: '<name|id> [--install hermes] [--key <path>] [--wait-timeout <sec>]' },
               { name: 'ssh', description: 'SSH into a deployed VPS by name or id', hint: '<name|id>' },
               { name: 'exec', description: 'Run a single command on a freshly-deployed VPS (pre-handoff)', hint: '<name|id> -- <command> [args...]' },
+              { name: 'rename', description: 'Rename a deployed VPS (metadata-only, no reboot)', hint: '<name|id> <new-name>' },
               { name: 'reset-password', description: 'Rotate the root password (Hetzner-side)', hint: '<name|id>' },
               { name: 'console', description: 'Get a noVNC console URL (break-glass)', hint: '<name|id>' },
               { name: 'reboot', description: 'Reboot a server', hint: '<name|id>' },
@@ -700,25 +702,19 @@ async function main() {
         }
         switch (subcommand) {
           case 'plans': {
-            const data = await ao.computePlans()
+            // --location filters to types deployable in that location. Each
+            // plan's response also carries `availableLocations[]` so callers
+            // without a preference can see where each type runs.
+            const location = flags.location as string | undefined
+            const data = await ao.computePlans(location ? { location } : {})
             return print(data)
-            const plans = (data.plans || data || []).map((p: any) => ({
-              name: String(p.type || p.id || p.name || 'unknown'),
-              cpu: `${p.vcpu || p.cpu || p.vcpus || '?'} vCPU`,
-              ram: `${p.ramGb || p.ram || p.memory || '?'}GB RAM`,
-              price: String(p.priceUsdcMonthly || p.priceUsdc || p.price || p.monthly_cost || '?'),
-            }))
-            render(React.createElement(ComputePlansScreen, {
-              version: VERSION,
-              plans,
-              interactive: fromHome,
-              onBack: fromHome ? () => {
-                process.env.AGENTOS_FROM_HOME = '0'
-                process.argv = [process.argv[0], process.argv[1]]
-                void main()
-              } : undefined,
-            }))
-            break
+          }
+          case 'locations': {
+            // Free discovery — list Hetzner locations + per-location server
+            // type availability. Useful when the default location is
+            // capacity-constrained or doesn't carry the type you want.
+            const data = await ao.computeLocations()
+            return print(data)
           }
           case 'ssh-key': {
             // Subcommand layout: `compute ssh-key add <pubkey-file>` | `list` | `delete <id>`
@@ -823,6 +819,12 @@ async function main() {
               installRequested = installRaw.split(',').map(s => s.trim()).filter(Boolean)
             } // else: leave undefined → server keeps the legacy default.
 
+            // --location overrides the server's default datacenter. Server
+            // pre-validates type+location compatibility BEFORE x402 settles,
+            // so a typo or mismatch fails as 400 with a clear hint instead
+            // of burning $6 on Hetzner's 422.
+            const location = flags.location as string | undefined
+
             const spin = new Spinner()
             spin.start('Deploying VPS...')
             let data: any
@@ -831,13 +833,22 @@ async function main() {
                 ...(sshPublicKey ? { sshPublicKey } : {}),
                 ...(sshKeyIds ? { sshKeyIds } : {}),
                 ...(installRequested !== undefined ? { install: installRequested } : {}),
+                ...(location ? { location } : {}),
               })
             } catch (e: any) {
               spin.stop('VPS deploy failed', false)
-              // The server's "Invalid install recipe" 400 is the most common
-              // user-facing failure for this flag — surface it cleanly.
-              if (/install recipe/i.test(String(e?.message || ''))) {
+              // Specific server-side validation errors map to BAD_INPUT (2)
+              // so shell scripts can branch — they're user-fixable, not
+              // transient or payment-related.
+              const msg = String(e?.message || '')
+              if (/install recipe/i.test(msg)) {
                 err(`${e.message} Run \`agentos compute install-recipes --json\` to list available recipes.`, EXIT.BAD_INPUT)
+              }
+              if (/Type not available in location|Invalid location/i.test(msg)) {
+                err(`${e.message} Run \`agentos compute locations --json\` to see what's deployable where.`, EXIT.BAD_INPUT)
+              }
+              if (/Invalid server name/i.test(msg)) {
+                err(`${e.message}`, EXIT.BAD_INPUT)
               }
               throw e
             }
@@ -1131,6 +1142,43 @@ async function main() {
             } catch {}
             return print(data)
           }
+          case 'rename': {
+            // `compute rename <name|id> <new-name>` — wraps PUT /servers/:id.
+            // We resolve the source from the local cache (so the user can
+            // refer to a friendly name) but if it's a numeric Hetzner id we
+            // accept that directly. The server validates the new name
+            // pre-payment so an invalid one bounces as 400 without charging.
+            const csshMod = await import('./compute-ssh.js')
+            const target = positional[0] || (flags.id as string) || (flags.name as string)
+            const newName = positional[1] || (flags.to as string) || (flags['new-name'] as string)
+            if (!target || !newName) {
+              err('Usage: agentos compute rename <name|id> <new-name>', EXIT.BAD_INPUT)
+            }
+            const cached = csshMod.findCachedServer(target)
+            const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
+            if (!serverId) err(`Server "${target}" not in local cache. Pass numeric Hetzner id or run 'agentos compute list' first.`, EXIT.NOT_FOUND)
+            let data: any
+            try {
+              data = await ao.computeRename(serverId, newName)
+            } catch (e: any) {
+              const msg = String(e?.message || '')
+              if (/Invalid server name/i.test(msg)) {
+                err(msg, EXIT.BAD_INPUT)
+              }
+              throw e
+            }
+            // Preserve the rest of the cache entry (ipv4, key path, sshKeyIds,
+            // deployedAt) — only the name changes. Use the OLD cached entry
+            // as the base, drop both the old name and the old id-keyed entry,
+            // then write the renamed one.
+            try {
+              if (cached) {
+                csshMod.removeCachedServer(cached.id)
+                csshMod.saveDeployedServer({ ...cached, name: data.name || newName })
+              }
+            } catch {}
+            return print(data)
+          }
           case 'exec': {
             // Usage: agentos compute exec <name|id> -- <command> [args...]
             // Or:    agentos compute exec <name|id> --command "..." --arg "..." --arg "..."
@@ -1200,7 +1248,7 @@ async function main() {
             const data = await ao.computeAction(serverId, subcommand, opts)
             return print(data)
           }
-          default: err(`Unknown compute command: ${subcommand}. Try: plans, install-recipes, ssh-key, deploy, wait, ssh, exec, reset-password, console, reboot, poweroff, poweron, reset, rebuild, setup-ssh, list, delete`)
+          default: err(`Unknown compute command: ${subcommand}. Try: plans, locations, install-recipes, ssh-key, deploy, wait, ssh, exec, rename, reset-password, console, reboot, poweroff, poweron, reset, rebuild, setup-ssh, list, delete`)
         }
         break
       }

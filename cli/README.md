@@ -306,11 +306,13 @@ agentos compute deploy --type cx22 --install hermes --json 2>progress.ndjson
 
 | Command | Cost | Notes |
 |---|---|---|
-| `agentos compute plans` | free | List server types and monthly pricing. |
+| `agentos compute plans [--location fsn1]` | free | List server types and monthly pricing. With `--location`, filters to types deployable in that datacenter. Each row carries an `availableLocations[]` array so you can see where each type runs. |
+| `agentos compute locations` | free | List Hetzner datacenters (fsn1 / nbg1 / hel1 / ash / hil / sin) with city, country, network zone, and the live deployable server-type list per location. |
 | `agentos compute install-recipes` | free | List recipes you can pass to `--install`. |
 | `agentos compute deploy [--type cx23] [--name N]` | $6.00 | Golden path (auto-key, auto-wait, verified). Deployment fee; monthly server cost is metered separately. |
 | `agentos compute deploy --install hermes` | $6.00 | Bootstrap an agent runtime (Hermes Agent, OpenClaw) via cloud-init; deploy waits until `/etc/agentos/install-status.json` reports `ok`. |
 | `agentos compute deploy --install hermes,openclaw` | $6.00 | Multiple recipes, run in order. |
+| `agentos compute deploy --location fsn1` | $6.00 | Pick a Hetzner datacenter explicitly. Server pre-validates type+location compatibility before x402 settles, so `cax11 + ash` fails as 400 with `Try one of: fsn1` instead of 422 after payment. |
 | `agentos compute deploy --no-install` | $6.00 | Skip cloud-init entirely → vanilla Ubuntu, password auth stays enabled, returned `rootPassword` works. |
 | `agentos compute deploy --ssh-key <id>` | $6.00 | Use a pre-uploaded Hetzner key (numeric ID from `ssh-key list`). Preferred for repeatable deploys. |
 | `agentos compute deploy --pubkey-file ~/.ssh/id_ed25519.pub` | $6.00 | Inline an existing key without uploading to Hetzner first. |
@@ -318,6 +320,8 @@ agentos compute deploy --type cx22 --install hermes --json 2>progress.ndjson
 | `agentos compute deploy --no-generate-ssh-key` | $6.00 | Opt out of auto-generation. Server boots with the platform's temp key only — call `setup-ssh` later or you can't get in. |
 | `agentos compute deploy --no-wait` | $6.00 | Fire-and-forget. Returns as soon as Hetzner accepts the create call. |
 | `agentos compute deploy --wait-timeout 300` | $6.00 | Override the default 240s readiness budget (600s when `--install` is set). Clamped 30–900. |
+
+**Server name rules.** Server names are lowercase RFC 1123 hostnames: 1–253 chars of `[a-z0-9.-]`, starting and ending alphanumeric, no uppercase, no underscores. The CLI validates client-side and the server validates pre-payment, so `--name Hermesbot` fails as 400 with no USDC charged.
 
 The four key sources (`--ssh-key <id>`, `--pubkey-file`, `--pubkey`, `--generate-ssh-key`) are mutually exclusive — passing more than one returns exit 2 with a clear error.
 
@@ -340,6 +344,7 @@ Each takes `<name|id>` from the local cache (or a numeric Hetzner id directly).
 | `agentos compute poweron <name|id>` | $0.10 | Power on a stopped server. |
 | `agentos compute reset <name|id>` | $0.10 | Hard restart, no graceful shutdown. |
 | `agentos compute rebuild <name|id> [--image ubuntu-24.04]` | $0.10 | Reinstall OS — wipes disk, re-runs cloud-init, keeps IP. |
+| `agentos compute rename <name|id> <new-name>` | $0.01 | Rename a deployed VPS (metadata-only; no reboot). Updates the local cache so `compute ssh <new-name>` works immediately after. New name validated client-side and pre-payment server-side. |
 | `agentos compute reset-password <name|id>` | $0.10 | Rotate the root password (Hetzner-side). On AgentOS-deployed boxes, password auth is disabled by cloud-init — the new password is for console use or after manually re-enabling password auth. Use `setup-ssh` for SSH access. |
 | `agentos compute console <name|id>` | $0.10 | Get a noVNC console URL (`wssUrl` + `password`, expires ~1 minute). Break-glass when SSH is unreachable (cloud-init failed, sshd misconfigured). |
 | `agentos compute exec <name|id> -- <command> [args...]` | $0.05 | Run a single command pre-handoff via the platform's temporary SSH key. Returns `{stdout, stderr, exitCode, durationMs}`. Returns `410 Gone` once `setup-ssh` has run (the platform key is removed at handoff). 30s default timeout. |
@@ -468,12 +473,14 @@ ao.emailSend(inboxId: string, to: string, subject: string, body: string)
 ao.emailThreads(inboxId: string)
 
 // Compute
-ao.computePlans()
+ao.computePlans(opts?: { location?: string })                                  // optional ?location=fsn1 filter
+ao.computeLocations()                                                           // free, list datacenters + per-location availability
 ao.computeInstallRecipes()                                                      // discover --install names (free)
-ao.computeDeploy(name: string, type: string, opts?: { sshPublicKey?: string; sshKeyIds?: number[]; installOpenClaw?: boolean; install?: string | string[] })
+ao.computeDeploy(name: string, type: string, opts?: { sshPublicKey?: string; sshKeyIds?: number[]; installOpenClaw?: boolean; install?: string | string[]; location?: string })
 ao.computeList()
 ao.computeGet(serverId: string)
 ao.computeDelete(serverId: string)
+ao.computeRename(serverId: string, newName: string)                             // PUT /servers/:id, metadata-only
 ao.computeAction(serverId: string, action: string, opts?: { image?: string })  // reboot | poweron | poweroff | reset | rebuild | reset_password | request_console
 ao.computeExec(serverId: string, command: string, args?: string[], opts?: { timeoutSec?: number })  // pre-handoff only
 ao.computeSetupSsh(serverId: string, publicKey: string)  // inject key, lock password, hand off

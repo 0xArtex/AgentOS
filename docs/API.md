@@ -628,6 +628,42 @@ curl -X PUT https://api.agentos.dev/domains/dom_ghi789/dns \
 
 ### Compute
 
+#### `GET /compute/locations`
+
+List Hetzner Cloud locations + per-location server-type availability. Free, no auth.
+
+Each entry has the location slug, city, country, network zone, and the live deployable server-type list (pulled from Hetzner's `/v1/datacenters` and aggregated across all DCs in that location). Use this to pick a `--location` for `compute deploy` when the default doesn't carry the type you want.
+
+**Request:**
+```bash
+curl https://api.agentos.dev/compute/locations
+```
+
+**Response (200):**
+```json
+{
+  "locations": [
+    { "name": "fsn1", "city": "Falkenstein", "country": "DE", "networkZone": "eu-central", "availableTypes": ["cax11", "cpx22", "cpx32", "..."] },
+    { "name": "ash",  "city": "Ashburn, VA", "country": "US", "networkZone": "us-east",    "availableTypes": ["cpx11", "cpx21"] }
+  ]
+}
+```
+
+---
+
+#### `GET /compute/plans`
+
+List server types with specs, pricing, and per-type location availability. Free, no auth.
+
+Optional `?location=fsn1` query param filters to types deployable in that location only. Each row also carries `availableLocations[]` so you can see where a given type runs even when not filtering.
+
+**Request:**
+```bash
+curl "https://api.agentos.dev/compute/plans?location=fsn1"
+```
+
+---
+
 #### `GET /compute/install-recipes`
 
 List the agent runtime install recipes that the `install` field on `POST /compute/servers` accepts. Free, no auth, no payment.
@@ -690,6 +726,8 @@ curl -X POST https://api.agentos.dev/compute/servers \
 | `sshPublicKey` | string | ❌ | OpenSSH-format public key, inlined into cloud-init at first boot. Validated **before** payment — bad input fails as 400 with no USDC charged. |
 | `sshKeyIds` | number[] | ❌ | IDs of pre-uploaded keys (from `POST /compute/ssh-keys`). Hetzner injects them before cloud-init runs. |
 | `install` | string \| string[] | ❌ | Install recipe(s) to bootstrap during cloud-init. Comma-separated string or array. Each name must appear in `GET /compute/install-recipes`. Validated **before** payment — typos fail as 400 with no USDC charged. Overrides `installOpenClaw`. Examples: `"hermes"`, `["hermes", "openclaw"]`. |
+| `location` | string | ❌ | Hetzner datacenter slug (`fsn1`, `nbg1`, `hel1`, `ash`, `hil`, `sin`). Validated against `GET /compute/locations` AND against type+location compatibility, both pre-payment. `cax11 + ash` returns 400 with `Try one of: fsn1` instead of 422 after x402 settles. |
+| `name` | string | ✅ | Lowercase RFC 1123 hostname. 1–253 chars of `[a-z0-9.-]`, starting and ending alphanumeric. No uppercase, no underscores. Validated pre-payment. |
 | `installOpenClaw` | boolean | ❌ | Legacy. Default `true` (= `install: ["openclaw"]`). `false` skips cloud-init entirely (vanilla Ubuntu, password auth on). Ignored when `install` is set. |
 
 **Server Types:**
@@ -813,6 +851,39 @@ Get detailed server status.
 ```bash
 curl https://api.agentos.dev/compute/servers/srv_jkl012 \
   -H "X-Payment: <tx-signature>"
+```
+
+---
+
+#### `PUT /compute/servers/:id`
+
+Rename a deployed server. Metadata-only — doesn't reboot or otherwise affect the running box. Validates the new name pre-payment so a typo (uppercase, leading hyphen, underscore) bounces as 400 with no USDC charged.
+
+| Field | Details |
+|-------|---------|
+| **Cost** | 0.01 USDC |
+
+**Request:**
+```bash
+curl -X PUT https://api.agentos.dev/compute/servers/srv_jkl012 \
+  -H "Content-Type: application/json" \
+  -H "X-Payment: <tx-signature>" \
+  -d '{"name":"hermes-bot-prod"}'
+```
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `name` | string | ✅ | New name. Lowercase RFC 1123 hostname (same rules as create). |
+
+**Response (200):**
+```json
+{
+  "success": true,
+  "id": "srv_jkl012",
+  "name": "hermes-bot-prod",
+  "ipv4": "203.0.113.50",
+  "message": "Server renamed to 'hermes-bot-prod'."
+}
 ```
 
 ---
