@@ -3119,6 +3119,40 @@ async function main() {
         break
       }
 
+      case 'worker': {
+        // Long-running consumer of cli/social-queue.ts. Polls every --interval
+        // seconds (default 60), claims due scheduled items, dispatches via the
+        // existing paid X routes through the SDK. Stops on SIGINT/SIGTERM.
+        // --once runs a single tick and exits — useful for cron-style invocation.
+        const worker = await import('./social-worker.js')
+        const intervalSec = flags.interval !== undefined
+          ? Math.max(10, Math.floor(Number(flags.interval) || 60))
+          : 60
+        const accountFilter = (flags.account as string) || undefined
+
+        if (flags.once === true) {
+          const summary = await worker.runWorkerOnce(ao, accountFilter)
+          return print(summary)
+        }
+
+        await worker.runWorkerLoop(ao, {
+          intervalSec,
+          accountFilter,
+          onLog: (msg) => {
+            if (AGENT_MODE) {
+              print({ event: 'worker_log', msg, ts: new Date().toISOString() })
+            } else {
+              const ts = new Date().toISOString().replace('T', ' ').slice(0, 19)
+              process.stderr.write(`[${ts}] ${msg}\n`)
+            }
+          },
+          onTick: AGENT_MODE
+            ? (summary) => { if (summary.processed > 0) print({ event: 'worker_tick', ...summary }) }
+            : undefined,
+        })
+        break
+      }
+
       case 'config': {
         const cfg = loadConfig()
         const { homedir } = await import('os')

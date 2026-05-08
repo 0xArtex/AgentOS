@@ -435,7 +435,16 @@ Stored in `~/.agentos/social/queue.json`. Local files referenced by scheduled it
 | `agentos twitter cancel <id>` | free | Remove a scheduled item OR delete a draft (tries scheduled first). |
 | `agentos twitter promote-draft <id> --at "2026-05-15T14:00:00Z"` | free | Move a draft into `scheduled[]` with a fire time. |
 
-The worker that publishes scheduled items at their `post_at` is shipped in a follow-up PR (Day 4) — for now, schedule commands write to the queue and a future `agentos worker` process will consume them.
+### Worker — fires due scheduled items
+
+| Command | Cost | Notes |
+|---|---|---|
+| `agentos worker` *(optional `--interval 60`, `--account <username>`)* | charges per dispatched post | Long-running process. Polls the queue every `--interval` seconds (default 60, min 10), claims due items, dispatches via the same paid X routes (`/twitter/post` etc.). Stops cleanly on Ctrl+C / SIGTERM. Each dispatched post is charged at its normal rate ($0.001 text / $0.005 thread / $0.005 media). |
+| `agentos worker --once` | same | Run a single tick and exit. Useful for cron / GitHub Actions / systemd timer. |
+
+**Failure handling.** Retryable errors (`RATE_LIMITED`, `UI_TIMEOUT`, `LAUNCH_FAILED`, `UNKNOWN`) push the item back to `scheduled[]` with exponential backoff (10/20/40 min, max 3 retries). Non-retryable errors (`SESSION_EXPIRED`, `INVALID_INPUT`, `NOT_FOUND`) move straight to `failed[]` with the error captured. Inspect with `agentos twitter queue --failed`.
+
+**Production deploy.** For an always-on worker, run under systemd / pm2 / a VPS tmux session — anywhere your local social vault and wallet credentials live. The worker is single-process; don't run multiple instances against the same queue file (the `markScheduledInProgress` lock is in-process, not cross-process).
 
 ### Utility
 
