@@ -15,11 +15,25 @@ import { fetchSsrfSafe } from "./email";
 import { randomUUID } from "crypto";
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
+const MAX_VIDEO_BYTES = 512 * 1024 * 1024; // 512 MB — X's documented hard cap
+const MAX_IMAGES_PER_TWEET = 4;
 
 interface ImageInput {
   image_base64?: string;   // raw base64 or data: URL
   image_url?: string;       // https URL — server fetches
 }
+
+interface VideoInput {
+  video_base64?: string;   // raw base64 or data: URL
+  video_url?: string;       // https URL — server fetches
+}
+
+/**
+ * Per-tweet attachment. X allows EITHER 1-4 images OR exactly 1 video — never
+ * a mix and never more than 4 items total. Each entry must have exactly one
+ * of {image_*, video_*}.
+ */
+type MediaInput = ImageInput | VideoInput;
 
 /**
  * Materialise an image from either base64 or a URL into a temp file path
@@ -78,6 +92,120 @@ async function materializeImage(
   };
 
   return { filePath, cleanup };
+}
+
+/**
+ * Materialise a video from base64 or URL into a temp file. Mirrors
+ * materializeImage but with video MIME-type validation, larger byte budget,
+ * and a longer fetch timeout (videos take longer to download than images).
+ */
+async function materializeVideo(
+  input: VideoInput
+): Promise<{ filePath: string; cleanup: () => void }> {
+  if (!input.video_base64 && !input.video_url) {
+    throw new Error("video_base64 or video_url is required");
+  }
+
+  const fs = await import("fs");
+  const path = await import("path");
+
+  const dir = "/tmp/agentos-uploads";
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+  let buf: Buffer;
+  let ext = "mp4";
+
+  if (input.video_base64) {
+    const dataUrlMatch = input.video_base64.match(/^data:video\/([\w-]+);base64,(.+)$/);
+    if (dataUrlMatch) {
+      ext = dataUrlMatch[1].toLowerCase();
+      buf = Buffer.from(dataUrlMatch[2], "base64");
+    } else {
+      buf = Buffer.from(input.video_base64, "base64");
+    }
+  } else {
+    const resp = await fetchSsrfSafe(input.video_url!, { timeoutMs: 120000, maxBytes: MAX_VIDEO_BYTES });
+    if (!resp.ok) throw new Error(`Failed to fetch video: HTTP ${resp.status}`);
+    const contentType = resp.headers.get("content-type") || "";
+    if (!/^video\//.test(contentType)) {
+      throw new Error(`URL did not return a video (content-type: ${contentType})`);
+    }
+    ext = contentType.split("/")[1]?.split(";")[0]?.toLowerCase() || "mp4";
+    buf = Buffer.from(await resp.arrayBuffer());
+  }
+
+  if (buf.length > MAX_VIDEO_BYTES) {
+    throw new Error(`Video too large (${buf.length} bytes, max ${MAX_VIDEO_BYTES})`);
+  }
+
+  // X accepts mp4 and mov. Normalize unknown subtypes to mp4 — the actual
+  // codec inside may not match the extension, but X will reject at upload time
+  // with a clear error if the codec is unsupported.
+  if (!["mp4", "mov", "quicktime", "m4v"].includes(ext)) ext = "mp4";
+
+  const filePath = path.join(dir, `${randomUUID()}.${ext}`);
+  fs.writeFileSync(filePath, buf);
+
+  const cleanup = () => {
+    try { fs.unlinkSync(filePath); } catch { /* noop */ }
+  };
+
+  return { filePath, cleanup };
+}
+
+/**
+ * Validate a media array against X's per-tweet rules. Returns an error
+ * string if invalid, or null if OK. Empty arrays are valid (no attachment).
+ */
+function validateMediaArray(media: MediaInput[]): string | null {
+  if (media.length === 0) return null;
+  if (media.length > MAX_IMAGES_PER_TWEET) {
+    return `Too many media items (max ${MAX_IMAGES_PER_TWEET}, got ${media.length})`;
+  }
+  const videos = media.filter(m => "video_base64" in m || "video_url" in m);
+  const images = media.filter(m => "image_base64" in m || "image_url" in m);
+  if (videos.length > 0 && images.length > 0) {
+    return "Cannot mix images and video in the same tweet (X allows one or the other, not both)";
+  }
+  if (videos.length > 1) {
+    return `Max 1 video per tweet (got ${videos.length})`;
+  }
+  for (let i = 0; i < media.length; i++) {
+    const m = media[i] as any;
+    const hasImage = !!(m.image_base64 || m.image_url);
+    const hasVideo = !!(m.video_base64 || m.video_url);
+    if (!hasImage && !hasVideo) {
+      return `Media item ${i + 1}: must have image_base64/image_url or video_base64/video_url`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Materialise every entry in a media array into local file paths, with a
+ * single combined cleanup that removes them all. Cleans up partial state if
+ * any individual materialise fails partway through.
+ */
+async function materializeMedia(
+  inputs: MediaInput[]
+): Promise<{ filePaths: string[]; cleanup: () => void }> {
+  const results: Array<{ filePath: string; cleanup: () => void }> = [];
+  try {
+    for (const input of inputs) {
+      const isVideo = "video_base64" in input || "video_url" in input;
+      results.push(isVideo
+        ? await materializeVideo(input as VideoInput)
+        : await materializeImage(input as ImageInput));
+    }
+    return {
+      filePaths: results.map(r => r.filePath),
+      cleanup: () => results.forEach(r => r.cleanup()),
+    };
+  } catch (e) {
+    // Cleanup any successful materialisations before propagating.
+    results.forEach(r => r.cleanup());
+    throw e;
+  }
 }
 
 async function debugShot(page: any, tag: string): Promise<string | undefined> {
@@ -187,7 +315,7 @@ export interface OpRequest {
 /* ─── post: publish a tweet from the home feed compose box ────────────── */
 
 export async function postTweet(
-  req: OpRequest & { text: string }
+  req: OpRequest & { text: string; media?: MediaInput[] }
 ): Promise<OpResult<{ tweet_url?: string; tweet_id?: string; x_error_code?: number; x_http_status?: number }>> {
   if (!req.text || !req.text.trim()) {
     return { success: false, error: "text is required", error_code: "INVALID_INPUT" };
@@ -200,6 +328,24 @@ export async function postTweet(
     };
   }
 
+  // Validate media early so we fail fast before launching a browser session.
+  const media = req.media || [];
+  const mediaErr = validateMediaArray(media);
+  if (mediaErr) {
+    return { success: false, error: mediaErr, error_code: "INVALID_INPUT" };
+  }
+
+  // Materialise media to disk before opening the session — saves browser
+  // launch time if the input is malformed (bad URL, oversized file, etc.).
+  let materialized: { filePaths: string[]; cleanup: () => void } | null = null;
+  if (media.length > 0) {
+    try {
+      materialized = await materializeMedia(media);
+    } catch (e: any) {
+      return { success: false, error: e.message, error_code: "INVALID_INPUT" };
+    }
+  }
+
   let session;
   try {
     session = await openAuthenticatedSession({
@@ -208,6 +354,7 @@ export async function postTweet(
       cookies: req.cookies,
     });
   } catch (e: any) {
+    materialized?.cleanup();
     return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
   }
 
@@ -230,6 +377,44 @@ export async function postTweet(
     await textarea.pressSequentially(req.text, { delay: 30 });
     await page.waitForTimeout(800);
 
+    // Attach media after typing text — X's compose hides the file input until
+    // the box has focus. setInputFiles works on the hidden <input type="file">
+    // directly, no need to click the visible attach button.
+    if (materialized && materialized.filePaths.length > 0) {
+      const fileInput = page
+        .locator(
+          '[data-testid="fileInput"], ' +
+          'input[type="file"][data-testid="attachments"], ' +
+          '[data-testid="toolBar"] input[type="file"], ' +
+          'input[type="file"]'
+        )
+        .first();
+      try {
+        await fileInput.waitFor({ state: "attached", timeout: 10000 });
+      } catch {
+        const shot = await debugShot(page, "post-media-input-not-found");
+        return {
+          success: false,
+          error: `Compose file input not found. X may have changed the attachment UI. Screenshot: ${shot}`,
+          error_code: "UI_TIMEOUT",
+        };
+      }
+      try {
+        await fileInput.setInputFiles(materialized.filePaths);
+      } catch (e: any) {
+        const shot = await debugShot(page, "post-media-attach-failed");
+        return {
+          success: false,
+          error: `Failed to attach media files: ${e.message}. Screenshot: ${shot}`,
+          error_code: "UI_TIMEOUT",
+        };
+      }
+      // X's compose disables the post button while uploads are in progress.
+      // The waitFor on postButton below will block until uploads complete (or
+      // timeout if anything goes wrong). For videos this can take 10-60s.
+      await page.waitForTimeout(1500);
+    }
+
     const postButton = page
       .locator(
         '[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):visible, ' +
@@ -237,9 +422,14 @@ export async function postTweet(
       )
       .first();
 
+    // Media uploads keep the post button disabled until X finishes processing.
+    // Videos take longest — bump the wait window when video is attached.
+    const hasVideo = media.some(m => "video_base64" in m || "video_url" in m);
+    const postReadyTimeout = hasVideo ? 120000 : (media.length > 0 ? 45000 : 10000);
+
     let buttonReady = true;
     try {
-      await postButton.waitFor({ state: "visible", timeout: 10000 });
+      await postButton.waitFor({ state: "visible", timeout: postReadyTimeout });
     } catch {
       buttonReady = false;
     }
@@ -248,7 +438,10 @@ export async function postTweet(
       const shot = await debugShot(page, "post-button-not-visible");
       return {
         success: false,
-        error: `Post button never became enabled. Screenshot: ${shot}`,
+        error:
+          `Post button never became enabled` +
+          (media.length > 0 ? ` (waited ${postReadyTimeout}ms for media upload)` : "") +
+          `. Screenshot: ${shot}`,
         error_code: "UI_TIMEOUT",
       };
     }
@@ -298,6 +491,7 @@ export async function postTweet(
   } catch (e: any) {
     return { success: false, error: e.message || String(e), error_code: "UI_TIMEOUT" };
   } finally {
+    materialized?.cleanup();
     await close();
   }
 }

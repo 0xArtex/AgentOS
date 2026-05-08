@@ -403,6 +403,16 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     inputSchema: { handle: "string (no @)", texts: "array of strings (each ≤280 chars, length 1-25)" },
     outputSchema: { success: "boolean", data: "object ({ tweet_ids: string[], tweet_urls: string[] })" },
   },
+  twitter_post_media: {
+    name: "twitter_post_media",
+    description: "Post a tweet with 1-4 images OR 1 video attached. Use twitter_post for text-only.",
+    inputSchema: {
+      handle: "string (no @)",
+      text: "string (≤280 chars)",
+      media: "array of {image_url|image_base64|video_url|video_base64} — 1-4 images OR exactly 1 video, never mix",
+    },
+    outputSchema: { success: "boolean", data: "object ({ tweet_id: string, tweet_url: string })" },
+  },
   twitter_reply: {
     name: "twitter_reply",
     description: "Reply to a tweet.",
@@ -746,7 +756,7 @@ export function seedAgentOSPrimitives(): void {
          'agentos.vps_action', 'agentos.vps_resize', 'agentos.vps_delete',
          'agentos.install_skill', 'agentos.install_skills_bulk', 'agentos.remove_skill',
          'agentos.configure_openclaw', 'agentos.configure_vps_wallet',
-         'agentos.twitter_post', 'agentos.twitter_post_thread', 'agentos.twitter_reply',
+         'agentos.twitter_post', 'agentos.twitter_post_thread', 'agentos.twitter_post_media', 'agentos.twitter_reply',
          'agentos.twitter_like', 'agentos.twitter_retweet', 'agentos.twitter_follow',
          'agentos.twitter_unfollow', 'agentos.twitter_delete_post',
          'agentos.twitter_update_profile', 'agentos.twitter_update_avatar',
@@ -962,6 +972,10 @@ export function seedAgentOSPrimitives(): void {
     p("agentos.twitter_post_thread", "twitter_post_thread", "/social/twitter/post-thread", {
       costUsdc: 0.005, p50: 12000, p99: 90000, reputation: 0.75,
       description: "Post a 2-25 tweet thread in one composed session.",
+    }),
+    p("agentos.twitter_post_media", "twitter_post_media", "/social/twitter/post-media", {
+      costUsdc: 0.005, p50: 8000, p99: 120000, reputation: 0.75,
+      description: "Post a tweet with 1-4 images or 1 video attached.",
     }),
     p("agentos.twitter_list_my_tweets", "twitter_list_my_tweets", "/social/twitter/list-my-tweets", {
       costUsdc: 0.005, p50: 5000, p99: 30000, reputation: 0.85,
