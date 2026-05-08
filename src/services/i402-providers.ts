@@ -397,6 +397,12 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     inputSchema: { handle: "string (no @)", text: "string" },
     outputSchema: { success: "boolean", data: "object ({ tweet_id: string, tweet_url: string })" },
   },
+  twitter_post_thread: {
+    name: "twitter_post_thread",
+    description: "Post a chain of 2-25 tweets as a native X thread from one composed session.",
+    inputSchema: { handle: "string (no @)", texts: "array of strings (each ≤280 chars, length 1-25)" },
+    outputSchema: { success: "boolean", data: "object ({ tweet_ids: string[], tweet_urls: string[] })" },
+  },
   twitter_reply: {
     name: "twitter_reply",
     description: "Reply to a tweet.",
@@ -740,7 +746,7 @@ export function seedAgentOSPrimitives(): void {
          'agentos.vps_action', 'agentos.vps_resize', 'agentos.vps_delete',
          'agentos.install_skill', 'agentos.install_skills_bulk', 'agentos.remove_skill',
          'agentos.configure_openclaw', 'agentos.configure_vps_wallet',
-         'agentos.twitter_post', 'agentos.twitter_reply',
+         'agentos.twitter_post', 'agentos.twitter_post_thread', 'agentos.twitter_reply',
          'agentos.twitter_like', 'agentos.twitter_retweet', 'agentos.twitter_follow',
          'agentos.twitter_unfollow', 'agentos.twitter_delete_post',
          'agentos.twitter_update_profile', 'agentos.twitter_update_avatar',
@@ -952,6 +958,10 @@ export function seedAgentOSPrimitives(): void {
     // automatically and quietly when needed; it is not a planner step.
     p("agentos.twitter_post", "twitter_post", "/social/twitter/post", {
       costUsdc: 0.001, p50: 5000, p99: 30000, reputation: 0.8,
+    }),
+    p("agentos.twitter_post_thread", "twitter_post_thread", "/social/twitter/post-thread", {
+      costUsdc: 0.005, p50: 12000, p99: 90000, reputation: 0.75,
+      description: "Post a 2-25 tweet thread in one composed session.",
     }),
     p("agentos.twitter_list_my_tweets", "twitter_list_my_tweets", "/social/twitter/list-my-tweets", {
       costUsdc: 0.005, p50: 5000, p99: 30000, reputation: 0.85,

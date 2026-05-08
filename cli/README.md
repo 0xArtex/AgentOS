@@ -404,6 +404,7 @@ Local credentials are encrypted with AES-256-GCM (per-account session secret in 
 | `agentos twitter login <username>` | $0.005 | Open a Playwright stealth session, log in through the account's residential IP, cache cookies for 12h. |
 | `agentos twitter session <username>` | free | Show whether a session is cached, age in hours, and staleness. |
 | `agentos twitter post <username> --body "..."` | $0.001 | Post a tweet. Returns `tweet_id` after server-side verification. |
+| `agentos twitter thread <username> --texts '[...]'` *(or `--file thread.json`)* | $0.005 | Post a 2-25 tweet native X thread in one composed session. JSON array of strings, each ≤280 chars. Returns `tweet_ids[]` and `tweet_urls[]`. |
 | `agentos twitter reply <username> --to <tweet-url> --body "..."` | $0.001 | Reply to a tweet. |
 | `agentos twitter like <username> --tweet <url>` | $0.001 | |
 | `agentos twitter retweet <username> --tweet <url>` | $0.001 | |
@@ -506,6 +507,7 @@ ao.walletRequestApproval(walletId: string, action: string, params: object)
 ao.socialTwitterBuy()
 ao.socialTwitterLogin(accountId, login, password, totpSeed?, cookies?, proxySessionId?)
 ao.socialTwitterPost(accountId, cookies, text, proxySessionId?)
+ao.socialTwitterPostThread(accountId, cookies, texts, proxySessionId?)
 ao.socialTwitterReply(accountId, cookies, tweetUrl, text, proxySessionId?)
 ao.socialTwitterLike(accountId, cookies, tweetUrl, proxySessionId?)
 ao.socialTwitterRetweet(accountId, cookies, tweetUrl, proxySessionId?)

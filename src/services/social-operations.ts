@@ -302,6 +302,223 @@ export async function postTweet(
   }
 }
 
+/* ─── postThread: publish a chain of 2-25 tweets as a native X thread ── */
+
+/**
+ * Post a thread by composing all tweets in one session, then submitting once.
+ * Uses X's native "Add" button so we issue a single click for the whole chain
+ * — no per-tweet navigation, no reply-URL lookups.
+ *
+ * X fires one CreateTweet response per tweet during submission. We collect
+ * all of them, fail on the first error, and return the IDs in submission order.
+ */
+export async function postTweetThread(
+  req: OpRequest & { texts: string[] }
+): Promise<OpResult<{ tweet_ids: string[]; tweet_urls: string[]; x_error_code?: number; x_http_status?: number }>> {
+  if (!Array.isArray(req.texts) || req.texts.length === 0) {
+    return { success: false, error: "texts must be a non-empty array", error_code: "INVALID_INPUT" };
+  }
+  if (req.texts.length === 1) {
+    // Degenerate: a "thread" of one is just a tweet. Delegate.
+    const r = await postTweet({ ...req, text: req.texts[0] });
+    if (!r.success) return r as any;
+    return {
+      success: true,
+      data: {
+        tweet_ids: r.data?.tweet_id ? [r.data.tweet_id] : [],
+        tweet_urls: r.data?.tweet_url ? [r.data.tweet_url] : [],
+      },
+    };
+  }
+  if (req.texts.length > 25) {
+    return { success: false, error: `Thread length capped at 25 (got ${req.texts.length})`, error_code: "INVALID_INPUT" };
+  }
+  for (let i = 0; i < req.texts.length; i++) {
+    const t = req.texts[i];
+    if (!t || !t.trim()) {
+      return { success: false, error: `Thread tweet ${i + 1} is empty`, error_code: "INVALID_INPUT" };
+    }
+    if (t.length > 280) {
+      return { success: false, error: `Thread tweet ${i + 1} exceeds 280 chars (got ${t.length})`, error_code: "INVALID_INPUT" };
+    }
+  }
+
+  let session;
+  try {
+    session = await openAuthenticatedSession({
+      accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
+      cookies: req.cookies,
+    });
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
+  }
+
+  const { page, close } = session;
+  try {
+    await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 45000 });
+
+    if (isSessionExpiredUrl(page.url())) {
+      return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
+    }
+
+    // Type the first tweet.
+    const firstBox = page.locator('[data-testid="tweetTextarea_0"]:visible').first();
+    await firstBox.waitFor({ state: "visible", timeout: 20000 });
+    await firstBox.click();
+    await firstBox.pressSequentially(req.texts[0], { delay: 30 });
+    await page.waitForTimeout(500);
+
+    // Add tweets 2..N. The "Add" button has data-testid="addButton" in the
+    // current compose UI; fall back to the labeled button if testid missing.
+    for (let i = 1; i < req.texts.length; i++) {
+      const addButton = page
+        .locator('[data-testid="addButton"]:visible, button[aria-label="Add post"]:visible')
+        .first();
+      try {
+        await addButton.waitFor({ state: "visible", timeout: 10000 });
+      } catch {
+        const shot = await debugShot(page, `thread-add-btn-missing-${i}`);
+        return {
+          success: false,
+          error: `Add-tweet button not found before tweet ${i + 1}. X may have changed compose UI. Screenshot: ${shot}`,
+          error_code: "UI_TIMEOUT",
+        };
+      }
+      await addButton.click({ timeout: 5000 });
+
+      const nextBox = page.locator(`[data-testid="tweetTextarea_${i}"]:visible`).first();
+      try {
+        await nextBox.waitFor({ state: "visible", timeout: 10000 });
+      } catch {
+        const shot = await debugShot(page, `thread-textarea-missing-${i}`);
+        return {
+          success: false,
+          error: `Textarea ${i + 1} did not appear after Add click. Screenshot: ${shot}`,
+          error_code: "UI_TIMEOUT",
+        };
+      }
+      await nextBox.click();
+      await nextBox.pressSequentially(req.texts[i], { delay: 30 });
+      await page.waitForTimeout(300);
+    }
+
+    // Locate the post button (becomes "Post all" for threads but testid stays).
+    const postButton = page
+      .locator(
+        '[data-testid="tweetButtonInline"]:not([aria-disabled="true"]):visible, ' +
+        '[data-testid="tweetButton"]:not([aria-disabled="true"]):visible'
+      )
+      .first();
+    try {
+      await postButton.waitFor({ state: "visible", timeout: 10000 });
+    } catch {
+      const shot = await debugShot(page, "thread-post-btn-not-ready");
+      return {
+        success: false,
+        error: `Post-thread button never became enabled. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    // Collect every CreateTweet response that fires during submission. X posts
+    // them sequentially (each next one references the previous tweet's ID),
+    // so we may see N responses staggered by ~1-3s each.
+    const expectedCount = req.texts.length;
+    const collected: ApiResult[] = [];
+    const collector = (resp: any) => {
+      if (resp.request().method() !== "POST") return;
+      if (!/\/CreateTweet/.test(resp.url())) return;
+      // Process async — don't block the listener.
+      (async () => {
+        const status = resp.status();
+        let json: any = null;
+        try { json = await resp.json(); } catch {
+          try { json = { raw: await resp.text() }; } catch { /* noop */ }
+        }
+        const errors = json?.errors;
+        const errorMessage = Array.isArray(errors) && errors[0]?.message ? errors[0].message : undefined;
+        const errorCode = Array.isArray(errors) && errors[0]?.code ? errors[0].code : undefined;
+        collected.push({ ok: resp.ok() && !errorMessage, status, json, errorMessage, errorCode });
+      })();
+    };
+    page.on("response", collector);
+
+    try {
+      await postButton.click({ timeout: 5000 });
+    } catch (e: any) {
+      page.off("response", collector);
+      return { success: false, error: `Click on post-thread failed: ${e.message}`, error_code: "UI_TIMEOUT" };
+    }
+
+    // Wait for all expected responses or timeout. Budget ~8s per tweet, min 30s.
+    const deadline = Date.now() + Math.max(30000, expectedCount * 8000);
+    while (collected.length < expectedCount && Date.now() < deadline) {
+      await page.waitForTimeout(500);
+    }
+
+    page.off("response", collector);
+
+    if (collected.length === 0) {
+      const shot = await debugShot(page, "thread-no-api-calls");
+      return {
+        success: false,
+        error: `No CreateTweet API calls observed after thread submit. X likely blocked. Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    // Fail on first error response.
+    const firstFailure = collected.find(r => !r.ok);
+    if (firstFailure) {
+      const partial = collected
+        .filter(r => r.ok)
+        .map(r => r.json?.data?.create_tweet?.tweet_results?.result?.rest_id)
+        .filter((id): id is string => !!id);
+      return {
+        success: false,
+        error: `X rejected a thread tweet: ${firstFailure.errorMessage || `HTTP ${firstFailure.status}`}` +
+          (partial.length ? ` (${partial.length} of ${expectedCount} tweets posted before failure)` : ""),
+        error_code: mapXError(firstFailure.status, firstFailure.errorCode),
+        data: {
+          x_error_code: firstFailure.errorCode,
+          x_http_status: firstFailure.status,
+          tweet_ids: partial,
+          tweet_urls: partial.map(id => `https://x.com/i/web/status/${id}`),
+        } as any,
+      };
+    }
+
+    const tweetIds = collected
+      .map(r => r.json?.data?.create_tweet?.tweet_results?.result?.rest_id)
+      .filter((id): id is string => !!id);
+
+    if (tweetIds.length < expectedCount) {
+      return {
+        success: false,
+        error: `Thread submitted but only ${tweetIds.length}/${expectedCount} tweet IDs returned — partial state.`,
+        error_code: "UNKNOWN",
+        data: {
+          tweet_ids: tweetIds,
+          tweet_urls: tweetIds.map(id => `https://x.com/i/web/status/${id}`),
+        } as any,
+      };
+    }
+
+    return {
+      success: true,
+      data: {
+        tweet_ids: tweetIds,
+        tweet_urls: tweetIds.map(id => `https://x.com/i/web/status/${id}`),
+      },
+    };
+  } catch (e: any) {
+    return { success: false, error: e.message || String(e), error_code: "UI_TIMEOUT" };
+  } finally {
+    await close();
+  }
+}
+
 /* ─── reply: reply to a specific tweet by URL ─────────────────────────── */
 
 export async function replyToTweet(
