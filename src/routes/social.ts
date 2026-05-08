@@ -13,6 +13,11 @@ import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
 import { poolAdd, poolBuy, poolStatus, poolMarkDead } from "../services/social-pool";
 import {
+  registerAccount,
+  unregisterAccount,
+  listRegisteredAccounts,
+} from "../services/registered-accounts";
+import {
   postTweet,
   postTweetThread,
   replyToTweet,
@@ -568,6 +573,107 @@ router.post(
     }
     const updated = poolMarkDead(id, reason || "marked dead by admin");
     res.json({ success: updated });
+  }
+);
+
+/* ─── Wallet-registered accounts: BYO credentials, server holds them ─
+   Foundation for server-side scheduling. The wallet uploads its X
+   credentials once; the server encrypts at rest and re-uses them to
+   refresh cookies whenever needed (so scheduled posts can fire even when
+   the user's machine is off). All routes are wallet-scoped — no caller
+   can see or revoke another wallet's accounts.
+*/
+
+router.post(
+  "/twitter/register",
+  requireXEnabled,
+  requireAuth(0.01, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    const {
+      username,
+      login,
+      password,
+      email,
+      email_password,
+      totp_seed,
+      auth_token,
+      ct0,
+      country,
+    } = (req.body || {}) as Record<string, any>;
+
+    if (!username || !password) {
+      res.status(400).json({ error: "username and password are required" });
+      return;
+    }
+
+    try {
+      const result = await registerAccount({
+        wallet,
+        platform: "twitter",
+        username,
+        country: country || undefined,
+        credentials: {
+          login: login || username,
+          password,
+          email,
+          email_password,
+          totp_seed,
+          auth_token,
+          ct0,
+        },
+      });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Register failed" });
+    }
+  }
+);
+
+router.delete(
+  "/twitter/register/:id",
+  requireXEnabled,
+  requireAuth(0, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    const id = String(req.params.id || "");
+    if (!id) {
+      res.status(400).json({ error: "id is required" });
+      return;
+    }
+    try {
+      const result = unregisterAccount(wallet, id);
+      res.status(result.success ? 200 : 404).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Unregister failed" });
+    }
+  }
+);
+
+router.get(
+  "/twitter/registered",
+  requireXEnabled,
+  requireAuth(0, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    try {
+      const accounts = listRegisteredAccounts(wallet, "twitter");
+      res.json({ success: true, accounts });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "List registered failed" });
+    }
   }
 );
 

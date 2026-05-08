@@ -2222,6 +2222,111 @@ async function main() {
             return print({ success: true, platform, username, ...(data?.data || {}) })
           }
 
+          case 'register': {
+            // Register an X account with the AgentOS server. Server tests the
+            // login, encrypts credentials at rest, and from then on can refresh
+            // cookies on this wallet's behalf — foundation for server-side
+            // scheduling. If the account already exists in the local vault,
+            // we pull its credentials by default so the user doesn't have to
+            // re-type. Explicit flags override.
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+
+            let login: string | undefined = (flags.login as string) || undefined
+            let password: string | undefined = (flags.password as string) || undefined
+            let totpSeed: string | undefined = (flags['totp-seed'] as string) || undefined
+            let email: string | undefined = (flags.email as string) || undefined
+            let emailPassword: string | undefined = (flags['email-password'] as string) || undefined
+            let authToken: string | undefined = (flags['auth-token'] as string) || undefined
+            let ct0: string | undefined = (flags.ct0 as string) || undefined
+            const country: string | undefined = (flags.country as string) || undefined
+
+            const localAcc = sv.getAccount(platform, username!)
+            if (localAcc && !password) {
+              const localCreds = sv.unlockCredentials(platform, username!)
+              login = login || localCreds.login
+              password = password || localCreds.password
+              totpSeed = totpSeed || localCreds.totp_seed
+              email = email || localCreds.email
+              emailPassword = emailPassword || localCreds.email_password
+              authToken = authToken || localCreds.auth_token
+              ct0 = ct0 || localCreds.ct0
+            }
+
+            if (!password) {
+              err('--password required (or import the account locally first via `agentos twitter import`)')
+            }
+
+            let data: any
+            try {
+              data = await ao.socialTwitterRegister(username!, password!, {
+                login, email, email_password: emailPassword,
+                totp_seed: totpSeed, auth_token: authToken, ct0, country,
+              })
+            } catch (e: any) {
+              err(`Register failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.success) {
+              err(
+                `Register failed: ${data?.error || 'unknown'}` +
+                (data?.login_error_code ? ` [${data.login_error_code}]` : ''),
+                EXIT.GENERAL
+              )
+            }
+            return print({
+              success: true,
+              platform, username,
+              account_id: data.id,
+              cookies_captured: data.cookies_captured,
+              hint: 'Server holds encrypted credentials. Use `agentos twitter schedule` (next PR) to schedule fire-and-forget posts.',
+            })
+          }
+
+          case 'unregister': {
+            const usernameOrId = positional[0] || (flags.username as string) || (flags.id as string)
+            if (!usernameOrId) err('<username-or-id> required')
+            // 32-char hex == account_id. Otherwise treat as username and look up.
+            let accountId: string | undefined
+            if (/^[a-f0-9]{32}$/i.test(usernameOrId!)) {
+              accountId = usernameOrId
+            } else {
+              let registered: any
+              try {
+                registered = await ao.socialTwitterListRegistered()
+              } catch (e: any) {
+                err(`Failed to list registered accounts: ${e.message}`, EXIT.GENERAL)
+              }
+              const match = (registered?.accounts || []).find((a: any) => a.username === usernameOrId)
+              if (!match) {
+                err(`No registered account with username "${usernameOrId}". Run \`agentos twitter registered\` to list.`, EXIT.NOT_FOUND)
+              }
+              accountId = match!.id
+            }
+            let data: any
+            try {
+              data = await ao.socialTwitterUnregister(accountId!)
+            } catch (e: any) {
+              err(`Unregister failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.success) {
+              err(`Unregister failed: ${data?.error || 'unknown'}`, EXIT.GENERAL)
+            }
+            return print({ success: true, platform, account_id: accountId, hint: 'Server-side credentials wiped. Account no longer schedulable until re-registered.' })
+          }
+
+          case 'registered': {
+            let data: any
+            try {
+              data = await ao.socialTwitterListRegistered()
+            } catch (e: any) {
+              err(`List registered failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.success) {
+              err(`List registered failed: ${data?.error || 'unknown'}`, EXIT.GENERAL)
+            }
+            return print({ success: true, platform, accounts: data.accounts || [] })
+          }
+
           case 'schedule':
           case 'draft': {
             // Both share the same content-parsing + media-ingestion logic.
