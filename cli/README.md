@@ -423,6 +423,20 @@ Local credentials are encrypted with AES-256-GCM (per-account session secret in 
 
 **Verification.** Operations are confirmed at the network layer — the server intercepts X's actual API responses (`CreateTweet`, `FavoriteTweet`, `update_profile`, etc.) before reporting success. No false positives.
 
+### Scheduling, drafts, and queue (local — free)
+
+Stored in `~/.agentos/social/queue.json`. Local files referenced by scheduled items are copied into `~/.agentos/social/queue-media/<id>/` so the schedule survives the source file being deleted. None of these commands hit the server; the actual post fires (and is charged) when the worker dispatches at `--at` time.
+
+| Command | Cost | Notes |
+|---|---|---|
+| `agentos twitter schedule <username> --body "..." --at "2026-05-15T14:00:00Z"` *(or `--texts '[...]'`, plus optional `--image`/`--video`/`--media-json`/`--community`)* | free | Append a future post to the local queue. Action (text / thread / media) inferred from flags. Returns the generated `id`. |
+| `agentos twitter draft <username> --body "..." [--name "label"]` *(same content flags as `schedule`)* | free | Save a draft without a fire time. Promote later. |
+| `agentos twitter queue [--account <username>] [--scheduled\|--drafts\|--published\|--failed] [--from <iso>] [--to <iso>]` | free | List queue contents. With no category flag: all four. |
+| `agentos twitter cancel <id>` | free | Remove a scheduled item OR delete a draft (tries scheduled first). |
+| `agentos twitter promote-draft <id> --at "2026-05-15T14:00:00Z"` | free | Move a draft into `scheduled[]` with a fire time. |
+
+The worker that publishes scheduled items at their `post_at` is shipped in a follow-up PR (Day 4) — for now, schedule commands write to the queue and a future `agentos worker` process will consume them.
+
 ### Utility
 
 | Command | Cost | Notes |
