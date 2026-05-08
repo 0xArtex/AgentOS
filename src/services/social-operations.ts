@@ -314,8 +314,31 @@ export interface OpRequest {
 
 /* ─── post: publish a tweet from the home feed compose box ────────────── */
 
+/**
+ * X community IDs are snowflake-ish (long numeric strings, typically 18-19
+ * digits but allow 15-30 to be safe). Reject obviously bad inputs early.
+ */
+function validateCommunityId(communityId?: string): string | null {
+  if (communityId === undefined) return null;
+  if (!/^\d{15,30}$/.test(communityId)) {
+    return `community_id must be a numeric ID (15-30 digits, got: ${communityId})`;
+  }
+  return null;
+}
+
+/**
+ * Where to land when starting a compose session. Community URLs auto-scope
+ * any post made from their inline composer to that community — we don't need
+ * to manipulate an audience-selector dropdown.
+ */
+function composeStartUrl(communityId?: string): string {
+  return communityId
+    ? `https://x.com/i/communities/${communityId}`
+    : "https://x.com/home";
+}
+
 export async function postTweet(
-  req: OpRequest & { text: string; media?: MediaInput[] }
+  req: OpRequest & { text: string; media?: MediaInput[]; community_id?: string }
 ): Promise<OpResult<{ tweet_url?: string; tweet_id?: string; x_error_code?: number; x_http_status?: number }>> {
   if (!req.text || !req.text.trim()) {
     return { success: false, error: "text is required", error_code: "INVALID_INPUT" };
@@ -326,6 +349,11 @@ export async function postTweet(
       error: `Tweet text exceeds 280 characters (got ${req.text.length})`,
       error_code: "INVALID_INPUT",
     };
+  }
+
+  const communityErr = validateCommunityId(req.community_id);
+  if (communityErr) {
+    return { success: false, error: communityErr, error_code: "INVALID_INPUT" };
   }
 
   // Validate media early so we fail fast before launching a browser session.
@@ -360,7 +388,7 @@ export async function postTweet(
 
   const { page, close } = session;
   try {
-    await page.goto("https://x.com/home", {
+    await page.goto(composeStartUrl(req.community_id), {
       waitUntil: "domcontentloaded",
       timeout: 45000,
     });
@@ -369,10 +397,47 @@ export async function postTweet(
       return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
     }
 
-    const textarea = page
+    // Community pages sometimes require clicking a "Post" trigger before the
+    // inline composer mounts. Try the inline textarea first; if it doesn't
+    // appear, fall back to clicking a primary post button to open the modal.
+    let textarea = page
       .locator('[data-testid="tweetTextarea_0"]:visible')
       .first();
-    await textarea.waitFor({ state: "visible", timeout: 20000 });
+    try {
+      await textarea.waitFor({ state: "visible", timeout: req.community_id ? 8000 : 20000 });
+    } catch {
+      if (req.community_id) {
+        const openCompose = page
+          .locator(
+            '[data-testid="SideNav_NewTweet_Button"]:visible, ' +
+            'a[href="/compose/post"]:visible, ' +
+            'a[href="/compose/tweet"]:visible'
+          )
+          .first();
+        try {
+          await openCompose.waitFor({ state: "visible", timeout: 5000 });
+          await openCompose.click({ timeout: 5000 });
+          textarea = page.locator('[data-testid="tweetTextarea_0"]:visible').first();
+          await textarea.waitFor({ state: "visible", timeout: 15000 });
+        } catch {
+          const shot = await debugShot(page, "post-community-textarea-missing");
+          return {
+            success: false,
+            error:
+              `Community compose textarea did not appear at /i/communities/${req.community_id}. ` +
+              `Verify membership and that the community exists. Screenshot: ${shot}`,
+            error_code: "UI_TIMEOUT",
+          };
+        }
+      } else {
+        const shot = await debugShot(page, "post-textarea-missing");
+        return {
+          success: false,
+          error: `Compose textarea not visible on /home. Screenshot: ${shot}`,
+          error_code: "UI_TIMEOUT",
+        };
+      }
+    }
     await textarea.click();
     await textarea.pressSequentially(req.text, { delay: 30 });
     await page.waitForTimeout(800);
@@ -507,7 +572,7 @@ export async function postTweet(
  * all of them, fail on the first error, and return the IDs in submission order.
  */
 export async function postTweetThread(
-  req: OpRequest & { texts: string[] }
+  req: OpRequest & { texts: string[]; community_id?: string }
 ): Promise<OpResult<{ tweet_ids: string[]; tweet_urls: string[]; x_error_code?: number; x_http_status?: number }>> {
   if (!Array.isArray(req.texts) || req.texts.length === 0) {
     return { success: false, error: "texts must be a non-empty array", error_code: "INVALID_INPUT" };
@@ -537,6 +602,11 @@ export async function postTweetThread(
     }
   }
 
+  const communityErr = validateCommunityId(req.community_id);
+  if (communityErr) {
+    return { success: false, error: communityErr, error_code: "INVALID_INPUT" };
+  }
+
   let session;
   try {
     session = await openAuthenticatedSession({
@@ -550,15 +620,50 @@ export async function postTweetThread(
 
   const { page, close } = session;
   try {
-    await page.goto("https://x.com/home", { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.goto(composeStartUrl(req.community_id), { waitUntil: "domcontentloaded", timeout: 45000 });
 
     if (isSessionExpiredUrl(page.url())) {
       return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
     }
 
-    // Type the first tweet.
-    const firstBox = page.locator('[data-testid="tweetTextarea_0"]:visible').first();
-    await firstBox.waitFor({ state: "visible", timeout: 20000 });
+    // Type the first tweet. On community pages the inline composer may need
+    // to be opened via a side-nav button — handled the same way as postTweet.
+    let firstBox = page.locator('[data-testid="tweetTextarea_0"]:visible').first();
+    try {
+      await firstBox.waitFor({ state: "visible", timeout: req.community_id ? 8000 : 20000 });
+    } catch {
+      if (req.community_id) {
+        const openCompose = page
+          .locator(
+            '[data-testid="SideNav_NewTweet_Button"]:visible, ' +
+            'a[href="/compose/post"]:visible, ' +
+            'a[href="/compose/tweet"]:visible'
+          )
+          .first();
+        try {
+          await openCompose.waitFor({ state: "visible", timeout: 5000 });
+          await openCompose.click({ timeout: 5000 });
+          firstBox = page.locator('[data-testid="tweetTextarea_0"]:visible').first();
+          await firstBox.waitFor({ state: "visible", timeout: 15000 });
+        } catch {
+          const shot = await debugShot(page, "thread-community-textarea-missing");
+          return {
+            success: false,
+            error:
+              `Thread compose textarea did not appear at /i/communities/${req.community_id}. ` +
+              `Verify membership and that the community exists. Screenshot: ${shot}`,
+            error_code: "UI_TIMEOUT",
+          };
+        }
+      } else {
+        const shot = await debugShot(page, "thread-textarea-missing");
+        return {
+          success: false,
+          error: `Thread compose textarea not visible on /home. Screenshot: ${shot}`,
+          error_code: "UI_TIMEOUT",
+        };
+      }
+    }
     await firstBox.click();
     await firstBox.pressSequentially(req.texts[0], { delay: 30 });
     await page.waitForTimeout(500);

@@ -2299,6 +2299,7 @@ async function main() {
               if (subcommand === 'post') {
                 const text = (flags.body as string) || (flags.text as string)
                 if (!text) err('--body "..." required')
+                const communityId = (flags.community as string) || (flags['community-id'] as string) || undefined
                 // Build optional media array. CLI supports the common cases:
                 // --image path[,path,path,path] for 1-4 local image files,
                 // --video path for a single local video file,
@@ -2332,9 +2333,9 @@ async function main() {
                   media.push(...parsed)
                 }
                 if (media.length > 0) {
-                  data = await ao.socialTwitterPostWithMedia(acc!.id, sess!.cookies, text, media, psid)
+                  data = await ao.socialTwitterPostWithMedia(acc!.id, sess!.cookies, text, media, psid, communityId)
                 } else {
-                  data = await ao.socialTwitterPost(acc!.id, sess!.cookies, text, psid)
+                  data = await ao.socialTwitterPost(acc!.id, sess!.cookies, text, psid, communityId)
                 }
               } else if (subcommand === 'thread') {
                 // --texts accepts a JSON-encoded array of strings, OR --file points
@@ -2354,7 +2355,8 @@ async function main() {
                 if (!Array.isArray(texts) || texts.length === 0) {
                   err('--texts \'["tweet 1","tweet 2",...]\' or --file <path> required')
                 }
-                data = await ao.socialTwitterPostThread(acc!.id, sess!.cookies, texts!, psid)
+                const communityIdT = (flags.community as string) || (flags['community-id'] as string) || undefined
+                data = await ao.socialTwitterPostThread(acc!.id, sess!.cookies, texts!, psid, communityIdT)
               } else if (subcommand === 'reply') {
                 const tweetUrl = (flags.to as string) || (flags.tweet as string)
                 const text = (flags.body as string) || (flags.text as string)

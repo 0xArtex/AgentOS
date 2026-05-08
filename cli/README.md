@@ -406,6 +406,7 @@ Local credentials are encrypted with AES-256-GCM (per-account session secret in 
 | `agentos twitter post <username> --body "..."` | $0.001 | Post a text-only tweet. Returns `tweet_id` after server-side verification. |
 | `agentos twitter post <username> --body "..." --image path[,path,path,path]` *(or `--video path.mp4`, or `--media-json '[...]'`)* | $0.005 | Post with attached media: 1-4 images OR 1 video (X allows one or the other, never both). Local files are base64-encoded; use `--media-json` to pass `image_url`/`video_url` for server-side fetch. |
 | `agentos twitter thread <username> --texts '[...]'` *(or `--file thread.json`)* | $0.005 | Post a 2-25 tweet native X thread in one composed session. JSON array of strings, each ≤280 chars. Returns `tweet_ids[]` and `tweet_urls[]`. |
+| Add `--community <id>` to any of the above | same | Scope the post / thread / media-post to an X community. `<id>` is the numeric community ID (15-30 digits) — find it in the URL when viewing the community on x.com. Account must be a member. |
 | `agentos twitter reply <username> --to <tweet-url> --body "..."` | $0.001 | Reply to a tweet. |
 | `agentos twitter like <username> --tweet <url>` | $0.001 | |
 | `agentos twitter retweet <username> --tweet <url>` | $0.001 | |
@@ -507,9 +508,9 @@ ao.walletRequestApproval(walletId: string, action: string, params: object)
 // Twitter / X
 ao.socialTwitterBuy()
 ao.socialTwitterLogin(accountId, login, password, totpSeed?, cookies?, proxySessionId?)
-ao.socialTwitterPost(accountId, cookies, text, proxySessionId?)
-ao.socialTwitterPostThread(accountId, cookies, texts, proxySessionId?)
-ao.socialTwitterPostWithMedia(accountId, cookies, text, media, proxySessionId?)  // media: [{image_url|image_base64|video_url|video_base64}], 1-4 images OR 1 video
+ao.socialTwitterPost(accountId, cookies, text, proxySessionId?, communityId?)
+ao.socialTwitterPostThread(accountId, cookies, texts, proxySessionId?, communityId?)
+ao.socialTwitterPostWithMedia(accountId, cookies, text, media, proxySessionId?, communityId?)  // media: [{image_url|image_base64|video_url|video_base64}], 1-4 images OR 1 video
 ao.socialTwitterReply(accountId, cookies, tweetUrl, text, proxySessionId?)
 ao.socialTwitterLike(accountId, cookies, tweetUrl, proxySessionId?)
 ao.socialTwitterRetweet(accountId, cookies, tweetUrl, proxySessionId?)

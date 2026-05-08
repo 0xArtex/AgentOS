@@ -393,23 +393,32 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   // and cookies/login/password NEVER appear in step inputs.
   twitter_post: {
     name: "twitter_post",
-    description: "Post a tweet from an owned X account.",
-    inputSchema: { handle: "string (no @)", text: "string" },
+    description: "Post a tweet from an owned X account. Optional community_id scopes the post to that X community.",
+    inputSchema: {
+      handle: "string (no @)",
+      text: "string",
+      community_id: "string? (numeric X community ID, 15-30 digits, e.g. '1493446837214187523')",
+    },
     outputSchema: { success: "boolean", data: "object ({ tweet_id: string, tweet_url: string })" },
   },
   twitter_post_thread: {
     name: "twitter_post_thread",
-    description: "Post a chain of 2-25 tweets as a native X thread from one composed session.",
-    inputSchema: { handle: "string (no @)", texts: "array of strings (each ≤280 chars, length 1-25)" },
+    description: "Post a chain of 2-25 tweets as a native X thread from one composed session. Optional community_id scopes the thread to that X community.",
+    inputSchema: {
+      handle: "string (no @)",
+      texts: "array of strings (each ≤280 chars, length 1-25)",
+      community_id: "string? (numeric X community ID, 15-30 digits)",
+    },
     outputSchema: { success: "boolean", data: "object ({ tweet_ids: string[], tweet_urls: string[] })" },
   },
   twitter_post_media: {
     name: "twitter_post_media",
-    description: "Post a tweet with 1-4 images OR 1 video attached. Use twitter_post for text-only.",
+    description: "Post a tweet with 1-4 images OR 1 video attached. Use twitter_post for text-only. Optional community_id scopes to a community.",
     inputSchema: {
       handle: "string (no @)",
       text: "string (≤280 chars)",
       media: "array of {image_url|image_base64|video_url|video_base64} — 1-4 images OR exactly 1 video, never mix",
+      community_id: "string? (numeric X community ID, 15-30 digits)",
     },
     outputSchema: { success: "boolean", data: "object ({ tweet_id: string, tweet_url: string })" },
   },

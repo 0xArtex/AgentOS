@@ -148,13 +148,13 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
-    const { text } = req.body as { text?: string };
+    const { text, community_id } = req.body as { text?: string; community_id?: string };
     if (!text) {
       res.status(400).json({ error: "text is required" });
       return;
     }
     try {
-      const result = await postTweet({ ...common, text });
+      const result = await postTweet({ ...common, text, community_id });
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Post failed" });
@@ -172,13 +172,13 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
-    const { texts } = req.body as { texts?: string[] };
+    const { texts, community_id } = req.body as { texts?: string[]; community_id?: string };
     if (!Array.isArray(texts) || texts.length === 0) {
       res.status(400).json({ error: "texts must be a non-empty array of strings" });
       return;
     }
     try {
-      const result = await postTweetThread({ ...common, texts });
+      const result = await postTweetThread({ ...common, texts, community_id });
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Post thread failed" });
@@ -197,8 +197,9 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
-    const { text, media } = req.body as {
+    const { text, media, community_id } = req.body as {
       text?: string;
+      community_id?: string;
       media?: Array<{ image_base64?: string; image_url?: string; video_base64?: string; video_url?: string }>;
     };
     if (!text) {
@@ -212,7 +213,7 @@ router.post(
       return;
     }
     try {
-      const result = await postTweet({ ...common, text, media });
+      const result = await postTweet({ ...common, text, media, community_id });
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Post with media failed" });
