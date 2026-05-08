@@ -14,6 +14,7 @@ import { loginTwitter } from "../services/social-login";
 import { poolAdd, poolBuy, poolStatus, poolMarkDead } from "../services/social-pool";
 import {
   postTweet,
+  postTweetThread,
   replyToTweet,
   likeTweet,
   retweetTweet,
@@ -157,6 +158,30 @@ router.post(
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Post failed" });
+    }
+  }
+);
+
+// Thread is one composed-and-submitted browser session covering up to 25
+// tweets, so it costs the same flat 5x rate as multi-step ops like avatar —
+// not 25x a single post. Volume and rate-limit headroom are bounded server-side.
+router.post(
+  "/twitter/post-thread",
+  requireXEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { texts } = req.body as { texts?: string[] };
+    if (!Array.isArray(texts) || texts.length === 0) {
+      res.status(400).json({ error: "texts must be a non-empty array of strings" });
+      return;
+    }
+    try {
+      const result = await postTweetThread({ ...common, texts });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Post thread failed" });
     }
   }
 );

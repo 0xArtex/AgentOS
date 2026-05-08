@@ -628,6 +628,9 @@ export class AgentOS {
   async socialTwitterPost(accountId: string, cookies: any[], text: string, proxySessionId?: string): Promise<any> {
     return this.request('POST', '/social/twitter/post', { account_id: accountId, proxy_session_id: proxySessionId, cookies, text })
   }
+  async socialTwitterPostThread(accountId: string, cookies: any[], texts: string[], proxySessionId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/post-thread', { account_id: accountId, proxy_session_id: proxySessionId, cookies, texts })
+  }
   async socialTwitterListMyTweets(accountId: string, cookies: any[], limit?: number, proxySessionId?: string): Promise<any> {
     return this.request('POST', '/social/twitter/list-my-tweets', {
       account_id: accountId,

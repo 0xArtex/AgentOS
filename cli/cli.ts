@@ -2268,6 +2268,7 @@ async function main() {
           }
 
           case 'post':
+          case 'thread':
           case 'reply':
           case 'like':
           case 'retweet':
@@ -2299,6 +2300,25 @@ async function main() {
                 const text = (flags.body as string) || (flags.text as string)
                 if (!text) err('--body "..." required')
                 data = await ao.socialTwitterPost(acc!.id, sess!.cookies, text, psid)
+              } else if (subcommand === 'thread') {
+                // --texts accepts a JSON-encoded array of strings, OR --file points
+                // to a JSON file with the same shape. Each tweet ≤280 chars; 1-25
+                // tweets per thread. Single-tweet "threads" delegate to a normal post.
+                const textsRaw = (flags.texts as string) || (flags.body as string)
+                const filePath = (flags.file as string) || (flags.path as string)
+                let texts: string[] | undefined
+                if (filePath) {
+                  const fs = require('fs')
+                  try { texts = JSON.parse(fs.readFileSync(filePath, 'utf8')) }
+                  catch (e: any) { err(`--file ${filePath}: ${e.message}`) }
+                } else if (textsRaw) {
+                  try { texts = JSON.parse(textsRaw) }
+                  catch (e: any) { err(`--texts must be a JSON array of strings: ${e.message}`) }
+                }
+                if (!Array.isArray(texts) || texts.length === 0) {
+                  err('--texts \'["tweet 1","tweet 2",...]\' or --file <path> required')
+                }
+                data = await ao.socialTwitterPostThread(acc!.id, sess!.cookies, texts!, psid)
               } else if (subcommand === 'reply') {
                 const tweetUrl = (flags.to as string) || (flags.tweet as string)
                 const text = (flags.body as string) || (flags.text as string)
