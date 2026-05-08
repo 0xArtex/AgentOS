@@ -739,6 +739,32 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_pool_sold_to ON social_account_pool(sold_to_wallet);
   `);
 
+  // Wallet-registered social accounts — user uploads credentials once, server
+  // encrypts them at rest, then re-uses them indefinitely (re-logging in when
+  // cookies go stale). Distinct from social_account_pool: those are admin-
+  // seeded for sale; these are wallet-bound BYO accounts the wallet owner
+  // manages directly.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS social_registered_accounts (
+      id TEXT PRIMARY KEY,
+      wallet TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      username TEXT NOT NULL,
+      country TEXT,
+      proxy_session_id TEXT NOT NULL,
+      credentials_encrypted TEXT NOT NULL,
+      cookies_encrypted TEXT,
+      status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'session_expired', 'revoked')),
+      registered_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      last_login_at TEXT,
+      last_used_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_registered_wallet_platform ON social_registered_accounts(wallet, platform);
+    CREATE INDEX IF NOT EXISTS idx_registered_username ON social_registered_accounts(platform, username);
+    CREATE UNIQUE INDEX IF NOT EXISTS uq_registered_wallet_username
+      ON social_registered_accounts(wallet, platform, username);
+  `);
+
   // i402 protocol — provider registry
   // Federated across: AgentOS primitives, Agentic Market, curated external APIs, ClawHub.
   // Every row is one callable x402 endpoint registered under one capability class.

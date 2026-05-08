@@ -625,6 +625,38 @@ export class AgentOS {
     })
   }
 
+  async socialTwitterRegister(
+    username: string,
+    password: string,
+    opts?: {
+      login?: string
+      email?: string
+      email_password?: string
+      totp_seed?: string
+      auth_token?: string
+      ct0?: string
+      country?: string
+    }
+  ): Promise<any> {
+    return this.request('POST', '/social/twitter/register', {
+      username,
+      password,
+      ...(opts?.login ? { login: opts.login } : {}),
+      ...(opts?.email ? { email: opts.email } : {}),
+      ...(opts?.email_password ? { email_password: opts.email_password } : {}),
+      ...(opts?.totp_seed ? { totp_seed: opts.totp_seed } : {}),
+      ...(opts?.auth_token ? { auth_token: opts.auth_token } : {}),
+      ...(opts?.ct0 ? { ct0: opts.ct0 } : {}),
+      ...(opts?.country ? { country: opts.country } : {}),
+    })
+  }
+  async socialTwitterUnregister(accountId: string): Promise<any> {
+    return this.request('DELETE', `/social/twitter/register/${encodeURIComponent(accountId)}`)
+  }
+  async socialTwitterListRegistered(): Promise<any> {
+    return this.request('GET', '/social/twitter/registered')
+  }
+
   async socialTwitterPost(accountId: string, cookies: any[], text: string, proxySessionId?: string, communityId?: string): Promise<any> {
     return this.request('POST', '/social/twitter/post', { account_id: accountId, proxy_session_id: proxySessionId, cookies, text, ...(communityId ? { community_id: communityId } : {}) })
   }

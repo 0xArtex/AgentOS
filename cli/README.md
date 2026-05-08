@@ -423,7 +423,22 @@ Local credentials are encrypted with AES-256-GCM (per-account session secret in 
 
 **Verification.** Operations are confirmed at the network layer — the server intercepts X's actual API responses (`CreateTweet`, `FavoriteTweet`, `update_profile`, etc.) before reporting success. No false positives.
 
-### Scheduling, drafts, and queue (local — free)
+### Server-side account registration (foundation for fire-and-forget scheduling)
+
+Upload your X credentials to AgentOS once. The server encrypts them at rest with AES-256-GCM (key in `REGISTERED_ACCOUNTS_KEY` env var, never logged) and from then on can re-login on your wallet's behalf to refresh cookies whenever they go stale. This is what makes scheduled posts fire even when your machine is off.
+
+**Security:** every read/write is wallet-scoped at the API layer — wallet A can never see or revoke wallet B's accounts. Per-row random IV + auth tag. DB leak alone reveals nothing without the env var. Server compromise (DB + env both leaked) = credentials decryptable; same trade-off every "we hold OAuth tokens" SaaS makes (Buffer / Hootsuite / Postiz).
+
+| Command | Cost | Notes |
+|---|---|---|
+| `agentos twitter register <username>` *(if account already in local vault)* | $0.01 | Reads creds from local vault, sends to server, server runs a real test login through a fresh residential session, encrypts + stores on success. Returns `account_id` and `cookies_captured`. |
+| `agentos twitter register <username> --password "..."` *(plus `--login`, `--totp-seed`, `--email`, `--email-password`, `--auth-token`, `--ct0`, `--country`)* | $0.01 | Same, but with explicit credentials instead of vault lookup. |
+| `agentos twitter unregister <username-or-account-id>` | free | Wipes the encrypted credential + cookie blobs from the server (status flips to `revoked`). Looks up account by username if you don't pass the 32-char hex id. |
+| `agentos twitter registered` | free | List all your wallet's registered accounts (id, username, country, status, last_login_at). |
+
+Once registered, the account is ready for the upcoming `agentos twitter schedule` command — those will fire from the server without needing your machine on.
+
+### Scheduling, drafts, and queue (local — free, deprecated next PR)
 
 Stored in `~/.agentos/social/queue.json`. Local files referenced by scheduled items are copied into `~/.agentos/social/queue-media/<id>/` so the schedule survives the source file being deleted. None of these commands hit the server; the actual post fires (and is charged) when the worker dispatches at `--at` time.
 
