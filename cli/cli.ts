@@ -2299,7 +2299,43 @@ async function main() {
               if (subcommand === 'post') {
                 const text = (flags.body as string) || (flags.text as string)
                 if (!text) err('--body "..." required')
-                data = await ao.socialTwitterPost(acc!.id, sess!.cookies, text, psid)
+                // Build optional media array. CLI supports the common cases:
+                // --image path[,path,path,path] for 1-4 local image files,
+                // --video path for a single local video file,
+                // --media-json '[{...}]' as the full-power escape hatch
+                // (mix image_url / image_base64 / video_url / video_base64).
+                const media: Array<{ image_base64?: string; image_url?: string; video_base64?: string; video_url?: string }> = []
+                if (flags.image) {
+                  const fs = require('fs')
+                  const path = require('path')
+                  for (const fp of (flags.image as string).split(',').map((p: string) => p.trim()).filter(Boolean)) {
+                    let buf: Buffer
+                    try { buf = fs.readFileSync(fp) } catch (e: any) { err(`--image ${fp}: ${e.message}`); continue }
+                    const ext = path.extname(fp).slice(1).toLowerCase() || 'png'
+                    media.push({ image_base64: `data:image/${ext};base64,${buf.toString('base64')}` })
+                  }
+                }
+                if (flags.video) {
+                  const fs = require('fs')
+                  const path = require('path')
+                  const fp = flags.video as string
+                  let buf: Buffer
+                  try { buf = fs.readFileSync(fp) } catch (e: any) { err(`--video ${fp}: ${e.message}`) }
+                  const ext = path.extname(fp).slice(1).toLowerCase() || 'mp4'
+                  media.push({ video_base64: `data:video/${ext};base64,${buf!.toString('base64')}` })
+                }
+                if (flags['media-json']) {
+                  let parsed: any
+                  try { parsed = JSON.parse(flags['media-json'] as string) }
+                  catch (e: any) { err(`--media-json: ${e.message}`) }
+                  if (!Array.isArray(parsed)) err('--media-json must be a JSON array of media objects')
+                  media.push(...parsed)
+                }
+                if (media.length > 0) {
+                  data = await ao.socialTwitterPostWithMedia(acc!.id, sess!.cookies, text, media, psid)
+                } else {
+                  data = await ao.socialTwitterPost(acc!.id, sess!.cookies, text, psid)
+                }
               } else if (subcommand === 'thread') {
                 // --texts accepts a JSON-encoded array of strings, OR --file points
                 // to a JSON file with the same shape. Each tweet ≤280 chars; 1-25

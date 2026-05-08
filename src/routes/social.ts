@@ -186,6 +186,40 @@ router.post(
   }
 );
 
+// Post with attached media (1-4 images OR 1 video). Priced at the same 5x
+// tier as avatar/banner because it transfers up to 512 MB and X's compose
+// keeps the post button disabled until upload completes (videos can take 60s).
+// Text-only posts should keep using /twitter/post for the cheaper rate.
+router.post(
+  "/twitter/post-media",
+  requireXEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateOpBody(req, res);
+    if (!common) return;
+    const { text, media } = req.body as {
+      text?: string;
+      media?: Array<{ image_base64?: string; image_url?: string; video_base64?: string; video_url?: string }>;
+    };
+    if (!text) {
+      res.status(400).json({ error: "text is required" });
+      return;
+    }
+    if (!Array.isArray(media) || media.length === 0) {
+      res.status(400).json({
+        error: "media must be a non-empty array (1-4 images OR 1 video). For text-only, use /twitter/post.",
+      });
+      return;
+    }
+    try {
+      const result = await postTweet({ ...common, text, media });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Post with media failed" });
+    }
+  }
+);
+
 router.post(
   "/twitter/list-my-tweets",
   requireXEnabled,
