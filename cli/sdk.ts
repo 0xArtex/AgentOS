@@ -625,20 +625,21 @@ export class AgentOS {
     })
   }
 
-  async socialTwitterPost(accountId: string, cookies: any[], text: string, proxySessionId?: string): Promise<any> {
-    return this.request('POST', '/social/twitter/post', { account_id: accountId, proxy_session_id: proxySessionId, cookies, text })
+  async socialTwitterPost(accountId: string, cookies: any[], text: string, proxySessionId?: string, communityId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/post', { account_id: accountId, proxy_session_id: proxySessionId, cookies, text, ...(communityId ? { community_id: communityId } : {}) })
   }
-  async socialTwitterPostThread(accountId: string, cookies: any[], texts: string[], proxySessionId?: string): Promise<any> {
-    return this.request('POST', '/social/twitter/post-thread', { account_id: accountId, proxy_session_id: proxySessionId, cookies, texts })
+  async socialTwitterPostThread(accountId: string, cookies: any[], texts: string[], proxySessionId?: string, communityId?: string): Promise<any> {
+    return this.request('POST', '/social/twitter/post-thread', { account_id: accountId, proxy_session_id: proxySessionId, cookies, texts, ...(communityId ? { community_id: communityId } : {}) })
   }
   async socialTwitterPostWithMedia(
     accountId: string,
     cookies: any[],
     text: string,
     media: Array<{ image_base64?: string; image_url?: string; video_base64?: string; video_url?: string }>,
-    proxySessionId?: string
+    proxySessionId?: string,
+    communityId?: string
   ): Promise<any> {
-    return this.request('POST', '/social/twitter/post-media', { account_id: accountId, proxy_session_id: proxySessionId, cookies, text, media })
+    return this.request('POST', '/social/twitter/post-media', { account_id: accountId, proxy_session_id: proxySessionId, cookies, text, media, ...(communityId ? { community_id: communityId } : {}) })
   }
   async socialTwitterListMyTweets(accountId: string, cookies: any[], limit?: number, proxySessionId?: string): Promise<any> {
     return this.request('POST', '/social/twitter/list-my-tweets', {
