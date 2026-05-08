@@ -2222,6 +2222,193 @@ async function main() {
             return print({ success: true, platform, username, ...(data?.data || {}) })
           }
 
+          case 'schedule':
+          case 'draft': {
+            // Both share the same content-parsing + media-ingestion logic.
+            // Action shape (post / post_thread / post_media) is inferred from
+            // which content flags the user passed.
+            const sq = await import('./social-queue.js')
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const text = (flags.body as string) || (flags.text as string)
+            const textsRaw = flags.texts as string
+            const fileTextsPath = (flags.file as string) || (flags.path as string)
+            let texts: string[] | undefined
+            if (fileTextsPath) {
+              const fs = require('fs')
+              try { texts = JSON.parse(fs.readFileSync(fileTextsPath, 'utf8')) }
+              catch (e: any) { err(`--file ${fileTextsPath}: ${e.message}`) }
+            } else if (textsRaw) {
+              try { texts = JSON.parse(textsRaw) }
+              catch (e: any) { err(`--texts must be a JSON array of strings: ${e.message}`) }
+            }
+            if (!text && (!Array.isArray(texts) || texts.length === 0)) {
+              err('Either --body "..." or --texts \'["..."]\' required')
+            }
+
+            // Determine action based on flags + future media handling.
+            const hasMediaFlags = !!(flags.image || flags.video || flags['media-json'])
+            let action: 'post' | 'post_thread' | 'post_media' = 'post'
+            if (Array.isArray(texts) && texts.length > 0) action = 'post_thread'
+            else if (hasMediaFlags) action = 'post_media'
+
+            // Schedule needs --at; draft is timeless.
+            let postAt: string | undefined
+            if (subcommand === 'schedule') {
+              postAt = flags.at as string
+              if (!postAt) err('--at "ISO 8601" required (e.g. --at "2026-05-15T14:00:00Z")')
+              const t = Date.parse(postAt!)
+              if (Number.isNaN(t)) err(`--at "${postAt}" is not a valid ISO 8601 date`)
+            }
+
+            // Generate ID upfront so we can pre-ingest media files into its dir.
+            const id = require('crypto').randomUUID()
+
+            // Build MediaRef[] from flags. Local files get copied into queue
+            // storage; URL-based media is stored as-is for server fetch later.
+            const media: any[] = []
+            if (flags.image) {
+              const path = require('path')
+              for (const fp of (flags.image as string).split(',').map((p: string) => p.trim()).filter(Boolean)) {
+                try {
+                  const ref = sq.ingestLocalMediaFile(id, fp, 'image')
+                  media.push(ref)
+                } catch (e: any) { err(`--image ${fp}: ${e.message}`) }
+              }
+            }
+            if (flags.video) {
+              const fp = flags.video as string
+              try {
+                const ref = sq.ingestLocalMediaFile(id, fp, 'video')
+                media.push(ref)
+              } catch (e: any) { err(`--video ${fp}: ${e.message}`) }
+            }
+            if (flags['media-json']) {
+              let parsed: any
+              try { parsed = JSON.parse(flags['media-json'] as string) }
+              catch (e: any) { err(`--media-json: ${e.message}`) }
+              if (!Array.isArray(parsed)) err('--media-json must be a JSON array')
+              for (const m of parsed) {
+                if (m.image_url || m.video_url) {
+                  media.push({
+                    image_url: m.image_url,
+                    video_url: m.video_url,
+                    kind: m.video_url ? 'video' : 'image',
+                  })
+                } else {
+                  err('--media-json entries must have image_url or video_url (local files: use --image / --video)')
+                }
+              }
+            }
+            if (media.length > 0) action = action === 'post_thread' ? 'post_thread' : 'post_media'
+
+            const communityId = (flags.community as string) || (flags['community-id'] as string) || undefined
+
+            // Schedule path: write a ScheduledItem; cli.social-queue assigns
+            // a NEW id internally, but we already used `id` to ingest media —
+            // pass it explicitly so the dirs match. (Helper accepts the id.)
+            if (subcommand === 'schedule') {
+              // For correct id-to-media binding, we sidestep addScheduled and
+              // construct the entry directly via loadQueue/saveQueue so the
+              // pre-ingested media dir lines up with the entry's id.
+              const q = sq.loadQueue()
+              const item = {
+                id,
+                platform: 'x' as const,
+                account_username: username!,
+                action,
+                text: text || undefined,
+                texts,
+                media: media.length > 0 ? media : undefined,
+                community_id: communityId,
+                post_at: postAt!,
+                status: 'pending' as const,
+                created_at: new Date().toISOString(),
+                retry_count: 0,
+              }
+              q.scheduled.push(item)
+              sq.saveQueue(q)
+              return print({ success: true, scheduled: item })
+            } else {
+              const q = sq.loadQueue()
+              const item = {
+                id,
+                platform: 'x' as const,
+                account_username: username!,
+                action,
+                text: text || undefined,
+                texts,
+                media: media.length > 0 ? media : undefined,
+                community_id: communityId,
+                name: (flags.name as string) || undefined,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }
+              q.drafts.push(item)
+              sq.saveQueue(q)
+              return print({ success: true, draft: item })
+            }
+          }
+
+          case 'queue': {
+            const sq = await import('./social-queue.js')
+            const acct = (flags.account as string) || undefined
+            const fromIso = (flags.from as string) || undefined
+            const toIso = (flags.to as string) || undefined
+            // Default = show everything; flags narrow.
+            const onlyScheduled = flags.scheduled === true
+            const onlyDrafts = flags.drafts === true
+            const onlyPublished = flags.published === true
+            const onlyFailed = flags.failed === true
+            const showAll = !onlyScheduled && !onlyDrafts && !onlyPublished && !onlyFailed
+            const out: any = {}
+            if (showAll || onlyScheduled) {
+              out.scheduled = sq.listScheduled({ account: acct, from: fromIso, to: toIso })
+            }
+            if (showAll || onlyDrafts) {
+              out.drafts = sq.listDrafts(acct)
+            }
+            if (showAll || onlyPublished) {
+              out.published = sq.listPublished(acct)
+            }
+            if (showAll || onlyFailed) {
+              out.failed = sq.listFailed(acct)
+            }
+            return print(out)
+          }
+
+          case 'cancel': {
+            const sq = await import('./social-queue.js')
+            const id = positional[0] || (flags.id as string)
+            if (!id) err('<id> required (from `agentos twitter queue`)')
+            // Try scheduled first, then drafts.
+            const cancelled = sq.cancelScheduled(id!)
+            if (cancelled.cancelled) {
+              return print({ success: true, cancelled: 'scheduled', id, item: cancelled.item })
+            }
+            if (cancelled.item && cancelled.item.status === 'in_progress') {
+              err(`Scheduled item ${id} is in_progress and cannot be cancelled.`, EXIT.GENERAL)
+            }
+            const deletedDraft = sq.deleteDraft(id!)
+            if (deletedDraft) {
+              return print({ success: true, cancelled: 'draft', id })
+            }
+            err(`No scheduled item or draft found with id "${id}"`, EXIT.NOT_FOUND)
+          }
+
+          case 'promote-draft': {
+            const sq = await import('./social-queue.js')
+            const id = positional[0] || (flags.id as string)
+            if (!id) err('<draft-id> required (from `agentos twitter queue --drafts`)')
+            const postAt = flags.at as string
+            if (!postAt) err('--at "ISO 8601" required (e.g. --at "2026-05-15T14:00:00Z")')
+            const t = Date.parse(postAt)
+            if (Number.isNaN(t)) err(`--at "${postAt}" is not a valid ISO 8601 date`)
+            const promoted = sq.promoteDraft(id!, postAt)
+            if (!promoted) err(`No draft found with id "${id}"`, EXIT.NOT_FOUND)
+            return print({ success: true, promoted })
+          }
+
           case 'username': {
             const username = positional[0] || (flags.username as string)
             const rawNewUsername = flags.to as string
