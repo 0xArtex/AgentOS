@@ -657,6 +657,53 @@ export class AgentOS {
     return this.request('GET', '/social/twitter/registered')
   }
 
+  // ── Server-side scheduled posts ──
+  // Pay at schedule time; worker fires at post_at with no further charge.
+  // accountId is the 32-char hex returned by socialTwitterRegister().
+  async socialScheduledPost(accountId: string, text: string, postAt: string, communityId?: string): Promise<any> {
+    return this.request('POST', '/social/scheduled/post', {
+      account_id: accountId, text, post_at: postAt,
+      ...(communityId ? { community_id: communityId } : {}),
+    })
+  }
+  async socialScheduledThread(accountId: string, texts: string[], postAt: string, communityId?: string): Promise<any> {
+    return this.request('POST', '/social/scheduled/thread', {
+      account_id: accountId, texts, post_at: postAt,
+      ...(communityId ? { community_id: communityId } : {}),
+    })
+  }
+  async socialScheduledMedia(
+    accountId: string,
+    text: string,
+    media: Array<{ image_base64?: string; image_url?: string; video_base64?: string; video_url?: string }>,
+    postAt: string,
+    communityId?: string
+  ): Promise<any> {
+    return this.request('POST', '/social/scheduled/media', {
+      account_id: accountId, text, media, post_at: postAt,
+      ...(communityId ? { community_id: communityId } : {}),
+    })
+  }
+  async socialScheduledList(filter?: {
+    accountId?: string
+    status?: 'pending' | 'in_progress' | 'completed' | 'failed' | 'cancelled'
+    from?: string
+    to?: string
+    limit?: number
+  }): Promise<any> {
+    const qs = new URLSearchParams()
+    if (filter?.accountId) qs.set('account_id', filter.accountId)
+    if (filter?.status) qs.set('status', filter.status)
+    if (filter?.from) qs.set('from', filter.from)
+    if (filter?.to) qs.set('to', filter.to)
+    if (filter?.limit) qs.set('limit', String(filter.limit))
+    const path = '/social/scheduled' + (qs.toString() ? `?${qs}` : '')
+    return this.request('GET', path)
+  }
+  async socialScheduledCancel(id: string): Promise<any> {
+    return this.request('DELETE', `/social/scheduled/${encodeURIComponent(id)}`)
+  }
+
   async socialTwitterPost(accountId: string, cookies: any[], text: string, proxySessionId?: string, communityId?: string): Promise<any> {
     return this.request('POST', '/social/twitter/post', { account_id: accountId, proxy_session_id: proxySessionId, cookies, text, ...(communityId ? { community_id: communityId } : {}) })
   }

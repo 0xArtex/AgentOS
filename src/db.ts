@@ -765,6 +765,36 @@ export function initDatabase(): void {
       ON social_registered_accounts(wallet, platform, username);
   `);
 
+  // Server-side scheduled posts. Agents call POST /social/scheduled, pay
+  // upfront via x402 (the payment covers the eventual fire — worker calls
+  // the internal post function with no further charge). Worker polls
+  // (status='pending' AND post_at <= now()) to find what to dispatch.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scheduled_social_posts (
+      id TEXT PRIMARY KEY,
+      wallet TEXT NOT NULL,
+      registered_account_id TEXT NOT NULL,
+      platform TEXT NOT NULL,
+      action TEXT NOT NULL CHECK(action IN ('post', 'post_thread', 'post_media')),
+      payload_json TEXT NOT NULL,
+      post_at TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'in_progress', 'completed', 'failed', 'cancelled')),
+      retry_count INTEGER NOT NULL DEFAULT 0,
+      paid_amount_usdc REAL NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      attempted_at TEXT,
+      completed_at TEXT,
+      failed_at TEXT,
+      cancelled_at TEXT,
+      error TEXT,
+      result_json TEXT,
+      FOREIGN KEY (registered_account_id) REFERENCES social_registered_accounts(id)
+    );
+    -- Worker poll uses both columns; index covers it.
+    CREATE INDEX IF NOT EXISTS idx_scheduled_due ON scheduled_social_posts(status, post_at);
+    CREATE INDEX IF NOT EXISTS idx_scheduled_wallet ON scheduled_social_posts(wallet, status);
+  `);
+
   // i402 protocol — provider registry
   // Federated across: AgentOS primitives, Agentic Market, curated external APIs, ClawHub.
   // Every row is one callable x402 endpoint registered under one capability class.

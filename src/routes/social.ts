@@ -18,6 +18,11 @@ import {
   listRegisteredAccounts,
 } from "../services/registered-accounts";
 import {
+  createScheduled,
+  listScheduled,
+  cancelScheduled,
+} from "../services/scheduled-posts";
+import {
   postTweet,
   postTweetThread,
   replyToTweet,
@@ -673,6 +678,162 @@ router.get(
       res.json({ success: true, accounts });
     } catch (err: any) {
       res.status(500).json({ error: err.message || "List registered failed" });
+    }
+  }
+);
+
+/* ─── Server-side scheduled posts ──────────────────────────────────────
+   Three POST routes, one per action shape, mirroring the direct-post
+   pricing scale ($0.001 text / $0.005 thread / $0.005 media). Payment at
+   schedule time COMMITS to the eventual fire — the worker (PR 3) calls
+   the internal post functions directly with no further paywall. Cancel
+   before fire = no refund (Buffer/Hootsuite model).
+*/
+
+router.post(
+  "/scheduled/post",
+  requireXEnabled,
+  requireAuth(0.001, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    const { account_id, text, post_at, community_id } = (req.body || {}) as {
+      account_id?: string;
+      text?: string;
+      post_at?: string;
+      community_id?: string;
+    };
+    if (!account_id || !text || !post_at) {
+      res.status(400).json({ error: "account_id, text, and post_at are required" });
+      return;
+    }
+    const result = createScheduled({
+      wallet,
+      registered_account_id: account_id,
+      platform: "twitter",
+      action: "post",
+      payload: { text, community_id },
+      post_at,
+      paid_amount_usdc: 0.001,
+    });
+    res.status(result.success ? 200 : 400).json(result);
+  }
+);
+
+router.post(
+  "/scheduled/thread",
+  requireXEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    const { account_id, texts, post_at, community_id } = (req.body || {}) as {
+      account_id?: string;
+      texts?: string[];
+      post_at?: string;
+      community_id?: string;
+    };
+    if (!account_id || !Array.isArray(texts) || texts.length === 0 || !post_at) {
+      res.status(400).json({ error: "account_id, non-empty texts array, and post_at are required" });
+      return;
+    }
+    const result = createScheduled({
+      wallet,
+      registered_account_id: account_id,
+      platform: "twitter",
+      action: "post_thread",
+      payload: { texts, community_id },
+      post_at,
+      paid_amount_usdc: 0.005,
+    });
+    res.status(result.success ? 200 : 400).json(result);
+  }
+);
+
+router.post(
+  "/scheduled/media",
+  requireXEnabled,
+  requireAuth(0.005, "general"),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    const { account_id, text, media, post_at, community_id } = (req.body || {}) as {
+      account_id?: string;
+      text?: string;
+      media?: any[];
+      post_at?: string;
+      community_id?: string;
+    };
+    if (!account_id || !text || !Array.isArray(media) || media.length === 0 || !post_at) {
+      res.status(400).json({ error: "account_id, text, non-empty media array, and post_at are required" });
+      return;
+    }
+    const result = createScheduled({
+      wallet,
+      registered_account_id: account_id,
+      platform: "twitter",
+      action: "post_media",
+      payload: { text, media, community_id },
+      post_at,
+      paid_amount_usdc: 0.005,
+    });
+    res.status(result.success ? 200 : 400).json(result);
+  }
+);
+
+router.get(
+  "/scheduled",
+  requireXEnabled,
+  requireAuth(0, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    const accountId = (req.query.account_id as string) || undefined;
+    const status = (req.query.status as any) || undefined;
+    const from = (req.query.from as string) || undefined;
+    const to = (req.query.to as string) || undefined;
+    const limit = req.query.limit ? Number(req.query.limit) : undefined;
+    try {
+      const items = listScheduled({ wallet, account_id: accountId, status, from, to, limit });
+      res.json({ success: true, items });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "List scheduled failed" });
+    }
+  }
+);
+
+router.delete(
+  "/scheduled/:id",
+  requireXEnabled,
+  requireAuth(0, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    const id = String(req.params.id || "");
+    if (!id) {
+      res.status(400).json({ error: "id is required" });
+      return;
+    }
+    try {
+      const result = cancelScheduled(wallet, id);
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Cancel scheduled failed" });
     }
   }
 );
