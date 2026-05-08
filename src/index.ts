@@ -730,6 +730,10 @@ async function refreshI402Federations(): Promise<void> {
 app.listen(config.port, () => {
   startDepositMonitor();
   seedAgentOSPrimitives();
+  // Server-side social-post scheduler — polls scheduled_social_posts and
+  // fires due items via the same internal post functions used by the
+  // direct-post routes. Disable with SOCIAL_SCHEDULER_DISABLED=1.
+  void import("./services/social-scheduler").then(m => m.startSocialScheduler());
   // Pull live Hetzner server-type catalog so we never hardcode types that
   // get deprecated. Background refresh; falls back to a tiny static list if
   // the API is unreachable at boot.
