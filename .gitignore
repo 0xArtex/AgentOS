@@ -22,3 +22,23 @@ node_modules/
 # Extracted WebP frames live under public/discovery/frames/ and ARE committed.
 /discovery-build/
 tmp/
+
+# Ad-hoc test fixtures users drop at repo / cli root when poking commands
+# (e.g. `'[...]' | Set-Content thread.json` for `agentos twitter schedule --file`).
+/thread*.json
+/cli/thread*.json
+*.test.json
+
+# TypeScript incremental build cache
+*.tsbuildinfo
+
+# OS metadata
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+*.swp
+*~
+
+# Stray logs
+*.log
