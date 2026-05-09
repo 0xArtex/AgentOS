@@ -197,13 +197,35 @@ export function listScheduled(filter: ListScheduledFilter): ScheduledPostSummary
   return rows.map(rowToSummary);
 }
 
+/**
+ * Redact base64 media blobs from a payload before returning it to the user.
+ * The worker reads payload_json directly from the row, so it still gets the
+ * full data — only the user-facing list/cancel responses see redacted form.
+ * Without this, `agentos twitter queue` dumps ~1.5MB of base64 per scheduled
+ * media post (an image post is ~1.3MB raw → ~1.7MB base64).
+ */
+function redactPayloadForSummary(payload: SchedulePayload): SchedulePayload {
+  if (!payload.media || payload.media.length === 0) return payload;
+  const redacted: SchedulePayload = { ...payload };
+  redacted.media = payload.media.map(m => {
+    const out: MediaPayload = {};
+    if (m.image_url) out.image_url = m.image_url;
+    if (m.video_url) out.video_url = m.video_url;
+    if (m.image_base64) out.image_base64 = `<image base64 omitted, ${m.image_base64.length} chars>`;
+    if (m.video_base64) out.video_base64 = `<video base64 omitted, ${m.video_base64.length} chars>`;
+    return out;
+  });
+  return redacted;
+}
+
 function rowToSummary(row: any): ScheduledPostSummary {
+  const payload = JSON.parse(row.payload_json) as SchedulePayload;
   return {
     id: row.id,
     registered_account_id: row.registered_account_id,
     platform: row.platform,
     action: row.action,
-    payload: JSON.parse(row.payload_json),
+    payload: redactPayloadForSummary(payload),
     post_at: row.post_at,
     status: row.status,
     retry_count: row.retry_count,
