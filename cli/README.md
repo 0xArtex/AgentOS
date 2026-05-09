@@ -433,8 +433,8 @@ Upload your X credentials to AgentOS once. The server encrypts them at rest with
 |---|---|---|
 | `agentos twitter register <username>` *(if account already in local vault)* | $0.01 | Reads creds from local vault, sends to server, server runs a real test login through a fresh residential session, encrypts + stores on success. Returns `account_id` and `cookies_captured`. |
 | `agentos twitter register <username> --password "..."` *(plus `--login`, `--totp-seed`, `--email`, `--email-password`, `--auth-token`, `--ct0`, `--country`)* | $0.01 | Same, but with explicit credentials instead of vault lookup. |
-| `agentos twitter unregister <username-or-account-id>` | free | Wipes the encrypted credential + cookie blobs from the server (status flips to `revoked`). Looks up account by username if you don't pass the 32-char hex id. |
-| `agentos twitter registered` | free | List all your wallet's registered accounts (id, username, country, status, last_login_at). |
+| `agentos twitter unregister <username-or-account-id>` | $0.001 | Wipes the encrypted credential + cookie blobs from the server (status flips to `revoked`). Looks up account by username if you don't pass the 32-char hex id. |
+| `agentos twitter registered` | $0.001 | List all your wallet's registered accounts (id, username, country, status, last_login_at). |
 
 Once registered, schedule fire-and-forget posts via the commands below. The AgentOS server's internal scheduler fires them at `post_at` automatically — nothing to run on your machine.
 
@@ -445,8 +445,8 @@ Pay at schedule time; the AgentOS server fires posts at `post_at` whether your m
 | Command | Cost | Notes |
 |---|---|---|
 | `agentos twitter schedule <username> --body "..." --at "2026-05-15T14:00:00Z"` *(or `--texts '[...]'`, plus optional `--image`/`--video`/`--media-json`/`--community`)* | $0.001 text / $0.005 thread or media | x402-paywalled at the post's full price; payment commits to the eventual fire (worker fires for free). Action inferred from flags. Returns `schedule_id`. |
-| `agentos twitter queue [--status pending\|in_progress\|completed\|failed\|cancelled] [--account-id <id>] [--from <iso>] [--to <iso>] [--limit N]` | free | Server-backed list, wallet-scoped. |
-| `agentos twitter cancel <schedule-id>` | free | Cancel a pending scheduled post. In-progress / completed / failed cannot be cancelled. No refund per Buffer/Hootsuite model. |
+| `agentos twitter queue [--status pending\|in_progress\|completed\|failed\|cancelled] [--account-id <id>] [--from <iso>] [--to <iso>] [--limit N]` | $0.001 | Server-backed list, wallet-scoped. |
+| `agentos twitter cancel <schedule-id>` | $0.001 | Cancel a pending scheduled post. In-progress / completed / failed cannot be cancelled. No refund per Buffer/Hootsuite model. |
 
 The previous local-queue + `agentos worker` daemon were deprecated when server-side scheduling shipped. `agentos worker` now prints a deprecation pointer.
 
