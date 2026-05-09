@@ -132,6 +132,11 @@ const IMAGE_UPLOAD_ROUTES = new Set([
 ]);
 const VIDEO_UPLOAD_ROUTES = new Set([
   "/social/tiktok/post",
+  // X media routes accept 1-4 images OR 1 video — use the video tier so video
+  // uploads aren't capped at 15 MB. Direct + scheduled both pass payload over
+  // base64 so the wire size is ~1.33× the raw media bytes.
+  "/social/twitter/post-media",
+  "/social/scheduled/media",
 ]);
 app.use((req, res, next) => {
   const limit = VIDEO_UPLOAD_ROUTES.has(req.path)
