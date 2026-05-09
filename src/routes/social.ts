@@ -642,7 +642,11 @@ router.post(
 router.delete(
   "/twitter/register/:id",
   requireXEnabled,
-  requireAuth(0, "general", { discoverable: false }),
+  // Tiny fee instead of $0 — CDP facilitator rejects $0 payments as
+  // "invalid_payload", so wallet-only callers (no API key) can't hit free
+  // routes today. Workaround until middleware learns to short-circuit
+  // minUsdc===0 + wallet-auth without round-tripping CDP.
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -666,7 +670,9 @@ router.delete(
 router.get(
   "/twitter/registered",
   requireXEnabled,
-  requireAuth(0, "general", { discoverable: false }),
+  // See note on /twitter/register/:id above — $0.001 instead of free
+  // until the middleware free-route + x402-wallet bug is fixed properly.
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -793,7 +799,8 @@ router.post(
 router.get(
   "/scheduled",
   requireXEnabled,
-  requireAuth(0, "general", { discoverable: false }),
+  // See note on /twitter/register/:id above — $0.001 instead of free.
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -817,7 +824,8 @@ router.get(
 router.delete(
   "/scheduled/:id",
   requireXEnabled,
-  requireAuth(0, "general", { discoverable: false }),
+  // See note on /twitter/register/:id above — $0.001 instead of free.
+  requireAuth(0.001, "general", { discoverable: false }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
