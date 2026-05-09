@@ -113,23 +113,28 @@ export async function registerAccount(req: RegisterAccountRequest): Promise<Regi
     return { success: false, error: "username and credentials.password are required" };
   }
 
-  // Reject obvious wallet-vs-username collisions: the same wallet cannot
-  // register the same username twice. Surface the existing id so the caller
-  // can `unregister` first if they meant to rotate creds.
+  // Reject re-register only for live rows. Revoked rows (soft-deleted by
+  // `unregister`) can be reactivated in place — we keep the original id and
+  // proxy_session_id so the IPRoyal sticky-IP continuity survives, and history
+  // (completed schedules pointing at this account_id) stays linked.
   const existing = db
     .prepare(
-      `SELECT id, status FROM social_registered_accounts WHERE wallet=? AND platform=? AND username=?`
+      `SELECT id, status, proxy_session_id FROM social_registered_accounts WHERE wallet=? AND platform=? AND username=?`
     )
-    .get(req.wallet, req.platform, req.username) as { id: string; status: string } | undefined;
-  if (existing) {
+    .get(req.wallet, req.platform, req.username) as
+      | { id: string; status: string; proxy_session_id: string }
+      | undefined;
+  if (existing && existing.status !== "revoked") {
     return {
       success: false,
       error: `Account "${req.username}" is already registered to this wallet (id: ${existing.id}, status: ${existing.status}). Unregister first to re-register with new credentials.`,
     };
   }
 
-  const id = randomUUID().replace(/-/g, "");
-  const proxySessionId = id; // Pin IPRoyal sticky session to this account forever.
+  // For reactivation, reuse the existing id + proxy_session_id. For fresh
+  // registration, generate new ones.
+  const id = existing ? existing.id : randomUUID().replace(/-/g, "");
+  const proxySessionId = existing ? existing.proxy_session_id : id;
 
   const loginResult = await loginTwitter({
     account_id: id,
@@ -154,24 +159,34 @@ export async function registerAccount(req: RegisterAccountRequest): Promise<Regi
   const cookiesBlob = encrypt(JSON.stringify(cookies));
   const now = new Date().toISOString();
 
-  db.prepare(
-    `INSERT INTO social_registered_accounts (
-      id, wallet, platform, username, country, proxy_session_id,
-      credentials_encrypted, cookies_encrypted, status,
-      registered_at, last_login_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
-  ).run(
-    id,
-    req.wallet,
-    req.platform,
-    req.username,
-    req.country || null,
-    proxySessionId,
-    credsBlob,
-    cookiesBlob,
-    now,
-    now
-  );
+  if (existing) {
+    // Reactivation: refresh credentials + cookies, flip back to active.
+    // registered_at intentionally preserved so audit shows original signup.
+    db.prepare(
+      `UPDATE social_registered_accounts
+       SET credentials_encrypted=?, cookies_encrypted=?, last_login_at=?, status='active', country=?
+       WHERE id=?`
+    ).run(credsBlob, cookiesBlob, now, req.country || null, id);
+  } else {
+    db.prepare(
+      `INSERT INTO social_registered_accounts (
+        id, wallet, platform, username, country, proxy_session_id,
+        credentials_encrypted, cookies_encrypted, status,
+        registered_at, last_login_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`
+    ).run(
+      id,
+      req.wallet,
+      req.platform,
+      req.username,
+      req.country || null,
+      proxySessionId,
+      credsBlob,
+      cookiesBlob,
+      now,
+      now
+    );
+  }
 
   return {
     success: true,
