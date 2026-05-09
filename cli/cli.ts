@@ -23,7 +23,7 @@ import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, d
 import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
-import { dirname, join } from 'path'
+import { dirname, extname, join } from 'path'
 
 // Alias for backwards compat in help text
 const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, white: t.text, gray: t.muted, orange: t.accent }
@@ -2343,8 +2343,7 @@ async function main() {
             const fileTextsPath = (flags.file as string) || (flags.path as string)
             let texts: string[] | undefined
             if (fileTextsPath) {
-              const fs = require('fs')
-              try { texts = JSON.parse(fs.readFileSync(fileTextsPath, 'utf8')) }
+              try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8')) }
               catch (e: any) { err(`--file ${fileTextsPath}: ${e.message}`) }
             } else if (textsRaw) {
               try { texts = JSON.parse(textsRaw) }
@@ -2383,22 +2382,18 @@ async function main() {
                 // Media schedule — base64-encode local files for upload.
                 const media: any[] = []
                 if (flags.image) {
-                  const fs = require('fs')
-                  const path = require('path')
                   for (const fp of (flags.image as string).split(',').map((p: string) => p.trim()).filter(Boolean)) {
                     let buf: Buffer
-                    try { buf = fs.readFileSync(fp) } catch (e: any) { err(`--image ${fp}: ${e.message}`); continue }
-                    const ext = path.extname(fp).slice(1).toLowerCase() || 'png'
+                    try { buf = readFileSync(fp) } catch (e: any) { err(`--image ${fp}: ${e.message}`); continue }
+                    const ext = extname(fp).slice(1).toLowerCase() || 'png'
                     media.push({ image_base64: `data:image/${ext};base64,${buf.toString('base64')}` })
                   }
                 }
                 if (flags.video) {
-                  const fs = require('fs')
-                  const path = require('path')
                   const fp = flags.video as string
                   let buf: Buffer
-                  try { buf = fs.readFileSync(fp) } catch (e: any) { err(`--video ${fp}: ${e.message}`) }
-                  const ext = path.extname(fp).slice(1).toLowerCase() || 'mp4'
+                  try { buf = readFileSync(fp) } catch (e: any) { err(`--video ${fp}: ${e.message}`) }
+                  const ext = extname(fp).slice(1).toLowerCase() || 'mp4'
                   media.push({ video_base64: `data:video/${ext};base64,${buf!.toString('base64')}` })
                 }
                 if (flags['media-json']) {
@@ -2553,22 +2548,18 @@ async function main() {
                 // (mix image_url / image_base64 / video_url / video_base64).
                 const media: Array<{ image_base64?: string; image_url?: string; video_base64?: string; video_url?: string }> = []
                 if (flags.image) {
-                  const fs = require('fs')
-                  const path = require('path')
                   for (const fp of (flags.image as string).split(',').map((p: string) => p.trim()).filter(Boolean)) {
                     let buf: Buffer
-                    try { buf = fs.readFileSync(fp) } catch (e: any) { err(`--image ${fp}: ${e.message}`); continue }
-                    const ext = path.extname(fp).slice(1).toLowerCase() || 'png'
+                    try { buf = readFileSync(fp) } catch (e: any) { err(`--image ${fp}: ${e.message}`); continue }
+                    const ext = extname(fp).slice(1).toLowerCase() || 'png'
                     media.push({ image_base64: `data:image/${ext};base64,${buf.toString('base64')}` })
                   }
                 }
                 if (flags.video) {
-                  const fs = require('fs')
-                  const path = require('path')
                   const fp = flags.video as string
                   let buf: Buffer
-                  try { buf = fs.readFileSync(fp) } catch (e: any) { err(`--video ${fp}: ${e.message}`) }
-                  const ext = path.extname(fp).slice(1).toLowerCase() || 'mp4'
+                  try { buf = readFileSync(fp) } catch (e: any) { err(`--video ${fp}: ${e.message}`) }
+                  const ext = extname(fp).slice(1).toLowerCase() || 'mp4'
                   media.push({ video_base64: `data:video/${ext};base64,${buf!.toString('base64')}` })
                 }
                 if (flags['media-json']) {
@@ -2591,8 +2582,7 @@ async function main() {
                 const filePath = (flags.file as string) || (flags.path as string)
                 let texts: string[] | undefined
                 if (filePath) {
-                  const fs = require('fs')
-                  try { texts = JSON.parse(fs.readFileSync(filePath, 'utf8')) }
+                  try { texts = JSON.parse(readFileSync(filePath, 'utf8')) }
                   catch (e: any) { err(`--file ${filePath}: ${e.message}`) }
                 } else if (textsRaw) {
                   try { texts = JSON.parse(textsRaw) }
