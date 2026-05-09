@@ -2343,7 +2343,8 @@ async function main() {
             const fileTextsPath = (flags.file as string) || (flags.path as string)
             let texts: string[] | undefined
             if (fileTextsPath) {
-              try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8')) }
+              // Strip UTF-8 BOM that PS 5.1's `Set-Content -Encoding utf8` prepends.
+try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')) }
               catch (e: any) { err(`--file ${fileTextsPath}: ${e.message}`) }
             } else if (textsRaw) {
               try { texts = JSON.parse(textsRaw) }
@@ -2582,7 +2583,8 @@ async function main() {
                 const filePath = (flags.file as string) || (flags.path as string)
                 let texts: string[] | undefined
                 if (filePath) {
-                  try { texts = JSON.parse(readFileSync(filePath, 'utf8')) }
+                  // Strip UTF-8 BOM that PS 5.1's `Set-Content -Encoding utf8` prepends.
+                  try { texts = JSON.parse(readFileSync(filePath, 'utf8').replace(/^﻿/, '')) }
                   catch (e: any) { err(`--file ${filePath}: ${e.message}`) }
                 } else if (textsRaw) {
                   try { texts = JSON.parse(textsRaw) }
