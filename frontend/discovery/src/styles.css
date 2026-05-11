@@ -106,7 +106,7 @@ a {
   padding: 0 clamp(20px, 4vw, 48px);
 }
 
-/* Headline typography — Inter at display weight, sized to fit the
+/* Headline typography — DM Sans at display weight, sized to fit the
    section's left rail cleanly. */
 .h-display {
   font-family: var(--sans);

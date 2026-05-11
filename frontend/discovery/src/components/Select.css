@@ -32,7 +32,7 @@
 }
 
 .select-trigger:hover {
-  border-color: rgba(245, 73, 0, 0.3);
+  border-color: rgba(168, 151, 116, 0.3);
 }
 
 .select-trigger.is-open,
@@ -68,7 +68,7 @@
   margin: 0;
   padding: 4px;
   background: rgba(8, 8, 10, 0.96);
-  border: 1px solid rgba(245, 73, 0, 0.28);
+  border: 1px solid rgba(168, 151, 116, 0.28);
   border-radius: 10px;
   z-index: 50;
   max-height: 320px;
@@ -93,7 +93,7 @@
 
 .select-option:hover,
 .select-option.is-active {
-  background: rgba(245, 73, 0, 0.1);
+  background: rgba(168, 151, 116, 0.1);
   color: var(--w100);
 }
 
@@ -102,7 +102,7 @@
 }
 
 .select-option.is-selected.is-active {
-  background: rgba(245, 73, 0, 0.14);
+  background: rgba(168, 151, 116, 0.14);
 }
 
 /* Custom scrollbar inside the menu so it doesn't clash with the OS one. */
@@ -110,7 +110,7 @@
   width: 6px;
 }
 .select-menu::-webkit-scrollbar-thumb {
-  background: rgba(245, 73, 0, 0.25);
+  background: rgba(168, 151, 116, 0.25);
   border-radius: 3px;
 }
 .select-menu::-webkit-scrollbar-track {
