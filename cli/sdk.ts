@@ -2,7 +2,7 @@
  * AgentOS SDK — programmatic access to all AgentOS services.
  */
 
-const DEFAULT_API = 'https://agntos.dev'
+const DEFAULT_API = 'https://palmyr.ai'
 
 // -------------------- Client-side executor helpers --------------------
 

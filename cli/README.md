@@ -1,19 +1,21 @@
-# @agntos/agentos
+# Palmyr CLI
 
 [![npm](https://img.shields.io/npm/v/@agntos/agentos?style=flat-square&logo=npm&logoColor=white&color=f54900)](https://www.npmjs.com/package/@agntos/agentos)
 [![downloads](https://img.shields.io/npm/dm/@agntos/agentos?style=flat-square&color=333)](https://www.npmjs.com/package/@agntos/agentos)
 [![license](https://img.shields.io/npm/l/@agntos/agentos?style=flat-square&color=333)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
 [![node](https://img.shields.io/node/v/@agntos/agentos?style=flat-square&color=333)](https://nodejs.org)
 
-The agent-native CLI and SDK for AgentOS.
+The agent-native CLI and SDK for [Palmyr](https://palmyr.ai) (formerly AgentOS).
 
 Phone numbers, end-to-end encrypted email, VPS, domains, and non-custodial crypto wallets — accessed over the [x402](https://github.com/coinbase/x402) HTTP payment protocol. Pay per call in USDC on Solana or Base. No accounts, no API keys, no monthly bills.
 
 ```
 npm i -g @agntos/agentos
-agentos wallet create
-agentos phone search --country US
+palmyr wallet create
+palmyr phone search --country US
 ```
+
+> **Binary alias:** both `palmyr` and `agentos` invoke the same CLI. The legacy `agentos` name will keep working indefinitely — no need to rewrite scripts.
 
 ---
 
@@ -45,10 +47,10 @@ agentos phone search --country US
 
 ## Overview
 
-`@agntos/agentos` is the official client for the AgentOS API at `agntos.dev`. Two interfaces ship in one package:
+`@agntos/agentos` is the official client for the Palmyr API at `palmyr.ai`. Two interfaces ship in one package:
 
-- **`agentos` CLI** — works in interactive terminals (TUI) and in agent pipelines (raw JSON, auto-detected).
-- **`AgentOS` SDK** — typed TypeScript/JavaScript class importable as `@agntos/agentos`.
+- **`palmyr` CLI** (also installed as `agentos`) — works in interactive terminals (TUI) and in agent pipelines (raw JSON, auto-detected).
+- **SDK** — typed TypeScript/JavaScript class importable as `@agntos/agentos`.
 
 **Identity model.** There are no user accounts. The wallet that signs each `x402` payment becomes the owner of the resource it just paid for (an inbox, a phone number, a VPS). Re-paying from the same wallet proves continued ownership.
 

@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="AgentOS" width="200">
+<img src="assets/logo.png" alt="Palmyr" width="200">
 
-# AgentOS
+# Palmyr
 
-**Everything your AI agent needs — one CLI.**
+**Everything your AI agent needs — one CLI.** *(formerly AgentOS — same product, sharper name)*
 
 Phone, email, compute, domains, wallets, X accounts, and more. Pay with USDC. Your wallet is your identity.
 
@@ -12,11 +12,11 @@ Phone, email, compute, domains, wallets, X accounts, and more. Pay with USDC. Yo
 [![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 [![typescript](https://img.shields.io/badge/typescript-5.7-blue)](https://www.typescriptlang.org)
 [![license](https://img.shields.io/badge/license-MIT-green)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
-[![services](https://img.shields.io/badge/services-7+-f54900)](https://agntos.dev/skill.md)
+[![services](https://img.shields.io/badge/services-7+-f54900)](https://palmyr.ai/skill.md)
 [![Solana](https://img.shields.io/badge/Solana-mainnet-9945FF)](https://solana.com)
 [![Base](https://img.shields.io/badge/Base-mainnet-0052FF)](https://base.org)
 
-[Quick Start](#quick-start) • [Services](#services) • [Dashboard](https://agntos.dev/dashboard.html) • [Skill File](https://agntos.dev/skill.md) • [Docs](https://agntos.dev/docs)
+[Quick Start](#quick-start) • [Services](#services) • [Dashboard](https://palmyr.ai/dashboard.html) • [Skill File](https://palmyr.ai/skill.md) • [Docs](https://palmyr.ai/docs)
 
 </div>
 
@@ -29,27 +29,29 @@ Phone, email, compute, domains, wallets, X accounts, and more. Pay with USDC. Yo
 ### CLI
 ```bash
 npm i -g @agntos/agentos
-agentos setup --keyfile ~/.config/solana/id.json --chain solana
+palmyr setup --keyfile ~/.config/solana/id.json --chain solana
 
-agentos phone search --country US
-agentos email create --name my-agent --wallet SOL_PUBKEY
-agentos compute deploy --type cx23 --json  # auto-key, auto-wait, verified ssh — JSON out
-agentos compute ssh my-vps                 # drop into the new box
-agentos domain buy --name myagent.dev
-agentos wallet create
-agentos twitter buy                        # $5 USDC → ready X account from the pool
-agentos twitter post @handle --body "gm"   # post immediately, no setup
+palmyr phone search --country US
+palmyr email create --name my-agent --wallet SOL_PUBKEY
+palmyr compute deploy --type cx23 --json  # auto-key, auto-wait, verified ssh — JSON out
+palmyr compute ssh my-vps                 # drop into the new box
+palmyr domain buy --name myagent.dev
+palmyr wallet create
+palmyr twitter buy                        # $5 USDC → ready X account from the pool
+palmyr twitter post @handle --body "gm"   # post immediately, no setup
 ```
+
+Both `palmyr` and `agentos` are installed — same binary, two names. Existing `agentos foo` scripts keep working.
 
 Agents: pipe stdout into `jq`, branch on `$?` against the [exit code table](cli/README.md#exit-codes). Force JSON on a TTY with `--json` or `AGENTOS_JSON=1`.
 
 Or run without installing: `npx @agntos/agentos phone search --country US`
 
 ### Skill File
-Add to your OpenClaw / Claude Code agent: [agntos.dev/skill.md](https://agntos.dev/skill.md)
+Add to your OpenClaw / Claude Code agent: [palmyr.ai/skill.md](https://palmyr.ai/skill.md)
 
 ### Dashboard
-Visual node-based agent deployment: [agntos.dev/dashboard.html](https://agntos.dev/dashboard.html)
+Visual node-based agent deployment: [palmyr.ai/dashboard.html](https://palmyr.ai/dashboard.html)
 
 ## Services
 
