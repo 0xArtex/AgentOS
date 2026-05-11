@@ -3,27 +3,32 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wallet Setup</title>
+  <title>Wallet Setup — Palmyr</title>
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+  <link rel="icon" type="image/x-icon" href="/favicon.ico">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --bg: #0a0a0a;
-      --surface: #111;
-      --surface-raised: #161616;
-      --border: #222;
-      --border-focus: #333;
-      --accent: #f54900;
-      --accent-dim: rgba(245, 73, 0, 0.12);
-      --accent-hover: #ff5c1a;
-      --text: #e8e8e8;
-      --text-dim: #888;
-      --text-muted: #555;
-      --success: #22c55e;
-      --success-dim: rgba(34, 197, 94, 0.1);
+      --bg: #112d32;
+      --surface: #0f2631;
+      --surface-raised: #13262e;
+      --border: rgba(247,234,209,0.1);
+      --border-focus: rgba(247,234,209,0.22);
+      --accent: #a89774;
+      --accent-dim: rgba(168, 151, 116, 0.18);
+      --accent-hover: #bcaf8f;
+      --text: #f7ead1;
+      --text-dim: rgba(247,234,209,0.6);
+      --text-muted: rgba(247,234,209,0.4);
+      --success: #3f857b;
+      --success-dim: rgba(63, 133, 123, 0.15);
       --error: #ef4444;
       --error-dim: rgba(239, 68, 68, 0.1);
-      --font: 'Courier New', Courier, monospace;
+      --font: 'JetBrains Mono', 'Courier New', monospace;
       --radius: 6px;
       --transition: 0.15s ease;
     }
@@ -346,7 +351,7 @@
       width: 52px;
       height: 52px;
       background: var(--accent-dim);
-      border: 1px solid rgba(245, 73, 0, 0.2);
+      border: 1px solid rgba(168, 151, 116, 0.2);
       border-radius: 50%;
       display: flex;
       align-items: center;
