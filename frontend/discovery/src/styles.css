@@ -1,22 +1,22 @@
 :root {
-  /* Pure black so the body color matches the Tools section's hardcoded
-     #000 — without this, the body shows a brief navy flash before the
-     section paints on first load. */
-  --bg: #000;
-  --bg-2: #050f17;
-  --surface: rgba(255, 255, 255, 0.03);
-  --surface-2: rgba(255, 255, 255, 0.05);
-  --border: rgba(255, 255, 255, 0.07);
-  --gold: #c8a567;
-  --gold-soft: rgba(200, 165, 103, 0.15);
-  --accent: #f54900;
-  --accent-glow: rgba(245, 73, 0, 0.15);
-  --w100: #f3eee2;
-  --w80: rgba(243, 238, 226, 0.82);
-  --w60: rgba(243, 238, 226, 0.6);
-  --w40: rgba(243, 238, 226, 0.4);
-  --w20: rgba(243, 238, 226, 0.18);
-  --sans: "Inter", system-ui, -apple-system, sans-serif;
+  /* Deep teal so the body color matches the Tools section's deep teal —
+     without this, the body would show a brief flash on first paint. */
+  --bg: #112d32;
+  --bg-2: #0f2631;
+  --surface: rgba(247, 234, 209, 0.04);
+  --surface-2: rgba(247, 234, 209, 0.06);
+  --border: rgba(247, 234, 209, 0.1);
+  --gold: #a89774;
+  --gold-soft: rgba(168, 151, 116, 0.18);
+  --accent: #a89774;
+  --accent-glow: rgba(168, 151, 116, 0.18);
+  --w100: #f7ead1;
+  --w80: rgba(247, 234, 209, 0.82);
+  --w60: rgba(247, 234, 209, 0.6);
+  --w40: rgba(247, 234, 209, 0.4);
+  --w20: rgba(247, 234, 209, 0.18);
+  --sans: "DM Sans", system-ui, -apple-system, sans-serif;
+  --display: "Cormorant Garamond", Georgia, serif;
   --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
   --maxw: 1280px;
 }
