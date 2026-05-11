@@ -84,7 +84,7 @@ function map(name: string, category: string, size: number): IconConfig {
         filter: "mono",
       };
     case "compute":
-      return { kind: "img", src: "/assets/logo.png", alt: "Palmyr", filter: "invert" };
+      return { kind: "img", src: "/assets/logo-mark.svg", alt: "Palmyr", filter: "invert" };
     case "twitter":
       return { kind: "svg", alt: "X", filter: "raw", node: <XSvg size={size} /> };
     case "tiktok":
@@ -94,7 +94,7 @@ function map(name: string, category: string, size: number): IconConfig {
     case "keys":
     case "other":
     default:
-      return { kind: "img", src: "/assets/logo.png", alt: "Palmyr", filter: "invert" };
+      return { kind: "img", src: "/assets/logo-mark.svg", alt: "Palmyr", filter: "invert" };
   }
 }
 
