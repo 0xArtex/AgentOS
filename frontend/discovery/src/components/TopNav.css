@@ -106,8 +106,8 @@
 
 .gh:hover {
   color: var(--w100);
-  border-color: rgba(245, 73, 0, 0.4);
-  background: rgba(245, 73, 0, 0.08);
+  border-color: rgba(168, 151, 116, 0.4);
+  background: rgba(168, 151, 116, 0.08);
 }
 
 @media (max-width: 980px) {
