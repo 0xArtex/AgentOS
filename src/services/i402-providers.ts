@@ -4,7 +4,7 @@ import { db } from "../db";
 // -------------------- Types --------------------
 
 export type I402ProviderSource =
-  | "agentos"
+  | "palmyr"
   | "agentic_market"
   | "external"
   | "clawhub"
@@ -98,7 +98,7 @@ function rowToProvider(row: ProviderRow): I402Provider {
 // -------------------- Canonical capability classes (v0.1) --------------------
 
 // Capability classes are the canonical action taxonomy the planner chooses from.
-// Every capability here maps to one or more x402-native AgentOS endpoints.
+// Every capability here maps to one or more x402-native Palmyr endpoints.
 // Non-x402 capabilities (web_search, summarize, image_gen, video_gen, tts, stt,
 // embed, web_scrape) are intentionally absent until Agentic Market lands.
 export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
@@ -211,10 +211,10 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   // ── Email ──
   provision_email_inbox: {
     name: "provision_email_inbox",
-    description: "Provision a new E2E-encrypted email inbox keyed to the caller's wallet. Defaults to {name}@agntos.dev. To provision on a domain the wallet just registered (e.g. hello@stealthkicks.xyz), pass `domain` chained from register_domain's output — the route validates ownership and auto-sets MX/SPF/_mailchannels DNS records on that domain via Namecheap.",
+    description: "Provision a new E2E-encrypted email inbox keyed to the caller's wallet. Defaults to {name}@palmyr.ai. To provision on a domain the wallet just registered (e.g. hello@stealthkicks.xyz), pass `domain` chained from register_domain's output — the route validates ownership and auto-sets MX/SPF/_mailchannels DNS records on that domain via Namecheap.",
     inputSchema: {
       name: "string (local-part)",
-      domain: "string? (fqdn — defaults to agntos.dev; must be a Namecheap domain registered to this wallet, e.g. $STEPS.s1.output.domain)",
+      domain: "string? (fqdn — defaults to palmyr.ai; must be a Namecheap domain registered to this wallet, e.g. $STEPS.s1.output.domain)",
       walletAddress: "string? (Solana pubkey — defaults to caller's wallet; only set when encrypting for a third party)",
     },
     outputSchema: { inbox: "object ({ id, address, walletAddress })", dnsApplied: "boolean? (true when DNS records were successfully written to a custom domain)" },
@@ -484,7 +484,7 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   },
   twitter_buy_account: {
     name: "twitter_buy_account",
-    description: "Buy a warmed X account from the AgentOS pool.",
+    description: "Buy a warmed X account from the Palmyr pool.",
     inputSchema: { country: "string?", age_category: "string?" },
     outputSchema: { success: "boolean", account: "object ({ id, platform, username, country, age_category, proxy_session_id, credentials: object, cookies: object[] })" },
   },
@@ -724,58 +724,58 @@ export function scoreProviders(capability: string, quality: I402Quality = "best"
   return ranked.map(r => r.provider);
 }
 
-// -------------------- Seed: AgentOS first-party primitives --------------------
+// -------------------- Seed: Palmyr first-party primitives --------------------
 
 /**
- * Register every AgentOS-owned service as a provider in the i402 registry.
+ * Register every Palmyr-owned service as a provider in the i402 registry.
  * Idempotent — uses INSERT OR IGNORE so re-running leaves metrics intact.
  *
  * All endpoints use auth_scheme "x402-solana" for payment settlement, and the
- * canonical AgentOS API base is read from env or defaults to production.
+ * canonical Palmyr API base is read from env or defaults to production.
  */
-export function seedAgentOSPrimitives(): void {
-  const base = process.env.AGENTOS_API_BASE ?? "https://agntos.dev";
+export function seedPalmyrPrimitives(): void {
+  const base = process.env.PALMYR_API_BASE ?? "https://palmyr.ai";
 
-  // Wipe ALL AgentOS-source rows before re-seeding. The seed is authoritative
+  // Wipe ALL Palmyr-source rows before re-seeding. The seed is authoritative
   // for endpoint URLs, capabilities, and costs — stale rows from earlier seeds
   // (different base URL, renamed capability, old cost) would otherwise win via
-  // INSERT OR IGNORE. Metrics for AgentOS-owned providers reset at each seed;
+  // INSERT OR IGNORE. Metrics for Palmyr-owned providers reset at each seed;
   // federated / external providers are untouched.
-  db.prepare(`DELETE FROM i402_providers WHERE source = 'agentos'`).run();
+  db.prepare(`DELETE FROM i402_providers WHERE source = 'palmyr'`).run();
   db.prepare(`DELETE FROM i402_providers WHERE auth_scheme NOT IN ('x402-solana', 'x402-base')`).run();
 
   // (Intentionally unreachable — preserved in case a future iteration wants to
   //  selectively keep rows rather than wholesale wipe.)
   const _keepOnlyListed = `
     DELETE FROM i402_providers
-     WHERE source = 'agentos'
+     WHERE source = 'palmyr'
        AND id NOT IN (
-         'agentos.provision_phone', 'agentos.release_phone', 'agentos.send_sms', 'agentos.read_sms',
-         'agentos.start_voice_call', 'agentos.list_calls', 'agentos.get_call_details',
-         'agentos.voice_speak', 'agentos.voice_play', 'agentos.voice_dtmf', 'agentos.voice_gather',
-         'agentos.voice_record_start', 'agentos.voice_record_stop', 'agentos.voice_hangup',
-         'agentos.voice_answer', 'agentos.voice_transfer',
-         'agentos.provision_email_inbox', 'agentos.send_email', 'agentos.read_email',
-         'agentos.list_email_threads', 'agentos.read_email_thread',
-         'agentos.register_domain', 'agentos.list_domains', 'agentos.get_domain',
-         'agentos.dns_read', 'agentos.dns_write',
-         'agentos.transfer_domain_ownership', 'agentos.transfer_domain_out',
-         'agentos.create_ssh_key', 'agentos.list_ssh_keys', 'agentos.delete_ssh_key',
-         'agentos.deploy_vps', 'agentos.list_vps', 'agentos.get_vps',
-         'agentos.vps_action', 'agentos.vps_resize', 'agentos.vps_delete',
-         'agentos.install_skill', 'agentos.install_skills_bulk', 'agentos.remove_skill',
-         'agentos.configure_openclaw', 'agentos.configure_vps_wallet',
-         'agentos.twitter_post', 'agentos.twitter_post_thread', 'agentos.twitter_post_media', 'agentos.twitter_reply',
-         'agentos.twitter_like', 'agentos.twitter_retweet', 'agentos.twitter_follow',
-         'agentos.twitter_unfollow', 'agentos.twitter_delete_post',
-         'agentos.twitter_update_profile', 'agentos.twitter_update_avatar',
-         'agentos.twitter_update_banner', 'agentos.twitter_change_username',
-         'agentos.twitter_buy_account', 'agentos.twitter_list_my_tweets',
-         'agentos.tiktok_post', 'agentos.tiktok_follow',
-         'agentos.tiktok_like', 'agentos.tiktok_delete_post',
-         'agentos.tiktok_update_profile', 'agentos.tiktok_update_avatar',
-         'agentos.issue_api_key',
-         'agentos.x_post', 'agentos.tiktok_post_legacy', 'agentos.x_account'
+         'palmyr.provision_phone', 'palmyr.release_phone', 'palmyr.send_sms', 'palmyr.read_sms',
+         'palmyr.start_voice_call', 'palmyr.list_calls', 'palmyr.get_call_details',
+         'palmyr.voice_speak', 'palmyr.voice_play', 'palmyr.voice_dtmf', 'palmyr.voice_gather',
+         'palmyr.voice_record_start', 'palmyr.voice_record_stop', 'palmyr.voice_hangup',
+         'palmyr.voice_answer', 'palmyr.voice_transfer',
+         'palmyr.provision_email_inbox', 'palmyr.send_email', 'palmyr.read_email',
+         'palmyr.list_email_threads', 'palmyr.read_email_thread',
+         'palmyr.register_domain', 'palmyr.list_domains', 'palmyr.get_domain',
+         'palmyr.dns_read', 'palmyr.dns_write',
+         'palmyr.transfer_domain_ownership', 'palmyr.transfer_domain_out',
+         'palmyr.create_ssh_key', 'palmyr.list_ssh_keys', 'palmyr.delete_ssh_key',
+         'palmyr.deploy_vps', 'palmyr.list_vps', 'palmyr.get_vps',
+         'palmyr.vps_action', 'palmyr.vps_resize', 'palmyr.vps_delete',
+         'palmyr.install_skill', 'palmyr.install_skills_bulk', 'palmyr.remove_skill',
+         'palmyr.configure_openclaw', 'palmyr.configure_vps_wallet',
+         'palmyr.twitter_post', 'palmyr.twitter_post_thread', 'palmyr.twitter_post_media', 'palmyr.twitter_reply',
+         'palmyr.twitter_like', 'palmyr.twitter_retweet', 'palmyr.twitter_follow',
+         'palmyr.twitter_unfollow', 'palmyr.twitter_delete_post',
+         'palmyr.twitter_update_profile', 'palmyr.twitter_update_avatar',
+         'palmyr.twitter_update_banner', 'palmyr.twitter_change_username',
+         'palmyr.twitter_buy_account', 'palmyr.twitter_list_my_tweets',
+         'palmyr.tiktok_post', 'palmyr.tiktok_follow',
+         'palmyr.tiktok_like', 'palmyr.tiktok_delete_post',
+         'palmyr.tiktok_update_profile', 'palmyr.tiktok_update_avatar',
+         'palmyr.issue_api_key',
+         'palmyr.x_post', 'palmyr.tiktok_post_legacy', 'palmyr.x_account'
        )`;
   void _keepOnlyListed;
 
@@ -799,9 +799,9 @@ export function seedAgentOSPrimitives(): void {
     }
   ): RegisterProviderInput => ({
     id,
-    source: "agentos",
+    source: "palmyr",
     capability,
-    name: options.name ?? `AgentOS ${capability}`,
+    name: options.name ?? `Palmyr ${capability}`,
     description: options.description,
     endpoint: `${base}${endpointPath}`,
     method: options.method ?? "POST",
@@ -817,157 +817,157 @@ export function seedAgentOSPrimitives(): void {
 
   const primitives: RegisterProviderInput[] = [
     // ── Phone / SMS ──
-    p("agentos.provision_phone", "provision_phone", "/phone/numbers", {
+    p("palmyr.provision_phone", "provision_phone", "/phone/numbers", {
       costUsdc: 3.0, p50: 4000, p99: 15000,
       description: "Provision a real phone number via Telnyx (150+ countries).",
     }),
-    p("agentos.release_phone", "release_phone", "/phone/numbers/{phone_number_id}", {
+    p("palmyr.release_phone", "release_phone", "/phone/numbers/{phone_number_id}", {
       method: "DELETE", costUsdc: 0.01, p50: 500, p99: 2000,
       description: "Release a phone number.",
     }),
-    p("agentos.list_phones", "list_phones", "/phone/numbers", {
+    p("palmyr.list_phones", "list_phones", "/phone/numbers", {
       method: "GET", costUsdc: 0.01, p50: 200,
       description: "List phone numbers owned by the calling wallet.",
     }),
-    p("agentos.send_sms", "send_sms", "/phone/numbers/{phone_number_id}/send", {
+    p("palmyr.send_sms", "send_sms", "/phone/numbers/{phone_number_id}/send", {
       costUsdc: 0.05, p50: 800, p99: 3000,
       description: "Send an SMS from an owned phone number.",
     }),
-    p("agentos.read_sms", "read_sms", "/phone/numbers/{phone_number_id}/messages", {
+    p("palmyr.read_sms", "read_sms", "/phone/numbers/{phone_number_id}/messages", {
       method: "GET", costUsdc: 0.02, p50: 400, p99: 1500,
     }),
 
     // ── Voice ──
-    p("agentos.start_voice_call", "start_voice_call", "/phone/numbers/{phone_number_id}/call", {
+    p("palmyr.start_voice_call", "start_voice_call", "/phone/numbers/{phone_number_id}/call", {
       costUsdc: 0.10, p50: 2000, p99: 10000,
     }),
-    p("agentos.list_calls", "list_calls", "/phone/numbers/{phone_number_id}/calls", {
+    p("palmyr.list_calls", "list_calls", "/phone/numbers/{phone_number_id}/calls", {
       method: "GET", costUsdc: 0.02, p50: 400,
     }),
-    p("agentos.get_call_details", "get_call_details", "/phone/calls/{call_control_id}", {
+    p("palmyr.get_call_details", "get_call_details", "/phone/calls/{call_control_id}", {
       method: "GET", costUsdc: 0.02, p50: 400,
     }),
-    p("agentos.voice_speak", "voice_speak", "/phone/calls/{call_control_id}/speak", {
+    p("palmyr.voice_speak", "voice_speak", "/phone/calls/{call_control_id}/speak", {
       costUsdc: 0.08, p50: 500,
     }),
-    p("agentos.voice_play", "voice_play", "/phone/calls/{call_control_id}/play", {
+    p("palmyr.voice_play", "voice_play", "/phone/calls/{call_control_id}/play", {
       costUsdc: 0.08, p50: 500,
     }),
-    p("agentos.voice_dtmf", "voice_dtmf", "/phone/calls/{call_control_id}/dtmf", {
+    p("palmyr.voice_dtmf", "voice_dtmf", "/phone/calls/{call_control_id}/dtmf", {
       costUsdc: 0.02, p50: 300,
     }),
-    p("agentos.voice_gather", "voice_gather", "/phone/calls/{call_control_id}/gather", {
+    p("palmyr.voice_gather", "voice_gather", "/phone/calls/{call_control_id}/gather", {
       costUsdc: 0.08, p50: 5000,
     }),
-    p("agentos.voice_record_start", "voice_record_start", "/phone/calls/{call_control_id}/record", {
+    p("palmyr.voice_record_start", "voice_record_start", "/phone/calls/{call_control_id}/record", {
       costUsdc: 0.10, p50: 400,
     }),
-    p("agentos.voice_record_stop", "voice_record_stop", "/phone/calls/{call_control_id}/record/stop", {
+    p("palmyr.voice_record_stop", "voice_record_stop", "/phone/calls/{call_control_id}/record/stop", {
       costUsdc: 0.02, p50: 400,
     }),
-    p("agentos.voice_hangup", "voice_hangup", "/phone/calls/{call_control_id}/hangup", {
+    p("palmyr.voice_hangup", "voice_hangup", "/phone/calls/{call_control_id}/hangup", {
       costUsdc: 0.02, p50: 300,
     }),
-    p("agentos.voice_answer", "voice_answer", "/phone/calls/{call_control_id}/answer", {
+    p("palmyr.voice_answer", "voice_answer", "/phone/calls/{call_control_id}/answer", {
       costUsdc: 0.02, p50: 300,
     }),
-    p("agentos.voice_transfer", "voice_transfer", "/phone/calls/{call_control_id}/transfer", {
+    p("palmyr.voice_transfer", "voice_transfer", "/phone/calls/{call_control_id}/transfer", {
       costUsdc: 0.10, p50: 1500,
     }),
 
     // ── Email ──
-    p("agentos.provision_email_inbox", "provision_email_inbox", "/email/inboxes", {
+    p("palmyr.provision_email_inbox", "provision_email_inbox", "/email/inboxes", {
       costUsdc: 2.0, p50: 1500, p99: 4000,
-      description: "E2E-encrypted inbox at {name}@agntos.dev, keyed to the caller's Solana pubkey.",
+      description: "E2E-encrypted inbox at {name}@palmyr.ai, keyed to the caller's Solana pubkey.",
     }),
-    p("agentos.list_inboxes", "list_inboxes", "/email/inboxes", {
+    p("palmyr.list_inboxes", "list_inboxes", "/email/inboxes", {
       method: "GET", costUsdc: 0.01, p50: 200,
       description: "List email inboxes owned by the calling wallet.",
     }),
-    p("agentos.send_email", "send_email", "/email/inboxes/{inbox_id}/send", {
+    p("palmyr.send_email", "send_email", "/email/inboxes/{inbox_id}/send", {
       costUsdc: 0.08, p50: 900, p99: 3000,
     }),
-    p("agentos.read_email", "read_email", "/email/inboxes/{inbox_id}/messages", {
+    p("palmyr.read_email", "read_email", "/email/inboxes/{inbox_id}/messages", {
       method: "GET", costUsdc: 0.02, p50: 400,
     }),
-    p("agentos.list_email_threads", "list_email_threads", "/email/inboxes/{inbox_id}/threads", {
+    p("palmyr.list_email_threads", "list_email_threads", "/email/inboxes/{inbox_id}/threads", {
       method: "GET", costUsdc: 0.02, p50: 400,
     }),
-    p("agentos.read_email_thread", "read_email_thread", "/email/threads/{thread_id}/messages", {
+    p("palmyr.read_email_thread", "read_email_thread", "/email/threads/{thread_id}/messages", {
       method: "GET", costUsdc: 0.02, p50: 400,
     }),
 
     // ── Domain ──
-    p("agentos.register_domain", "register_domain", "/domains/register", {
+    p("palmyr.register_domain", "register_domain", "/domains/register", {
       costUsdc: 10.0, p50: 20000, p99: 90000,
       description: "Register a domain via Namecheap (dynamic per-TLD pricing; $10 is a typical .io/.co).",
     }),
-    p("agentos.list_domains", "list_domains", "/domains", {
+    p("palmyr.list_domains", "list_domains", "/domains", {
       method: "GET", costUsdc: 0.0001, p50: 300,
       description: "List domains owned by the calling wallet (wallet-keyed).",
     }),
-    p("agentos.get_domain", "get_domain", "/domains/{domain}", {
+    p("palmyr.get_domain", "get_domain", "/domains/{domain}", {
       method: "GET", costUsdc: 0.0001, p50: 300,
     }),
-    p("agentos.dns_read", "dns_manage", "/domains/{domain}/dns", {
+    p("palmyr.dns_read", "dns_manage", "/domains/{domain}/dns", {
       method: "GET", costUsdc: 0.0001, p50: 500,
-      name: "AgentOS DNS read",
+      name: "Palmyr DNS read",
     }),
-    p("agentos.dns_write", "dns_manage", "/domains/{domain}/dns", {
+    p("palmyr.dns_write", "dns_manage", "/domains/{domain}/dns", {
       method: "POST", costUsdc: 0.0001, p50: 1500,
-      name: "AgentOS DNS write",
+      name: "Palmyr DNS write",
     }),
-    p("agentos.transfer_domain_ownership", "transfer_domain_ownership", "/domains/{domain}/transfer-ownership", {
+    p("palmyr.transfer_domain_ownership", "transfer_domain_ownership", "/domains/{domain}/transfer-ownership", {
       costUsdc: 0.0001, p50: 500,
       description: "Transfer a domain's ownership to a new wallet (Solana or EVM).",
     }),
-    p("agentos.transfer_domain_out", "transfer_domain_out", "/domains/{domain}/transfer", {
+    p("palmyr.transfer_domain_out", "transfer_domain_out", "/domains/{domain}/transfer", {
       costUsdc: 0.0001, p50: 2000,
     }),
 
     // ── Compute / VPS ──
-    p("agentos.create_ssh_key", "create_ssh_key", "/compute/ssh-keys", {
+    p("palmyr.create_ssh_key", "create_ssh_key", "/compute/ssh-keys", {
       costUsdc: 0.10, p50: 500,
     }),
-    p("agentos.list_ssh_keys", "list_ssh_keys", "/compute/ssh-keys", {
+    p("palmyr.list_ssh_keys", "list_ssh_keys", "/compute/ssh-keys", {
       method: "GET", costUsdc: 0.01, p50: 300,
     }),
-    p("agentos.delete_ssh_key", "delete_ssh_key", "/compute/ssh-keys/{ssh_key_id}", {
+    p("palmyr.delete_ssh_key", "delete_ssh_key", "/compute/ssh-keys/{ssh_key_id}", {
       method: "DELETE", costUsdc: 0.01, p50: 400,
     }),
-    p("agentos.deploy_vps", "deploy_vps", "/compute/servers", {
+    p("palmyr.deploy_vps", "deploy_vps", "/compute/servers", {
       costUsdc: 6.0, p50: 60000, p99: 180000,
       description: "Hetzner VPS with cloud-init hardening + Node.js 22 + OpenClaw pre-installed.",
     }),
-    p("agentos.list_vps", "list_vps", "/compute/servers", {
+    p("palmyr.list_vps", "list_vps", "/compute/servers", {
       method: "GET", costUsdc: 0.01, p50: 400,
     }),
-    p("agentos.get_vps", "get_vps", "/compute/servers/{server_id}", {
+    p("palmyr.get_vps", "get_vps", "/compute/servers/{server_id}", {
       method: "GET", costUsdc: 0.01, p50: 400,
     }),
-    p("agentos.vps_action", "vps_action", "/compute/servers/{server_id}/actions", {
+    p("palmyr.vps_action", "vps_action", "/compute/servers/{server_id}/actions", {
       costUsdc: 0.10, p50: 3000, p99: 15000,
       description: "Lifecycle action: reboot / poweron / poweroff / rebuild / reset.",
     }),
-    p("agentos.vps_resize", "vps_resize", "/compute/servers/{server_id}/resize", {
+    p("palmyr.vps_resize", "vps_resize", "/compute/servers/{server_id}/resize", {
       costUsdc: 0.10, p50: 10000, p99: 40000,
     }),
-    p("agentos.vps_delete", "vps_delete", "/compute/servers/{server_id}", {
+    p("palmyr.vps_delete", "vps_delete", "/compute/servers/{server_id}", {
       method: "DELETE", costUsdc: 0.10, p50: 5000,
     }),
-    p("agentos.install_skill", "install_skill", "/compute/servers/{server_id}/install-skill", {
+    p("palmyr.install_skill", "install_skill", "/compute/servers/{server_id}/install-skill", {
       costUsdc: 0.01, p50: 3000,
     }),
-    p("agentos.install_skills_bulk", "install_skills_bulk", "/compute/servers/{server_id}/install-skills-bulk", {
+    p("palmyr.install_skills_bulk", "install_skills_bulk", "/compute/servers/{server_id}/install-skills-bulk", {
       costUsdc: 0.01, p50: 15000, p99: 60000,
     }),
-    p("agentos.remove_skill", "remove_skill", "/compute/servers/{server_id}/remove-skill", {
+    p("palmyr.remove_skill", "remove_skill", "/compute/servers/{server_id}/remove-skill", {
       costUsdc: 0.01, p50: 2000,
     }),
-    p("agentos.configure_openclaw", "configure_openclaw", "/compute/servers/{server_id}/configure-openclaw", {
+    p("palmyr.configure_openclaw", "configure_openclaw", "/compute/servers/{server_id}/configure-openclaw", {
       costUsdc: 0.01, p50: 3000,
     }),
-    p("agentos.configure_vps_wallet", "configure_vps_wallet", "/compute/servers/{server_id}/configure-wallet", {
+    p("palmyr.configure_vps_wallet", "configure_vps_wallet", "/compute/servers/{server_id}/configure-wallet", {
       costUsdc: 0.01, p50: 2000,
     }),
 
@@ -975,88 +975,88 @@ export function seedAgentOSPrimitives(): void {
     // No twitter_login provider — sessions are managed client-side by the
     // CLI executor (see cli/sdk.ts:ensureSocialSession). Login happens
     // automatically and quietly when needed; it is not a planner step.
-    p("agentos.twitter_post", "twitter_post", "/social/twitter/post", {
+    p("palmyr.twitter_post", "twitter_post", "/social/twitter/post", {
       costUsdc: 0.001, p50: 5000, p99: 30000, reputation: 0.8,
     }),
-    p("agentos.twitter_post_thread", "twitter_post_thread", "/social/twitter/post-thread", {
+    p("palmyr.twitter_post_thread", "twitter_post_thread", "/social/twitter/post-thread", {
       costUsdc: 0.005, p50: 12000, p99: 90000, reputation: 0.75,
       description: "Post a 2-25 tweet thread in one composed session.",
     }),
-    p("agentos.twitter_post_media", "twitter_post_media", "/social/twitter/post-media", {
+    p("palmyr.twitter_post_media", "twitter_post_media", "/social/twitter/post-media", {
       costUsdc: 0.005, p50: 8000, p99: 120000, reputation: 0.75,
       description: "Post a tweet with 1-4 images or 1 video attached.",
     }),
-    p("agentos.twitter_list_my_tweets", "twitter_list_my_tweets", "/social/twitter/list-my-tweets", {
+    p("palmyr.twitter_list_my_tweets", "twitter_list_my_tweets", "/social/twitter/list-my-tweets", {
       costUsdc: 0.005, p50: 5000, p99: 30000, reputation: 0.85,
     }),
-    p("agentos.twitter_reply", "twitter_reply", "/social/twitter/reply", {
+    p("palmyr.twitter_reply", "twitter_reply", "/social/twitter/reply", {
       costUsdc: 0.001, p50: 5000, p99: 30000, reputation: 0.8,
     }),
-    p("agentos.twitter_like", "twitter_like", "/social/twitter/like", {
+    p("palmyr.twitter_like", "twitter_like", "/social/twitter/like", {
       costUsdc: 0.001, p50: 3000, reputation: 0.85,
     }),
-    p("agentos.twitter_retweet", "twitter_retweet", "/social/twitter/retweet", {
+    p("palmyr.twitter_retweet", "twitter_retweet", "/social/twitter/retweet", {
       costUsdc: 0.001, p50: 3000, reputation: 0.85,
     }),
-    p("agentos.twitter_follow", "twitter_follow", "/social/twitter/follow", {
+    p("palmyr.twitter_follow", "twitter_follow", "/social/twitter/follow", {
       costUsdc: 0.001, p50: 3000, reputation: 0.85,
     }),
-    p("agentos.twitter_unfollow", "twitter_unfollow", "/social/twitter/unfollow", {
+    p("palmyr.twitter_unfollow", "twitter_unfollow", "/social/twitter/unfollow", {
       costUsdc: 0.001, p50: 3000, reputation: 0.85,
     }),
-    p("agentos.twitter_delete_post", "twitter_delete_post", "/social/twitter/delete", {
+    p("palmyr.twitter_delete_post", "twitter_delete_post", "/social/twitter/delete", {
       costUsdc: 0.001, p50: 3000, reputation: 0.85,
     }),
-    p("agentos.twitter_update_profile", "twitter_update_profile", "/social/twitter/profile", {
+    p("palmyr.twitter_update_profile", "twitter_update_profile", "/social/twitter/profile", {
       costUsdc: 0.001, p50: 4000, reputation: 0.8,
     }),
-    p("agentos.twitter_update_avatar", "twitter_update_avatar", "/social/twitter/avatar", {
+    p("palmyr.twitter_update_avatar", "twitter_update_avatar", "/social/twitter/avatar", {
       costUsdc: 0.005, p50: 5000, reputation: 0.8,
     }),
-    p("agentos.twitter_update_banner", "twitter_update_banner", "/social/twitter/banner", {
+    p("palmyr.twitter_update_banner", "twitter_update_banner", "/social/twitter/banner", {
       costUsdc: 0.005, p50: 5000, reputation: 0.8,
     }),
-    p("agentos.twitter_change_username", "twitter_change_username", "/social/twitter/username", {
+    p("palmyr.twitter_change_username", "twitter_change_username", "/social/twitter/username", {
       costUsdc: 0.005, p50: 5000, reputation: 0.75,
     }),
-    p("agentos.twitter_buy_account", "twitter_buy_account", "/social/twitter/buy", {
+    p("palmyr.twitter_buy_account", "twitter_buy_account", "/social/twitter/buy", {
       costUsdc: 5.0, p50: 3000, p99: 10000, reputation: 0.85,
-      description: "Buy a pre-warmed Twitter/X account from the AgentOS pool.",
+      description: "Buy a pre-warmed Twitter/X account from the Palmyr pool.",
     }),
 
     // ── Social: TikTok ──
     // Same model as Twitter: no tiktok_login provider — sessions are
     // managed client-side by the CLI executor.
-    p("agentos.tiktok_post", "tiktok_post", "/social/tiktok/post", {
+    p("palmyr.tiktok_post", "tiktok_post", "/social/tiktok/post", {
       costUsdc: 0.01, p50: 30000, p99: 120000, reputation: 0.7,
     }),
-    p("agentos.tiktok_follow", "tiktok_follow", "/social/tiktok/follow", {
+    p("palmyr.tiktok_follow", "tiktok_follow", "/social/tiktok/follow", {
       costUsdc: 0.001, p50: 5000, reputation: 0.75,
     }),
-    p("agentos.tiktok_like", "tiktok_like", "/social/tiktok/like", {
+    p("palmyr.tiktok_like", "tiktok_like", "/social/tiktok/like", {
       costUsdc: 0.001, p50: 5000, reputation: 0.75,
     }),
-    p("agentos.tiktok_delete_post", "tiktok_delete_post", "/social/tiktok/delete", {
+    p("palmyr.tiktok_delete_post", "tiktok_delete_post", "/social/tiktok/delete", {
       costUsdc: 0.001, p50: 5000, reputation: 0.75,
     }),
-    p("agentos.tiktok_update_profile", "tiktok_update_profile", "/social/tiktok/profile", {
+    p("palmyr.tiktok_update_profile", "tiktok_update_profile", "/social/tiktok/profile", {
       costUsdc: 0.001, p50: 5000, reputation: 0.7,
     }),
-    p("agentos.tiktok_update_avatar", "tiktok_update_avatar", "/social/tiktok/avatar", {
+    p("palmyr.tiktok_update_avatar", "tiktok_update_avatar", "/social/tiktok/avatar", {
       costUsdc: 0.005, p50: 8000, reputation: 0.7,
     }),
 
     // ── API keys ──
-    p("agentos.issue_api_key", "issue_api_key", "/apikeys", {
+    p("palmyr.issue_api_key", "issue_api_key", "/apikeys", {
       costUsdc: 1.0, p50: 400,
     }),
 
     // ── Legacy platform-dispatch providers kept for the existing social_post/social_account_provision capability classes ──
     {
-      id: "agentos.x_post",
-      source: "agentos",
+      id: "palmyr.x_post",
+      source: "palmyr",
       capability: "social_post",
-      name: "AgentOS X post (platform-dispatch wrapper)",
+      name: "Palmyr X post (platform-dispatch wrapper)",
       description: "Dispatches to /social/twitter/post under the hood.",
       endpoint: `${base}/social/twitter/post`,
       method: "POST",
@@ -1070,10 +1070,10 @@ export function seedAgentOSPrimitives(): void {
       metadata: { platform: "x" },
     },
     {
-      id: "agentos.tiktok_post_legacy",
-      source: "agentos",
+      id: "palmyr.tiktok_post_legacy",
+      source: "palmyr",
       capability: "social_post",
-      name: "AgentOS TikTok post (platform-dispatch wrapper)",
+      name: "Palmyr TikTok post (platform-dispatch wrapper)",
       description: "Dispatches to /social/tiktok/post under the hood.",
       endpoint: `${base}/social/tiktok/post`,
       method: "POST",
@@ -1087,10 +1087,10 @@ export function seedAgentOSPrimitives(): void {
       metadata: { platform: "tiktok" },
     },
     {
-      id: "agentos.x_account",
-      source: "agentos",
+      id: "palmyr.x_account",
+      source: "palmyr",
       capability: "social_account_provision",
-      name: "AgentOS X account provisioning",
+      name: "Palmyr X account provisioning",
       description: "Buy a warmed X account from the pool. Maps to /social/twitter/buy.",
       endpoint: `${base}/social/twitter/buy`,
       method: "POST",

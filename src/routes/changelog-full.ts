@@ -72,7 +72,7 @@ const releases = [
 
 router.get('/releases', (_req: Request, res: Response) => {
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     totalReleases: releases.length,
     latestVersion: releases[0].version,
     releases

@@ -4,7 +4,7 @@ const router = Router();
 
 router.get('/', (_req: Request, res: Response) => {
   res.json({
-    service: 'AgentOS SLA & Guarantees',
+    service: 'Palmyr SLA & Guarantees',
     version: 'v0.5.6',
     lastUpdated: '2026-02-09',
     commitments: {

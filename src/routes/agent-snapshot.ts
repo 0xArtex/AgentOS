@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 
 const router = Router();
-const dbPath = path.join(__dirname, "../../data/agentos.db");
+const dbPath = path.join(__dirname, "../../data/palmyr.db");
 
 router.get("/api/agent-snapshot", (req: Request, res: Response) => {
   const agentId = req.headers["x-agent-id"] as string;
@@ -66,7 +66,7 @@ router.get("/api/agent-snapshot", (req: Request, res: Response) => {
         links: {
           docs: "http://77.42.89.233:3001/docs",
           skill: "http://77.42.89.233:3001/skill.md",
-          github: "https://github.com/0xArtex/AgentOS"
+          github: "https://github.com/0xArtex/Palmyr"
         }
       }
     });

@@ -32,8 +32,8 @@ router.get("/", (_req: Request, res: Response) => {
     },
     discovery: {
       description: "Agent ecosystem network graph. Each node is a registered agent with resource counts and activity scores.",
-      tryIt: "curl https://agntos.dev/api/agent-network",
-      docs: "https://agntos.dev/docs"
+      tryIt: "curl https://palmyr.ai/api/agent-network",
+      docs: "https://palmyr.ai/docs"
     }
   });
 });

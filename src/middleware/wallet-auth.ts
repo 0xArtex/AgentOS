@@ -1,7 +1,7 @@
 /**
  * Wallet auth middleware — accepts either:
  *   1. Dashboard session token (Bearer) — for human users
- *   2. AgentOS API key (agos_key_...) — for agents
+ *   2. Palmyr API key (agos_key_...) — for agents
  *
  * Sets on req:
  *   - req.dashUserId (string) — if dashboard auth
@@ -32,7 +32,7 @@ export function resolveWalletAuth(req: WalletAuthRequest, _res: Response, next: 
   const authHeader = req.headers.authorization || "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
 
-  // Try AgentOS API key first (prefix match)
+  // Try Palmyr API key first (prefix match)
   if (token.startsWith("agos_key_")) {
     const keyInfo = validateApiKey(token);
     if (keyInfo) {
@@ -66,7 +66,7 @@ export function requireWalletAuth(req: WalletAuthRequest, res: Response, next: N
     if (!req.dashUserId && !req.agentApiKey) {
       res.status(401).json({
         error: "Authentication required",
-        message: "Provide a dashboard session token or AgentOS API key (agos_key_...) in the Authorization header",
+        message: "Provide a dashboard session token or Palmyr API key (agos_key_...) in the Authorization header",
       });
       return;
     }
@@ -92,7 +92,7 @@ export function requireDashboardOnly(req: WalletAuthRequest, res: Response, next
 }
 
 /**
- * Check if the current request has access to a specific wallet (by AgentOS wallet ID).
+ * Check if the current request has access to a specific wallet (by Palmyr wallet ID).
  *
  * - Dashboard users: verify wallet.user_id matches req.dashUserId
  * - Agent API keys: verify wallet.vault_wallet_id is in req.agentApiKey.walletIds

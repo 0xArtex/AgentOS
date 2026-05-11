@@ -1,5 +1,5 @@
 /**
- * x402 payment handler for AgentOS CLI
+ * x402 payment handler for Palmyr CLI
  * Supports both Solana (SPL USDC transfer) and Base/EVM (EIP-3009 TransferWithAuthorization).
  * Both flows are gasless: the server/facilitator absorbs chain fees.
  */
@@ -76,26 +76,26 @@ export function parsePaymentRequired(data: any): {
 }
 
 /**
- * Resolve the Solana payer keypair. Prefers a vault wallet (AgentOS native,
+ * Resolve the Solana payer keypair. Prefers a vault wallet (Palmyr native,
  * BIP-39 encrypted, requires passphrase) and falls back to a legacy keyfile.
  *
  * Vault wallet selection order:
  *   1. walletId argument (explicit)
  *   2. config.defaultPayWalletId
- *   3. AGENTOS_PAY_WALLET env var
+ *   3. PALMYR_PAY_WALLET env var
  *   4. First vault wallet with a Solana address
  *
  * Passphrase resolution:
  *   1. passphrase argument (explicit)
- *   2. AGENTOS_WALLET_PASSPHRASE env var
+ *   2. PALMYR_WALLET_PASSPHRASE env var
  */
 function resolvePayerKeypair(walletId?: string, passphrase?: string): SolanaKeypair | null {
   const cfg = loadConfig()
-  const pass = passphrase || process.env.AGENTOS_WALLET_PASSPHRASE
+  const pass = passphrase || process.env.PALMYR_WALLET_PASSPHRASE
 
   // Try the vault first (session secret from OS cred store, falls back to passphrase)
   if (hasVaultWallets()) {
-    const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.AGENTOS_PAY_WALLET
+    const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.PALMYR_PAY_WALLET
     try {
       if (targetId) return getVaultSolanaKeypair(targetId, pass)
       const wallets = listVaultWallets()
@@ -127,8 +127,8 @@ export async function buildPaymentTransaction(
 ): Promise<{ transaction: string; payer: string } | null> {
   const payer = resolvePayerKeypair(walletId, passphrase)
   if (!payer) {
-    console.error('  No wallet configured. Create one with: agentos wallet create')
-    console.error('  Or configure a keyfile: agentos setup --keyfile /path/to/keypair.json')
+    console.error('  No wallet configured. Create one with: palmyr wallet create')
+    console.error('  Or configure a keyfile: palmyr setup --keyfile /path/to/keypair.json')
     return null
   }
 
@@ -192,7 +192,7 @@ export async function buildPaymentTransaction(
 /**
  * Make a paid request: call endpoint → if 402 → build payment → retry with payment
  *
- * Passphrase resolution: explicit arg → AGENTOS_WALLET_PASSPHRASE env var → fail
+ * Passphrase resolution: explicit arg → PALMYR_WALLET_PASSPHRASE env var → fail
  */
 /**
  * Build and sign an EIP-3009 TransferWithAuthorization for Base USDC.
@@ -206,7 +206,7 @@ async function buildEvmPaymentAuthorization(
   passphrase?: string,
 ): Promise<{ signature: string; authorization: any; payer: string } | null> {
   const cfg = loadConfig()
-  const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.AGENTOS_PAY_WALLET
+  const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.PALMYR_PAY_WALLET
   if (!targetId) return null
 
   let evmWallet: any
@@ -435,7 +435,7 @@ export async function paidRequest(
   if (!selected) {
     throw new Error(
       `Server did not offer ${preferredChain} as a payment option. ` +
-      `Either the endpoint doesn't support ${preferredChain} yet, or use: agentos wallet use <ID> --chain ${preferredChain === 'base' ? 'solana' : 'base'}`,
+      `Either the endpoint doesn't support ${preferredChain} yet, or use: palmyr wallet use <ID> --chain ${preferredChain === 'base' ? 'solana' : 'base'}`,
     )
   }
 
@@ -492,7 +492,7 @@ export async function paidRequest(
       headers: {
         'Content-Type': 'application/json',
         // Spec header is `X-PAYMENT`; legacy `Payment-Signature` kept for
-        // back-compat with older AgentOS server builds (drop a release after
+        // back-compat with older Palmyr server builds (drop a release after
         // both ends are confirmed on X-PAYMENT only).
         'X-PAYMENT': encoded,
         'Payment-Signature': encoded,

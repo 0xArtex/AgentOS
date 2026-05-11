@@ -34,7 +34,7 @@ router.get("/countdown-live", (_req: Request, res: Response) => {
       endpoints: "203+",
       forumComments: "995+",
       uptime: "zero downtime",
-      tryIt: "curl https://agntos.dev/api/hackathon"
+      tryIt: "curl https://palmyr.ai/api/hackathon"
     }
   });
 });

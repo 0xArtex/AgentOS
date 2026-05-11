@@ -7,7 +7,7 @@ const router = Router();
  * /api/post-hackathon:
  *   get:
  *     summary: Post-hackathon roadmap and vision
- *     description: What's next for AgentOS after the Colosseum Agent Hackathon
+ *     description: What's next for Palmyr after the Colosseum Agent Hackathon
  *     tags: [Platform]
  *     responses:
  *       200:
@@ -15,7 +15,7 @@ const router = Router();
  */
 router.get("/", (_req, res) => {
   res.json({
-    message: "The hackathon ended. AgentOS didn't.",
+    message: "The hackathon ended. Palmyr didn't.",
     hackathon_results: {
       duration: "14 days",
       endpoints_shipped: "212+",
@@ -62,10 +62,10 @@ router.get("/", (_req, res) => {
       how: "Just add X-Agent-Id header to any request",
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      colosseum: "https://colosseum.com/agent-hackathon/projects/agentos",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      colosseum: "https://colosseum.com/agent-hackathon/projects/palmyr",
     },
   });
 });

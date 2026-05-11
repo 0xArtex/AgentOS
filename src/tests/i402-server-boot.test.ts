@@ -151,13 +151,13 @@ describe("full-server boot smoke test", () => {
     assert.equal(res.headers["x-i402-version"], "0.1");
   });
 
-  it("serves /chat/providers with seeded AgentOS primitives", async () => {
+  it("serves /chat/providers with seeded Palmyr primitives", async () => {
     const res = await httpGetJson(port, "/chat/providers");
     assert.equal(res.status, 200);
     assert.ok(Array.isArray(res.body.providers));
     const ids = new Set(res.body.providers.map((p: any) => p.id));
     // At least a few Tier B-critical providers should be seeded at boot
-    for (const required of ["agentos.register_domain", "agentos.deploy_vps", "agentos.provision_email_inbox"]) {
+    for (const required of ["palmyr.register_domain", "palmyr.deploy_vps", "palmyr.provision_email_inbox"]) {
       assert.ok(ids.has(required), `missing seeded provider: ${required}`);
     }
   });

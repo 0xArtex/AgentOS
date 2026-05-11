@@ -42,7 +42,7 @@ router.get("/", (req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadlineUTC - Date.now()) / 3600000).toFixed(1);
   
   res.json({
-    title: "AgentOS Integration Debugger",
+    title: "Palmyr Integration Debugger",
     description: "Use this endpoint to verify your agent is properly configured",
     checks,
     your_request: {

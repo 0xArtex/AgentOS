@@ -8,7 +8,7 @@ router.get("/", (req: Request, res: Response) => {
     1: {
       step: 1,
       title: "Register Your Agent",
-      description: "Create an agent identity to start using AgentOS services",
+      description: "Create an agent identity to start using Palmyr services",
       curl: "curl -X POST http://77.42.89.233:3001/agents/register -H \"Content-Type: application/json\" -H \"X-Agent-Id: demo-agent\" -d \"{\\\"name\\\":\\\"my-agent\\\",\\\"framework\\\":\\\"raw\\\"}\"",
       next: "/demo-flow?step=2"
     },

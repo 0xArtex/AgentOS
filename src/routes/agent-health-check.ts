@@ -44,7 +44,7 @@ router.get('/health/deep', async (_req: Request, res: Response) => {
     version: 'v2.1.1',
     endpoints: 229,
     forumComments: '1460+',
-    docs: 'https://agntos.dev/docs'
+    docs: 'https://palmyr.ai/docs'
   });
 });
 

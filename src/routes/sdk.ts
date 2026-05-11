@@ -22,12 +22,12 @@ requests.post(f"{BASE}/phone/send-sms", headers=HEADERS,
 
 # Create email
 email = requests.post(f"{BASE}/email/provision", headers=HEADERS,
-    json={"username": "myagent", "domain": "agentos.dev"}).json()
+    json={"username": "myagent", "domain": "palmyr.dev"}).json()
 
 # Spin up compute
 server = requests.post(f"{BASE}/compute/provision", headers=HEADERS,
     json={"type": "container", "image": "python:3.11", "resources": {"cpu": 1, "memory": "512MB"}}).json()`,
-    wrapper_class: `class AgentOS:
+    wrapper_class: `class Palmyr:
     def __init__(self, agent_id, base_url="http://77.42.89.233:3001/api"):
         self.base = base_url
         self.headers = {"X-Agent-Id": agent_id, "Content-Type": "application/json"}
@@ -46,7 +46,7 @@ server = requests.post(f"{BASE}/compute/provision", headers=HEADERS,
     def send_sms(self, from_number, to, body):
         return self._post("/phone/send-sms", {"from": from_number, "to": to, "body": body})
 
-    def provision_email(self, username, domain="agentos.dev"):
+    def provision_email(self, username, domain="palmyr.dev"):
         return self._post("/email/provision", {"username": username, "domain": domain})
 
     def provision_compute(self, image="python:3.11", cpu=1, memory="512MB"):
@@ -56,7 +56,7 @@ server = requests.post(f"{BASE}/compute/provision", headers=HEADERS,
         return self._get("/status")
 
 # Usage:
-# os = AgentOS("my-agent")
+# os = Palmyr("my-agent")
 # phone = os.provision_phone()
 # os.send_sms(phone["number"], "+1234567890", "Hello!")`
   },
@@ -82,14 +82,14 @@ async function main() {
   // Provision email
   const email = await fetch(\`\${BASE}/email/provision\`, {
     method: "POST", headers: HEADERS,
-    body: JSON.stringify({ username: "myagent", domain: "agentos.dev" })
+    body: JSON.stringify({ username: "myagent", domain: "palmyr.dev" })
   }).then(r => r.json());
 
   console.log({ phone: phone.number, email: email.address });
 }
 
 main();`,
-    wrapper_class: `class AgentOS {
+    wrapper_class: `class Palmyr {
   constructor(agentId, baseUrl = "http://77.42.89.233:3001/api") {
     this.base = baseUrl;
     this.headers = { "X-Agent-Id": agentId, "Content-Type": "application/json" };
@@ -115,7 +115,7 @@ main();`,
     return this._post("/phone/send-sms", { from, to, body });
   }
 
-  provisionEmail(username, domain = "agentos.dev") {
+  provisionEmail(username, domain = "palmyr.dev") {
     return this._post("/email/provision", { username, domain });
   }
 
@@ -127,7 +127,7 @@ main();`,
 }
 
 // Usage:
-// const os = new AgentOS("my-agent");
+// const os = new Palmyr("my-agent");
 // const phone = await os.provisionPhone();`
   },
   rust: {
@@ -173,8 +173,8 @@ curl http://77.42.89.233:3001/api/status -H "X-Agent-Id: my-agent"`
 // GET /api/sdk - list all SDKs
 router.get('/', (_req: Request, res: Response) => {
   res.json({
-    title: 'AgentOS SDK & Code Examples',
-    description: 'Ready-to-use code snippets and wrapper classes for integrating with AgentOS',
+    title: 'Palmyr SDK & Code Examples',
+    description: 'Ready-to-use code snippets and wrapper classes for integrating with Palmyr',
     languages: Object.keys(sdks),
     note: 'All examples work in hackathon mode (FREE) — just use any X-Agent-Id header',
     docs: 'http://77.42.89.233:3001/docs',

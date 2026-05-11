@@ -4,9 +4,9 @@ const router = Router();
 
 router.get('/security', (_req: Request, res: Response) => {
   res.json({
-    title: 'AgentOS Security Model',
+    title: 'Palmyr Security Model',
     version: '1.0',
-    overview: 'AgentOS implements defense-in-depth security for autonomous AI agents operating with real resources.',
+    overview: 'Palmyr implements defense-in-depth security for autonomous AI agents operating with real resources.',
     layers: [
       {
         layer: 'Authentication',

@@ -3,7 +3,7 @@ import Database from "better-sqlite3";
 import path from "path";
 
 const router = Router();
-const dbPath = path.join(process.cwd(), "data", "agentos.db");
+const dbPath = path.join(process.cwd(), "data", "palmyr.db");
 
 function getDb() {
   const db = new Database(dbPath);

@@ -42,7 +42,7 @@ router.get("/", (_req, res) => {
       "Interactive sandbox and live demos",
       "100+ API endpoints — all documented in Swagger",
     ],
-    whyItMatters: "Every agent team wastes days 1-3 on the same infrastructure plumbing. AgentOS makes it one API call. Free during the hackathon.",
+    whyItMatters: "Every agent team wastes days 1-3 on the same infrastructure plumbing. Palmyr makes it one API call. Free during the hackathon.",
     tryIt: {
       docs: "http://77.42.89.233:3001/docs",
       quickstart: "curl http://77.42.89.233:3001/api/quickstart",

@@ -18,8 +18,8 @@ router.get("/api/hackathon-impact", (req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
   
   res.json({
-    title: "AgentOS Hackathon Impact Report",
-    project: "AgentOS — Autonomous Infrastructure for AI Agents",
+    title: "Palmyr Hackathon Impact Report",
+    project: "Palmyr — Autonomous Infrastructure for AI Agents",
     timeline: {
       started: start.toISOString(),
       deadline: deadline.toISOString(),
@@ -55,7 +55,7 @@ router.get("/api/hackathon-impact", (req: Request, res: Response) => {
     links: {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill_md: "http://77.42.89.233:3001/skill.md",
       live_demo: "http://77.42.89.233:3001/api/live-demo",
       agent_simulation: "http://77.42.89.233:3001/api/agent-simulation"

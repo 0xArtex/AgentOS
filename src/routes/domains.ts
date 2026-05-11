@@ -221,7 +221,7 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
 
   const existing = db.prepare('SELECT id FROM domains WHERE domain = ?').get(domain);
   if (existing) {
-    res.status(409).json({ error: 'Domain already registered in AgentOS' });
+    res.status(409).json({ error: 'Domain already registered in Palmyr' });
     return;
   }
 
@@ -333,7 +333,7 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       DomainName: domain,
       Years: '1',
       // Use generic registrant info
-      RegistrantFirstName: 'AgentOS',
+      RegistrantFirstName: 'Palmyr',
       RegistrantLastName: 'Registry',
       RegistrantAddress1: '123 Agent Street',
       RegistrantCity: 'San Francisco',
@@ -341,9 +341,9 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       RegistrantPostalCode: '94102',
       RegistrantCountry: 'US',
       RegistrantPhone: '+1.4155551234',
-      RegistrantEmailAddress: 'agent@agntos.dev',
+      RegistrantEmailAddress: 'agent@palmyr.ai',
       // Tech contact (same as registrant)
-      TechFirstName: 'AgentOS',
+      TechFirstName: 'Palmyr',
       TechLastName: 'Registry',
       TechAddress1: '123 Agent Street',
       TechCity: 'San Francisco',
@@ -351,9 +351,9 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       TechPostalCode: '94102',
       TechCountry: 'US',
       TechPhone: '+1.4155551234',
-      TechEmailAddress: 'agent@agntos.dev',
+      TechEmailAddress: 'agent@palmyr.ai',
       // Admin contact (same as registrant)
-      AdminFirstName: 'AgentOS',
+      AdminFirstName: 'Palmyr',
       AdminLastName: 'Registry',
       AdminAddress1: '123 Agent Street',
       AdminCity: 'San Francisco',
@@ -361,9 +361,9 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       AdminPostalCode: '94102',
       AdminCountry: 'US',
       AdminPhone: '+1.4155551234',
-      AdminEmailAddress: 'agent@agntos.dev',
+      AdminEmailAddress: 'agent@palmyr.ai',
       // Billing contact (same as registrant)
-      BillingFirstName: 'AgentOS',
+      BillingFirstName: 'Palmyr',
       BillingLastName: 'Registry',
       BillingAddress1: '123 Agent Street',
       BillingCity: 'San Francisco',
@@ -371,9 +371,9 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       BillingPostalCode: '94102',
       BillingCountry: 'US',
       BillingPhone: '+1.4155551234',
-      BillingEmailAddress: 'agent@agntos.dev',
+      BillingEmailAddress: 'agent@palmyr.ai',
       // AuxBilling contact — required by Namecheap (error 2010218 without it).
-      AuxBillingFirstName: 'AgentOS',
+      AuxBillingFirstName: 'Palmyr',
       AuxBillingLastName: 'Registry',
       AuxBillingAddress1: '123 Agent Street',
       AuxBillingCity: 'San Francisco',
@@ -381,7 +381,7 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
       AuxBillingPostalCode: '94102',
       AuxBillingCountry: 'US',
       AuxBillingPhone: '+1.4155551234',
-      AuxBillingEmailAddress: 'agent@agntos.dev'
+      AuxBillingEmailAddress: 'agent@palmyr.ai'
     });
   } catch (regError: any) {
     // Registrar call itself threw (network, timeout, parse error). Registrar

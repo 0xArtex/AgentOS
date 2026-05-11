@@ -1,6 +1,6 @@
-# AgentOS API Reference
+# Palmyr API Reference
 
-> **Base URL:** `https://agntos.dev` (or your self-hosted instance)
+> **Base URL:** `https://palmyr.ai` (or your self-hosted instance)
 >
 > **Protocol:** [x402 v2](https://github.com/coinbase/x402) — pay-per-call with USDC on **Solana mainnet** or **Base** (EIP-3009 gasless)
 >
@@ -25,14 +25,14 @@
 
 ## Authentication (x402 Payment Protocol)
 
-AgentOS uses the **x402 v2** payment protocol. Instead of API keys, your wallet signs a payment authorization per request — and your wallet address becomes the resource owner.
+Palmyr uses the **x402 v2** payment protocol. Instead of API keys, your wallet signs a payment authorization per request — and your wallet address becomes the resource owner.
 
 ### Two supported chains
 
 | Chain | Asset | Mechanism |
 |-------|-------|-----------|
 | **Solana mainnet** | USDC SPL (`EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`) | Co-signed SPL `TransferChecked` — server pays SOL fees |
-| **Base** | USDC ERC-20 (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) | EIP-3009 `transferWithAuthorization` — gasless via the AgentOS facilitator (CDP-routed for Bazaar discoverability) |
+| **Base** | USDC ERC-20 (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) | EIP-3009 `transferWithAuthorization` — gasless via the Palmyr facilitator (CDP-routed for Bazaar discoverability) |
 
 ### How It Works
 
@@ -41,14 +41,14 @@ AgentOS uses the **x402 v2** payment protocol. Instead of API keys, your wallet 
 3. **Retry the request** with the payload in the `X-PAYMENT` header (canonical x402 v2; `Payment-Signature` is also accepted as a legacy alias).
 4. **Server verifies and settles** through the appropriate facilitator → returns the response. The settled tx hash comes back in the `Payment-Response` / `PAYMENT-RESPONSE` header.
 
-The CLI handles all of this — `npm i -g @agntos/agentos` and call `agentos compute deploy ...`. Direct HTTP examples below show the on-the-wire shape for callers writing their own client.
+The CLI handles all of this — `npm i -g @palmyr/cli` and call `palmyr compute deploy ...`. Direct HTTP examples below show the on-the-wire shape for callers writing their own client.
 
 ### 402 Challenge (no payment yet)
 
 ```json
 {
   "x402Version": 2,
-  "resource": { "url": "https://agntos.dev/phone/numbers", "description": "...", "mimeType": "application/json" },
+  "resource": { "url": "https://palmyr.ai/phone/numbers", "description": "...", "mimeType": "application/json" },
   "accepts": [
     {
       "scheme": "exact",
@@ -57,7 +57,7 @@ The CLI handles all of this — `npm i -g @agntos/agentos` and call `agentos com
       "payTo": "B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3",
       "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
       "maxTimeoutSeconds": 60,
-      "extra": { "name": "AgentOS", "feePayer": "...", "facilitator": "https://agntos.dev/x402" }
+      "extra": { "name": "Palmyr", "feePayer": "...", "facilitator": "https://palmyr.ai/x402" }
     },
     {
       "scheme": "exact",
@@ -133,7 +133,7 @@ x402 v2 returns a fresh 402 with the standard `accepts[]` block plus a `message`
 }
 ```
 
-Top up the wallet for the chain you set as `defaultPayChain`, or switch chains: `agentos wallet use <id> --chain solana|base`.
+Top up the wallet for the chain you set as `defaultPayChain`, or switch chains: `palmyr wallet use <id> --chain solana|base`.
 
 **Malformed payload (most common when rolling your own client):**
 
@@ -211,10 +211,10 @@ Service info (no payment required).
 **Response:**
 ```json
 {
-  "service": "AgentOS",
+  "service": "Palmyr",
   "version": "0.1.0",
   "status": "operational",
-  "docs": "https://github.com/0xArtex/AgentOS",
+  "docs": "https://github.com/0xArtex/Palmyr",
   "services": ["phone", "email", "domains", "compute", "apikeys"]
 }
 ```
@@ -292,7 +292,7 @@ Provision a new phone number via Twilio.
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/phone/numbers \
+curl -X POST https://palmyr.ai/phone/numbers \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -330,7 +330,7 @@ Retrieve SMS messages for a phone number.
 
 **Request:**
 ```bash
-curl https://agntos.dev/phone/numbers/phn_abc123/messages \
+curl https://palmyr.ai/phone/numbers/phn_abc123/messages \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -363,12 +363,12 @@ Send an SMS message.
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/phone/numbers/phn_abc123/send \
+curl -X POST https://palmyr.ai/phone/numbers/phn_abc123/send \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
     "to": "+14155559876",
-    "body": "Hello from AgentOS!"
+    "body": "Hello from Palmyr!"
   }'
 ```
 
@@ -385,7 +385,7 @@ curl -X POST https://agntos.dev/phone/numbers/phn_abc123/send \
   "direction": "outbound",
   "from": "+14155551234",
   "to": "+14155559876",
-  "body": "Hello from AgentOS!",
+  "body": "Hello from Palmyr!",
   "timestamp": "2025-01-15T11:05:00Z"
 }
 ```
@@ -404,7 +404,7 @@ Create a new email inbox.
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/email/inboxes \
+curl -X POST https://palmyr.ai/email/inboxes \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{"name": "my-agent"}'
@@ -412,13 +412,13 @@ curl -X POST https://agntos.dev/email/inboxes \
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `name` | string | ✅ | Local part — becomes `{name}@mail.agentos.dev` |
+| `name` | string | ✅ | Local part — becomes `{name}@mail.palmyr.dev` |
 
 **Response (201):**
 ```json
 {
   "id": "inbox_def456",
-  "address": "my-agent@mail.agentos.dev",
+  "address": "my-agent@mail.palmyr.dev",
   "localPart": "my-agent",
   "owner": "7xKXt...payer-wallet",
   "createdAt": "2025-01-15T10:30:00Z",
@@ -438,7 +438,7 @@ Get messages for an inbox.
 
 **Request:**
 ```bash
-curl https://agntos.dev/email/inboxes/inbox_def456/messages \
+curl https://palmyr.ai/email/inboxes/inbox_def456/messages \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -451,7 +451,7 @@ curl https://agntos.dev/email/inboxes/inbox_def456/messages \
       "inboxId": "inbox_def456",
       "direction": "inbound",
       "from": "user@example.com",
-      "to": "my-agent@mail.agentos.dev",
+      "to": "my-agent@mail.palmyr.dev",
       "subject": "Hello Agent",
       "body": "Can you help me?",
       "html": "<p>Can you help me?</p>",
@@ -473,7 +473,7 @@ Send an email from an inbox.
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/email/inboxes/inbox_def456/send \
+curl -X POST https://palmyr.ai/email/inboxes/inbox_def456/send \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -497,7 +497,7 @@ curl -X POST https://agntos.dev/email/inboxes/inbox_def456/send \
   "id": "eml_out789",
   "inboxId": "inbox_def456",
   "direction": "outbound",
-  "from": "my-agent@mail.agentos.dev",
+  "from": "my-agent@mail.palmyr.dev",
   "to": "user@example.com",
   "subject": "Re: Hello Agent",
   "body": "Sure, I can help!",
@@ -514,7 +514,7 @@ Webhook for inbound emails (Mailgun/SendGrid). **No payment required** — calle
 **Request:**
 ```json
 {
-  "to": "my-agent@mail.agentos.dev",
+  "to": "my-agent@mail.palmyr.dev",
   "from": "user@example.com",
   "subject": "Hello",
   "body": "Message text",
@@ -544,7 +544,7 @@ Register a new domain.
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/domains \
+curl -X POST https://palmyr.ai/domains \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -585,7 +585,7 @@ Get domain status and DNS records.
 
 **Request:**
 ```bash
-curl https://agntos.dev/domains/dom_ghi789 \
+curl https://palmyr.ai/domains/dom_ghi789 \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -618,7 +618,7 @@ Update DNS records for a domain.
 
 **Request:**
 ```bash
-curl -X PUT https://agntos.dev/domains/dom_ghi789/dns \
+curl -X PUT https://palmyr.ai/domains/dom_ghi789/dns \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -663,7 +663,7 @@ Each entry has the location slug, city, country, network zone, and the live depl
 
 **Request:**
 ```bash
-curl https://agntos.dev/compute/locations
+curl https://palmyr.ai/compute/locations
 ```
 
 **Response (200):**
@@ -686,7 +686,7 @@ Optional `?location=fsn1` query param filters to types deployable in that locati
 
 **Request:**
 ```bash
-curl "https://agntos.dev/compute/plans?location=fsn1"
+curl "https://palmyr.ai/compute/plans?location=fsn1"
 ```
 
 ---
@@ -697,7 +697,7 @@ List the agent runtime install recipes that the `install` field on `POST /comput
 
 **Request:**
 ```bash
-curl https://agntos.dev/compute/install-recipes
+curl https://palmyr.ai/compute/install-recipes
 ```
 
 **Response (200):**
@@ -715,8 +715,8 @@ curl https://agntos.dev/compute/install-recipes
   ],
   "usage": {
     "api": "POST /compute/servers with body { install: \"hermes\" } or { install: [\"hermes\", \"openclaw\"] }",
-    "cli": "agentos compute deploy --type cx23 --install hermes",
-    "marker": "Cloud-init writes /etc/agentos/install-status.json when all requested recipes finish. The CLI's deploy --wait polls this as gate 4."
+    "cli": "palmyr compute deploy --type cx23 --install hermes",
+    "marker": "Cloud-init writes /etc/palmyr/install-status.json when all requested recipes finish. The CLI's deploy --wait polls this as gate 4."
   }
 }
 ```
@@ -734,7 +734,7 @@ Create a new cloud server (Hetzner Cloud).
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/compute/servers \
+curl -X POST https://palmyr.ai/compute/servers \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -780,8 +780,8 @@ When cloud-init runs (default OR `install` set) and a key was attached (`sshPubl
   },
   "installs": ["openclaw"],
   "installStatus": {
-    "marker": "/etc/agentos/install-status.json",
-    "note": "Cloud-init runs 1 install recipe(s) in sequence. The CLI's deploy --wait gate 4 polls the marker file via SSH; if you skipped --wait, you can check it yourself with: agentos compute exec srv_jkl012 -- cat /etc/agentos/install-status.json"
+    "marker": "/etc/palmyr/install-status.json",
+    "note": "Cloud-init runs 1 install recipe(s) in sequence. The CLI's deploy --wait gate 4 polls the marker file via SSH; if you skipped --wait, you can check it yourself with: palmyr compute exec srv_jkl012 -- cat /etc/palmyr/install-status.json"
   },
   "message": "Server created at 203.0.113.50. SSH ready once cloud-init finishes (~60s). Installing: openclaw."
 }
@@ -798,7 +798,7 @@ When `installOpenClaw=true` and **no** key was attached (server is reachable onl
     "howToGetSsh": {
       "endpoint": "POST /compute/servers/srv_jkl012/setup-ssh",
       "body": { "publicKey": "ssh-ed25519 AAAA... [comment]" },
-      "cli": "agentos compute setup-ssh --id srv_jkl012 --pubkey \"ssh-ed25519 AAAA...\"",
+      "cli": "palmyr compute setup-ssh --id srv_jkl012 --pubkey \"ssh-ed25519 AAAA...\"",
       "effect": "Injects your public key, removes our temporary key, locks the root password."
     },
     "alternatives": [
@@ -837,7 +837,7 @@ List all servers owned by the payer.
 
 **Request:**
 ```bash
-curl https://agntos.dev/compute/servers \
+curl https://palmyr.ai/compute/servers \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -868,7 +868,7 @@ Get detailed server status.
 
 **Request:**
 ```bash
-curl https://agntos.dev/compute/servers/srv_jkl012 \
+curl https://palmyr.ai/compute/servers/srv_jkl012 \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -884,7 +884,7 @@ Rename a deployed server. Metadata-only — doesn't reboot or otherwise affect t
 
 **Request:**
 ```bash
-curl -X PUT https://agntos.dev/compute/servers/srv_jkl012 \
+curl -X PUT https://palmyr.ai/compute/servers/srv_jkl012 \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{"name":"hermes-bot-prod"}'
@@ -917,7 +917,7 @@ Terminate a server.
 
 **Request:**
 ```bash
-curl -X DELETE https://agntos.dev/compute/servers/srv_jkl012 \
+curl -X DELETE https://palmyr.ai/compute/servers/srv_jkl012 \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -941,7 +941,7 @@ Upload an SSH public key for use when creating servers.
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/compute/ssh-keys \
+curl -X POST https://palmyr.ai/compute/ssh-keys \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -984,12 +984,12 @@ Perform a lifecycle or management action on a server.
 | `poweroff` | Graceful shutdown — data preserved |
 | `reset` | Hard restart, no graceful shutdown |
 | `rebuild` | Reinstall OS — wipes disk, re-runs cloud-init, keeps IP. Pass `image` to override (default: `ubuntu-24.04`). |
-| `reset_password` | Rotate the root password (Hetzner-side). Returns the new password in `rootPassword` and updates our local record. **Does not re-enable password SSH** — on AgentOS-deployed servers, sshd is configured `PasswordAuthentication=no`, so the new password is for console use or after manually re-enabling password auth in `/etc/ssh/sshd_config`. |
+| `reset_password` | Rotate the root password (Hetzner-side). Returns the new password in `rootPassword` and updates our local record. **Does not re-enable password SSH** — on Palmyr-deployed servers, sshd is configured `PasswordAuthentication=no`, so the new password is for console use or after manually re-enabling password auth in `/etc/ssh/sshd_config`. |
 | `request_console` | Get a short-lived noVNC console URL. Useful break-glass when SSH is unreachable. Response: `{ wssUrl, password, expiresAt }`. Open `wssUrl` in a browser within ~1 minute. |
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/compute/servers/srv_jkl012/actions \
+curl -X POST https://palmyr.ai/compute/servers/srv_jkl012/actions \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{ "action": "reset_password" }'
@@ -1029,7 +1029,7 @@ Inject the user's public key into a deployed server, remove the platform's tempo
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/compute/servers/srv_jkl012/setup-ssh \
+curl -X POST https://palmyr.ai/compute/servers/srv_jkl012/setup-ssh \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{ "publicKey": "ssh-ed25519 AAAAC3... user@host" }'
@@ -1064,7 +1064,7 @@ Run a single command on a freshly-deployed server via the platform's temporary S
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/compute/servers/srv_jkl012/exec \
+curl -X POST https://palmyr.ai/compute/servers/srv_jkl012/exec \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -1124,7 +1124,7 @@ Provision a new API key for a third-party service.
 
 **Request:**
 ```bash
-curl -X POST https://agntos.dev/apikeys \
+curl -X POST https://palmyr.ai/apikeys \
   -H "Content-Type: application/json" \
   -H "X-Payment: <tx-signature>" \
   -d '{
@@ -1175,7 +1175,7 @@ List all active API keys for the payer.
 
 **Request:**
 ```bash
-curl https://agntos.dev/apikeys \
+curl https://palmyr.ai/apikeys \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -1206,7 +1206,7 @@ Revoke an API key.
 
 **Request:**
 ```bash
-curl -X DELETE https://agntos.dev/apikeys/key_mno345 \
+curl -X DELETE https://palmyr.ai/apikeys/key_mno345 \
   -H "X-Payment: <tx-signature>"
 ```
 
@@ -1224,18 +1224,18 @@ curl -X DELETE https://agntos.dev/apikeys/key_mno345 \
 
 ```bash
 # 1. Check pricing (free)
-curl https://agntos.dev/pricing
+curl https://palmyr.ai/pricing
 
 # 2. Send 1.00 USDC to the treasury wallet on Solana
 #    (use solana CLI, @solana/web3.js, or any wallet)
 
 # 3. Use the transaction signature to create an email inbox
-curl -X POST https://agntos.dev/email/inboxes \
+curl -X POST https://palmyr.ai/email/inboxes \
   -H "Content-Type: application/json" \
   -H "X-Payment: 5UfDuX7hJ3Rg...your-tx-sig" \
   -d '{"name": "my-ai-agent"}'
 
-# 4. Your agent now has: my-ai-agent@mail.agentos.dev ✅
+# 4. Your agent now has: my-ai-agent@mail.palmyr.dev ✅
 ```
 
 ---

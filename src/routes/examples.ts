@@ -58,7 +58,7 @@ const examples: Example[] = [
   -H "Content-Type: application/json" \\
   -H "X-Agent-Id: my-agent" \\
   -d '{"agentName": "my-agent", "services": ["phone", "email", "identity"]}'`,
-    response: { agentId: "my-agent", services: { phone: "+1-555-0142", email: "my-agent@agentos.ai", identity: "did:sol:..." } },
+    response: { agentId: "my-agent", services: { phone: "+1-555-0142", email: "my-agent@palmyr.ai", identity: "did:sol:..." } },
     difficulty: "beginner"
   },
   {
@@ -75,7 +75,7 @@ const examples: Example[] = [
 
 router.get('/', (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS API Examples",
+    title: "Palmyr API Examples",
     description: "Copy-paste curl commands to get started in minutes",
     totalExamples: examples.length,
     examples,

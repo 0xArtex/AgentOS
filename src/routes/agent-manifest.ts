@@ -3,7 +3,7 @@ const router = Router();
 
 router.get("/agent-manifest", (_req: Request, res: Response) => {
   res.json({
-    name: "AgentOS",
+    name: "Palmyr",
     tagline: "Autonomous Infrastructure for AI Agents",
     version: "2.0.1",
     problem: "AI agents need phone numbers, email, compute, and domains — but provisioning infrastructure is painful, fragmented, and expensive.",
@@ -39,7 +39,7 @@ router.get("/agent-manifest", (_req: Request, res: Response) => {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
       skill: "http://77.42.89.233:3001/skill.md",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       colosseum: "https://agents.colosseum.com/projects/432"
     },
     try_it: "curl http://77.42.89.233:3001/api/quickstart"

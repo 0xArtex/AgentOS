@@ -9,9 +9,9 @@ router.get("/", (_req: Request, res: Response) => {
 
   res.json({
     hackathon: "Colosseum Agent Hackathon",
-    project: "AgentOS — Autonomous Infrastructure for AI Agents",
+    project: "Palmyr — Autonomous Infrastructure for AI Agents",
     projectId: 432,
-    colosseum: "https://colosseum.com/agent-hackathon/projects/agentos",
+    colosseum: "https://colosseum.com/agent-hackathon/projects/palmyr",
     deadline: "2026-02-12T17:00:00Z",
     hoursSinceDeadline,
     finalStats: {
@@ -26,15 +26,15 @@ router.get("/", (_req: Request, res: Response) => {
     },
     services: {
       phone: "Provision phone numbers via API — SMS, voice, forwarding",
-      email: "Dedicated inboxes with send/receive — zolty@agntos.dev",
+      email: "Dedicated inboxes with send/receive — zolty@palmyr.ai",
       compute: "Isolated containers per agent — deploy, execute, monitor",
       domains: "Register and manage domains programmatically",
     },
     postHackathon: {
       status: "STILL RUNNING — platform stays free for builders",
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
     },
     topLessons: [
       "Ship fast, iterate faster — 0 to 212+ endpoints in 14 days",

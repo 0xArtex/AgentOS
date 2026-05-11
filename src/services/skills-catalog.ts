@@ -4,7 +4,7 @@
  * Sources:
  * - ClawHub (clawhub.ai) — OpenClaw's public skills registry
  * - awesome-openclaw-skills — community-curated list (2868 skills)
- * - Custom AgentOS skills
+ * - Custom Palmyr skills
  * 
  * Each skill has: slug, name, description, source URL, install command
  */

@@ -61,7 +61,7 @@ router.get("/", (_req: Request, res: Response) => {
         docs: "http://77.42.89.233:3001/docs",
         liveTest: "http://77.42.89.233:3001/api/live-test",
         register: "POST http://77.42.89.233:3001/agents/register",
-        github: "https://github.com/0xArtex/AgentOS"
+        github: "https://github.com/0xArtex/Palmyr"
       }
     });
   } catch (err) {

@@ -28,8 +28,8 @@ router.get("/api/why-us", (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
 
   res.json({
-    verdict: "AgentOS is the operational backbone for autonomous AI agents",
-    oneLinePitch: "Agents cannot call Twilio, configure SendGrid, or spin up VMs. AgentOS gives them one API to do all of it, paid in USDC via x402.",
+    verdict: "Palmyr is the operational backbone for autonomous AI agents",
+    oneLinePitch: "Agents cannot call Twilio, configure SendGrid, or spin up VMs. Palmyr gives them one API to do all of it, paid in USDC via x402.",
     proofOfWork: {
       routeFilesOnDisk: routeFiles,
       totalAPIRequests: requests,
@@ -52,16 +52,16 @@ router.get("/api/why-us", (_req: Request, res: Response) => {
     ],
     services: ["Phone SMS/Voice", "Email", "Compute", "Domains", "Storage", "Payments x402"],
     tryItNow: {
-      health: "curl https://agntos.dev/health",
-      register: "curl -X POST https://agntos.dev/api/agents/register -H 'Content-Type: application/json' -d '{\"name\":\"judge-test\"}'",
-      stats: "curl https://agntos.dev/api/agent-stats",
-      dashboard: "https://agntos.dev/dashboard"
+      health: "curl https://palmyr.ai/health",
+      register: "curl -X POST https://palmyr.ai/api/agents/register -H 'Content-Type: application/json' -d '{\"name\":\"judge-test\"}'",
+      stats: "curl https://palmyr.ai/api/agent-stats",
+      dashboard: "https://palmyr.ai/dashboard"
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      skill: "https://agntos.dev/skill.md"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      skill: "https://palmyr.ai/skill.md"
     },
     hackathon: {
       hoursRemaining: Math.round(hoursLeft * 10) / 10,

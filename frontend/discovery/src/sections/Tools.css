@@ -309,7 +309,7 @@
   filter: grayscale(100%) brightness(1.6) opacity(0.85);
 }
 
-/* Black-on-white asset (e.g. AgentOS logo PNG) → flip so the mark becomes
+/* Black-on-white asset (e.g. Palmyr logo PNG) → flip so the mark becomes
    white and the baked-in background becomes dark, blending with the badge. */
 .tool-icon-invert {
   filter: invert(1) brightness(1.4) opacity(0.9);

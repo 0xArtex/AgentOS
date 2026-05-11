@@ -1,5 +1,5 @@
 /**
- * AgentOS Wallet Vault — non-custodial HD wallet management.
+ * Palmyr Wallet Vault — non-custodial HD wallet management.
  *
  * Two modes:
  *   1. Unmanaged — agent has full control, no limits, session secret in OS cred store
@@ -9,7 +9,7 @@
  *   - A session secret (stored in OS credential store, never on disk)
  *   - An agent API key (HKDF-derived key)
  *
- * Vault layout (default `~/.agentos/wallet/`):
+ * Vault layout (default `~/.palmyr/wallet/`):
  *   wallets/   — encrypted wallet files
  *   keys/      — agent API keys (HKDF-encrypted mnemonic copies)
  *   policies/  — declarative policy rules
@@ -65,9 +65,9 @@ export interface ApiKeyValidation {
 
 // ─── Vault config ───
 
-const DEFAULT_VAULT_PATH = join(homedir(), ".agentos", "wallet");
-const VAULT_PATH = process.env.AGENTOS_WALLET_PATH || DEFAULT_VAULT_PATH;
-const HKDF_INFO = "agentos-api-key-v1";
+const DEFAULT_VAULT_PATH = join(homedir(), ".palmyr", "wallet");
+const VAULT_PATH = process.env.PALMYR_WALLET_PATH || DEFAULT_VAULT_PATH;
+const HKDF_INFO = "palmyr-api-key-v1";
 
 function ensureVault(): string {
   if (!existsSync(VAULT_PATH)) mkdirSync(VAULT_PATH, { recursive: true });

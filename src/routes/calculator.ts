@@ -49,7 +49,7 @@ router.get('/pricing/calculator', (req: Request, res: Response) => {
   const hackathonSavings = monthlyTotal;
 
   res.json({
-    title: 'AgentOS Pricing Calculator',
+    title: 'Palmyr Pricing Calculator',
     description: 'Estimate monthly costs for agent infrastructure. All prices in USDC.',
     note: 'Currently FREE during Colosseum hackathon (until Feb 12, 2026). Use X-Agent-Id header.',
     usage: 'GET /api/pricing/calculator?phones=2&emails=5&compute_hours=100&domains=1&storage_gb=10',

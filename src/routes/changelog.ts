@@ -93,7 +93,7 @@ const CHANGELOG = [
 
 router.get("/", (_req, res) => {
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     description: "Autonomous infrastructure for AI agents",
     changelog: CHANGELOG,
   });

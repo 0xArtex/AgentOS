@@ -4,8 +4,8 @@ const router = Router();
 
 router.get('/', (req: Request, res: Response) => {
   res.json({
-    title: 'AgentOS vs DIY Infrastructure',
-    description: 'Why use AgentOS instead of setting up infrastructure yourself?',
+    title: 'Palmyr vs DIY Infrastructure',
+    description: 'Why use Palmyr instead of setting up infrastructure yourself?',
     comparison: [
       {
         capability: 'Phone Numbers',

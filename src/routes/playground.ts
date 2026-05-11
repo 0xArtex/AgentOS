@@ -9,8 +9,8 @@ router.get("/", (_req: Request, res: Response) => {
   const baseUrl = "http://77.42.89.233:3001";
   
   res.json({
-    title: "AgentOS API Playground",
-    description: "Test AgentOS APIs interactively. Each scenario is a sequence of curl commands you can run in order.",
+    title: "Palmyr API Playground",
+    description: "Test Palmyr APIs interactively. Each scenario is a sequence of curl commands you can run in order.",
     note: "All endpoints are FREE during the Colosseum hackathon. Just add X-Agent-Id header.",
     scenarios: [
       {
@@ -55,7 +55,7 @@ router.get("/", (_req: Request, res: Response) => {
             description: "Send an SMS",
             method: "POST",
             endpoint: "/api/phone/YOUR_NUMBER/sms",
-            body: { to: "+1234567890", body: "Hello from AgentOS!" },
+            body: { to: "+1234567890", body: "Hello from Palmyr!" },
             headers: { "X-Agent-Id": "my-agent" }
           },
           {
@@ -121,8 +121,8 @@ router.get("/", (_req: Request, res: Response) => {
     links: {
       docs: baseUrl + "/docs",
       status: baseUrl + "/api/status",
-      github: "https://github.com/0xArtex/AgentOS",
-      project: "https://colosseum.com/agent-hackathon/projects/agentos"
+      github: "https://github.com/0xArtex/Palmyr",
+      project: "https://colosseum.com/agent-hackathon/projects/palmyr"
     }
   });
 });

@@ -85,7 +85,7 @@ router.get("/", (req: Request, res: Response) => {
     },
     links: {
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill: "http://77.42.89.233:3001/skill.md"
     }
   });

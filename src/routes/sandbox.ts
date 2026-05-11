@@ -6,7 +6,7 @@ const router = Router();
  * @swagger
  * /api/sandbox:
  *   get:
- *     summary: Interactive sandbox - try AgentOS APIs without setup
+ *     summary: Interactive sandbox - try Palmyr APIs without setup
  *     tags: [Sandbox]
  *     description: Returns a guided sandbox environment with pre-configured test scenarios agents can execute immediately
  *     responses:
@@ -16,7 +16,7 @@ const router = Router();
 router.get('/', (_req: Request, res: Response) => {
   res.json({
     sandbox: {
-      title: 'AgentOS Interactive Sandbox',
+      title: 'Palmyr Interactive Sandbox',
       description: 'Try every API endpoint right now — no signup, no API key, no USDC needed during hackathon',
       hackathonMode: true,
       expiresAt: '2026-02-12T17:00:00Z',
@@ -85,7 +85,7 @@ router.get('/', (_req: Request, res: Response) => {
             action: 'Send an email',
             method: 'POST',
             endpoint: '/api/email/send',
-            curl: "curl -X POST http://77.42.89.233:3001/api/email/send -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"to\": \"test@example.com\", \"subject\": \"Agent comms test\", \"body\": \"Sent autonomously via AgentOS\"}'"
+            curl: "curl -X POST http://77.42.89.233:3001/api/email/send -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"to\": \"test@example.com\", \"subject\": \"Agent comms test\", \"body\": \"Sent autonomously via Palmyr\"}'"
           }
         ]
       },

@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 
 /**
- * CORS middleware — allows browser-based agents to call AgentOS API.
+ * CORS middleware — allows browser-based agents to call Palmyr API.
  */
 export function cors(req: Request, res: Response, next: NextFunction): void {
   res.setHeader("Access-Control-Allow-Origin", "*");

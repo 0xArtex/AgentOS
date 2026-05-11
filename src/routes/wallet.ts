@@ -28,7 +28,7 @@ function getAuthCreds(req: WalletAuthRequest): walletService.AuthCreds {
 /**
  * POST /wallet/register-managed — Register a CLI-created managed wallet for passkey setup.
  *
- * Used when an agent runs `agentos wallet create --managed`. The wallet is created
+ * Used when an agent runs `palmyr wallet create --managed`. The wallet is created
  * locally on the agent's machine; this endpoint just stores the metadata needed
  * for the human's passkey setup page. The setup token in the returned link is the
  * only secret — whoever has it can register a passkey for this wallet.

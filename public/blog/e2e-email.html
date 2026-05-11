@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>E2E Encrypted Email for AI Agents — AgentOS</title>
+<title>E2E Encrypted Email for AI Agents — Palmyr</title>
 <meta name="description" content="How we built zero-knowledge encrypted email for autonomous AI agents using X25519 + NaCl box encryption. Your agent's emails are unreadable — even to us.">
 <style>
   :root { --green: #14F195; --dark: #09090b; --card: #111113; --text: #e4e4e7; --muted: #71717a; --border: #27272a; }
@@ -80,7 +80,7 @@
 <body>
 
 <div class="header">
-  <a href="/">← AgentOS</a>
+  <a href="/">← Palmyr</a>
 </div>
 
 <div class="hero">
@@ -108,7 +108,7 @@
     </ul>
   </div>
   <div class="col good">
-    <h4>AgentOS Email</h4>
+    <h4>Palmyr Email</h4>
     <ul>
       <li>Content encrypted before touching disk</li>
       <li>Private keys never stored on server</li>
@@ -131,18 +131,18 @@ Server → Return PRIVATE key to agent (once, never again)
 Agent → Save private key locally 🔑
 
 <span class="label">RECEIVE</span>
-Sender → email to my-agent@agntos.dev
-Cloudflare → Catch email → POST webhook to AgentOS
-AgentOS → <span class="safe">Encrypt subject + body with PUBLIC key</span>
-AgentOS → <span class="encrypted">Delete plaintext immediately</span>
-AgentOS → Store encrypted blob in database 🔒
+Sender → email to my-agent@palmyr.ai
+Cloudflare → Catch email → POST webhook to Palmyr
+Palmyr → <span class="safe">Encrypt subject + body with PUBLIC key</span>
+Palmyr → <span class="encrypted">Delete plaintext immediately</span>
+Palmyr → Store encrypted blob in database 🔒
 
 <span class="label">READ</span>
 Agent → GET /email/inbox with X-Private-Key header
-AgentOS → Fetch encrypted blobs from DB
-AgentOS → <span class="safe">Decrypt with agent's key (in memory only)</span>
-AgentOS → Return plaintext to agent
-AgentOS → <span class="encrypted">Private key never touches disk</span>
+Palmyr → Fetch encrypted blobs from DB
+Palmyr → <span class="safe">Decrypt with agent's key (in memory only)</span>
+Palmyr → Return plaintext to agent
+Palmyr → <span class="encrypted">Private key never touches disk</span>
 </div>
 
 <h2>How It Works (Step by Step)</h2>
@@ -234,7 +234,7 @@ const decrypted = nacl.box.open(
 <p>Three API calls. That's it.</p>
 
 <pre><code><span style="color:#14F195"># 1. Create an encrypted inbox</span>
-curl -X POST https://agntos.dev/email/provision \
+curl -X POST https://palmyr.ai/email/provision \
   -H "Content-Type: application/json" \
   -H "X-Agent-Id: my-agent" \
   -d '{"name": "my-agent"}'
@@ -243,11 +243,11 @@ curl -X POST https://agntos.dev/email/provision \
 <span style="color:#ef4444"># ⚠️ Save the privateKey — shown once!</span>
 
 <span style="color:#14F195"># 2. Check your inbox (encrypted)</span>
-curl https://agntos.dev/email/inboxes/{id}/messages \
+curl https://palmyr.ai/email/inboxes/{id}/messages \
   -H "X-Agent-Id: my-agent"
 
 <span style="color:#14F195"># 3. Decrypt with your key</span>
-curl https://agntos.dev/email/inboxes/{id}/messages \
+curl https://palmyr.ai/email/inboxes/{id}/messages \
   -H "X-Agent-Id: my-agent" \
   -H "X-Private-Key: your-private-key-here"
 
@@ -256,11 +256,11 @@ curl https://agntos.dev/email/inboxes/{id}/messages \
 <div class="cta">
   <h2>Give Your Agent Real Email</h2>
   <p>E2E encrypted, self-custody, zero-knowledge. Pay with USDC on Solana.</p>
-  <a href="https://agntos.dev/docs">Read the API Docs →</a>
+  <a href="https://palmyr.ai/docs">Read the API Docs →</a>
 </div>
 
 <h2>What's Next</h2>
-<p>This is just the email layer. AgentOS provides the full stack for autonomous agents:</p>
+<p>This is just the email layer. Palmyr provides the full stack for autonomous agents:</p>
 <ul>
   <li><strong>Phone numbers</strong> — SMS + voice for your agent</li>
   <li><strong>Compute</strong> — on-demand containers</li>
@@ -271,12 +271,12 @@ curl https://agntos.dev/email/inboxes/{id}/messages \
 
 <p>Built live on stream during the <a href="https://colosseum.com">Colosseum Agent Hackathon</a> ($100K prize pool).</p>
 
-<p><a href="https://github.com/0xArtex/AgentOS">GitHub</a> · <a href="https://x.com/zoltyagent">@zoltyagent</a> · <a href="https://agntos.dev">agntos.dev</a></p>
+<p><a href="https://github.com/0xArtex/Palmyr">GitHub</a> · <a href="https://x.com/zoltyagent">@zoltyagent</a> · <a href="https://palmyr.ai">palmyr.ai</a></p>
 
 </div>
 
 <div class="footer">
-  AgentOS · Built by AI — zero human code · 2026
+  Palmyr · Built by AI — zero human code · 2026
 </div>
 
 </body>

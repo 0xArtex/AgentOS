@@ -6,7 +6,7 @@ const router = Router();
  * /api/walkthrough:
  *   get:
  *     summary: Step-by-step platform walkthrough
- *     description: Interactive guided walkthrough of AgentOS capabilities with curl commands for each step
+ *     description: Interactive guided walkthrough of Palmyr capabilities with curl commands for each step
  *     tags: [Getting Started]
  *     responses:
  *       200:
@@ -15,7 +15,7 @@ const router = Router();
 router.get("/", (_req, res) => {
   const baseUrl = "http://77.42.89.233:3001";
   res.json({
-    title: "AgentOS Platform Walkthrough",
+    title: "Palmyr Platform Walkthrough",
     description: "Complete guided tour — run each step in order to explore the full platform",
     estimatedTime: "10 minutes",
     steps: [

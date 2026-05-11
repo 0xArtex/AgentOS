@@ -59,7 +59,7 @@ router.get('/', (req: Request, res: Response) => {
       diy_equivalent_cost: 450.00,
       agentos_vs_diy_savings_pct: 88.0
     },
-    tip: 'Run this endpoint monthly to keep costs optimized. AgentOS hackathon mode is FREE until Feb 12 — try all services now!'
+    tip: 'Run this endpoint monthly to keep costs optimized. Palmyr hackathon mode is FREE until Feb 12 — try all services now!'
   });
 });
 

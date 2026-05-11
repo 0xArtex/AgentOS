@@ -24,7 +24,7 @@ router.get("/", (_req: Request, res: Response) => {
   };
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     deadline: "2026-02-12T17:00:00Z",
     remaining: expired ? "EXPIRED" : `${hours}h ${minutes}m`,
     urgency,
@@ -40,7 +40,7 @@ router.get("/", (_req: Request, res: Response) => {
     quickLinks: {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       pitch: "http://77.42.89.233:3001/api/pitch",
       liveTest: "http://77.42.89.233:3001/api/live-test"
     }

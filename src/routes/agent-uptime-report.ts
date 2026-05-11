@@ -39,7 +39,7 @@ router.get("/", (_req: Request, res: Response) => {
   const incidentDays = uptimeHistory.filter(d => d.incidents.length > 0);
 
   res.json({
-    platform: "AgentOS",
+    platform: "Palmyr",
     reportGenerated: new Date().toISOString(),
     summary: {
       totalDaysTracked: totalDays,

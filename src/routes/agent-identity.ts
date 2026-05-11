@@ -23,7 +23,7 @@ router.post("/create", (req: Request, res: Response) => {
     success: true,
     identity: {
       id: agentId,
-      did: `did:agentos:${agentId}`,
+      did: `did:palmyr:${agentId}`,
       name,
       description: description || null,
       capabilities: capabilities || [],
@@ -37,7 +37,7 @@ router.post("/create", (req: Request, res: Response) => {
 router.get("/:agentId", (req: Request, res: Response) => {
   res.json({
     id: req.params.agentId,
-    did: `did:agentos:${req.params.agentId}`,
+    did: `did:palmyr:${req.params.agentId}`,
     status: "active",
     trust_score: 0.85,
     note: "Demo resolution - production resolves from identity registry"

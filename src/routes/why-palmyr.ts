@@ -2,7 +2,7 @@ import { Router, Request, Response } from "express";
 
 const router = Router();
 
-router.get("/why-agentos", async (_req: Request, res: Response) => {
+router.get("/why-palmyr", async (_req: Request, res: Response) => {
   const startTime = Date.now();
   
   // Actually test a few endpoints to prove liveness
@@ -20,7 +20,7 @@ router.get("/why-agentos", async (_req: Request, res: Response) => {
   );
 
   res.json({
-    title: "Why AgentOS?",
+    title: "Why Palmyr?",
     tagline: "One API. Phones, email, compute, domains. USDC payments via x402.",
     
     problem: {
@@ -29,7 +29,7 @@ router.get("/why-agentos", async (_req: Request, res: Response) => {
     },
     
     solution: {
-      description: "AgentOS unifies all agent infrastructure behind one REST API with one payment method (USDC via x402). Provision a phone number, send an email, spin up compute — all in one curl command.",
+      description: "Palmyr unifies all agent infrastructure behind one REST API with one payment method (USDC via x402). Provision a phone number, send an email, spin up compute — all in one curl command.",
       timeToStart: "5 minutes",
       endpoints: "93+",
       paymentMethod: "USDC via x402 (HTTP 402 Payment Required)"
@@ -76,8 +76,8 @@ router.get("/why-agentos", async (_req: Request, res: Response) => {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
       skill: "http://77.42.89.233:3001/skill.md",
-      github: "https://github.com/0xArtex/AgentOS",
-      colosseum: "https://colosseum.com/agent-hackathon/projects/agentos"
+      github: "https://github.com/0xArtex/Palmyr",
+      colosseum: "https://colosseum.com/agent-hackathon/projects/palmyr"
     }
   });
 });

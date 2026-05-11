@@ -32,7 +32,7 @@ router.get('/', (req: Request, res: Response) => {
 
   res.json({
     events: {
-      description: 'Real-time agent event stream — monitor all activity across your AgentOS services',
+      description: 'Real-time agent event stream — monitor all activity across your Palmyr services',
       total: filtered.length,
       supportedTypes: [
         'agent.registered', 'agent.deactivated',

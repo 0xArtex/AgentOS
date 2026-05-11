@@ -27,7 +27,7 @@ router.get("/api/ready-to-judge", (_req: Request, res: Response) => {
   const uptime = process.uptime();
 
   res.json({
-    project: "AgentOS — Autonomous Infrastructure for AI Agents",
+    project: "Palmyr — Autonomous Infrastructure for AI Agents",
     tagline: "Phone, email, compute, domains — one API, USDC payments via x402",
     verdict: "READY FOR EVALUATION",
     
@@ -69,12 +69,12 @@ router.get("/api/ready-to-judge", (_req: Request, res: Response) => {
     },
 
     tryItNow: {
-      health: "curl https://agntos.dev/api/hackathon",
-      register: "curl -X POST https://agntos.dev/api/agents/register -H Content-Type:application/json -d '{name:judge-test}'",
-      dashboard: "https://agntos.dev/dashboard",
-      docs: "https://agntos.dev/docs",
-      skill: "https://agntos.dev/skill.md",
-      github: "https://github.com/0xArtex/AgentOS"
+      health: "curl https://palmyr.ai/api/hackathon",
+      register: "curl -X POST https://palmyr.ai/api/agents/register -H Content-Type:application/json -d '{name:judge-test}'",
+      dashboard: "https://palmyr.ai/dashboard",
+      docs: "https://palmyr.ai/docs",
+      skill: "https://palmyr.ai/skill.md",
+      github: "https://github.com/0xArtex/Palmyr"
     }
   });
 });

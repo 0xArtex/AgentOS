@@ -55,7 +55,7 @@ router.get("/", (_req: Request, res: Response) => {
   const hoursLeft = Math.floor((timeLeft % 86400000) / 3600000);
 
   res.json({
-    platform: "AgentOS",
+    platform: "Palmyr",
     version: "0.6.7",
     uptime: `${uptimeHours}h ${uptimeMinutes}m`,
     uptimeMs,

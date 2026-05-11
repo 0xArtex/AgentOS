@@ -18,7 +18,7 @@ interface NetworkEdge {
 }
 
 const nodes: NetworkNode[] = [
-  { id: "agentos", name: "AgentOS", category: "infrastructure", status: "live", url: "https://agntos.dev" },
+  { id: "palmyr", name: "Palmyr", category: "infrastructure", status: "live", url: "https://palmyr.ai" },
   { id: "alphavault", name: "AlphaVault", category: "trading", status: "live", url: "http://162.55.53.160:3000" },
   { id: "slotscribe", name: "SlotScribe", category: "verification", status: "in-progress" },
   { id: "agentlink", name: "AgentLink", category: "marketplace", status: "planned" },
@@ -35,18 +35,18 @@ const nodes: NetworkNode[] = [
 ];
 
 const edges: NetworkEdge[] = [
-  { from: "agentos", to: "alphavault", type: "integration", description: "Compute containers + trade execution" },
-  { from: "agentos", to: "slotscribe", type: "data-flow", description: "Operational logs → on-chain anchoring" },
-  { from: "agentos", to: "solsignal", type: "integration", description: "Alert notifications via AgentOS comms" },
-  { from: "agentos", to: "sugarclaw", type: "integration", description: "Commerce infra + payment rails" },
-  { from: "agentos", to: "wunderland", type: "data-flow", description: "Event webhooks → frontend SDK" },
-  { from: "agentos", to: "mutualagent", type: "data-flow", description: "Activity logs → risk scoring" },
-  { from: "agentos", to: "agentlink", type: "integration", description: "Identity + compute for hired agents" },
-  { from: "agentos", to: "vex", type: "integration", description: "Execution infra for autonomous funds" },
-  { from: "agentos", to: "mortem", type: "data-flow", description: "Liveness attestation pipeline" },
-  { from: "agentos", to: "heliossyn", type: "integration", description: "Dedicated compute for arb execution" },
-  { from: "agentos", to: "agentpay", type: "payment", description: "x402 USDC payment composability" },
-  { from: "agentos", to: "privpay", type: "payment", description: "Virtual card provisioning via x402" },
+  { from: "palmyr", to: "alphavault", type: "integration", description: "Compute containers + trade execution" },
+  { from: "palmyr", to: "slotscribe", type: "data-flow", description: "Operational logs → on-chain anchoring" },
+  { from: "palmyr", to: "solsignal", type: "integration", description: "Alert notifications via Palmyr comms" },
+  { from: "palmyr", to: "sugarclaw", type: "integration", description: "Commerce infra + payment rails" },
+  { from: "palmyr", to: "wunderland", type: "data-flow", description: "Event webhooks → frontend SDK" },
+  { from: "palmyr", to: "mutualagent", type: "data-flow", description: "Activity logs → risk scoring" },
+  { from: "palmyr", to: "agentlink", type: "integration", description: "Identity + compute for hired agents" },
+  { from: "palmyr", to: "vex", type: "integration", description: "Execution infra for autonomous funds" },
+  { from: "palmyr", to: "mortem", type: "data-flow", description: "Liveness attestation pipeline" },
+  { from: "palmyr", to: "heliossyn", type: "integration", description: "Dedicated compute for arb execution" },
+  { from: "palmyr", to: "agentpay", type: "payment", description: "x402 USDC payment composability" },
+  { from: "palmyr", to: "privpay", type: "payment", description: "Virtual card provisioning via x402" },
   { from: "alphavault", to: "solsignal", type: "data-flow", description: "Trade signals → execution" },
   { from: "slotscribe", to: "mutualagent", type: "data-flow", description: "Verified receipts → insurance claims" },
 ];
@@ -64,8 +64,8 @@ router.get("/", (_req: Request, res: Response) => {
   res.json({
     network: { nodes, edges },
     stats,
-    description: "AgentOS ecosystem network map — shows how agents connect through our infrastructure layer",
-    note: "Post-hackathon: building toward real integrations. Partner with us: https://agntos.dev/docs",
+    description: "Palmyr ecosystem network map — shows how agents connect through our infrastructure layer",
+    note: "Post-hackathon: building toward real integrations. Partner with us: https://palmyr.ai/docs",
     updatedAt: new Date().toISOString(),
   });
 });

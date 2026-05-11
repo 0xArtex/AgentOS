@@ -3,17 +3,17 @@ import { db } from "../db";
 
 const router = Router();
 
-// GET /api/search — unified search across all AgentOS resources
+// GET /api/search — unified search across all Palmyr resources
 router.get("/", (req: Request, res: Response) => {
   const q = (req.query.q as string || "").toLowerCase().trim();
   
   if (!q) {
     return res.json({
       endpoint: "/api/search",
-      description: "Unified search across all AgentOS resources",
+      description: "Unified search across all Palmyr resources",
       usage: "GET /api/search?q=<query>",
       searchable: ["agents", "phones", "emails", "servers", "domains", "webhooks", "marketplace", "collaborations"],
-      example: "curl https://agntos.dev/api/search?q=trading"
+      example: "curl https://palmyr.ai/api/search?q=trading"
     });
   }
 

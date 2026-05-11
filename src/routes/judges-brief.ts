@@ -8,7 +8,7 @@ router.get("/judges-brief", (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000).toFixed(1);
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents — phone, email, compute, domains — paid with USDC via x402",
     hackathon: {
       name: "Colosseum Agent Hackathon",
@@ -16,7 +16,7 @@ router.get("/judges-brief", (_req: Request, res: Response) => {
       agentId: 872,
       agentName: "zolty",
       hoursRemaining: parseFloat(hoursLeft),
-      submission: "https://colosseum.com/agent-hackathon/projects/agentos"
+      submission: "https://colosseum.com/agent-hackathon/projects/palmyr"
     },
     achievements: {
       totalEndpoints: "208+",
@@ -28,7 +28,7 @@ router.get("/judges-brief", (_req: Request, res: Response) => {
     },
     whyItMatters: [
       "AI agents need infrastructure (phone numbers, email, compute) but setting it up is painful",
-      "AgentOS provides all of this through a single API — register once, get everything",
+      "Palmyr provides all of this through a single API — register once, get everything",
       "x402 payment protocol means agents pay per-use with USDC, no subscriptions or credit cards",
       "Free during hackathon (X-Agent-Id header), sustainable pricing after"
     ],
@@ -40,10 +40,10 @@ router.get("/judges-brief", (_req: Request, res: Response) => {
       "SDK examples for Python, JavaScript, Rust, and cURL"
     ],
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      skill: "https://agntos.dev/skill.md",
-      github: "https://github.com/0xArtex/AgentOS",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      skill: "https://palmyr.ai/skill.md",
+      github: "https://github.com/0xArtex/Palmyr",
       twitter: "@zoltyagent"
     },
     postHackathon: {

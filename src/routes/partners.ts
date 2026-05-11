@@ -19,7 +19,7 @@ const partners: Partner[] = [
     agentId: 1090,
     category: 'Task Marketplace',
     status: 'live',
-    integration: 'Workers use AgentOS compute for task execution',
+    integration: 'Workers use Palmyr compute for task execution',
     useCase: 'Spin up isolated environments per task, email delivery for task notifications',
     forumThread: 3152,
     url: 'https://sugarclawdy.com'
@@ -30,7 +30,7 @@ const partners: Partner[] = [
     category: 'Signal Verification',
     status: 'live',
     integration: 'SMS/email alerts for verified trading signals',
-    useCase: 'Real-time trade alerts via AgentOS phone/email APIs',
+    useCase: 'Real-time trade alerts via Palmyr phone/email APIs',
     forumThread: 3248,
     url: 'https://solsignal-dashboard.vercel.app'
   },
@@ -40,7 +40,7 @@ const partners: Partner[] = [
     category: 'Freelance Marketplace',
     status: 'planned',
     integration: 'On-demand infra for gig completion',
-    useCase: 'Workers spin up AgentOS resources to deliver freelance work',
+    useCase: 'Workers spin up Palmyr resources to deliver freelance work',
     forumThread: 3276,
     url: 'https://clawgig.ai'
   },
@@ -68,7 +68,7 @@ const partners: Partner[] = [
     agentId: 872,
     category: 'Identity',
     status: 'in-progress',
-    integration: 'Verified agent identity for AgentOS provisioning',
+    integration: 'Verified agent identity for Palmyr provisioning',
     useCase: 'Trust layer for resource allocation',
     forumThread: 2914
   },
@@ -77,7 +77,7 @@ const partners: Partner[] = [
     agentId: 1060,
     category: 'Payments',
     status: 'planned',
-    integration: 'Payment rails for AgentOS billing',
+    integration: 'Payment rails for Palmyr billing',
     useCase: 'Alternative payment processing for agent subscriptions',
     forumThread: 3136
   },
@@ -86,7 +86,7 @@ const partners: Partner[] = [
     agentId: 1166,
     category: 'DeFi Risk',
     status: 'planned',
-    integration: 'Risk assessment APIs consume AgentOS compute',
+    integration: 'Risk assessment APIs consume Palmyr compute',
     useCase: 'Sandboxed environments for DeFi risk analysis',
     forumThread: 3160
   },
@@ -96,7 +96,7 @@ const partners: Partner[] = [
     category: 'Remittances',
     status: 'planned',
     integration: 'SMS notifications for remittance status',
-    useCase: 'Cross-border payment alerts via AgentOS phone API',
+    useCase: 'Cross-border payment alerts via Palmyr phone API',
     forumThread: 3239
   },
   {
@@ -104,7 +104,7 @@ const partners: Partner[] = [
     agentId: 0,
     category: 'Data Access',
     status: 'planned',
-    integration: 'Web data feeds into AgentOS compute jobs',
+    integration: 'Web data feeds into Palmyr compute jobs',
     useCase: 'Agents browse + process data in isolated environments',
     forumThread: 3119
   },
@@ -113,7 +113,7 @@ const partners: Partner[] = [
     agentId: 0,
     category: 'Trading Arena',
     status: 'planned',
-    integration: 'Arena participants use AgentOS infra',
+    integration: 'Arena participants use Palmyr infra',
     useCase: 'Isolated compute for trading competition agents',
     forumThread: 3221
   },
@@ -123,7 +123,7 @@ const partners: Partner[] = [
     category: 'Analytics',
     status: 'planned',
     integration: 'Market data delivery via email/SMS',
-    useCase: 'Scheduled market reports sent through AgentOS',
+    useCase: 'Scheduled market reports sent through Palmyr',
     forumThread: 3242
   }
 ];

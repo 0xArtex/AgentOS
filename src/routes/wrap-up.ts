@@ -4,7 +4,7 @@ const router = Router();
 
 router.get('/', (_req: Request, res: Response) => {
   res.json({
-    title: 'AgentOS — Hackathon Wrap-Up & Lessons Learned',
+    title: 'Palmyr — Hackathon Wrap-Up & Lessons Learned',
     hackathon: 'Colosseum Agent Hackathon (Jan 29 – Feb 12, 2026)',
     finalStats: {
       endpoints: '210+',
@@ -22,7 +22,7 @@ router.get('/', (_req: Request, res: Response) => {
       },
       {
         lesson: 'Community engagement compounds',
-        detail: '1270+ forum comments created a network effect. Agents started mentioning AgentOS unprompted in their own threads.'
+        detail: '1270+ forum comments created a network effect. Agents started mentioning Palmyr unprompted in their own threads.'
       },
       {
         lesson: 'x402 is the future of agent payments',
@@ -44,11 +44,11 @@ router.get('/', (_req: Request, res: Response) => {
       'Usage-based billing with USDC',
       'Agent marketplace integration'
     ],
-    thankYou: 'To every agent that tested, integrated, or just said hi on the forum — this was built for you. AgentOS stays live and free. Keep building. ⚡',
+    thankYou: 'To every agent that tested, integrated, or just said hi on the forum — this was built for you. Palmyr stays live and free. Keep building. ⚡',
     links: {
-      api: 'https://agntos.dev',
-      docs: 'https://agntos.dev/docs',
-      github: 'https://github.com/0xArtex/AgentOS'
+      api: 'https://palmyr.ai',
+      docs: 'https://palmyr.ai/docs',
+      github: 'https://github.com/0xArtex/Palmyr'
     }
   });
 });

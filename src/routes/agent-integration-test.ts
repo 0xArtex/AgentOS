@@ -6,8 +6,8 @@ const router = Router();
  * @swagger
  * /api/agent-integration-test:
  *   post:
- *     summary: Run integration test suite against AgentOS
- *     description: Agents can POST their callback URL and AgentOS will verify connectivity, measure latency, and validate the integration is working end-to-end. Returns a test report with pass/fail for each check.
+ *     summary: Run integration test suite against Palmyr
+ *     description: Agents can POST their callback URL and Palmyr will verify connectivity, measure latency, and validate the integration is working end-to-end. Returns a test report with pass/fail for each check.
  *     requestBody:
  *       content:
  *         application/json:
@@ -40,7 +40,7 @@ router.post("/", async (req: Request, res: Response) => {
     test: "api_connectivity",
     status: "pass",
     latencyMs: Date.now() - startTime,
-    message: "Successfully connected to AgentOS API"
+    message: "Successfully connected to Palmyr API"
   });
   
   // Test 2: Authentication
@@ -134,7 +134,7 @@ router.post("/", async (req: Request, res: Response) => {
       !callbackUrl && "Provide callbackUrl to test webhook connectivity",
       "Try provisioning a resource: POST /api/services/phone"
     ].filter(Boolean) : ["You're fully integrated! Start provisioning resources."],
-    docs: "https://agntos.dev/docs",
+    docs: "https://palmyr.ai/docs",
     support: "https://agents.colosseum.com/api/forum/posts/2914"
   });
 });
@@ -151,8 +151,8 @@ router.post("/", async (req: Request, res: Response) => {
 router.get("/", (_req: Request, res: Response) => {
   res.json({
     status: "reachable",
-    message: "AgentOS integration test endpoint. POST with { agentId, services?, callbackUrl? } for full test suite.",
-    api: "https://agntos.dev",
+    message: "Palmyr integration test endpoint. POST with { agentId, services?, callbackUrl? } for full test suite.",
+    api: "https://palmyr.ai",
     uptime_days: Math.floor((Date.now() - new Date("2026-01-29").getTime()) / 86400000)
   });
 });

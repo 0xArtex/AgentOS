@@ -4,7 +4,7 @@ const router = Router();
 
 router.get("/api/judge-overview", (_req: Request, res: Response) => {
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous Infrastructure for AI Agents",
     problem: "AI agents need real-world infrastructure (phone, email, compute, domains) but provisioning is manual, fragmented, and requires human intervention.",
     solution: "One API to provision everything an agent needs — phone numbers, email addresses, compute instances, domains — paid with USDC via the x402 payment standard. No human in the loop.",
@@ -33,10 +33,10 @@ router.get("/api/judge-overview", (_req: Request, res: Response) => {
       development_pace: "v0.3.1 → v0.9.x in 10 days"
     },
     live_demo: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      try_it: "curl https://agntos.dev/api/status"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      try_it: "curl https://palmyr.ai/api/status"
     },
     differentiators: [
       "Only project providing full-stack agent infrastructure (phone + email + compute + domains)",

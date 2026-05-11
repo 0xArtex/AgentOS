@@ -106,15 +106,15 @@ router.get("/locations", (_req, res: Response) => {
  *
  * Free — no auth required. Tells agents what they can pass to `--install` /
  * the `install` field on POST /compute/servers. Each recipe runs as part of
- * cloud-init and writes /etc/agentos/install-status.json on completion.
+ * cloud-init and writes /etc/palmyr/install-status.json on completion.
  */
 router.get("/install-recipes", (_req, res: Response) => {
   res.json({
     recipes: computeService.listInstallRecipes(),
     usage: {
       api: "POST /compute/servers with body { install: \"hermes\" } or { install: [\"hermes\", \"openclaw\"] }",
-      cli: "agentos compute deploy --type cx22 --install hermes",
-      marker: "Cloud-init writes /etc/agentos/install-status.json when all requested recipes finish. The CLI's deploy --wait polls this as gate 4.",
+      cli: "palmyr compute deploy --type cx22 --install hermes",
+      marker: "Cloud-init writes /etc/palmyr/install-status.json when all requested recipes finish. The CLI's deploy --wait polls this as gate 4.",
     },
   });
 });
@@ -389,14 +389,14 @@ router.post("/servers", validateCreateServerBody, requireAuth(6.0, 'server'), ra
       // Cloud-init ran but no user key was provided. Server is reachable only
       // via the platform's temporary key during provisioning. User must
       // either inject their key via setup-ssh or drive the box entirely
-      // through the AgentOS-managed APIs (configure-openclaw etc.).
+      // through the Palmyr-managed APIs (configure-openclaw etc.).
       sshAccess = {
         method: 'platform-provisioning',
         note: "We hold a temporary key during provisioning; you don't have direct SSH access yet.",
         howToGetSsh: {
           endpoint: `POST /compute/servers/${server.id}/setup-ssh`,
           body: { publicKey: 'ssh-ed25519 AAAA... [comment]' },
-          cli: `agentos compute setup-ssh --id ${server.id} --pubkey "ssh-ed25519 AAAA..."`,
+          cli: `palmyr compute setup-ssh --id ${server.id} --pubkey "ssh-ed25519 AAAA..."`,
           effect: 'Injects your public key, removes our temporary key, locks the root password. After this, only you can SSH in.',
         },
         alternatives: [
@@ -414,8 +414,8 @@ router.post("/servers", validateCreateServerBody, requireAuth(6.0, 'server'), ra
     if (resolvedInstalls.length > 0) {
       response.installs = resolvedInstalls;
       response.installStatus = {
-        marker: '/etc/agentos/install-status.json',
-        note: `Cloud-init runs ${resolvedInstalls.length} install recipe(s) in sequence. The CLI's deploy --wait gate 4 polls the marker file via SSH; if you skipped --wait, you can check it yourself with: agentos compute exec ${server.id} -- cat /etc/agentos/install-status.json`,
+        marker: '/etc/palmyr/install-status.json',
+        note: `Cloud-init runs ${resolvedInstalls.length} install recipe(s) in sequence. The CLI's deploy --wait gate 4 polls the marker file via SSH; if you skipped --wait, you can check it yourself with: palmyr compute exec ${server.id} -- cat /etc/palmyr/install-status.json`,
       };
     }
 
@@ -509,7 +509,7 @@ router.post("/servers/:id/actions", requireAuth(0.10, 'general'), async (req: Au
         action,
         serverId,
         rootPassword: result?.root_password ?? null,
-        note: "Root password rotated. SSH login by password will only work if sshd is configured to accept it — AgentOS-deployed boxes (installOpenClaw=true) disable password auth at first boot, so this password is for console use or after manually re-enabling password auth. Use POST /compute/servers/:id/setup-ssh to inject an SSH key for SSH access.",
+        note: "Root password rotated. SSH login by password will only work if sshd is configured to accept it — Palmyr-deployed boxes (installOpenClaw=true) disable password auth at first boot, so this password is for console use or after manually re-enabling password auth. Use POST /compute/servers/:id/setup-ssh to inject an SSH key for SSH access.",
       });
       return;
     }
@@ -633,7 +633,7 @@ router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general', { discoverabl
     sshWriteFile(ssh, '/root/.ssh/authorized_keys', publicKey.trim() + '\n', { append: true, chmod: '600', timeout: 20000 });
 
     // 2. Remove platform temp key from authorized_keys
-    execSync(`${ssh} "sed -i '/agentos-platform-temp/d' ~/.ssh/authorized_keys"`, { timeout: 10000 });
+    execSync(`${ssh} "sed -i '/palmyr-platform-temp/d' ~/.ssh/authorized_keys"`, { timeout: 10000 });
 
     // 3. Lock root password
     execSync(`${ssh} "passwd -l root"`, { timeout: 10000 });
@@ -1266,7 +1266,7 @@ agentwallet send --wallet $AGENT_BASE_WALLET --to <recipient> --amount <amount> 
 \`\`\`
 
 ## API
-- **Endpoint:** https://agntos.dev/wallet
+- **Endpoint:** https://palmyr.ai/wallet
 - **CLI:** npx @agntos/agentwallet
 - **Docs:** See the agentwallet skill for full API reference
 `;

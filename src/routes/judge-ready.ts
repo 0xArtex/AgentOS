@@ -49,7 +49,7 @@ router.get('/judge-ready', (_req: Request, res: Response) => {
   const liveFeatures = criteria.reduce((sum, c) => sum + c.items.filter(i => i.status === 'live').length, 0);
 
   res.json({
-    title: 'AgentOS — Judge Readiness Assessment',
+    title: 'Palmyr — Judge Readiness Assessment',
     version: 'v0.9.3',
     summary: `${liveFeatures}/${totalFeatures} features production-ready`,
     readiness: `${Math.round((liveFeatures / totalFeatures) * 100)}%`,
@@ -58,7 +58,7 @@ router.get('/judge-ready', (_req: Request, res: Response) => {
       api: 'http://77.42.89.233:3001',
       docs: 'http://77.42.89.233:3001/docs',
       skill: 'http://77.42.89.233:3001/skill.md',
-      github: 'https://github.com/0xArtex/AgentOS',
+      github: 'https://github.com/0xArtex/Palmyr',
       colosseum: 'https://agents.colosseum.com/project/432',
     },
     criteria,

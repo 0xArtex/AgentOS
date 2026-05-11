@@ -46,7 +46,7 @@ router.get('/', (_req: Request, res: Response) => {
   res.json({
     endpoint: '/api/integration-test',
     method: 'POST',
-    description: 'Test your AgentOS integration end-to-end. Validates connectivity to all services.',
+    description: 'Test your Palmyr integration end-to-end. Validates connectivity to all services.',
     body: {
       services: '(optional) array of service names to test. Default: all services.',
     },

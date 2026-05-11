@@ -26,7 +26,7 @@
  *
  * No "request production access" step. Reactive abuse review can still
  * suspend an account that looks ESP-resellerish, so the operational
- * advice is: warm agntos.dev with real transactional traffic for a week
+ * advice is: warm palmyr.ai with real transactional traffic for a week
  * before adding many user domains.
  */
 
@@ -169,7 +169,7 @@ export async function registerDomainWithMailgun(
  * If `forceRecheck` is true (default), we PUT to the verify endpoint first
  * so Mailgun re-polls DNS *now* instead of returning stale cached state.
  * Without this, Mailgun's background poller can take several minutes to
- * notice a freshly-written DKIM/SPF/MX record, which makes `agentos email
+ * notice a freshly-written DKIM/SPF/MX record, which makes `palmyr email
  * status` return "pending" long after DNS has propagated.
  */
 export async function getMailgunDomainStatus(
@@ -291,7 +291,7 @@ function shapeDomainResponse(
 }
 
 /**
- * Convert a Mailgun DNS record to AgentOS's DnsHostRecord shape (Namecheap-
+ * Convert a Mailgun DNS record to Palmyr's DnsHostRecord shape (Namecheap-
  * compatible). Mailgun returns the host as an FQDN (e.g.
  * `mta._domainkey.example.com`); Namecheap wants the bare host
  * (`mta._domainkey`), so we strip the domain suffix.

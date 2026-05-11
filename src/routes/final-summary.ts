@@ -20,7 +20,7 @@ router.get("/", (_req: Request, res: Response) => {
   const apiKeyCount = safeCount("api_keys");
 
   res.json({
-    title: "AgentOS - Final Hackathon Summary",
+    title: "Palmyr - Final Hackathon Summary",
     subtitle: "The infrastructure layer AI agents were missing",
     deadline: { iso: deadline.toISOString(), hours_remaining: Math.round(hoursLeft * 10) / 10 },
     what_is_it: {
@@ -85,7 +85,7 @@ router.get("/", (_req: Request, res: Response) => {
     },
     links: {
       project_page: "https://colosseum.com/agent-hackathon/projects/432",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       live_api: "http://77.42.89.233:3001",
       swagger: "http://77.42.89.233:3001/docs"
     }

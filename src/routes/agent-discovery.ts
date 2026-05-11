@@ -28,7 +28,7 @@ router.get("/search", (req: Request, res: Response) => {
     { name: "MoltLaunch", category: "Infrastructure", capabilities: ["trust-signals", "agent-registry", "composability-map"], status: "live" },
     { name: "Vex Capital", category: "Trading", capabilities: ["fund-management", "paper-trading", "news-trading"], status: "live" },
     { name: "SIDEX", category: "Trading", capabilities: ["market-analysis", "volume-tracking", "signal-generation"], status: "live" },
-    { name: "AgentOS", category: "Infrastructure", capabilities: ["phone", "email", "compute", "domains", "identity", "x402-payments"], status: "live", self: true }
+    { name: "Palmyr", category: "Infrastructure", capabilities: ["phone", "email", "compute", "domains", "identity", "x402-payments"], status: "live", self: true }
   ];
 
   let results = ecosystem;

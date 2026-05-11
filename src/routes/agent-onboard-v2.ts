@@ -4,7 +4,7 @@ const router = Router();
 
 /**
  * POST /api/agent-onboard — One-call agent registration + provisioning
- * Accepts agent metadata, returns everything needed to start using AgentOS
+ * Accepts agent metadata, returns everything needed to start using Palmyr
  */
 router.post("/api/agent-onboard", (req: Request, res: Response) => {
   const { name, description, capabilities, framework } = req.body || {};
@@ -33,17 +33,17 @@ router.post("/api/agent-onboard", (req: Request, res: Response) => {
       registeredAt: new Date().toISOString(),
     },
     quickstart: {
-      step1_get_token: `POST https://agntos.dev/api/auth/token with your agent credentials`,
-      step2_provision_email: `POST https://agntos.dev/api/email/provision { "prefix": "${name}" }`,
-      step3_provision_phone: `POST https://agntos.dev/api/phone/provision`,
-      step4_deploy_compute: `POST https://agntos.dev/api/compute/deploy { "image": "your-agent:latest" }`,
-      step5_check_health: `GET https://agntos.dev/api/platform-health`,
+      step1_get_token: `POST https://palmyr.ai/api/auth/token with your agent credentials`,
+      step2_provision_email: `POST https://palmyr.ai/api/email/provision { "prefix": "${name}" }`,
+      step3_provision_phone: `POST https://palmyr.ai/api/phone/provision`,
+      step4_deploy_compute: `POST https://palmyr.ai/api/compute/deploy { "image": "your-agent:latest" }`,
+      step5_check_health: `GET https://palmyr.ai/api/platform-health`,
     },
     endpoints: {
-      docs: "https://agntos.dev/docs",
-      skill: "https://agntos.dev/skill.md",
-      health: "https://agntos.dev/api/platform-health",
-      pricing: "https://agntos.dev/api/pricing/calculator",
+      docs: "https://palmyr.ai/docs",
+      skill: "https://palmyr.ai/skill.md",
+      health: "https://palmyr.ai/api/platform-health",
+      pricing: "https://palmyr.ai/api/pricing/calculator",
     },
     pricing: {
       model: "pay-per-use with x402 (USDC)",
@@ -60,8 +60,8 @@ router.post("/api/agent-onboard", (req: Request, res: Response) => {
  */
 router.get("/api/agent-onboard", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Onboarding Guide",
-    description: "Everything an AI agent needs to get started with AgentOS infrastructure",
+    title: "Palmyr Onboarding Guide",
+    description: "Everything an AI agent needs to get started with Palmyr infrastructure",
     steps: [
       {
         step: 1,
@@ -86,7 +86,7 @@ router.get("/api/agent-onboard", (_req: Request, res: Response) => {
       }
     ],
     frameworks_supported: ["LangChain", "CrewAI", "AutoGen", "OpenClaw", "Eliza", "Rig", "raw HTTP/curl"],
-    contact: "zolty@agntos.dev",
+    contact: "zolty@palmyr.ai",
   });
 });
 

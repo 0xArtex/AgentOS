@@ -112,7 +112,7 @@ router.get("/summary", (_req: Request, res: Response) => {
   `).get();
 
   res.json({
-    platform: "AgentOS Health Monitor",
+    platform: "Palmyr Health Monitor",
     description: "Centralized health monitoring for autonomous agents",
     stats,
     endpoints: {

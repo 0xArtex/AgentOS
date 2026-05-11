@@ -65,7 +65,7 @@ async function materializeVideo(input: VideoInput): Promise<{ filePath: string; 
   }
   const fs = await import("fs");
   const path = await import("path");
-  const dir = "/tmp/agentos-uploads";
+  const dir = "/tmp/palmyr-uploads";
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   let buf: Buffer;
@@ -94,7 +94,7 @@ async function materializeImage(input: ImageInput): Promise<{ filePath: string; 
   if (!input.image_base64 && !input.image_url) throw new Error("image_base64 or image_url is required");
   const fs = await import("fs");
   const path = await import("path");
-  const dir = "/tmp/agentos-uploads";
+  const dir = "/tmp/palmyr-uploads";
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 
   let buf: Buffer;
@@ -124,7 +124,7 @@ async function materializeImage(input: ImageInput): Promise<{ filePath: string; 
 async function debugShot(page: any, tag: string): Promise<string | undefined> {
   try {
     const fs = await import("fs");
-    const dir = "/tmp/agentos-social-shots";
+    const dir = "/tmp/palmyr-social-shots";
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     const shotPath = `${dir}/tiktok-${tag}-${Date.now()}.png`;
     await page.screenshot({ path: shotPath, fullPage: true });

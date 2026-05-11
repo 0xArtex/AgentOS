@@ -2,12 +2,12 @@
  * End-to-end test of the agent-side executor pipeline.
  *
  * Spawns:
- *   1. A fake AgentOS server on a random port that returns:
+ *   1. A fake Palmyr server on a random port that returns:
  *      - POST /chat → a canned "approved" plan with 3 steps, different URL
  *        shapes (path params, $STEPS.* templating, static endpoints).
  *      - Handlers for each step's endpoint that return canned outputs.
- *   2. The real built CLI binary as a child process with AGENTOS_API pointed
- *      at the fake server and AGENTOS_WALLET_PASSPHRASE set so the SDK doesn't
+ *   2. The real built CLI binary as a child process with PALMYR_API pointed
+ *      at the fake server and PALMYR_WALLET_PASSPHRASE set so the SDK doesn't
  *      try to load a real vault.
  *
  * What this proves (without real wallet / real x402):
@@ -35,7 +35,7 @@ import { join } from "node:path";
 const REPO_ROOT = join(__dirname, "..", "..");
 const CLI_DIST = join(REPO_ROOT, "cli", "dist", "cli.js");
 
-// -------------------- Fake AgentOS server --------------------
+// -------------------- Fake Palmyr server --------------------
 
 interface CapturedCall {
   method: string;
@@ -50,7 +50,7 @@ interface FakeServerHandle {
   close: () => Promise<void>;
 }
 
-async function launchFakeAgentOS(): Promise<FakeServerHandle> {
+async function launchFakePalmyr(): Promise<FakeServerHandle> {
   const calls: CapturedCall[] = [];
   const app = express();
   app.use(express.json({ limit: "10mb" }));
@@ -84,7 +84,7 @@ async function launchFakeAgentOS(): Promise<FakeServerHandle> {
         {
           step_id: "s1",
           capability: "register_domain",
-          provider: "agentos.register_domain",
+          provider: "palmyr.register_domain",
           description: "Register freshkicks.io",
           input: { domain: "freshkicks.io" },
           cost_usdc: 9.99,
@@ -94,7 +94,7 @@ async function launchFakeAgentOS(): Promise<FakeServerHandle> {
         {
           step_id: "s2",
           capability: "send_sms",
-          provider: "agentos.send_sms",
+          provider: "palmyr.send_sms",
           description: "Confirmation SMS with the registered domain",
           input: {
             phone_number_id: "abc123",
@@ -114,7 +114,7 @@ async function launchFakeAgentOS(): Promise<FakeServerHandle> {
         {
           step_id: "s3",
           capability: "deploy_vps",
-          provider: "agentos.deploy_vps",
+          provider: "palmyr.deploy_vps",
           description: "Deploy a VPS",
           input: { name: "srv-fresh", serverType: "cx23" },
           cost_usdc: 6.0,
@@ -200,7 +200,7 @@ async function runCli(args: string[], env: Record<string, string>): Promise<{ ex
 
 // -------------------- Tests --------------------
 
-describe("i402 end-to-end (fake AgentOS + real CLI binary)", () => {
+describe("i402 end-to-end (fake Palmyr + real CLI binary)", () => {
   let server: FakeServerHandle;
 
   before(async () => {
@@ -210,7 +210,7 @@ describe("i402 end-to-end (fake AgentOS + real CLI binary)", () => {
     }
     // Also ensure the server dist exists, but we don't actually use it here.
     await findFreePort(); // warm port-finder; side-effect-free
-    server = await launchFakeAgentOS();
+    server = await launchFakePalmyr();
   });
 
   after(async () => {
@@ -226,12 +226,12 @@ describe("i402 end-to-end (fake AgentOS + real CLI binary)", () => {
         "--url", `http://127.0.0.1:${server.port}`,
       ],
       {
-        // AGENTOS_API is NOT honored by the CLI main (it only uses --url / config),
+        // PALMYR_API is NOT honored by the CLI main (it only uses --url / config),
         // but pointing at an absent API via env avoids accidentally talking to prod
         // if the flag were ever ignored.
-        AGENTOS_API: `http://127.0.0.1:${server.port}`,
+        PALMYR_API: `http://127.0.0.1:${server.port}`,
         // paidRequest lazy-loads the vault; set a dummy passphrase so no prompt.
-        AGENTOS_WALLET_PASSPHRASE: "test-passphrase-not-used",
+        PALMYR_WALLET_PASSPHRASE: "test-passphrase-not-used",
       }
     );
 

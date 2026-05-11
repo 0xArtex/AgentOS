@@ -25,13 +25,13 @@ router.get("/api/judge-scorecard", async (_req: Request, res: Response) => {
   } catch {}
 
   const fs = require("fs");
-  const routeFiles = fs.readdirSync("/root/AgentOS/src/routes").filter((f: string) => f.endsWith(".ts")).length;
+  const routeFiles = fs.readdirSync("/root/Palmyr/src/routes").filter((f: string) => f.endsWith(".ts")).length;
 
   const deadline = new Date("2026-02-12T17:00:00Z");
   const hoursLeft = Math.max(0, (deadline.getTime() - Date.now()) / 3600000).toFixed(1);
 
   res.json({
-    project: "AgentOS — Autonomous Infrastructure for AI Agents",
+    project: "Palmyr — Autonomous Infrastructure for AI Agents",
     tagline: "Phone, email, compute, domains — one API, paid in USDC",
     
     scorecard: [
@@ -66,7 +66,7 @@ router.get("/api/judge-scorecard", async (_req: Request, res: Response) => {
           api: "http://77.42.89.233:3001",
           docs: "http://77.42.89.233:3001/docs",
           dashboard: "http://77.42.89.233:3001/dashboard",
-          github: "https://github.com/0xArtex/AgentOS",
+          github: "https://github.com/0xArtex/Palmyr",
           skill: "http://77.42.89.233:3001/skill.md"
         }
       },
@@ -79,7 +79,7 @@ router.get("/api/judge-scorecard", async (_req: Request, res: Response) => {
       {
         category: "Real-World Utility",
         selfScore: "9/10",
-        evidence: "Agents need phones (customer support, notifications), email (reports, alerts), compute (processing, ML), domains (web presence). AgentOS provides all of these autonomously.",
+        evidence: "Agents need phones (customer support, notifications), email (reports, alerts), compute (processing, ML), domains (web presence). Palmyr provides all of these autonomously.",
         useCases: [
           "Customer support agent with a real phone number",
           "Trading bot that emails daily portfolio reports",

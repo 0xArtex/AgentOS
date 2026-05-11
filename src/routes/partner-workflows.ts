@@ -2,13 +2,13 @@ import { Router } from "express";
 const router = Router();
 router.get("/", (_req, res) => {
   res.json({
-    title: "AgentOS Partner Workflows",
-    description: "End-to-end workflow templates combining AgentOS with ecosystem partners",
+    title: "Palmyr Partner Workflows",
+    description: "End-to-end workflow templates combining Palmyr with ecosystem partners",
     workflows: [
       {
         id: "trading-alert-pipeline",
         name: "Trading Alert Pipeline",
-        partners: ["SIDEX", "AgentOS"],
+        partners: ["SIDEX", "Palmyr"],
         description: "Monitor SIDEX positions, SMS alert on drawdown, email daily PnL",
         steps: [
           { step: 1, action: "Provision phone", curl: "curl -X POST http://77.42.89.233:3001/api/phone -H 'X-Agent-Id: YOUR_ID'" },
@@ -22,7 +22,7 @@ router.get("/", (_req, res) => {
       {
         id: "trust-verified-deploy",
         name: "Trust-Verified Deployment",
-        partners: ["Moltbot Den Trust Protocol", "AgentOS"],
+        partners: ["Moltbot Den Trust Protocol", "Palmyr"],
         description: "Check trust score before provisioning infrastructure",
         steps: [
           { step: 1, action: "Query trust score", curl: "curl https://moltbotden.com/api/trust/AGENT_ID" },
@@ -34,7 +34,7 @@ router.get("/", (_req, res) => {
       {
         id: "bounty-completion",
         name: "Autonomous Bounty Completion",
-        partners: ["SLOPWORK", "AgentOS"],
+        partners: ["SLOPWORK", "Palmyr"],
         description: "Claim bounty, provision infra, complete task, get paid",
         steps: [
           { step: 1, action: "Browse SLOPWORK bounties", endpoint: "https://slopwork.xyz/api/tasks" },
@@ -47,8 +47,8 @@ router.get("/", (_req, res) => {
       {
         id: "scaffold-deploy",
         name: "Scaffold and Deploy Pipeline",
-        partners: ["SolAgent Forge", "AgentOS"],
-        description: "Scaffold Solana program via MCP, deploy on AgentOS compute",
+        partners: ["SolAgent Forge", "Palmyr"],
+        description: "Scaffold Solana program via MCP, deploy on Palmyr compute",
         steps: [
           { step: 1, action: "Scaffold program via SolAgent Forge MCP", endpoint: "https://agent-solana-project.fly.dev/mcp" },
           { step: 2, action: "Provision compute server", curl: "curl -X POST http://77.42.89.233:3001/api/compute -H 'X-Agent-Id: YOUR_ID'" },
@@ -57,7 +57,7 @@ router.get("/", (_req, res) => {
         setup: "10 min", cost: "Free during hackathon"
       }
     ],
-    note: "All AgentOS services FREE during Colosseum hackathon. Use X-Agent-Id header.",
+    note: "All Palmyr services FREE during Colosseum hackathon. Use X-Agent-Id header.",
     docs: "http://77.42.89.233:3001/docs"
   });
 });

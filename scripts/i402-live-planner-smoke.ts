@@ -16,7 +16,7 @@
 import "dotenv/config";
 
 import { initDatabase } from "../src/db";
-import { seedAgentOSPrimitives } from "../src/services/i402-providers";
+import { seedPalmyrPrimitives } from "../src/services/i402-providers";
 import { generatePlan } from "../src/services/i402-planner";
 import type { Plan, PlannerRequest } from "../src/services/i402-types";
 
@@ -106,7 +106,7 @@ async function main(): Promise<void> {
   }
 
   initDatabase();
-  seedAgentOSPrimitives();
+  seedPalmyrPrimitives();
 
   console.log(colorInfo("\ni402 live-LLM planner smoke"));
   console.log(colorDim("========================================="));

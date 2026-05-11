@@ -4,8 +4,8 @@ const router = Router();
 
 router.get("/", (req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Performance Benchmarks",
-    description: "Real-world performance metrics from production AgentOS instances",
+    title: "Palmyr Performance Benchmarks",
+    description: "Real-world performance metrics from production Palmyr instances",
     lastUpdated: new Date().toISOString(),
     benchmarks: {
       api_response: {
@@ -44,7 +44,7 @@ router.get("/", (req: Request, res: Response) => {
     },
     comparison: {
       description: "Time to set up equivalent infrastructure",
-      agentos: "5 minutes (API calls)",
+      palmyr: "5 minutes (API calls)",
       diy: "2-3 days (Twilio + SendGrid + AWS + DNS + billing)",
       savings: "99.6% time reduction"
     },

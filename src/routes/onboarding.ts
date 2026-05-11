@@ -44,7 +44,7 @@ router.post("/quickstart", (req: Request, res: Response) => {
   ).run(phoneId, phoneNumber, agentId, now);
 
   const emailId = `em_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  const emailAddress = `${name.toLowerCase().replace(/[^a-z0-9]/g, "")}@agent.agentos.dev`;
+  const emailAddress = `${name.toLowerCase().replace(/[^a-z0-9]/g, "")}@agent.palmyr.dev`;
   db.prepare(
     `INSERT INTO email_inboxes (id, address, owner, created_at, active)
      VALUES (?, ?, ?, ?, 1)`
@@ -73,7 +73,7 @@ router.post("/quickstart", (req: Request, res: Response) => {
  */
 router.get("/guide", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Integration Guide",
+    title: "Palmyr Integration Guide",
     steps: [
       { step: 1, title: "Quick Start", endpoint: "POST /onboarding/quickstart", body: { name: "my-agent" }, note: "Returns agent token + phone + email in one call" },
       { step: 2, title: "Or Register Manually", endpoint: "POST /agents/register", body: { name: "my-agent" } },

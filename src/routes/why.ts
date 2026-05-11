@@ -17,8 +17,8 @@ router.get("/", (_req: Request, res: Response) => {
   const routeCount = (() => { try { return fs.readdirSync(path.join(__dirname, ".")).filter(f => f.endsWith(".ts") || f.endsWith(".js")).length; } catch { return 200; } })();
 
   res.json({
-    question: "Why does AgentOS exist?",
-    answer: "AI agents need real-world infrastructure to operate autonomously. Phone numbers, email, compute, domains. Today these require human signup flows and credit cards. AgentOS makes it one API call, paid in USDC.",
+    question: "Why does Palmyr exist?",
+    answer: "AI agents need real-world infrastructure to operate autonomously. Phone numbers, email, compute, domains. Today these require human signup flows and credit cards. Palmyr makes it one API call, paid in USDC.",
     the_problem: {
       description: "Agents cannot use Twilio, AWS, or GoDaddy directly",
       reasons: [
@@ -50,9 +50,9 @@ router.get("/", (_req: Request, res: Response) => {
       hackathon_hours_remaining: Math.round(hoursLeft * 10) / 10
     },
     try_it: {
-      quickstart: "curl https://agntos.dev/api/quickstart",
-      docs: "https://agntos.dev/docs",
-      for_judges: "curl https://agntos.dev/api/for-judges"
+      quickstart: "curl https://palmyr.ai/api/quickstart",
+      docs: "https://palmyr.ai/docs",
+      for_judges: "curl https://palmyr.ai/api/for-judges"
     }
   });
 });

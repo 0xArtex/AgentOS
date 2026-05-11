@@ -11,8 +11,8 @@ export default function TopNav() {
     <header className="topnav">
       <div className="container topnav-inner">
         <a href="/" className="brand">
-          <img className="brand-mark" src="/assets/logo.png" alt="AgentOS" />
-          <span>AgentOS</span>
+          <img className="brand-mark" src="/assets/logo.png" alt="Palmyr" />
+          <span>Palmyr</span>
         </a>
 
         <nav className="nav-links">
@@ -26,10 +26,10 @@ export default function TopNav() {
         <div className="topnav-right">
           <code className="install-cmd">
             <span className="install-prompt">$</span>{" "}
-            <span className="install-cmd-text">npm i -g @agentos/agentos</span>
+            <span className="install-cmd-text">npm i -g @palmyr/palmyr</span>
           </code>
           <a
-            href="https://github.com/0xArtex/AgentOS"
+            href="https://github.com/0xArtex/Palmyr"
             target="_blank"
             rel="noopener"
             className="gh"

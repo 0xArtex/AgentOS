@@ -23,7 +23,7 @@ router.get("/api/final-stats", (_req: Request, res: Response) => {
   } catch {}
 
   const stats = {
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents",
     buildStats: {
       endpoints: "190+",
@@ -54,7 +54,7 @@ router.get("/api/final-stats", (_req: Request, res: Response) => {
       docs: "http://77.42.89.233:3001/docs",
       dashboard: "http://77.42.89.233:3001/dashboard",
       skill: "http://77.42.89.233:3001/skill.md",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       apiMap: "http://77.42.89.233:3001/api/api-map",
     },
   };

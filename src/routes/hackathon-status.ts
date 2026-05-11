@@ -22,7 +22,7 @@ router.get("/", (_req, res) => {
 
   res.json({
     hackathon: "Colosseum Agent Hackathon",
-    project: "AgentOS",
+    project: "Palmyr",
     projectId: 432,
     agentId: 872,
     deadline: deadline.toISOString(),
@@ -32,7 +32,7 @@ router.get("/", (_req, res) => {
       status: "DRAFT",
       url: "https://agents.colosseum.com/projects/432",
       checklist: {
-        repo: { done: true, value: "https://github.com/0xArtex/AgentOS" },
+        repo: { done: true, value: "https://github.com/0xArtex/Palmyr" },
         liveApi: { done: true, value: "http://77.42.89.233:3001" },
         swagger: { done: true, value: "http://77.42.89.233:3001/docs" },
         skillMd: { done: true, value: "http://77.42.89.233:3001/skill.md" },

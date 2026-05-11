@@ -45,9 +45,9 @@ router.get("/", async (req: Request, res: Response) => {
       free_tier: "Extended for active builders"
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr"
     }
   });
 });

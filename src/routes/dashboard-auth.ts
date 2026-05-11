@@ -133,7 +133,7 @@ router.post("/wallet", (req: Request, res: Response) => {
   }
 
   // Verify the message still mentions our domain (defence in depth — the nonce is the real bind).
-  if (!String(message).includes("agntos.dev") && !String(message).includes("AgentOS")) {
+  if (!String(message).includes("palmyr.ai") && !String(message).includes("Palmyr")) {
     return res.status(400).json({ error: "Invalid message format" });
   }
 
@@ -200,7 +200,7 @@ router.post("/wallet/nonce", (_req: Request, res: Response) => {
   try {
     db.prepare("DELETE FROM wallet_auth_nonces WHERE expires_at < ?").run(Date.now() - NONCE_TTL_MS);
   } catch {}
-  const message = `Sign in to AgentOS (agntos.dev)\n\nNonce: ${nonce}\nTimestamp: ${new Date().toISOString()}`;
+  const message = `Sign in to Palmyr (palmyr.ai)\n\nNonce: ${nonce}\nTimestamp: ${new Date().toISOString()}`;
   res.json({ message, nonce });
 });
 

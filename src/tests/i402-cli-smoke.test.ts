@@ -50,22 +50,22 @@ describe("CLI binary smoke tests", () => {
     }
   });
 
-  it("`agentos --version` prints a version string and exits 0", () => {
+  it("`palmyr --version` prints a version string and exits 0", () => {
     const r = runCli(["--version"]);
     assert.equal(r.exitCode, 0);
     assert.match(r.stdout.trim(), /^\d+\.\d+\.\d+/);
   });
 
-  it("`agentos chat capabilities` calls the API and prints JSON (expect auth error or valid JSON)", () => {
+  it("`palmyr chat capabilities` calls the API and prints JSON (expect auth error or valid JSON)", () => {
     // Point at a non-existent API so we get a network error rather than hitting production
-    const r = runCli(["chat", "capabilities"], { AGENTOS_API: "http://127.0.0.1:1", AGENTOS_TOKEN: "" });
+    const r = runCli(["chat", "capabilities"], { PALMYR_API: "http://127.0.0.1:1", PALMYR_TOKEN: "" });
     // Expect non-zero exit because the API isn't reachable, but the CLI should handle it gracefully
     // — no node stack traces in user output for expected network errors
     assert.notEqual(r.exitCode, 0, "expected non-zero exit when API unreachable");
     assert.ok(r.combined.length > 0, "CLI should print something on failure");
   });
 
-  it("`agentos chat` (no subcommand) prints the chat menu without crashing", () => {
+  it("`palmyr chat` (no subcommand) prints the chat menu without crashing", () => {
     const r = runCli(["chat"]);
     // Ink renders to stdout/stderr; even in non-TTY there should be SOMETHING, and not a crash
     assert.ok(r.combined.length > 0, "chat menu should produce output");
@@ -73,19 +73,19 @@ describe("CLI binary smoke tests", () => {
     assert.ok(!r.combined.includes("UnhandledPromiseRejection"), "no unhandled promise rejections");
   });
 
-  it("`agentos chat bogus` errors out with a usage hint", () => {
+  it("`palmyr chat bogus` errors out with a usage hint", () => {
     const r = runCli(["chat", "bogus"]);
     assert.notEqual(r.exitCode, 0);
     assert.ok(r.combined.includes("Unknown chat command") || r.combined.includes("Try:"), "should hint at valid subcommands");
   });
 
-  it("`agentos chat run` without --budget errors with a clear message", () => {
+  it("`palmyr chat run` without --budget errors with a clear message", () => {
     const r = runCli(["chat", "run", "do stuff"]);
     assert.notEqual(r.exitCode, 0);
     assert.ok(r.combined.includes("budget"), "error should mention --budget");
   });
 
-  it("`agentos chat status` without session_id errors cleanly", () => {
+  it("`palmyr chat status` without session_id errors cleanly", () => {
     const r = runCli(["chat", "status"]);
     assert.notEqual(r.exitCode, 0);
     assert.ok(r.combined.includes("session_id"), "error should mention session_id");

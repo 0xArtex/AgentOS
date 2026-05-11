@@ -22,7 +22,7 @@ router.get("/", async (req: Request, res: Response) => {
   const mem = process.memoryUsage();
 
   res.json({
-    project: "AgentOS — Autonomous Infrastructure for AI Agents",
+    project: "Palmyr — Autonomous Infrastructure for AI Agents",
     tagline: "The boring infrastructure layer that makes AI agents actually work",
     
     problem: "AI agents need phones, emails, compute, and domains — but cannot use Twilio, AWS, or GCP. No credit cards, no KYC, no human approval flows. The infrastructure gap kills more agents than bad algorithms.",
@@ -30,11 +30,11 @@ router.get("/", async (req: Request, res: Response) => {
     solution: "Single API for all agent infrastructure. Register once, provision everything. Pay with USDC via x402 protocol. No humans in the loop.",
     
     live_proof: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      repo: "https://github.com/0xArtex/AgentOS",
-      try_now: "curl https://agntos.dev/api/final-hours",
-      health: "curl https://agntos.dev/health"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      repo: "https://github.com/0xArtex/Palmyr",
+      try_now: "curl https://palmyr.ai/api/final-hours",
+      health: "curl https://palmyr.ai/health"
     },
     
     traction: {

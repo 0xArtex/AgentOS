@@ -1,13 +1,12 @@
 {
-  "name": "@agntos/agentos",
-  "version": "0.9.0",
+  "name": "@palmyr/cli",
+  "version": "1.0.0",
   "description": "CLI for Palmyr — everything your AI agent needs. Phone, email, compute, domains, wallets, and more.",
   "type": "module",
   "main": "./dist/sdk.js",
   "types": "./dist/sdk.d.ts",
   "bin": {
-    "palmyr": "./dist/cli.js",
-    "agentos": "./dist/cli.js"
+    "palmyr": "./dist/cli.js"
   },
   "exports": {
     ".": {
@@ -27,7 +26,6 @@
     "ai",
     "agent",
     "palmyr",
-    "agentos",
     "infrastructure",
     "phone",
     "email",
@@ -43,7 +41,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/0xArtex/AgentOS.git",
+    "url": "git+https://github.com/0xArtex/Palmyr.git",
     "directory": "cli"
   },
   "homepage": "https://palmyr.ai",
@@ -71,7 +69,7 @@
     "string-width": "^7.2.0"
   },
   "bugs": {
-    "url": "https://github.com/0xArtex/AgentOS/issues"
+    "url": "https://github.com/0xArtex/Palmyr/issues"
   },
   "funding": "https://palmyr.ai"
 }

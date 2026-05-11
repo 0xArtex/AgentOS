@@ -120,7 +120,7 @@ router.get("/hackathon-stats", async (req: Request, res: Response) => {
   const hoursLeft = Math.max(0, Math.round((deadline.getTime() - now.getTime()) / 3600000 * 10) / 10);
   
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     version: "v0.9.9",
     hackathon: "Colosseum Agent Hackathon",
     deadline: "2026-02-12T17:00:00Z",
@@ -149,7 +149,7 @@ router.get("/hackathon-stats", async (req: Request, res: Response) => {
  */
 router.get("/launch-checklist", (_req: Request, res: Response) => {
   const checklist = {
-    title: "AgentOS Production Launch Checklist",
+    title: "Palmyr Production Launch Checklist",
     description: "Everything your agent needs before going live post-hackathon",
     categories: [
       {
@@ -206,7 +206,7 @@ router.get("/final-pitch", (_req: Request, res: Response) => {
   const agents = (db.prepare("SELECT COUNT(*) as c FROM agents").get() as any).c;
   
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous Infrastructure for AI Agents",
     problem: "AI agents need real-world infrastructure (phone, email, compute, domains) but provisioning is manual, fragmented, and not designed for programmatic access",
     solution: "Single API to provision and manage all agent infrastructure, paid per-use with USDC via x402 payment protocol on Solana",
@@ -222,7 +222,7 @@ router.get("/final-pitch", (_req: Request, res: Response) => {
       payment: "USDC on Solana — automatic per-call billing",
       auth: "API key + optional X-Agent-Id header",
       docs: "http://77.42.89.233:3001/docs",
-      repo: "https://github.com/0xArtex/AgentOS"
+      repo: "https://github.com/0xArtex/Palmyr"
     },
     traction: {
       registered_agents: agents,
@@ -250,8 +250,8 @@ router.get("/final-pitch", (_req: Request, res: Response) => {
  */
 router.get("/integration-guide", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Integration Guide",
-    description: "Integrate AgentOS into any agent framework in under 5 minutes",
+    title: "Palmyr Integration Guide",
+    description: "Integrate Palmyr into any agent framework in under 5 minutes",
     baseUrl: "http://77.42.89.233:3001",
     steps: [
       { step: 1, title: "Register Your Agent", endpoint: "POST /api/agents/register", body: { name: "my-agent", description: "My autonomous agent" } },
@@ -260,7 +260,7 @@ router.get("/integration-guide", (_req: Request, res: Response) => {
       { step: 4, title: "Monitor", endpoints: ["/stats", "/api/analytics", "/api/service-health"] }
     ],
     frameworks: {
-      langchain: "Use HTTP tool with AgentOS base URL",
+      langchain: "Use HTTP tool with Palmyr base URL",
       crewai: "Create BaseTool subclasses per service",
       autogen: "Register as function calls",
       openclaw: "Install skill from http://77.42.89.233:3001/skill.md",

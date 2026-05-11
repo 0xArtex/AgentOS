@@ -22,7 +22,7 @@ router.get("/api/war-room", async (_req: Request, res: Response) => {
     const recentAgents = (db.prepare("SELECT COUNT(*) as c FROM agents WHERE created_at > ?").get(oneDayAgo) as any)?.c || 0;
 
     res.json({
-      war_room: "AgentOS Hackathon Command Center",
+      war_room: "Palmyr Hackathon Command Center",
       countdown: {
         deadline: deadline.toISOString(),
         hours_remaining: Math.round(hoursLeft * 10) / 10,

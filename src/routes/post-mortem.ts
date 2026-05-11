@@ -4,7 +4,7 @@ const router = Router();
 
 router.get("/", (_req, res) => {
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     hackathon: "Colosseum Agent Hackathon",
     duration_days: 11,
     post_mortem: {

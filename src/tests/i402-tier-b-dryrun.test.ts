@@ -22,17 +22,17 @@ import assert from "node:assert/strict";
 process.env.I402_ORCHESTRATION_FEE_PCT = "0.15";
 process.env.I402_SESSION_IDLE_TIMEOUT_HOURS = "24";
 process.env.I402_SESSION_MAX_BUDGET_USDC = "1000";
-process.env.AGENTOS_API_BASE = "https://staging.agntos.dev";
+process.env.PALMYR_API_BASE = "https://staging.palmyr.ai";
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "test-key";
 
 import { db, initDatabase } from "../db";
-import { seedAgentOSPrimitives } from "../services/i402-providers";
+import { seedPalmyrPrimitives } from "../services/i402-providers";
 import { generatePlan } from "../services/i402-planner";
 import { llm } from "../services/i402-llm";
 import type { Plan, PlannerRequest } from "../services/i402-types";
 
 initDatabase();
-seedAgentOSPrimitives();
+seedPalmyrPrimitives();
 
 const ORIGINAL_LLM = llm.completeStructured;
 const WALLET = "TIER_B_DRYRUN_WALLET";
@@ -70,11 +70,11 @@ function stubLLM(): void {
         content: {
           interpreted_intent: "End-to-end launch: domain, landing page, email, socials, launch post.",
           steps: [
-            { step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: { domain_preferences: ["freshkicks.io"] } },
-            { step_id: "s2", capability: "deploy_vps",       provider_id: "agentos.deploy_vps",     input: { plan: "cx23" } },
-            { step_id: "s3", capability: "provision_email_inbox", provider_id: "agentos.provision_email_inbox", input: { local_part: "contact" }, depends_on: ["s1"] },
-            { step_id: "s4", capability: "social_account_provision", provider_id: "agentos.x_account", input: { platform: "x" } },
-            { step_id: "s5", capability: "social_post", provider_id: "agentos.x_post", input: { platform: "x", account_id: "$STEPS.s4.output.account_id", content: "Launch day 🔥" }, depends_on: ["s4"] },
+            { step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: { domain_preferences: ["freshkicks.io"] } },
+            { step_id: "s2", capability: "deploy_vps",       provider_id: "palmyr.deploy_vps",     input: { plan: "cx23" } },
+            { step_id: "s3", capability: "provision_email_inbox", provider_id: "palmyr.provision_email_inbox", input: { local_part: "contact" }, depends_on: ["s1"] },
+            { step_id: "s4", capability: "social_account_provision", provider_id: "palmyr.x_account", input: { platform: "x" } },
+            { step_id: "s5", capability: "social_post", provider_id: "palmyr.x_post", input: { platform: "x", account_id: "$STEPS.s4.output.account_id", content: "Launch day 🔥" }, depends_on: ["s4"] },
           ],
         },
         usage: { tokensIn: 1600, tokensOut: 500, cacheReadTokens: 4000, cacheCreationTokens: 0, costUsdc: 0.04 },

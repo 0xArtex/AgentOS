@@ -57,7 +57,7 @@ router.get("/", requireAuth(0, 'general'), async (req: AuthenticatedRequest, res
       links: {
         docs: "http://77.42.89.233:3001/docs",
         skill: "http://77.42.89.233:3001/skill.md",
-        github: "https://github.com/0xArtex/AgentOS",
+        github: "https://github.com/0xArtex/Palmyr",
       }
     });
   } catch (err: any) {

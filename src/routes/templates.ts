@@ -414,7 +414,7 @@ async function provisionTemplate(
       });
       const emailData = await emailResp.json() as any;
 
-      resources.email = { address: emailData.email || `${prefix}@agntos.dev` };
+      resources.email = { address: emailData.email || `${prefix}@palmyr.ai` };
       logStep("email", "done", `Email: ${resources.email.address}`);
     }
 

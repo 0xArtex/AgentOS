@@ -4,7 +4,7 @@ const router = Router();
 
 router.get("/", (req: Request, res: Response) => {
   const nodes = [
-    { id: "agentos", label: "AgentOS", type: "core", status: "live", services: ["phone", "email", "compute", "domains", "storage", "analytics"] },
+    { id: "palmyr", label: "Palmyr", type: "core", status: "live", services: ["phone", "email", "compute", "domains", "storage", "analytics"] },
     { id: "agent-casino", label: "Agent Casino", type: "partner", status: "live", integration: "x402 payments + compute" },
     { id: "slotscribe", label: "SlotScribe", type: "partner", status: "live", integration: "audit logs + on-chain anchoring" },
     { id: "sugarclaw", label: "SugarClawdy", type: "partner", status: "live", integration: "task marketplace + notifications" },
@@ -21,7 +21,7 @@ router.get("/", (req: Request, res: Response) => {
   ];
 
   const edges = nodes.filter(n => n.type === "partner").map(n => ({
-    from: "agentos", to: n.id, status: (n as any).status, integration: (n as any).integration
+    from: "palmyr", to: n.id, status: (n as any).status, integration: (n as any).integration
   }));
 
   const stats = {
@@ -32,8 +32,8 @@ router.get("/", (req: Request, res: Response) => {
   };
 
   res.json({
-    title: "AgentOS Network Topology",
-    description: "Real-time graph of AgentOS ecosystem connections",
+    title: "Palmyr Network Topology",
+    description: "Real-time graph of Palmyr ecosystem connections",
     graph: { nodes, edges },
     stats,
     lastUpdated: new Date().toISOString()

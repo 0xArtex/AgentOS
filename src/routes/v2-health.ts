@@ -27,8 +27,8 @@ router.get("/api/v2/health", async (req: Request, res: Response) => {
     pid: process.pid,
     postHackathon: {
       status: "FREE for all builders",
-      message: "AgentOS remains free through March 2026 for all Colosseum hackathon participants",
-      docs: "https://agntos.dev/docs"
+      message: "Palmyr remains free through March 2026 for all Colosseum hackathon participants",
+      docs: "https://palmyr.ai/docs"
     },
     timestamp: new Date().toISOString()
   });

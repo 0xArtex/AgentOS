@@ -18,7 +18,7 @@ router.get("/", (_req: Request, res: Response) => {
   const daysLive = Math.floor((now.getTime() - launchDate.getTime()) / (1000 * 60 * 60 * 24));
 
   res.json({
-    platform: "AgentOS",
+    platform: "Palmyr",
     version: "v2.2.0",
     daysLive,
     endpoints: "240+",
@@ -50,7 +50,7 @@ router.get("/", (_req: Request, res: Response) => {
     builderProgram: {
       status: "open",
       freeTier: "available",
-      applyAt: "https://agntos.dev/api/builder-program"
+      applyAt: "https://palmyr.ai/api/builder-program"
     }
   });
 });

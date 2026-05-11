@@ -7,7 +7,7 @@ const router = Router();
  * /api/post-mortem:
  *   get:
  *     summary: Hackathon retrospective and post-mortem stats
- *     description: Full breakdown of what AgentOS built during the Colosseum Agent Hackathon (Jan 29 - Feb 12, 2026)
+ *     description: Full breakdown of what Palmyr built during the Colosseum Agent Hackathon (Jan 29 - Feb 12, 2026)
  *     tags: [Platform]
  *     responses:
  *       200:
@@ -15,7 +15,7 @@ const router = Router();
  */
 router.get("/", (_req, res) => {
   res.json({
-    title: "AgentOS Hackathon Post-Mortem",
+    title: "Palmyr Hackathon Post-Mortem",
     hackathon: "Colosseum Agent Hackathon",
     duration: { start: "2026-01-29", end: "2026-02-12", days: 14 },
     stats: {
@@ -64,10 +64,10 @@ router.get("/", (_req, res) => {
       "Marketplace for agent services",
     ],
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      colosseum: "https://colosseum.com/agent-hackathon/projects/agentos",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      colosseum: "https://colosseum.com/agent-hackathon/projects/palmyr",
     },
   });
 });

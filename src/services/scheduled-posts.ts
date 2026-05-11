@@ -115,7 +115,7 @@ export function createScheduled(req: CreateScheduledRequest): CreateScheduledRes
     )
     .get(req.registered_account_id, req.wallet) as { id: string; status: string } | undefined;
   if (!owned) {
-    return { success: false, error: `Registered account "${req.registered_account_id}" not found for this wallet. Run \`agentos twitter register <username>\` first.` };
+    return { success: false, error: `Registered account "${req.registered_account_id}" not found for this wallet. Run \`palmyr twitter register <username>\` first.` };
   }
   if (owned.status === "revoked") {
     return { success: false, error: `Registered account "${req.registered_account_id}" was revoked. Re-register to schedule new posts.` };
@@ -201,7 +201,7 @@ export function listScheduled(filter: ListScheduledFilter): ScheduledPostSummary
  * Redact base64 media blobs from a payload before returning it to the user.
  * The worker reads payload_json directly from the row, so it still gets the
  * full data — only the user-facing list/cancel responses see redacted form.
- * Without this, `agentos twitter queue` dumps ~1.5MB of base64 per scheduled
+ * Without this, `palmyr twitter queue` dumps ~1.5MB of base64 per scheduled
  * media post (an image post is ~1.3MB raw → ~1.7MB base64).
  */
 function redactPayloadForSummary(payload: SchedulePayload): SchedulePayload {

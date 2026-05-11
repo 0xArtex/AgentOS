@@ -6,7 +6,7 @@ router.get("/api/demo-live", (_req: Request, res: Response) => {
   const baseUrl = "http://77.42.89.233:3001";
   
   res.json({
-    title: "AgentOS Live Demo",
+    title: "Palmyr Live Demo",
     subtitle: "Follow these steps to see autonomous agent infrastructure in action",
     estimated_time: "3 minutes",
     steps: [
@@ -61,7 +61,7 @@ router.get("/api/demo-live", (_req: Request, res: Response) => {
     links: {
       docs: baseUrl + "/docs",
       skill: baseUrl + "/skill.md",
-      github: "https://github.com/0xArtex/AgentOS"
+      github: "https://github.com/0xArtex/Palmyr"
     }
   });
 });

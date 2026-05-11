@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * AgentOS Email Decryptor
- * Decrypts E2E encrypted emails from AgentOS using your Solana private key.
+ * Palmyr Email Decryptor
+ * Decrypts E2E encrypted emails from Palmyr using your Solana private key.
  *
  * Usage:
  *   node decrypt-email.mjs <base64-ciphertext> <solana-keypair-path>

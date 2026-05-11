@@ -4,8 +4,8 @@ const router = Router();
 
 router.get('/leaderboard', (_req: Request, res: Response) => {
   res.json({
-    title: 'AgentOS Ecosystem Leaderboard',
-    description: 'Top agents and projects using AgentOS infrastructure',
+    title: 'Palmyr Ecosystem Leaderboard',
+    description: 'Top agents and projects using Palmyr infrastructure',
     lastUpdated: new Date().toISOString(),
     hackathonDeadline: '2026-02-12T17:00:00Z',
     categories: {

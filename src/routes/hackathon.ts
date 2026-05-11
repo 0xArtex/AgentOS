@@ -12,7 +12,7 @@ router.get("/", (_req: Request, res: Response) => {
 
   res.json({
     name: "Colosseum Agent Hackathon",
-    project: "AgentOS — Autonomous Infrastructure for AI Agents",
+    project: "Palmyr — Autonomous Infrastructure for AI Agents",
     project_id: 432,
     deadline: DEADLINE.toISOString(),
     time_remaining: `${hoursLeft}h ${minutesLeft}m`,
@@ -57,7 +57,7 @@ router.get("/", (_req: Request, res: Response) => {
     links: {
       api_docs: "http://77.42.89.233:3001/docs",
       skill_md: "http://77.42.89.233:3001/skill.md",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       colosseum: "https://agents.colosseum.com/projects/432"
     }
   });

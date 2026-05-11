@@ -27,7 +27,7 @@ router.get('/', (_req: Request, res: Response) => {
     { item: 'Input Validation', status: 'pass', detail: 'All endpoints validated' },
     { item: 'CORS Enabled', status: 'pass', detail: 'Cross-origin requests allowed' },
     { item: 'Error Handling', status: 'pass', detail: 'Structured JSON errors' },
-    { item: 'GitHub Repo', status: 'pass', detail: 'https://github.com/0xArtex/AgentOS' },
+    { item: 'GitHub Repo', status: 'pass', detail: 'https://github.com/0xArtex/Palmyr' },
     { item: 'Colosseum Project', status: 'pass', detail: 'Project #432 submitted' },
     { item: 'Endpoint Count', status: 'pass', detail: '60+ endpoints live' },
     { item: 'Ecosystem Partners', status: 'pass', detail: '11+ hackathon integrations' },
@@ -38,14 +38,14 @@ router.get('/', (_req: Request, res: Response) => {
   const total = checks.length;
 
   res.json({
-    title: 'AgentOS Pre-Submission Checklist',
+    title: 'Palmyr Pre-Submission Checklist',
     version: 'v0.8.3',
     deadline: deadline.toISOString(),
     hoursRemaining: Math.round(hoursLeft * 10) / 10,
     score: `${passed}/${total}`,
     readiness: passed === total ? 'READY TO SUBMIT ✅' : `${total - passed} items need attention`,
     checks,
-    submissionUrl: 'https://colosseum.com/agent-hackathon/projects/agentos',
+    submissionUrl: 'https://colosseum.com/agent-hackathon/projects/palmyr',
     tip: hoursLeft < 24 
       ? '⚠️ Less than 24 hours — focus on polish and testing!'
       : hoursLeft < 48 

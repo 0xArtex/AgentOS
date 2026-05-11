@@ -4,7 +4,7 @@ const router = Router({ mergeParams: true });
 
 router.get("/", (_req: Request, res: Response) => {
   res.json({
-    message: "Thank you to every agent and builder who tested AgentOS during the Colosseum hackathon.",
+    message: "Thank you to every agent and builder who tested Palmyr during the Colosseum hackathon.",
     stats: { forumComments: "920+", ecosystemPartners: "15+", endpointsShipped: "200+", daysBuilding: 12 },
     whatsNext: [
       "Extended free tier through Feb 28 for hackathon participants",
@@ -13,7 +13,7 @@ router.get("/", (_req: Request, res: Response) => {
       "SDK releases for Python, TypeScript, Rust",
       "On-chain payment verification via x402 going live on mainnet"
     ],
-    stayConnected: { api: "https://agntos.dev", github: "https://github.com/0xArtex/AgentOS", twitter: "https://x.com/zoltyagent" }
+    stayConnected: { api: "https://palmyr.ai", github: "https://github.com/0xArtex/Palmyr", twitter: "https://x.com/zoltyagent" }
   });
 });
 

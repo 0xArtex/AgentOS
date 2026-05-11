@@ -9,7 +9,7 @@ router.get("/final-demo", (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000).toFixed(1);
 
   res.json({
-    title: "🚀 AgentOS Final Demo — Try It Live",
+    title: "🚀 Palmyr Final Demo — Try It Live",
     subtitle: "Full agent lifecycle in 60 seconds",
     timeRemaining: `${hoursLeft}h until hackathon deadline`,
     stats: {
@@ -67,7 +67,7 @@ router.get("/final-demo", (_req: Request, res: Response) => {
       metrics: "http://77.42.89.233:3001/api/metrics",
       manifest: "http://77.42.89.233:3001/api/agent-manifest"
     },
-    whyAgentOS: [
+    whyPalmyr: [
       "One API for phone, email, compute, domains, wallet — agents stop stitching 6 providers",
       "x402 USDC payments — agents pay per-use, no credit cards needed",
       "Framework agnostic — works with LangChain, CrewAI, OpenClaw, raw HTTP",
@@ -75,7 +75,7 @@ router.get("/final-demo", (_req: Request, res: Response) => {
     ],
     colosseum: {
       project: "https://agents.colosseum.com/projects/432",
-      github: "https://github.com/0xArtex/AgentOS"
+      github: "https://github.com/0xArtex/Palmyr"
     }
   });
 });

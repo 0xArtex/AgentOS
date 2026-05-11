@@ -67,10 +67,10 @@ router.get("/", (_req: Request, res: Response) => {
       nodeVersion: process.version
     },
     links: {
-      docs: "https://agntos.dev/docs",
-      dashboard: "https://agntos.dev/dashboard",
-      skill: "https://agntos.dev/skill.md",
-      github: "https://github.com/0xArtex/AgentOS"
+      docs: "https://palmyr.ai/docs",
+      dashboard: "https://palmyr.ai/dashboard",
+      skill: "https://palmyr.ai/skill.md",
+      github: "https://github.com/0xArtex/Palmyr"
     }
   });
 });

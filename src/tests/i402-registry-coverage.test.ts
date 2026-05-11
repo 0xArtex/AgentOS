@@ -3,7 +3,7 @@
  *
  * Guards against seed-vs-route drift. For each provider in the seed:
  *   - Confirms it maps to a real capability class
- *   - Confirms the endpoint URL is well-formed (has a host, matches AGENTOS_API_BASE)
+ *   - Confirms the endpoint URL is well-formed (has a host, matches PALMYR_API_BASE)
  *   - Confirms every {placeholder} in the URL corresponds to an input-schema field
  *   - Confirms payment rail is x402-native
  *
@@ -15,17 +15,17 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-process.env.AGENTOS_API_BASE = "https://agntos.dev";
+process.env.PALMYR_API_BASE = "https://palmyr.ai";
 
 import { initDatabase } from "../db";
 import {
-  seedAgentOSPrimitives,
+  seedPalmyrPrimitives,
   listProviders,
   CAPABILITY_CLASSES,
 } from "../services/i402-providers";
 
 initDatabase();
-seedAgentOSPrimitives();
+seedPalmyrPrimitives();
 
 // -------------------- Helpers --------------------
 
@@ -57,10 +57,10 @@ function routeFileExists(relativeRoute: string): boolean {
 // -------------------- Tests --------------------
 
 describe("i402 registry coverage", () => {
-  const providers = listProviders({ source: "agentos", enabledOnly: true });
+  const providers = listProviders({ source: "palmyr", enabledOnly: true });
 
   it("has providers registered (non-empty)", () => {
-    assert.ok(providers.length >= 50, `expected 50+ AgentOS providers, got ${providers.length}`);
+    assert.ok(providers.length >= 50, `expected 50+ Palmyr providers, got ${providers.length}`);
   });
 
   it("every provider maps to a real capability class", () => {
@@ -73,7 +73,7 @@ describe("i402 registry coverage", () => {
   });
 
   it("every provider's endpoint is well-formed and uses the configured base URL", () => {
-    const base = process.env.AGENTOS_API_BASE!;
+    const base = process.env.PALMYR_API_BASE!;
     for (const p of providers) {
       assert.ok(
         p.endpoint.startsWith(base),

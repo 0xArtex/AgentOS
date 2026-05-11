@@ -3,7 +3,7 @@ import helmet from "helmet";
 import hpp from "hpp";
 
 /**
- * Security middleware stack for AgentOS API.
+ * Security middleware stack for Palmyr API.
  * - Helmet: sets security headers (CSP, XSS protection, etc.)
  * - HPP: prevents HTTP parameter pollution
  * - Input sanitization: strips dangerous characters

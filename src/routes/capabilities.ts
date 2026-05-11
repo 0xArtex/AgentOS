@@ -63,7 +63,7 @@ router.get("/", (_req: Request, res: Response) => {
   res.json({
     success: true,
     data: CAPABILITIES,
-    description: "Full capability matrix of AgentOS infrastructure services"
+    description: "Full capability matrix of Palmyr infrastructure services"
   });
 });
 

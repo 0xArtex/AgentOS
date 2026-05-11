@@ -27,7 +27,7 @@ import partnerWorkflowsRoute from "./routes/partner-workflows";
 import starterKitRoute from "./routes/starter-kit";
 import colosseumReadyRoutes from "./routes/colosseum-ready";
 import agentActivityRoutes from "./routes/agent-activity";
-import whyAgentosRoute from "./routes/why-agentos";
+import whyAgentosRoute from "./routes/why-palmyr";
 import serviceHealthRouter from "./routes/service-health";
 import hackathonStatusRouter from "./routes/hackathon-status";
 import pitchRouter from "./routes/pitch";
@@ -188,10 +188,10 @@ app.get("/", (_req, res) => {
 // ── API info (moved from GET /) ──────────────────────────────
 app.get("/api", (_req, res) => {
   res.json({
-    service: "AgentOS",
+    service: "Palmyr",
     version: getVersion().version,
     status: "operational",
-    docs: "https://github.com/0xArtex/AgentOS",
+    docs: "https://github.com/0xArtex/Palmyr",
     services: ["phone", "email", "domains", "compute", "apikeys", "agents", "messages", "stats", "activity"],
   });
 
@@ -319,7 +319,7 @@ app.get("/pricing", (_req, res) => {
       solana: "B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3",
       base: "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2",
     },
-    docs: "https://agntos.dev/skill.md",
+    docs: "https://palmyr.ai/skill.md",
   });
 
 });
@@ -329,7 +329,7 @@ app.get("/skill.md", (req, res) => {
   const path = require('path');
   // Single source of truth: the skill folder. Falls back to public/ for legacy.
   const candidates = [
-    path.join(__dirname, '..', 'skills', 'agentos', 'SKILL.md'),
+    path.join(__dirname, '..', 'skills', 'palmyr', 'SKILL.md'),
     path.join(__dirname, '..', 'public', 'skill.md'),
   ];
   const skillPath = candidates.find((p) => fs.existsSync(p));
@@ -345,7 +345,7 @@ app.get("/skill.md", (req, res) => {
 // ── Stream Overlay Stats ──────────────────────────────────────
 app.get("/overlay-stats", async (_req, res) => {
   // Read current task from a file (updated externally)
-  let task = "Shipping AgentOS features...";
+  let task = "Shipping Palmyr features...";
   let commits = 0;
   try {
     const fs = await import("fs");
@@ -394,14 +394,14 @@ app.use("/api/sla", slaRoutes);
 app.use("/api/uptime", infoRoutes);
 app.get("/api/final-pitch", (_req: any, res: any) => {
   res.json({
-    name: "AgentOS",
+    name: "Palmyr",
     tagline: "The operating system for autonomous AI agents",
     problem: "Every agent team rebuilds the same infra. Weeks wasted on plumbing.",
     solution: "One API call = full infra stack, paid in USDC on Solana.",
     traction: { endpoints: "121+", forum_comments: "495+", partners: 11 },
     differentiators: ["x402 payments", "Framework-agnostic", "Sub-second provisioning", "Security-first"],
     vision: "The AWS for the agent economy.",
-    links: { api: "http://77.42.89.233:3001", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/AgentOS" }
+    links: { api: "http://77.42.89.233:3001", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/Palmyr" }
   });
 });
 app.use("/api/judge-brief", judgeBriefRoutes);
@@ -713,7 +713,7 @@ app.use(errorHandler);
 
 // ── Start ─────────────────────────────────────────────────────
 import { startDepositMonitor } from "./services/deposit-monitor";
-import { seedAgentOSPrimitives } from "./services/i402-providers";
+import { seedPalmyrPrimitives } from "./services/i402-providers";
 import { ensureProviderEmbeddings, embeddingsAvailable } from "./services/i402-embeddings";
 import { refreshFederatedCatalogs } from "./services/i402-agentic-market";
 import { refreshHcloudTypes } from "./services/hcloud-types";
@@ -734,7 +734,7 @@ async function refreshI402Federations(): Promise<void> {
 
 app.listen(config.port, () => {
   startDepositMonitor();
-  seedAgentOSPrimitives();
+  seedPalmyrPrimitives();
   // Server-side social-post scheduler — polls scheduled_social_posts and
   // fires due items via the same internal post functions used by the
   // direct-post routes. Disable with SOCIAL_SCHEDULER_DISABLED=1.
@@ -757,7 +757,7 @@ app.listen(config.port, () => {
   if (refreshMinutes > 0 && process.env.I402_AGENTIC_MARKET_CATALOG_URL) {
     setInterval(refreshI402Federations, refreshMinutes * 60 * 1000).unref();
   }
-  console.log(`⚡ AgentOS running on port ${config.port}`);
+  console.log(`⚡ Palmyr running on port ${config.port}`);
   console.log(`   Treasury: ${config.treasuryWallet}`);
   console.log(`   Network:  Solana (${config.solanaRpcUrl})`);
   console.log(`   Email:    *@${config.emailDomain}`);

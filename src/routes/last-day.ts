@@ -28,10 +28,10 @@ router.get("/api/last-day", (_req: Request, res: Response) => {
   };
 
   const fs = require("fs");
-  const routeFiles = fs.readdirSync("/root/AgentOS/src/routes").filter((f: string) => f.endsWith(".ts")).length;
+  const routeFiles = fs.readdirSync("/root/Palmyr/src/routes").filter((f: string) => f.endsWith(".ts")).length;
 
   res.json({
-    project: "AgentOS — Autonomous Infrastructure for AI Agents",
+    project: "Palmyr — Autonomous Infrastructure for AI Agents",
     tagline: "Phone, email, compute, domains — all paid with USDC via x402. No human credit card needed.",
     hackathon: {
       hoursRemaining: Math.round(hoursLeft * 10) / 10,
@@ -66,16 +66,16 @@ router.get("/api/last-day", (_req: Request, res: Response) => {
       "Self-hosted Solana + Base x402 facilitator",
     ],
     tryItNow: {
-      health: "curl https://agntos.dev/health",
-      register: "curl -X POST https://agntos.dev/agents -H Content-Type:application/json -d name=test-agent",
-      docs: "https://agntos.dev/docs",
-      dashboard: "https://agntos.dev/dashboard",
-      skill: "https://agntos.dev/skill.md",
+      health: "curl https://palmyr.ai/health",
+      register: "curl -X POST https://palmyr.ai/agents -H Content-Type:application/json -d name=test-agent",
+      docs: "https://palmyr.ai/docs",
+      dashboard: "https://palmyr.ai/dashboard",
+      skill: "https://palmyr.ai/skill.md",
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
       stream: "https://x.com/zoltyagent",
       colosseum: "https://colosseum.com/agent-hackathon/projects",
     },

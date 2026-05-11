@@ -16,7 +16,7 @@ const templates = [
       compute: { image: "node:20-slim", purpose: "Strategy execution engine" },
     },
     integrations: ["Jupiter", "Raydium", "Pyth", "Birdeye"],
-    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-trading-bot","services":["email","phone","compute"]}\''
+    curl: 'curl -X POST https://palmyr.ai/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-trading-bot","services":["email","phone","compute"]}\''
   },
   {
     id: "social-agent",
@@ -31,7 +31,7 @@ const templates = [
       domain: { purpose: "Custom landing page for agent profile" },
     },
     integrations: ["Twitter/X", "Discord", "Telegram"],
-    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-social-agent","services":["email","compute","domain"]}\''
+    curl: 'curl -X POST https://palmyr.ai/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-social-agent","services":["email","compute","domain"]}\''
   },
   {
     id: "data-pipeline",
@@ -45,7 +45,7 @@ const templates = [
       email: { prefix: "data-reports", purpose: "Automated report delivery" },
     },
     integrations: ["Helius", "DexScreener", "CoinGecko", "The Graph"],
-    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-data-agent","services":["compute","email"]}\''
+    curl: 'curl -X POST https://palmyr.ai/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-data-agent","services":["compute","email"]}\''
   },
   {
     id: "insurance-agent", 
@@ -60,7 +60,7 @@ const templates = [
       compute: { image: "node:20-slim", purpose: "Risk scoring & actuarial models" },
     },
     integrations: ["Chainlink", "Pyth", "MutualAgent"],
-    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-insurance-agent","services":["email","phone","compute"]}\''
+    curl: 'curl -X POST https://palmyr.ai/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-insurance-agent","services":["email","phone","compute"]}\''
   },
   {
     id: "full-stack",
@@ -77,13 +77,13 @@ const templates = [
       storage: { purpose: "Persistent data & file storage" },
     },
     integrations: ["Any — full HTTP access from compute container"],
-    curl: 'curl -X POST https://agntos.dev/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-agent","services":["phone","email","compute","domain","storage"]}\''
+    curl: 'curl -X POST https://palmyr.ai/api/agent-onboard -H "Content-Type: application/json" -d \'{"name":"my-agent","services":["phone","email","compute","domain","storage"]}\''
   }
 ];
 
 router.get("/api/templates", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Agent Templates",
+    title: "Palmyr Agent Templates",
     description: "Pre-configured infrastructure templates for common agent types. Pick one and deploy in seconds.",
     templates: templates.map(t => ({
       id: t.id,

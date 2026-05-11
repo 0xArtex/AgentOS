@@ -55,8 +55,8 @@ router.get("/", async (_req: Request, res: Response) => {
       overall: healthy === checks.length ? "all_systems_go" : "partial",
     },
     partners: checks,
-    agentos: {
-      api: "https://agntos.dev",
+    palmyr: {
+      api: "https://palmyr.ai",
       status: "operational",
       endpoints: "235+",
       uptime_days: "15+",

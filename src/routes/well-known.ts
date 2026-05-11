@@ -144,11 +144,11 @@ export function buildOpenApiDoc(app: Express, host: string): any {
   return {
     openapi: "3.1.0",
     info: {
-      title: "AgentOS",
+      title: "Palmyr",
       description: "Autonomous infrastructure for AI agents — pay with USDC on Solana or Base via x402.",
       version: "1.0.0",
       "x-guidance": [
-        "AgentOS is a paid HTTP API that lets agents buy and operate their own infrastructure: phone numbers, email inboxes, custom domains, cloud servers, third-party API keys.",
+        "Palmyr is a paid HTTP API that lets agents buy and operate their own infrastructure: phone numbers, email inboxes, custom domains, cloud servers, third-party API keys.",
         "Identity = wallet address. Pay with USDC; the wallet that pays becomes the owner of the resource.",
         "Every paid endpoint returns 402 with a valid x402 challenge. Use the `extra.facilitator` field on each accepts entry to route the settlement (CDP for EVM, self-hosted for Solana).",
         "Solana uses a server-paid fee-payer pattern — payers only need USDC, never SOL.",
@@ -176,7 +176,7 @@ export function mountDiscoveryRoutes(app: Express): void {
   });
 
   app.get("/openapi.json", (req: Request, res: Response) => {
-    const host = req.get("host") || "agntos.dev";
+    const host = req.get("host") || "palmyr.ai";
     res.json(buildOpenApiDoc(app, host));
   });
 }

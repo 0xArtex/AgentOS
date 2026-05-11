@@ -50,12 +50,12 @@ export function assertSshPublicKey(key: string): string {
  *     the wrapping script.
  *   - Recipes should NOT exit non-zero on cosmetic failures (version probes
  *     etc.) — bubbling those up aborts the rest of cloud-init.
- *   - The wrapping script writes /etc/agentos/install-status.json on success
+ *   - The wrapping script writes /etc/palmyr/install-status.json on success
  *     so the CLI's wait-for-install gate has a single sentinel to poll.
  *     Per-recipe debug logs are recipe-specific (see below).
  */
 const INSTALL_RECIPES: Record<string, { description: string; bash: string }> = {
-  // OpenClaw — the original AgentOS default. Installs Node 22 + the openclaw
+  // OpenClaw — the original Palmyr default. Installs Node 22 + the openclaw
   // and clawhub npm packages. Writes /etc/openclaw/provision.json for
   // historical compatibility with anything that already keys off it.
   //
@@ -63,19 +63,19 @@ const INSTALL_RECIPES: Record<string, { description: string; bash: string }> = {
   //   - Each curl|bash and npm install is wrapped in `set +e ... PIPESTATUS`
   //     so we surface the inner exit code rather than letting our outer
   //     `set -e` mask it with a generic abort.
-  //   - Tee logs to /var/log/agentos/openclaw-install.log so the CLI's
+  //   - Tee logs to /var/log/palmyr/openclaw-install.log so the CLI's
   //     diagnostic fetcher has a single known path to tail on failure.
   //   - Use absolute paths everywhere — cloud-init's bash doesn't source
   //     ~/.bashrc, so PATH may not pick up freshly-installed binaries.
   openclaw: {
     description: 'OpenClaw runtime + clawhub skill registry (Node 22)',
     bash: `# ─── Install OpenClaw ───
-mkdir -p /var/log/agentos /etc/openclaw
+mkdir -p /var/log/palmyr /etc/openclaw
 
 # Install Node 22. NodeSource's setup script must be allowed to fail loudly,
 # but we want the actual install.sh exit code, not bash's pipe propagation.
 set +e
-curl -fsSL https://deb.nodesource.com/setup_22.x 2>&1 | bash - 2>&1 | tee /var/log/agentos/openclaw-install.log
+curl -fsSL https://deb.nodesource.com/setup_22.x 2>&1 | bash - 2>&1 | tee /var/log/palmyr/openclaw-install.log
 NODESOURCE_EXIT=\${PIPESTATUS[0]}
 if [ "\${NODESOURCE_EXIT:-1}" -ne 0 ]; then
   echo "ERROR: NodeSource setup script failed (exit=\$NODESOURCE_EXIT)" >&2
@@ -83,7 +83,7 @@ if [ "\${NODESOURCE_EXIT:-1}" -ne 0 ]; then
   exit 1
 fi
 
-apt-get install -y -qq nodejs 2>&1 | tee -a /var/log/agentos/openclaw-install.log
+apt-get install -y -qq nodejs 2>&1 | tee -a /var/log/palmyr/openclaw-install.log
 APT_EXIT=\${PIPESTATUS[0]}
 if [ "\${APT_EXIT:-1}" -ne 0 ]; then
   echo "ERROR: apt-get install nodejs failed (exit=\$APT_EXIT)" >&2
@@ -93,7 +93,7 @@ fi
 
 # npm install can take ~60s on a small box; tee the output so the CLI
 # diagnostic fetcher can show what happened on failure.
-npm install -g openclaw clawhub 2>&1 | tee -a /var/log/agentos/openclaw-install.log
+npm install -g openclaw clawhub 2>&1 | tee -a /var/log/palmyr/openclaw-install.log
 NPM_EXIT=\${PIPESTATUS[0]}
 set -e
 if [ "\${NPM_EXIT:-1}" -ne 0 ]; then
@@ -103,14 +103,14 @@ fi
 
 cat > /etc/openclaw/provision.json << OPENCLAW_PROVISION_EOF
 {
-  "provisioned_by": "agentos",
+  "provisioned_by": "palmyr",
   "provisioned_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "openclaw_installed": true
 }
 OPENCLAW_PROVISION_EOF
 
-echo "OpenClaw provisioning complete" >> /var/log/agentos/openclaw-install.log
-/usr/bin/openclaw --version >> /var/log/agentos/openclaw-install.log 2>&1 || true
+echo "OpenClaw provisioning complete" >> /var/log/palmyr/openclaw-install.log
+/usr/bin/openclaw --version >> /var/log/palmyr/openclaw-install.log 2>&1 || true
 `,
   },
 
@@ -119,7 +119,7 @@ echo "OpenClaw provisioning complete" >> /var/log/agentos/openclaw-install.log
   // (Python 3.11+ via uv, build-essential, ripgrep, ffmpeg), and creates the
   // /usr/local/bin/hermes symlink when run as root. We pass --skip-setup so
   // the user can configure their model provider after deploy via
-  //   agentos compute exec <id> -- hermes setup
+  //   palmyr compute exec <id> -- hermes setup
   // or inside an SSH session.
   //
   // Defensive choices (this recipe failed in practice on a fresh deploy):
@@ -137,7 +137,7 @@ echo "OpenClaw provisioning complete" >> /var/log/agentos/openclaw-install.log
   hermes: {
     description: 'Hermes Agent (Nous Research) — self-improving AI agent runtime',
     bash: `# ─── Install Hermes Agent ───
-mkdir -p /var/log/agentos
+mkdir -p /var/log/palmyr
 
 # install.sh sets its own \`set -e\` and handles platform detection internally.
 # We disable our outer \`set -e\` only around the curl|bash + tee chain so
@@ -145,7 +145,7 @@ mkdir -p /var/log/agentos
 set +e
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh 2>&1 \\
   | bash -s -- --skip-setup 2>&1 \\
-  | tee /var/log/agentos/hermes-install.log
+  | tee /var/log/palmyr/hermes-install.log
 INSTALL_EXIT=\${PIPESTATUS[1]}
 set -e
 
@@ -153,14 +153,14 @@ set -e
 # when running as a non-root user; in cloud-init we're always root.
 if [ ! -x /usr/local/bin/hermes ]; then
   echo "ERROR: hermes binary not at /usr/local/bin/hermes after install (install.sh exit=\$INSTALL_EXIT)" >&2
-  echo "--- last 80 lines of /var/log/agentos/hermes-install.log ---" >&2
-  tail -80 /var/log/agentos/hermes-install.log >&2 || true
+  echo "--- last 80 lines of /var/log/palmyr/hermes-install.log ---" >&2
+  tail -80 /var/log/palmyr/hermes-install.log >&2 || true
   exit 1
 fi
 
 # --version is a sanity check, not load-bearing. If a future Hermes release
 # changes its CLI, don't abort the whole install over it.
-/usr/local/bin/hermes --version > /var/log/agentos/hermes-version.log 2>&1 || true
+/usr/local/bin/hermes --version > /var/log/palmyr/hermes-version.log 2>&1 || true
 `,
   },
 };
@@ -178,14 +178,14 @@ export function isKnownRecipe(name: string): boolean {
  *
  * Always emits the security-hardening preamble (sshd config, UFW, unattended
  * upgrades). Then runs each install recipe in `installs` in the order given.
- * Finally writes `/etc/agentos/install-status.json` so the CLI's gate-4
+ * Finally writes `/etc/palmyr/install-status.json` so the CLI's gate-4
  * readiness check has a single file to poll.
  *
  * Caller is responsible for validating that every entry in `installs` is in
  * `INSTALL_RECIPES` (the route layer does this so the 400 surfaces cleanly).
  */
 function generateCloudInit(opts: { userPubkey?: string; installs: string[] }): string {
-  const platformPubKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAeOkVwRfQpLUemQ6HwbglAPjv1WioahHED/SXSaK7r+ agentos-platform-temp';
+  const platformPubKey = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAeOkVwRfQpLUemQ6HwbglAPjv1WioahHED/SXSaK7r+ palmyr-platform-temp';
   // userPubkey was already validated by the route layer via assertSshPublicKey;
   // it cannot contain shell metacharacters by construction. We still wrap it in
   // single quotes so the worst-case typo doesn't break the heredoc.
@@ -218,9 +218,9 @@ export HOME="\${HOME:-/root}"
 # Make every step's stdout/stderr land in the cloud-init log AND a file we
 # control so the CLI's diagnostic fetcher has a deterministic path to tail
 # regardless of which Hetzner image variant we're on.
-mkdir -p /var/log/agentos
-exec > >(tee -a /var/log/agentos/cloud-init.log) 2>&1
-echo "[agentos] cloud-init user_data starting at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+mkdir -p /var/log/palmyr
+exec > >(tee -a /var/log/palmyr/cloud-init.log) 2>&1
+echo "[palmyr] cloud-init user_data starting at $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 # ─── Security Hardening ───
 # Inject platform temp key for provisioning (removed during SSH handoff)
@@ -253,23 +253,23 @@ ufw --force enable
 
 echo 'Unattended-Upgrade::Allowed-Origins { "\${distro_id}:\${distro_codename}-security"; };' > /etc/apt/apt.conf.d/50unattended-upgrades-local
 
-echo "[agentos] preamble done, starting recipes: ${JSON.stringify(opts.installs)}"
+echo "[palmyr] preamble done, starting recipes: ${JSON.stringify(opts.installs)}"
 
 ${recipeBlocks}
 
-# ─── AgentOS install marker ───
+# ─── Palmyr install marker ───
 # The CLI's deploy --wait readiness chain polls this file as gate 4 when the
 # user requested any install. Single sentinel; absent → CLI surfaces a
 # "install did not complete" timeout; present → CLI returns ready: true.
-mkdir -p /etc/agentos
-cat > /etc/agentos/install-status.json << AGENTOS_INSTALL_EOF
+mkdir -p /etc/palmyr
+cat > /etc/palmyr/install-status.json << PALMYR_INSTALL_EOF
 {
   "installs": ${installsJsonArray},
   "completed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
   "status": "ok"
 }
-AGENTOS_INSTALL_EOF
-echo "[agentos] cloud-init complete"
+PALMYR_INSTALL_EOF
+echo "[palmyr] cloud-init complete"
 `;
 }
 
@@ -309,7 +309,7 @@ async function hcloud(method: string, path: string, body?: any): Promise<any> {
  *     Hetzner returns is then useless after first boot. Caller must hand in
  *     a key (`sshKeyIds` or `sshPublicKey`), or use `setup-ssh` after the
  *     fact, or accept that they'll only access the box through the
- *     AgentOS-managed APIs.
+ *     Palmyr-managed APIs.
  *
  * `passwordUsable` in the return payload is the source of truth for the route
  * layer: false → strip `rootPassword` from the API response, surface handoff
@@ -347,7 +347,7 @@ export async function createServer(
     server_type: serverType,
     image,
     location: location || config.hcloudLocation,
-    labels: { managed_by: "agentos" },
+    labels: { managed_by: "palmyr" },
   };
 
   if (sshKeyIds?.length) {

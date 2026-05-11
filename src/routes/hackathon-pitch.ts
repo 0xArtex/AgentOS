@@ -3,10 +3,10 @@ const router = Router();
 
 router.get("/hackathon-pitch", (_req: Request, res: Response) => {
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous Infrastructure for AI Agents",
     problem: "AI agents need real-world capabilities (phone, email, compute, domains) but building this from scratch takes weeks and costs thousands.",
-    solution: "One API call. AgentOS provisions and manages all infrastructure autonomously, paid in USDC via x402.",
+    solution: "One API call. Palmyr provisions and manages all infrastructure autonomously, paid in USDC via x402.",
     traction: {
       endpoints: "190+",
       forum_engagement: "1000+ comments across 50+ threads",
@@ -33,7 +33,7 @@ router.get("/hackathon-pitch", (_req: Request, res: Response) => {
     links: {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill: "http://77.42.89.233:3001/skill.md"
     },
     call_to_action: "Try it now: curl http://77.42.89.233:3001/api/quickstart"

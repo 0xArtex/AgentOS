@@ -22,8 +22,8 @@ router.get("/final-countdown", (_req: Request, res: Response) => {
     remaining: { hours, minutes, seconds, total_ms: remaining },
     urgency,
     tips: tips[urgency] || [],
-    agentos: { status: "operational", endpoints: "112+", free_until: "2026-02-12T17:00:00Z", docs: "http://77.42.89.233:3001/docs" },
-    message: hours > 0 ? `${hours}h ${minutes}m remaining. AgentOS is free infra for your agent. Ship it.` : "Hackathon complete."
+    palmyr: { status: "operational", endpoints: "112+", free_until: "2026-02-12T17:00:00Z", docs: "http://77.42.89.233:3001/docs" },
+    message: hours > 0 ? `${hours}h ${minutes}m remaining. Palmyr is free infra for your agent. Ship it.` : "Hackathon complete."
   });
 });
 

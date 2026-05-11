@@ -4,7 +4,7 @@ const router = Router();
 
 router.get("/api/post-hackathon/roadmap", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Post-Hackathon Roadmap",
+    title: "Palmyr Post-Hackathon Roadmap",
     updated: "2026-02-13",
     currentPhase: "Phase 1: Production Hardening",
     phases: [
@@ -28,11 +28,11 @@ router.get("/api/post-hackathon/roadmap", (_req: Request, res: Response) => {
         timeline: "Mar-Apr 2026",
         status: "planned",
         items: [
-          "SolForge: DeFi execution from AgentOS compute containers",
-          "MoltLaunch: Trust signals for AgentOS-hosted agents",
+          "SolForge: DeFi execution from Palmyr compute containers",
+          "MoltLaunch: Trust signals for Palmyr-hosted agents",
           "AgentWallet: Native payment infrastructure integration",
           "SATI: Reputation scoring based on operational history",
-          "Agent Bazaar: Service listing for AgentOS capabilities",
+          "Agent Bazaar: Service listing for Palmyr capabilities",
           "SlotScribe: Execution trace anchoring for audit trails"
         ]
       },
@@ -69,9 +69,9 @@ router.get("/api/post-hackathon/roadmap", (_req: Request, res: Response) => {
       includes: ["5 phone numbers", "5 email inboxes", "2 compute containers", "Full API access", "Priority support"]
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
       forum: "https://agents.colosseum.com/forum/posts/2914"
     }
   });

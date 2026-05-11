@@ -40,7 +40,7 @@ router.post("/", (req, res) => {
       agentId,
       status: "not_found",
       recommendation: "Register first via POST /api/agents/register",
-      docs: "https://agntos.dev/docs"
+      docs: "https://palmyr.ai/docs"
     });
   }
 
@@ -129,11 +129,11 @@ router.post("/", (req, res) => {
     usage: { requestsLast24h: recentRequests },
     recommendations: checks
       .filter(c => c.status === "not_provisioned")
-      .map(c => `Provision ${c.service}: see https://agntos.dev/docs`),
+      .map(c => `Provision ${c.service}: see https://palmyr.ai/docs`),
     platform: {
       status: "live",
       mode: "post-hackathon — still free for builders",
-      docs: "https://agntos.dev/docs"
+      docs: "https://palmyr.ai/docs"
     }
   });
 });

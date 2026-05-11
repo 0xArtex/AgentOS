@@ -1,16 +1,16 @@
 /**
- * OpenAPI/Swagger specification for AgentOS
+ * OpenAPI/Swagger specification for Palmyr
  */
 export const swaggerSpec = {
   openapi: '3.0.0',
   info: {
-    title: 'AgentOS API',
+    title: 'Palmyr API',
     description: 'Autonomous infrastructure for AI agents — pay with USDC on Solana via x402',
     version: '0.1.0',
     contact: {
-      name: 'AgentOS',
+      name: 'Palmyr',
       email: 'zolty@openclaw.ai',
-      url: 'https://github.com/0xArtex/AgentOS'
+      url: 'https://github.com/0xArtex/Palmyr'
     },
     license: {
       name: 'MIT',
@@ -27,7 +27,7 @@ export const swaggerSpec = {
     '/api': {
       get: {
         summary: 'Get API information',
-        description: 'Returns basic information about the AgentOS API',
+        description: 'Returns basic information about the Palmyr API',
         responses: {
           '200': {
             description: 'API information',
@@ -36,10 +36,10 @@ export const swaggerSpec = {
                 schema: {
                   type: 'object',
                   properties: {
-                    service: { type: 'string', example: 'AgentOS' },
+                    service: { type: 'string', example: 'Palmyr' },
                     version: { type: 'string', example: '0.1.0' },
                     status: { type: 'string', example: 'operational' },
-                    docs: { type: 'string', example: 'https://github.com/0xArtex/AgentOS' },
+                    docs: { type: 'string', example: 'https://github.com/0xArtex/Palmyr' },
                     services: {
                       type: 'array',
                       items: { type: 'string' },
@@ -349,7 +349,7 @@ export const swaggerSpec = {
                   type: 'object',
                   properties: {
                     id: { type: 'string', example: 'demo_inbox_abc123' },
-                    email: { type: 'string', example: 'agent-abc123@agentos.dev' },
+                    email: { type: 'string', example: 'agent-abc123@palmyr.dev' },
                     password: { type: 'string', example: '[generated-password]' },
                     cost: { type: 'string', example: '1.00 USDC' },
                     demo: { type: 'boolean', example: true },
@@ -447,7 +447,7 @@ export const swaggerSpec = {
               'application/xml': {
                 schema: {
                   type: 'string',
-                  example: '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Message received by AgentOS</Message></Response>'
+                  example: '<?xml version="1.0" encoding="UTF-8"?><Response><Message>Message received by Palmyr</Message></Response>'
                 }
               }
             }
@@ -472,8 +472,8 @@ export const swaggerSpec = {
                 type: 'object',
                 properties: {
                   from: { type: 'string', example: 'sender@example.com' },
-                  to: { type: 'string', example: 'agent-123@agentos.dev' },
-                  subject: { type: 'string', example: 'Hello AgentOS' },
+                  to: { type: 'string', example: 'agent-123@palmyr.dev' },
+                  subject: { type: 'string', example: 'Hello Palmyr' },
                   text: { type: 'string', example: 'Email body text' },
                   html: { type: 'string', example: '<p>Email body HTML</p>' }
                 }

@@ -62,7 +62,7 @@ export async function dial(
   if (!number) throw new Error(`Phone number ${phoneNumberId} not found`);
   if (!number.active) throw new Error("Phone number is deactivated");
 
-  const webhookUrl = opts?.webhookUrl || `https://agntos.dev/phone/webhooks/voice`;
+  const webhookUrl = opts?.webhookUrl || `https://palmyr.ai/phone/webhooks/voice`;
 
   if (!config.telnyxVoiceAppId) {
     throw new Error("Voice not configured — set TELNYX_VOICE_APP_ID");

@@ -1,13 +1,24 @@
 /**
- * AgentOS local config + data management
- * Everything lives in ~/.agentos/
+ * Palmyr local config + data management
+ * Everything lives in ~/.palmyr/
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, statSync } from 'fs'
+import { readFileSync, writeFileSync, mkdirSync, existsSync, readdirSync, unlinkSync, statSync, renameSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
-const HOME = join(homedir(), '.agentos')
+const HOME = join(homedir(), '.palmyr')
+
+// One-time migration: rename legacy ~/.agentos/ → ~/.palmyr/ on first run after rebrand.
+const LEGACY_HOME = join(homedir(), '.agentos')
+if (existsSync(LEGACY_HOME) && !existsSync(HOME)) {
+  try {
+    renameSync(LEGACY_HOME, HOME)
+    process.stderr.write(`migrated config dir: ${LEGACY_HOME} → ${HOME}\n`)
+  } catch (e: any) {
+    process.stderr.write(`warning: could not migrate ${LEGACY_HOME} → ${HOME}: ${e.message}\n`)
+  }
+}
 
 // Directory structure
 const DIRS = {
@@ -40,10 +51,10 @@ export function ensureDirs() {
 
 export interface WalletConfig {
   keyfile?: string   // Legacy keyfile path
-  vaultWalletId?: string  // AgentOS vault wallet ID (preferred)
+  vaultWalletId?: string  // Palmyr vault wallet ID (preferred)
 }
 
-export interface AgentOSConfig {
+export interface PalmyrConfig {
   api: string
   wallets: {
     solana?: WalletConfig
@@ -52,7 +63,7 @@ export interface AgentOSConfig {
   defaultChain: 'solana' | 'base'
   setupDone?: boolean
   vaultEnabled?: boolean
-  apiKey?: string  // AgentOS API key for agent access
+  apiKey?: string  // Palmyr API key for agent access
   defaultPayWalletId?: string  // Vault wallet ID used by x402 pay flow
   defaultPayChain?: 'solana' | 'base'  // Which chain to pay on for x402 (default: solana)
   // Legacy compat
@@ -61,13 +72,13 @@ export interface AgentOSConfig {
 }
 
 const CONFIG_PATH = join(HOME, 'config.json')
-const DEFAULT_CONFIG: AgentOSConfig = {
-  api: 'https://agntos.dev',
+const DEFAULT_CONFIG: PalmyrConfig = {
+  api: 'https://palmyr.ai',
   wallets: {},
   defaultChain: 'solana',
 }
 
-export function loadConfig(): AgentOSConfig {
+export function loadConfig(): PalmyrConfig {
   if (!existsSync(CONFIG_PATH)) return DEFAULT_CONFIG
   try {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, 'utf8'))
@@ -83,7 +94,7 @@ export function loadConfig(): AgentOSConfig {
   } catch { return DEFAULT_CONFIG }
 }
 
-export function saveConfig(config: AgentOSConfig) {
+export function saveConfig(config: PalmyrConfig) {
   ensureDirs()
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2))
 }
@@ -104,7 +115,7 @@ export function getKeyfile(chain?: 'solana' | 'base'): string | null {
   const targetChain = chain || config.defaultChain || 'solana'
 
   // Priority: env var > config wallet > default locations
-  if (process.env.AGENTOS_KEYFILE) return process.env.AGENTOS_KEYFILE
+  if (process.env.PALMYR_KEYFILE) return process.env.PALMYR_KEYFILE
 
   const walletConfig = config.wallets?.[targetChain]
   if (walletConfig?.keyfile) {

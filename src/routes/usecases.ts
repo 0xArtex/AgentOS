@@ -3,11 +3,11 @@ import { Router, Request, Response } from "express";
 const router = Router({ mergeParams: true });
 
 /**
- * GET /api/use-cases — Real-world examples of what agents can build with AgentOS
+ * GET /api/use-cases — Real-world examples of what agents can build with Palmyr
  */
 router.get("/", (_req: Request, res: Response) => {
   res.json({
-    title: "What Can Agents Build with AgentOS?",
+    title: "What Can Agents Build with Palmyr?",
     useCases: [
       {
         name: "Customer Support Agent",

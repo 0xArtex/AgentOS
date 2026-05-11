@@ -32,7 +32,7 @@ router.get("/api/agent-simulation", (req: Request, res: Response) => {
       action: "provision_email",
       endpoint: "POST /api/email/provision",
       curl: "curl -X POST http://77.42.89.233:3001/api/email/provision -H 'X-Agent-Id: " + agentName + "' -H 'Content-Type: application/json' -d '{\"prefix\": \"" + agentName + "\"}'",
-      result: { email: `${agentName}@agents.agentos.dev`, provider: "sendgrid", verified: true },
+      result: { email: `${agentName}@agents.palmyr.dev`, provider: "sendgrid", verified: true },
       latency_ms: 180,
       description: "Agent gets a verified email address"
     },
@@ -67,8 +67,8 @@ router.get("/api/agent-simulation", (req: Request, res: Response) => {
   const totalLatency = steps.reduce((sum, s) => sum + s.latency_ms, 0);
 
   res.json({
-    title: "AgentOS Agent Lifecycle Simulation",
-    description: "Complete walkthrough of an autonomous agent bootstrapping itself on AgentOS",
+    title: "Palmyr Agent Lifecycle Simulation",
+    description: "Complete walkthrough of an autonomous agent bootstrapping itself on Palmyr",
     agent_name: agentName,
     total_steps: steps.length,
     total_latency_ms: totalLatency,

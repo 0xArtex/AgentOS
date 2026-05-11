@@ -13,7 +13,7 @@ const router = Router();
 router.get("/", (_req: Request, res: Response) => {
   const lifecycle = {
     title: "Agent Lifecycle Management",
-    description: "Guide your agent from birth to production with AgentOS",
+    description: "Guide your agent from birth to production with Palmyr",
     stages: [
       {
         stage: 1,
@@ -78,7 +78,7 @@ router.get("/", (_req: Request, res: Response) => {
     postHackathon: {
       freeAccess: "Extended through Feb 28, 2026",
       pricing: "Pay-per-use USDC via x402 after free period",
-      support: "https://agntos.dev/docs"
+      support: "https://palmyr.ai/docs"
     },
     generatedAt: new Date().toISOString()
   };

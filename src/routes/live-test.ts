@@ -78,10 +78,10 @@ router.get("/", async (_req: Request, res: Response) => {
     },
     verdict:
       failed === 0
-        ? "ALL SYSTEMS OPERATIONAL — AgentOS is fully functional"
+        ? "ALL SYSTEMS OPERATIONAL — Palmyr is fully functional"
         : `${failed} endpoint(s) need attention`,
     results,
-    note: "This endpoint performs real HTTP requests against all major AgentOS routes. No mocks, no fakes — live verification.",
+    note: "This endpoint performs real HTTP requests against all major Palmyr routes. No mocks, no fakes — live verification.",
     tryIt: {
       description: "Run this test yourself",
       curl: "curl http://77.42.89.233:3001/api/live-test",

@@ -1,6 +1,6 @@
 /**
  * Server-side worker that fires due scheduled posts from
- * `scheduled_social_posts`. Lives inside the AgentOS Node process; one
+ * `scheduled_social_posts`. Lives inside the Palmyr Node process; one
  * instance per process. Polls every SOCIAL_SCHEDULER_INTERVAL_SEC seconds
  * (default 30), claims due items atomically, dispatches via the existing
  * internal `postTweet`/etc. functions, then writes the result back.

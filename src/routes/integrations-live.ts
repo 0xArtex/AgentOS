@@ -16,37 +16,37 @@ const partners: PartnerStatus[] = [
     name: "SlotScribe",
     category: "Observability",
     status: "testing",
-    description: "Flight recorder integration — AgentOS activity logs feed into SlotScribe's on-chain verification pipeline",
+    description: "Flight recorder integration — Palmyr activity logs feed into SlotScribe's on-chain verification pipeline",
   },
   {
     name: "Wunderland",
     category: "Identity",
     status: "planned",
-    description: "HEXACO personality vectors + AgentOS operational identity for composite trust profiles",
+    description: "HEXACO personality vectors + Palmyr operational identity for composite trust profiles",
   },
   {
     name: "MoltLaunch",
     category: "Trust Layer",
     status: "testing",
-    description: "Infrastructure verification attestations — AgentOS agents get MoltLaunch trust scores",
+    description: "Infrastructure verification attestations — Palmyr agents get MoltLaunch trust scores",
   },
   {
     name: "AAP (Agent Agreement Protocol)",
     category: "Execution",
     status: "planned",
-    description: "Delegation scopes + AgentOS resource provisioning for multi-party agent agreements",
+    description: "Delegation scopes + Palmyr resource provisioning for multi-party agent agreements",
   },
   {
     name: "Farnsworth AI Swarm",
     category: "Collective Intelligence",
     status: "planned",
-    description: "Swarm oracle queries routed through AgentOS compute containers for isolated execution",
+    description: "Swarm oracle queries routed through Palmyr compute containers for isolated execution",
   },
   {
     name: "Prometheus Vault",
     category: "DeFi",
     status: "planned",
-    description: "Decision logging via AgentOS audit trails for verifiable yield optimization history",
+    description: "Decision logging via Palmyr audit trails for verifiable yield optimization history",
   },
   {
     name: "MutualAgent Insurance",
@@ -67,7 +67,7 @@ const partners: PartnerStatus[] = [
  * /api/integrations-live:
  *   get:
  *     summary: Live ecosystem integration status
- *     description: Real-time status of AgentOS integrations with hackathon ecosystem partners
+ *     description: Real-time status of Palmyr integrations with hackathon ecosystem partners
  *     tags: [Ecosystem]
  *     responses:
  *       200:

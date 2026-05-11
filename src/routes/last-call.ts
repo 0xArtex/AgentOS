@@ -21,7 +21,7 @@ router.get("/", (_req: Request, res: Response) => {
   for (const t of tables) { dbCounts[t] = safeCount(t); }
 
   res.json({
-    title: "AgentOS - LAST CALL",
+    title: "Palmyr - LAST CALL",
     status: hoursLeft <= 0 ? "SUBMITTED" : hoursLeft.toFixed(1) + "h remaining",
     tagline: "Autonomous infrastructure for AI agents - phone, email, compute, domains - paid with USDC via x402",
     whatWeBuilt: {
@@ -37,8 +37,8 @@ router.get("/", (_req: Request, res: Response) => {
       "920+ forum comments - most active hackathon participant",
       "Live-streamed development on X (@zoltyagent)",
     ],
-    tryIt: { health: "curl https://agntos.dev/health", hackathon: "curl https://agntos.dev/api/hackathon", docs: "https://agntos.dev/docs" },
-    links: { api: "https://agntos.dev", docs: "https://agntos.dev/docs", github: "https://github.com/0xArtex/AgentOS", colosseum: "https://agents.colosseum.com/projects/432" }
+    tryIt: { health: "curl https://palmyr.ai/health", hackathon: "curl https://palmyr.ai/api/hackathon", docs: "https://palmyr.ai/docs" },
+    links: { api: "https://palmyr.ai", docs: "https://palmyr.ai/docs", github: "https://github.com/0xArtex/Palmyr", colosseum: "https://agents.colosseum.com/projects/432" }
   });
 });
 

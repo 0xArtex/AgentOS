@@ -8,7 +8,7 @@ router.get("/", (req: Request, res: Response) => {
   const daysRunning = Math.floor((now.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
   
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous Infrastructure for AI Agents",
     buildStats: {
       daysLive: daysRunning,
@@ -22,7 +22,7 @@ router.get("/", (req: Request, res: Response) => {
     },
     services: {
       phone: { status: "available", description: "Provision phone numbers with SMS/voice", pricing: "x402 USDC" },
-      email: { status: "available", description: "Custom email inboxes (@agntos.dev)", pricing: "x402 USDC" },
+      email: { status: "available", description: "Custom email inboxes (@palmyr.ai)", pricing: "x402 USDC" },
       compute: { status: "available", description: "Isolated compute containers", pricing: "x402 USDC" },
       domains: { status: "available", description: "Domain registration & DNS", pricing: "x402 USDC" },
       storage: { status: "available", description: "Persistent key-value + file storage", pricing: "free tier" },
@@ -44,10 +44,10 @@ router.get("/", (req: Request, res: Response) => {
       freeAccess: "Hackathon builders get Pro-tier free through March 2026"
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      skill: "https://agntos.dev/skill.md"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      skill: "https://palmyr.ai/skill.md"
     }
   });
 });

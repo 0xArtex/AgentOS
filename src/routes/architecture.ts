@@ -4,7 +4,7 @@ const router = Router({ mergeParams: true });
 
 router.get("/", (_req: Request, res: Response) => {
   res.json({
-    name: "AgentOS Architecture",
+    name: "Palmyr Architecture",
     version: "1.0.5",
     stack: {
       runtime: "Node.js + TypeScript + Express",

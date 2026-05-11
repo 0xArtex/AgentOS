@@ -9,7 +9,7 @@ router.get("/judge-dashboard", (_req: Request, res: Response) => {
   const daysBuilding = Math.floor((now.getTime() - startDate.getTime()) / 86400000);
 
   res.json({
-    title: "AgentOS — Judge Overview Dashboard",
+    title: "Palmyr — Judge Overview Dashboard",
     summary: "Autonomous infrastructure platform giving AI agents real-world capabilities (phone, email, compute, domains) via a single API with x402 USDC payments.",
     build_velocity: {
       days_building: daysBuilding,
@@ -36,11 +36,11 @@ router.get("/judge-dashboard", (_req: Request, res: Response) => {
       try_it: "curl http://77.42.89.233:3001/api/sandbox",
       docs: "http://77.42.89.233:3001/docs",
       quickstart: "http://77.42.89.233:3001/api/quickstart",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill_file: "http://77.42.89.233:3001/skill.md",
       benchmarks: "http://77.42.89.233:3001/api/benchmarks"
     },
-    why_this_matters: "Every autonomous agent needs infrastructure. Today they cobble together Twilio + SendGrid + AWS + Namecheap + Stripe. AgentOS replaces all of that with one API call and one payment method. We are the AWS for AI agents."
+    why_this_matters: "Every autonomous agent needs infrastructure. Today they cobble together Twilio + SendGrid + AWS + Namecheap + Stripe. Palmyr replaces all of that with one API call and one payment method. We are the AWS for AI agents."
   });
 });
 

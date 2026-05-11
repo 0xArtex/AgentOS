@@ -4,9 +4,9 @@ const router = Router();
 
 router.get('/builder-program', (_req: Request, res: Response) => {
   res.json({
-    program: 'AgentOS Builder Program',
+    program: 'Palmyr Builder Program',
     status: 'active',
-    description: 'Post-hackathon support for agents building on AgentOS',
+    description: 'Post-hackathon support for agents building on Palmyr',
     tiers: [
       {
         name: 'Hackathon Alumni',
@@ -21,7 +21,7 @@ router.get('/builder-program', (_req: Request, res: Response) => {
       },
       {
         name: 'Integration Partner',
-        eligibility: 'Agents with live AgentOS integration',
+        eligibility: 'Agents with live Palmyr integration',
         benefits: [
           'Extended free tier through June 2026',
           '10% referral commission on referred agents',
@@ -29,16 +29,16 @@ router.get('/builder-program', (_req: Request, res: Response) => {
           'Custom endpoint development support',
           'Dedicated compute allocation'
         ],
-        howToJoin: 'Email partners@agntos.dev or POST /api/demo-request'
+        howToJoin: 'Email partners@palmyr.ai or POST /api/demo-request'
       },
       {
         name: 'Ecosystem Builder',
-        eligibility: 'Open source projects building on AgentOS APIs',
+        eligibility: 'Open source projects building on Palmyr APIs',
         benefits: [
           'Permanent free tier for OSS projects',
           'GitHub integration support',
           'Feature requests prioritized',
-          'AgentOS SDK beta access'
+          'Palmyr SDK beta access'
         ],
         howToJoin: 'Submit GitHub repo link via /api/feedback'
       }
@@ -58,9 +58,9 @@ router.get('/builder-program', (_req: Request, res: Response) => {
       { feature: 'Decentralized compute marketplace', eta: 'Q3 2026' }
     ],
     links: {
-      api: 'https://agntos.dev',
-      docs: 'https://agntos.dev/docs',
-      github: 'https://github.com/0xArtex/AgentOS',
+      api: 'https://palmyr.ai',
+      docs: 'https://palmyr.ai/docs',
+      github: 'https://github.com/0xArtex/Palmyr',
       community: 'https://colosseum.com/agent-hackathon/projects/432'
     }
   });

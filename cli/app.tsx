@@ -98,7 +98,7 @@ function Shell(props: PropsWithChildren<{
 
       {/* Header */}
       <Box>
-        <Text color={C.accent} bold>AgentOS</Text>
+        <Text color={C.accent} bold>Palmyr</Text>
         <Text color={C.dim}> v{props.version}</Text>
         <Text color={C.muted}> · {props.title}</Text>
       </Box>
@@ -162,7 +162,7 @@ export function Dashboard(props: DashboardProps) {
   ]
 
   return (
-    <Shell title="home" version={props.version} footer="Run agentos <service> <command> to get started">
+    <Shell title="home" version={props.version} footer="Run palmyr <service> <command> to get started">
       <Box flexDirection={narrow ? 'column' : 'row'}>
         {/* Left: mascot + branding */}
         <Box flexDirection="column" marginRight={narrow ? 0 : 3} marginBottom={narrow ? 1 : 0}>
@@ -183,10 +183,10 @@ export function Dashboard(props: DashboardProps) {
           <Box marginTop={1}>
             <Text color={C.accent} bold>Examples</Text>
           </Box>
-          <Text color={C.muted}>  agentos phone search --country US</Text>
-          <Text color={C.muted}>  agentos compute plans</Text>
-          <Text color={C.muted}>  agentos domain check --name my.dev</Text>
-          <Text color={C.muted}>  agentos --help</Text>
+          <Text color={C.muted}>  palmyr phone search --country US</Text>
+          <Text color={C.muted}>  palmyr compute plans</Text>
+          <Text color={C.muted}>  palmyr domain check --name my.dev</Text>
+          <Text color={C.muted}>  palmyr --help</Text>
         </Box>
       </Box>
     </Shell>
@@ -284,7 +284,7 @@ export function ConfigScreen(props: ConfigScreenProps & ScreenControls) {
     label: k + ':',
     value: v === null || v === undefined ? 'not set' : String(v),
   }))
-  return <Screen title="config" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="agentos config" rows={rows} />
+  return <Screen title="config" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="palmyr config" rows={rows} />
 }
 
 export function ComputeDeployScreen(props: ComputeDeployScreenProps & ScreenControls) {

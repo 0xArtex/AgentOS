@@ -9,7 +9,7 @@ router.get("/", (_req: Request, res: Response) => {
   const minutes = Math.floor((uptimeSeconds % 3600) / 60);
 
   res.json({
-    service: "AgentOS Uptime & Status",
+    service: "Palmyr Uptime & Status",
     status: "operational",
     uptime: {
       seconds: Math.floor(uptimeSeconds),
@@ -42,14 +42,14 @@ router.get("/", (_req: Request, res: Response) => {
 // Final pitch - elevator pitch for judges
 router.get("/final-pitch", (_req, res) => {
   res.json({
-    name: "AgentOS",
+    name: "Palmyr",
     tagline: "The operating system for autonomous AI agents",
     problem: "Every agent team rebuilds the same infra: phones, email, compute, domains, payments.",
     solution: "One API call gives your agent a full infrastructure stack, paid in USDC on Solana.",
     traction: { endpoints: "121+", forum_comments: "495+", ecosystem_partners: 11 },
     differentiators: ["x402 payments", "Framework-agnostic", "Sub-second provisioning", "Security-first"],
     vision: "The AWS for the agent economy.",
-    links: { api: "http://77.42.89.233:3001", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/AgentOS" }
+    links: { api: "http://77.42.89.233:3001", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/Palmyr" }
   });
 });
 
@@ -62,7 +62,7 @@ router.get("/demo-flow", (req, res) => {
     1: {
       step: 1,
       title: "Register Your Agent",
-      description: "Create an agent identity to start using AgentOS services",
+      description: "Create an agent identity to start using Palmyr services",
       curl: `curl -X POST http://77.42.89.233:3001/api/agents/register -H "Content-Type: application/json" -H "X-Agent-Id: demo-agent" -d '{"name":"my-agent","framework":"raw"}'`,
       next: "/api/demo-flow?step=2"
     },
@@ -109,7 +109,7 @@ router.get("/demo-flow", (req, res) => {
 // Demo Flows - pre-built agent workflow templates
 router.get("/demo-flows", (_req, res) => {
   res.json({
-    title: "AgentOS Demo Flows",
+    title: "Palmyr Demo Flows",
     description: "Pre-built workflow templates you can copy-paste to bootstrap your agent",
     flows: [
       {
@@ -117,9 +117,9 @@ router.get("/demo-flows", (_req, res) => {
         description: "Monitor price, detect signal, send SMS + email alert, log to analytics",
         steps: [
           { step: 1, action: "Your agent detects a trading signal", type: "your-code" },
-          { step: 2, action: "POST /api/phone/send-sms — alert your user", type: "agentos" },
-          { step: 3, action: "POST /api/email/send — detailed report", type: "agentos" },
-          { step: 4, action: "POST /api/analytics/track — log the event", type: "agentos" }
+          { step: 2, action: "POST /api/phone/send-sms — alert your user", type: "palmyr" },
+          { step: 3, action: "POST /api/email/send — detailed report", type: "palmyr" },
+          { step: 4, action: "POST /api/analytics/track — log the event", type: "palmyr" }
         ],
         difficulty: "beginner",
         time_to_implement: "15 minutes"
@@ -128,10 +128,10 @@ router.get("/demo-flows", (_req, res) => {
         name: "Multi-Agent Coordination Hub",
         description: "Spin up compute for sub-agents, coordinate via email, aggregate results",
         steps: [
-          { step: 1, action: "POST /api/compute/provision — spin up 3 worker instances", type: "agentos" },
+          { step: 1, action: "POST /api/compute/provision — spin up 3 worker instances", type: "palmyr" },
           { step: 2, action: "Each worker processes its shard independently", type: "your-code" },
-          { step: 3, action: "Workers POST results to coordinator via /api/email/send", type: "agentos" },
-          { step: 4, action: "Coordinator aggregates and reports via SMS", type: "agentos" }
+          { step: 3, action: "Workers POST results to coordinator via /api/email/send", type: "palmyr" },
+          { step: 4, action: "Coordinator aggregates and reports via SMS", type: "palmyr" }
         ],
         difficulty: "intermediate",
         time_to_implement: "30 minutes"
@@ -140,10 +140,10 @@ router.get("/demo-flows", (_req, res) => {
         name: "Customer Onboarding Agent",
         description: "Register domain, provision email, set up phone line, send welcome message",
         steps: [
-          { step: 1, action: "POST /api/domains/register — claim your agent domain", type: "agentos" },
-          { step: 2, action: "POST /api/email/provision — create business email", type: "agentos" },
-          { step: 3, action: "POST /api/phone/provision — get a phone number", type: "agentos" },
-          { step: 4, action: "Send welcome email + SMS to first customer", type: "agentos" }
+          { step: 1, action: "POST /api/domains/register — claim your agent domain", type: "palmyr" },
+          { step: 2, action: "POST /api/email/provision — create business email", type: "palmyr" },
+          { step: 3, action: "POST /api/phone/provision — get a phone number", type: "palmyr" },
+          { step: 4, action: "Send welcome email + SMS to first customer", type: "palmyr" }
         ],
         difficulty: "beginner",
         time_to_implement: "10 minutes"
@@ -153,9 +153,9 @@ router.get("/demo-flows", (_req, res) => {
         description: "Monitor on-chain activity, detect anomalies, escalate via phone call",
         steps: [
           { step: 1, action: "Your agent monitors blockchain events", type: "your-code" },
-          { step: 2, action: "Anomaly detected — POST /api/analytics/track", type: "agentos" },
-          { step: 3, action: "POST /api/phone/call — urgent voice alert", type: "agentos" },
-          { step: 4, action: "POST /api/email/send — detailed incident report", type: "agentos" }
+          { step: 2, action: "Anomaly detected — POST /api/analytics/track", type: "palmyr" },
+          { step: 3, action: "POST /api/phone/call — urgent voice alert", type: "palmyr" },
+          { step: 4, action: "POST /api/email/send — detailed incident report", type: "palmyr" }
         ],
         difficulty: "intermediate",
         time_to_implement: "20 minutes"
@@ -165,9 +165,9 @@ router.get("/demo-flows", (_req, res) => {
         description: "Generate content, distribute via email newsletter + SMS blasts",
         steps: [
           { step: 1, action: "Your agent generates content (AI model call)", type: "your-code" },
-          { step: 2, action: "POST /api/email/send — newsletter to subscriber list", type: "agentos" },
-          { step: 3, action: "POST /api/phone/send-sms — SMS teaser to VIP list", type: "agentos" },
-          { step: 4, action: "POST /api/analytics/track — track open rates", type: "agentos" }
+          { step: 2, action: "POST /api/email/send — newsletter to subscriber list", type: "palmyr" },
+          { step: 3, action: "POST /api/phone/send-sms — SMS teaser to VIP list", type: "palmyr" },
+          { step: 4, action: "POST /api/analytics/track — track open rates", type: "palmyr" }
         ],
         difficulty: "beginner",
         time_to_implement: "15 minutes"
@@ -180,7 +180,7 @@ router.get("/demo-flows", (_req, res) => {
 
 router.get("/final-pitch", (_req, res) => {
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous Infrastructure for AI Agents",
     problem: "AI agents need real-world capabilities (phone, email, compute, domains) but building infra from scratch takes weeks and costs thousands",
     solution: "One API, 200+ endpoints. Provision any resource in seconds. Pay with USDC via x402. Zero DevOps required.",
@@ -204,7 +204,7 @@ router.get("/final-pitch", (_req, res) => {
       sandbox: "curl http://77.42.89.233:3001/api/sandbox",
       live_stats: "curl http://77.42.89.233:3001/api/stats"
     },
-    ask: "Vote for AgentOS — the infrastructure layer that makes the entire agent ecosystem possible."
+    ask: "Vote for Palmyr — the infrastructure layer that makes the entire agent ecosystem possible."
   });
 });
 
@@ -216,13 +216,13 @@ router.get("/last-stand", (_req, res) => {
   const mins = Math.floor((msLeft % 3600000) / 60000);
   const urgency = hours < 6 ? "CRITICAL" : hours < 12 ? "HIGH" : hours < 24 ? "MEDIUM" : "NORMAL";
   res.json({
-    title: "AgentOS - Last Stand",
+    title: "Palmyr - Last Stand",
     countdown: `${hours}h ${mins}m remaining`,
     urgency,
     what_we_built: "Full autonomous infrastructure API for AI agents - phone, email, compute, domains - all USDC settled",
     by_the_numbers: { api_endpoints: "205+", forum_comments: "800+", ecosystem_partners: "11+", days_building: 12 },
     why_it_matters: "Every agent project needs infra. We built the platform so nobody has to.",
-    judge_quick_links: { try_it: "curl http://77.42.89.233:3001/api/quickstart", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/AgentOS" }
+    judge_quick_links: { try_it: "curl http://77.42.89.233:3001/api/quickstart", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/Palmyr" }
   });
 });
 
@@ -230,7 +230,7 @@ router.get("/last-stand", (_req, res) => {
 router.get("/post-mortem", (_req, res) => {
   res.json({
     hackathon: "Colosseum Agent Hackathon",
-    project: "AgentOS",
+    project: "Palmyr",
     projectId: 432,
     deadline: "2026-02-12T17:00:00Z",
     submitted: true,
@@ -247,9 +247,9 @@ router.get("/post-mortem", (_req, res) => {
     postHackathon: {
       status: "STILL RUNNING",
       freeForBuilders: true,
-      docs: "https://agntos.dev/docs",
-      api: "https://agntos.dev",
-      github: "https://github.com/0xArtex/AgentOS"
+      docs: "https://palmyr.ai/docs",
+      api: "https://palmyr.ai",
+      github: "https://github.com/0xArtex/Palmyr"
     },
     lessons: [
       "Ship fast, iterate faster — went from 0 to 212+ endpoints in 14 days",

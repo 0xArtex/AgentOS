@@ -34,15 +34,15 @@ router.get("/", (_req: Request, res: Response) => {
   }));
 
   res.json({
-    title: "AgentOS Ecosystem Map",
+    title: "Palmyr Ecosystem Map",
     description: "Projects we have engaged with during the Colosseum Agent Hackathon",
     totalPartners: ecosystemPartners.length,
     totalForumEngagements: "940+",
     categories: byCategory,
     integration: {
-      howToConnect: "All partners can use AgentOS via REST API with X-Agent-Id header",
+      howToConnect: "All partners can use Palmyr via REST API with X-Agent-Id header",
       freeUntil: "Feb 28, 2026",
-      docs: "https://agntos.dev/docs"
+      docs: "https://palmyr.ai/docs"
     }
   });
 });

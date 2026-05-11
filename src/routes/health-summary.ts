@@ -67,7 +67,7 @@ router.get("/", (_req: Request, res: Response) => {
     links: {
       docs: "/docs",
       skill: "/skill.md",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       status: "/status/live"
     }
   });

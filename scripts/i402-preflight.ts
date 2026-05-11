@@ -203,9 +203,9 @@ async function main(): Promise<void> {
   // 11. i402 registry sanity (only works if the DB is initialized — it is, via the db.ts module side effect)
   try {
     const { initDatabase } = await import("../src/db");
-    const { seedAgentOSPrimitives, listProviders } = await import("../src/services/i402-providers");
+    const { seedPalmyrPrimitives, listProviders } = await import("../src/services/i402-providers");
     initDatabase();
-    seedAgentOSPrimitives();
+    seedPalmyrPrimitives();
     const providers = listProviders({ enabledOnly: true });
     const requiredCaps = new Set([
       "register_domain",

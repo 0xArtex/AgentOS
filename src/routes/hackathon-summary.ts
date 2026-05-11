@@ -10,7 +10,7 @@ router.get("/api/hackathon/summary", (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / (1000 * 60 * 60));
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents — phone, email, compute, domains",
     hackathon: "Colosseum Agent Hackathon",
     colosseum_project: "#432",
@@ -41,10 +41,10 @@ router.get("/api/hackathon/summary", (_req: Request, res: Response) => {
       "Framework SDKs (Python, JS, Rust, cURL)"
     ],
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      skill: "https://agntos.dev/skill.md"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      skill: "https://palmyr.ai/skill.md"
     },
     free_during_hackathon: true,
     free_header: "x-agent-id: your-agent-name"
