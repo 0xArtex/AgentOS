@@ -1,5 +1,5 @@
 ---
-name: agentos
+name: palmyr
 version: 1.0.0
 description: Infrastructure for AI Agents. Phone, email, X/Twitter accounts, compute, domains, voice calling, and wallets for AI agents. Pay with USDC on Solana or Base via x402.
 ---
@@ -18,13 +18,13 @@ Everything an agent needs: phone, email, compute, domains, voice calling, wallet
 npm i -g @palmyr/cli
 
 # Configure your Solana wallet (for x402 payments)
-agentos setup --keyfile ~/.config/solana/id.json --chain solana
+palmyr setup --keyfile ~/.config/solana/id.json --chain solana
 
 # Optionally add Base (EVM) wallet too
-agentos setup --keyfile ./base-key.json --chain base
+palmyr setup --keyfile ./base-key.json --chain base
 
 # Check everything works
-agentos status
+palmyr status
 ```
 
 The CLI creates `~/.palmyr/` to store config, credentials, data, logs, and memory. Your keyfile is referenced by path — never copied.
@@ -35,71 +35,71 @@ Use the CLI for cleaner context and simpler commands:
 
 ```bash
 # Phone
-agentos phone search --country US          # Search numbers (free)
-agentos phone buy --country US             # Buy a number ($3)
-agentos phone sms --id ID --to +1... --body "hi"   # Send SMS ($0.05)
-agentos phone call --id ID --to +1... --tts "hello" # Voice call ($0.10)
+palmyr phone search --country US          # Search numbers (free)
+palmyr phone buy --country US             # Buy a number ($3)
+palmyr phone sms --id ID --to +1... --body "hi"   # Send SMS ($0.05)
+palmyr phone call --id ID --to +1... --tts "hello" # Voice call ($0.10)
 
 # Email (E2E encrypted)
-agentos email create --name agent --wallet SOL_PUBKEY  # Create inbox ($2)
-agentos email read --id INBOX_ID                       # Read messages ($0.02)
-agentos email send --id ID --to x@y.com --subject "Hi" --body "..."  # Send ($0.08)
-agentos email threads --id INBOX_ID                    # List threads ($0.02)
+palmyr email create --name agent --wallet SOL_PUBKEY  # Create inbox ($2)
+palmyr email read --id INBOX_ID                       # Read messages ($0.02)
+palmyr email send --id ID --to x@y.com --subject "Hi" --body "..."  # Send ($0.08)
+palmyr email threads --id INBOX_ID                    # List threads ($0.02)
 
 # Compute
-agentos compute plans [--location fsn1]                     # List VPS plans (free); optionally filter by location
-agentos compute locations                                   # List datacenters + per-location server-type availability (free)
-agentos compute install-recipes                             # List bootstrappable agent runtimes (free)
-agentos compute deploy --type cx23 --json                   # Golden path: auto-key, wait, verified ($6 + monthly)
-agentos compute deploy --type cx23 --install hermes --json  # Deploy + bootstrap Hermes Agent (Nous Research)
-agentos compute deploy --type cax11 --location fsn1 --json  # Pin to a specific datacenter
-agentos compute deploy --type cx23 --install hermes,openclaw --json  # Multiple recipes
-agentos compute deploy --type cx23 --no-install --json      # Vanilla Ubuntu (password auth on)
-agentos compute deploy --type cx23 --ssh-key 12345 --json   # Use a pre-uploaded Hetzner key
-agentos compute deploy --type cx23 --no-wait --json         # Fire-and-forget
-agentos compute ssh-key add ~/.ssh/id_ed25519.pub           # Upload key to Hetzner ($0.10) — returns numeric id
-agentos compute ssh-key list                                # List uploaded keys ($0.01)
-agentos compute wait <name|id> [--install hermes]           # Block until ready (gates: status=running, port 22, SSH, install marker)
-agentos compute ssh <name|id>                               # SSH in (TTY) or print ssh command (agent mode)
-agentos compute exec <name|id> -- <command> [args...]       # Run command pre-handoff ($0.05)
-agentos compute rename <name|id> <new-name>                 # Rename a deployed VPS ($0.01, no reboot)
-agentos compute reset-password <name|id>                    # Rotate root password ($0.10)
-agentos compute console <name|id>                           # noVNC URL — break-glass when SSH broken ($0.10)
-agentos compute reboot|poweroff|poweron|reset|rebuild <name|id>  # Lifecycle actions ($0.10)
-agentos compute setup-ssh <id> --pubkey-file ~/.ssh/id.pub  # Inject key post-deploy ($0.01)
-agentos compute list                                        # List servers
-agentos compute delete <name|id>                            # Delete server ($0.10)
+palmyr compute plans [--location fsn1]                     # List VPS plans (free); optionally filter by location
+palmyr compute locations                                   # List datacenters + per-location server-type availability (free)
+palmyr compute install-recipes                             # List bootstrappable agent runtimes (free)
+palmyr compute deploy --type cx23 --json                   # Golden path: auto-key, wait, verified ($6 + monthly)
+palmyr compute deploy --type cx23 --install hermes --json  # Deploy + bootstrap Hermes Agent (Nous Research)
+palmyr compute deploy --type cax11 --location fsn1 --json  # Pin to a specific datacenter
+palmyr compute deploy --type cx23 --install hermes,openclaw --json  # Multiple recipes
+palmyr compute deploy --type cx23 --no-install --json      # Vanilla Ubuntu (password auth on)
+palmyr compute deploy --type cx23 --ssh-key 12345 --json   # Use a pre-uploaded Hetzner key
+palmyr compute deploy --type cx23 --no-wait --json         # Fire-and-forget
+palmyr compute ssh-key add ~/.ssh/id_ed25519.pub           # Upload key to Hetzner ($0.10) — returns numeric id
+palmyr compute ssh-key list                                # List uploaded keys ($0.01)
+palmyr compute wait <name|id> [--install hermes]           # Block until ready (gates: status=running, port 22, SSH, install marker)
+palmyr compute ssh <name|id>                               # SSH in (TTY) or print ssh command (agent mode)
+palmyr compute exec <name|id> -- <command> [args...]       # Run command pre-handoff ($0.05)
+palmyr compute rename <name|id> <new-name>                 # Rename a deployed VPS ($0.01, no reboot)
+palmyr compute reset-password <name|id>                    # Rotate root password ($0.10)
+palmyr compute console <name|id>                           # noVNC URL — break-glass when SSH broken ($0.10)
+palmyr compute reboot|poweroff|poweron|reset|rebuild <name|id>  # Lifecycle actions ($0.10)
+palmyr compute setup-ssh <id> --pubkey-file ~/.ssh/id.pub  # Inject key post-deploy ($0.01)
+palmyr compute list                                        # List servers
+palmyr compute delete <name|id>                            # Delete server ($0.10)
 
 # Domains
-agentos domain check --name example.dev   # Check availability (free)
-agentos domain pricing --name example     # Get pricing (free)
-agentos domain buy --name example.dev     # Register domain
+palmyr domain check --name example.dev   # Check availability (free)
+palmyr domain pricing --name example     # Get pricing (free)
+palmyr domain buy --name example.dev     # Register domain
 
 # Wallet
-agentos wallet keygen                     # Generate keypair (free)
-agentos wallet create                     # Create local HD wallet (free)
-agentos wallet create --managed           # Same, with passkey-gated spending limits
+palmyr wallet keygen                     # Generate keypair (free)
+palmyr wallet create                     # Create local HD wallet (free)
+palmyr wallet create --managed           # Same, with passkey-gated spending limits
 
 # Twitter / X
-agentos twitter buy                                       # Buy a ready X account ($5)
-agentos twitter import <username> --credentials-line "..."# Import your own (free)
-agentos twitter login <username>                          # Cache session ($0.005)
-agentos twitter post <username> --body "gm"               # Post tweet ($0.001)
-agentos twitter reply <username> --to <url> --body "..."  # Reply ($0.001)
-agentos twitter like <username> --tweet <url>             # Like ($0.001)
-agentos twitter retweet <username> --tweet <url>          # Retweet ($0.001)
-agentos twitter follow <username> --user @handle          # Follow ($0.001)
-agentos twitter unfollow <username> --user @handle        # Unfollow ($0.001)
-agentos twitter delete <username> --tweet <url>           # Delete tweet ($0.001)
-agentos twitter bio <username> --text "..."               # Update bio ($0.001)
-agentos twitter name <username> --display "..."           # Update display name ($0.001)
-agentos twitter pfp <username> --file pic.png             # Update avatar ($0.005)
-agentos twitter banner <username> --file banner.png       # Update banner ($0.005)
-agentos twitter username <username> --to <new-handle>     # Change handle ($0.005)
+palmyr twitter buy                                       # Buy a ready X account ($5)
+palmyr twitter import <username> --credentials-line "..."# Import your own (free)
+palmyr twitter login <username>                          # Cache session ($0.005)
+palmyr twitter post <username> --body "gm"               # Post tweet ($0.001)
+palmyr twitter reply <username> --to <url> --body "..."  # Reply ($0.001)
+palmyr twitter like <username> --tweet <url>             # Like ($0.001)
+palmyr twitter retweet <username> --tweet <url>          # Retweet ($0.001)
+palmyr twitter follow <username> --user @handle          # Follow ($0.001)
+palmyr twitter unfollow <username> --user @handle        # Unfollow ($0.001)
+palmyr twitter delete <username> --tweet <url>           # Delete tweet ($0.001)
+palmyr twitter bio <username> --text "..."               # Update bio ($0.001)
+palmyr twitter name <username> --display "..."           # Update display name ($0.001)
+palmyr twitter pfp <username> --file pic.png             # Update avatar ($0.005)
+palmyr twitter banner <username> --file banner.png       # Update banner ($0.005)
+palmyr twitter username <username> --to <new-handle>     # Change handle ($0.005)
 
 # Info
-agentos pricing    # All service prices
-agentos health     # API status
+palmyr pricing    # All service prices
+palmyr health     # API status
 ```
 
 ## API Quick Reference
@@ -185,7 +185,7 @@ All paid endpoints use **x402** — make the request, get a 402, pay with USDC, 
 
 The CLI auto-detects when stdout isn't a TTY and switches to a machine-parseable contract: clean JSON on stdout, structured `{error, exitCode, hint}` on stderr for failures, no spinners or ANSI decoration. Force it on a TTY with `--json` or `PALMYR_JSON=1`.
 
-Streaming commands (`agentos chat run`) emit **NDJSON** in agent mode — one JSON event per line — so you can `for await` over stdout in a pipeline.
+Streaming commands (`palmyr chat run`) emit **NDJSON** in agent mode — one JSON event per line — so you can `for await` over stdout in a pipeline.
 
 ### Stable exit codes
 
@@ -201,30 +201,30 @@ Streaming commands (`agentos chat run`) emit **NDJSON** in agent mode — one JS
 | 7 | Vault tamper / security check failed — do not retry |
 
 ```bash
-agentos compute deploy --type cx23 --json | jq .sshCommand
-agentos compute exec my-vps -- echo hi --json 2>err.log; [ $? -eq 0 ] || cat err.log
+palmyr compute deploy --type cx23 --json | jq .sshCommand
+palmyr compute exec my-vps -- echo hi --json 2>err.log; [ $? -eq 0 ] || cat err.log
 ```
 
 ## VPS golden path
 
-`agentos compute deploy --type cx23 --json` is a one-liner that:
+`palmyr compute deploy --type cx23 --json` is a one-liner that:
 1. Generates an ed25519 keypair locally (`~/.palmyr/ssh/<name>/id_ed25519`).
 2. Pays $6 USDC via x402, deploys via Hetzner Cloud.
 3. Runs cloud-init (security hardening + the requested install recipe).
-4. Waits until `status=running`, port 22 is open, `ssh -i <key> root@<ip> 'true'` returns 0, and `/etc/agentos/install-status.json` reports `ok`.
+4. Waits until `status=running`, port 22 is open, `ssh -i <key> root@<ip> 'true'` returns 0, and `/etc/palmyr/install-status.json` reports `ok`.
 5. Returns JSON with a top-level `sshCommand` and a `readiness` block showing each gate.
 
-After it returns, `agentos compute ssh <name>` drops you in (TTY) or prints the ssh command (agent mode). Everything resolves from a local cache — no paid round-trip.
+After it returns, `palmyr compute ssh <name>` drops you in (TTY) or prints the ssh command (agent mode). Everything resolves from a local cache — no paid round-trip.
 
 ### Bootstrap an agent runtime in one call
 
 ```bash
-agentos compute deploy --type cx23 --install hermes --json
+palmyr compute deploy --type cx23 --install hermes --json
 ```
 
 Cloud-init runs the recipe at first boot. Available recipes (live list at `GET /compute/install-recipes`):
 - `openclaw` — Node 22 + the openclaw and clawhub npm packages. The historical default.
-- `hermes` — [Hermes Agent](https://github.com/NousResearch/hermes-agent), Nous Research's self-improving AI agent. Installed via the official `scripts/install.sh --skip-setup`. After deploy, run `agentos compute exec <name> -- hermes setup` to pick a model provider.
+- `hermes` — [Hermes Agent](https://github.com/NousResearch/hermes-agent), Nous Research's self-improving AI agent. Installed via the official `scripts/install.sh --skip-setup`. After deploy, run `palmyr compute exec <name> -- hermes setup` to pick a model provider.
 
 Recipe validation is **pre-payment**: typos return `EXIT.BAD_INPUT` (2) without charging USDC.
 
@@ -245,7 +245,7 @@ Same wallet to access it later. That's it.
 
 The CLI wraps all API endpoints. If you prefer raw HTTP, use the quick reference table above. All endpoints accept JSON and return JSON.
 
-For voice calls, email threads, attachments, webhooks, and other advanced features — run `agentos --help` or see the full API docs at `palmyr.ai/docs`.
+For voice calls, email threads, attachments, webhooks, and other advanced features — run `palmyr --help` or see the full API docs at `palmyr.ai/docs`.
 
 ### Payment Flow
 1. Call any paid endpoint → get `402 Payment Required`
