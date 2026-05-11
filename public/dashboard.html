@@ -8,12 +8,12 @@
 <link rel="icon" type="image/x-icon" href="/favicon.ico">
 <link rel="apple-touch-icon" href="/assets/logo-mark.svg">
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=Cormorant+Garamond:wght@500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
 *{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#08090d;--bg2:rgba(14,15,20,0.92);--bg3:rgba(20,22,28,0.95);--glass:rgba(255,255,255,0.025);--border:rgba(255,255,255,0.06);--w10:rgba(255,255,255,0.1);--w20:rgba(255,255,255,0.2);--w30:rgba(255,255,255,0.3);--w40:rgba(255,255,255,0.4);--w60:rgba(255,255,255,0.6);--text:#e6edf3;--accent:#f54900;--green:#3fb950;--red:#f85149;--r:10px}
-body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
+:root{--bg:#112d32;--bg2:rgba(15,38,49,0.92);--bg3:rgba(19,46,54,0.95);--glass:rgba(247,234,209,0.04);--border:rgba(247,234,209,0.1);--w10:rgba(247,234,209,0.1);--w20:rgba(247,234,209,0.2);--w30:rgba(247,234,209,0.3);--w40:rgba(247,234,209,0.4);--w60:rgba(247,234,209,0.6);--text:#f7ead1;--accent:#a89774;--accent-2:#3f857b;--green:#3fb950;--red:#f85149;--r:10px}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;display:flex;flex-direction:column;height:100vh;overflow:hidden}
 body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:0.015;background:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E")}
-::selection{background:rgba(245,73,0,0.3)}
+::selection{background:rgba(168,151,116,0.3)}
 ::-webkit-scrollbar{width:3px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--w10);border-radius:3px}
@@ -213,7 +213,7 @@ background-size:40px 40px}
 .vps-tier-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0}
 .vps-tier-card{position:relative;padding:12px;border:1px solid var(--border);border-radius:10px;cursor:pointer;transition:all .2s;display:flex;flex-direction:column;gap:10px}
 .vps-tier-card:hover{border-color:var(--w30);background:rgba(255,255,255,0.02)}
-.vps-tier-card.selected{border-color:var(--accent);background:rgba(245,73,0,0.04)}
+.vps-tier-card.selected{border-color:var(--accent);background:rgba(168,151,116,0.04)}
 .vps-tier-specs{display:flex;flex-direction:column;gap:5px}
 .vps-tier-spec{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--w40);font-family:'JetBrains Mono',monospace}
 .vps-tier-spec svg{color:var(--w20);flex-shrink:0}
@@ -221,7 +221,7 @@ background-size:40px 40px}
 .vps-tier-card.selected .vps-tier-spec svg{color:var(--accent)}
 .vps-tier-price{font-size:18px;font-weight:700;color:var(--text);font-family:'JetBrains Mono',monospace}
 .vps-tier-price span{font-size:11px;font-weight:400;color:var(--w20)}
-.vps-tier-tag{position:absolute;top:8px;right:8px;font-size:8px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 6px;border-radius:4px;background:rgba(245,73,0,0.12);color:var(--accent);font-family:'JetBrains Mono',monospace;font-weight:600}
+.vps-tier-tag{position:absolute;top:8px;right:8px;font-size:8px;text-transform:uppercase;letter-spacing:0.5px;padding:2px 6px;border-radius:4px;background:rgba(168,151,116,0.12);color:var(--accent);font-family:'JetBrains Mono',monospace;font-weight:600}
 .vps-security-badge{display:flex;gap:8px;align-items:flex-start;padding:10px 12px;background:rgba(63,185,80,0.04);border:1px solid rgba(63,185,80,0.12);border-radius:8px}
 .vps-security-badge svg{flex-shrink:0;margin-top:1px}
 .vps-security-items{display:flex;flex-wrap:wrap;align-items:center;gap:4px;font-size:10px;color:var(--green);font-family:'JetBrains Mono',monospace}
@@ -243,14 +243,14 @@ background-size:40px 40px}
 .tpl-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .tpl-sort-row{display:flex;gap:8px;margin-bottom:16px}
 .tpl-sort{padding:5px 14px;border-radius:16px;border:1px solid var(--border);background:none;color:var(--w30);font-size:10px;font-family:'JetBrains Mono',monospace;cursor:pointer;transition:all .2s}
-.tpl-sort:hover,.tpl-sort.active{border-color:var(--accent);color:var(--accent);background:rgba(245,73,0,0.06)}
+.tpl-sort:hover,.tpl-sort.active{border-color:var(--accent);color:var(--accent);background:rgba(168,151,116,0.06)}
 .tpl-empty{text-align:center;padding:60px 20px}
 .tpl-card{background:var(--bg2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;cursor:pointer;transition:border-color .2s,transform .15s}
 .tpl-card:hover{border-color:var(--accent);transform:translateY(-1px)}
 .tpl-card-preview{height:100px;background:var(--bg);display:flex;align-items:center;justify-content:center;gap:6px;padding:12px;flex-wrap:wrap;border-bottom:1px solid var(--border)}
 .tpl-svc{padding:4px 10px;border-radius:6px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;font-family:'JetBrains Mono',monospace}
 .tpl-svc.compute{background:rgba(59,130,246,0.1);color:#60a5fa;border:1px solid rgba(59,130,246,0.2)}
-.tpl-svc.wallet{background:rgba(245,73,0,0.1);color:#f54900;border:1px solid rgba(245,73,0,0.2)}
+.tpl-svc.wallet{background:rgba(168,151,116,0.1);color:#a89774;border:1px solid rgba(168,151,116,0.2)}
 .tpl-svc.phone{background:rgba(16,185,129,0.1);color:#34d399;border:1px solid rgba(16,185,129,0.2)}
 .tpl-svc.email{background:rgba(168,85,247,0.1);color:#c084fc;border:1px solid rgba(168,85,247,0.2)}
 .tpl-svc.openclaw{background:rgba(251,191,36,0.1);color:#fbbf24;border:1px solid rgba(251,191,36,0.2)}
@@ -273,7 +273,7 @@ background-size:40px 40px}
 .tpl-deploy-step{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:11px;font-family:'JetBrains Mono',monospace}
 .tpl-step-icon{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;flex-shrink:0}
 .tpl-step-icon.done{background:rgba(16,185,129,0.15);color:var(--green)}
-.tpl-step-icon.running{background:rgba(245,73,0,0.15);color:var(--accent);animation:pulse 1s infinite}
+.tpl-step-icon.running{background:rgba(168,151,116,0.15);color:var(--accent);animation:pulse 1s infinite}
 .tpl-step-icon.pending{background:rgba(100,100,100,0.15);color:var(--w20)}
 .tpl-step-icon.error{background:rgba(239,68,68,0.15);color:#ef4444}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
@@ -415,7 +415,7 @@ background-size:40px 40px}
 .modal-row-val{font-weight:500;text-align:right;max-width:200px;word-break:break-all}
 .modal-badge{display:inline-flex;align-items:center;gap:3px;padding:1px 6px;border-radius:3px;font-size:10px;font-weight:600}
 .badge-green{background:rgba(63,185,80,0.1);color:var(--green);border:1px solid rgba(63,185,80,0.15)}
-.badge-orange{background:rgba(245,73,0,0.1);color:var(--accent);border:1px solid rgba(245,73,0,0.15)}
+.badge-orange{background:rgba(168,151,116,0.1);color:var(--accent);border:1px solid rgba(168,151,116,0.15)}
 
 /* New Agent */
 .na-field{margin-bottom:14px}
@@ -426,7 +426,7 @@ background-size:40px 40px}
 .na-chips{display:flex;flex-wrap:wrap;gap:6px}
 .na-chip{padding:5px 12px;border-radius:3px;border:1px dashed var(--border);font-size:10px;color:var(--w40);cursor:pointer;transition:all .15s;user-select:none;font-family:'JetBrains Mono',monospace}
 .na-chip:hover{border-color:var(--w20);color:var(--text)}
-.na-chip.selected{border-color:var(--accent);border-style:solid;color:var(--accent);background:rgba(245,73,0,0.05)}
+.na-chip.selected{border-color:var(--accent);border-style:solid;color:var(--accent);background:rgba(168,151,116,0.05)}
 .na-price{text-align:center;padding:14px 0;font-size:20px;font-weight:800;color:var(--accent);font-family:'JetBrains Mono',monospace}
 .na-price span{font-size:11px;color:var(--w30);font-weight:400}
 .spawn-btn{width:100%;padding:10px;background:transparent;border:1px solid var(--accent);color:var(--accent);font-size:12px;font-weight:700;border-radius:4px;cursor:pointer;font-family:'JetBrains Mono',monospace;transition:all .2s;text-transform:uppercase;letter-spacing:1px}
@@ -1204,9 +1204,9 @@ function startLineFlow(connIdx,durationMs,reverse){
     const g=document.createElementNS('http://www.w3.org/2000/svg','g');
     // Glow circle + core circle
     const glow=document.createElementNS('http://www.w3.org/2000/svg','circle');
-    glow.setAttribute('r','4');glow.setAttribute('fill','rgba(245,73,0,0.15)');
+    glow.setAttribute('r','4');glow.setAttribute('fill','rgba(168,151,116,0.15)');
     const core=document.createElementNS('http://www.w3.org/2000/svg','circle');
-    core.setAttribute('r','1.5');core.setAttribute('fill','rgba(245,73,0,0.9)');
+    core.setAttribute('r','1.5');core.setAttribute('fill','rgba(168,151,116,0.9)');
     g.appendChild(glow);g.appendChild(core);
     g.classList.add('flow-dot');
     g.style.animation=`flowFade ${DOT_SPEED}ms ease-in-out forwards`;
@@ -1249,7 +1249,7 @@ function startLineFlow(connIdx,durationMs,reverse){
 
   // Also brighten the line
   line.style.transition='stroke .3s';
-  line.style.stroke='rgba(245,73,0,0.25)';
+  line.style.stroke='rgba(168,151,116,0.25)';
 
   return function stop(){
     stopped=true;
@@ -2509,7 +2509,7 @@ function openChannelConfigModal(el){
           <div id="pairingStatus" style="margin-top:6px"></div>
         </div>
       `:`
-        <div style="padding:14px;border:1px solid var(--accent);border-radius:8px;margin-bottom:12px;background:rgba(245,73,0,0.06)">
+        <div style="padding:14px;border:1px solid var(--accent);border-radius:8px;margin-bottom:12px;background:rgba(168,151,116,0.06)">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
             <span style="font-size:12px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace">NOT CONNECTED</span>
@@ -3335,7 +3335,7 @@ window.startSshHandoff=async function(ip,serverId){
       <div class="modal-title">SSH KEY SETUP</div>
       <div class="modal-subtitle">step 1 of 2 — save your private key</div>
       <div style="padding:16px 0">
-        <div style="padding:14px;background:rgba(245,73,0,0.06);border:1px solid rgba(245,73,0,0.15);border-radius:8px;margin-bottom:12px">
+        <div style="padding:14px;background:rgba(168,151,116,0.06);border:1px solid rgba(168,151,116,0.15);border-radius:8px;margin-bottom:12px">
           <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linecap="round"><path d="M12 9v4m0 4h.01M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z"/></svg>
             <span style="font-size:11px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace">SAVE THIS KEY NOW</span>
@@ -5022,7 +5022,7 @@ function renderSkillCards(featured,catalog){
   // Featured section
   if(featured&&featured.length){
     const header=document.createElement('div');
-    header.style.cssText='grid-column:1/-1;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent);font-family:JetBrains Mono,monospace;font-weight:600;padding:8px 0 4px;border-bottom:1px solid rgba(245,73,0,0.15);margin-bottom:4px';
+    header.style.cssText='grid-column:1/-1;font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--accent);font-family:JetBrains Mono,monospace;font-weight:600;padding:8px 0 4px;border-bottom:1px solid rgba(168,151,116,0.15);margin-bottom:4px';
     header.textContent='COMMUNITY SUBMITTED';
     grid.appendChild(header);
     featured.forEach(sk=>grid.appendChild(makeSkillCard(sk,true)));
