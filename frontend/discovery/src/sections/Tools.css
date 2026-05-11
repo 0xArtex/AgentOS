@@ -2,7 +2,7 @@
   min-height: 100vh;
   padding: 140px 0 100px;
   position: relative;
-  background-color: #000;
+  background-color: #112d32;
   background-image: url("/discovery/bg.webp");
   background-position: left center;
   background-size: cover;
@@ -180,7 +180,7 @@
 }
 
 .tools-select option {
-  background-color: #0a0a0a;
+  background-color: #0f2631;
   color: var(--w100);
 }
 
