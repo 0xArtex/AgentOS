@@ -1,1 +1,1 @@
-/root/AgentOS/skills/agentos/decrypt-email.mjs
+/root/Palmyr/skills/palmyr/decrypt-email.mjs

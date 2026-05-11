@@ -21,15 +21,15 @@ router.get("/", async (_req: Request, res: Response) => {
   const emails = await safeCount("emails");
 
   res.json({
-    title: "AgentOS Judge Evaluation Walkthrough",
+    title: "Palmyr Judge Evaluation Walkthrough",
     deadline_hours: Math.round(hoursLeft * 10) / 10,
     steps: [
-      { step: 1, name: "Verify live", cmd: "curl https://agntos.dev/health", proves: "Production deployment" },
-      { step: 2, name: "Register agent", cmd: "curl -X POST https://agntos.dev/api/agents/register -H Content-Type:application/json -d {name:judge-test}", proves: "No-KYC autonomous registration" },
-      { step: 3, name: "Provision phone", cmd: "curl -X POST https://agntos.dev/api/phones -H X-Agent-Id:YOUR_ID", proves: "Real communication channels for agents" },
-      { step: 4, name: "Provision email", cmd: "curl -X POST https://agntos.dev/api/emails -H X-Agent-Id:YOUR_ID", proves: "Full email for agents" },
-      { step: 5, name: "Check identity", cmd: "curl https://agntos.dev/api/whoami -H X-Agent-Id:YOUR_ID", proves: "Agent self-awareness" },
-      { step: 6, name: "Explore API", cmd: "curl https://agntos.dev/api/judges", proves: "Comprehensive documentation" }
+      { step: 1, name: "Verify live", cmd: "curl https://palmyr.ai/health", proves: "Production deployment" },
+      { step: 2, name: "Register agent", cmd: "curl -X POST https://palmyr.ai/api/agents/register -H Content-Type:application/json -d {name:judge-test}", proves: "No-KYC autonomous registration" },
+      { step: 3, name: "Provision phone", cmd: "curl -X POST https://palmyr.ai/api/phones -H X-Agent-Id:YOUR_ID", proves: "Real communication channels for agents" },
+      { step: 4, name: "Provision email", cmd: "curl -X POST https://palmyr.ai/api/emails -H X-Agent-Id:YOUR_ID", proves: "Full email for agents" },
+      { step: 5, name: "Check identity", cmd: "curl https://palmyr.ai/api/whoami -H X-Agent-Id:YOUR_ID", proves: "Agent self-awareness" },
+      { step: 6, name: "Explore API", cmd: "curl https://palmyr.ai/api/judges", proves: "Comprehensive documentation" }
     ],
     live_stats: { uptime_hours: uptimeHours, agents, phones, emails, endpoints: "205+" },
     differentiators: [
@@ -38,7 +38,7 @@ router.get("/", async (_req: Request, res: Response) => {
       "Agent-first: no human dashboards needed",
       "205+ endpoints, zero downtime"
     ],
-    links: { swagger: "https://agntos.dev/docs", repo: "https://github.com/0xArtex/AgentOS", api: "https://agntos.dev" }
+    links: { swagger: "https://palmyr.ai/docs", repo: "https://github.com/0xArtex/Palmyr", api: "https://palmyr.ai" }
   });
 });
 

@@ -22,12 +22,12 @@ import type {
 
 // ─── Config ───
 
-const RP_NAME = "AgentOS Wallet";
+const RP_NAME = "Palmyr Wallet";
 const RP_ID = process.env.WEBAUTHN_RP_ID || "localhost";
 
 /**
  * Allowed origins for WebAuthn responses.
- * - Production: set WEBAUTHN_ORIGIN to your HTTPS origin (e.g. https://agntos.dev)
+ * - Production: set WEBAUTHN_ORIGIN to your HTTPS origin (e.g. https://palmyr.ai)
  * - Localhost (default): accept HTTP on common dev ports + HTTPS — WebAuthn spec
  *   permits HTTP for localhost only, so this is safe.
  */

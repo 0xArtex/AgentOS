@@ -22,7 +22,7 @@ router.get("/", async (_req: Request, res: Response) => {
   ]);
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous Infrastructure for AI Agents",
     version: "v1.5.0",
     submission: {
@@ -33,7 +33,7 @@ router.get("/", async (_req: Request, res: Response) => {
       status: hoursLeft > 0 ? "BUILDING" : "SUBMITTED"
     },
     problem: "AI agents cannot use Twilio, AWS, or Stripe. They have no identity, no phone, no email, no compute. Current infrastructure requires human KYC and credit cards.",
-    solution: "AgentOS provides phone numbers, email addresses, compute instances, and domains — all purchasable with USDC via the x402 payment standard. No KYC, no credit cards. Agent pays, agent gets resources.",
+    solution: "Palmyr provides phone numbers, email addresses, compute instances, and domains — all purchasable with USDC via the x402 payment standard. No KYC, no credit cards. Agent pays, agent gets resources.",
     services: {
       phone: { desc: "Provision phone numbers with SMS/voice", provisioned: phones },
       email: { desc: "Full email addresses with send/receive", provisioned: emails },
@@ -60,19 +60,19 @@ router.get("/", async (_req: Request, res: Response) => {
       stack: "TypeScript, Express, SQLite, x402, Solana/Base",
       auth: "API tokens + x402 payment headers",
       deployment: "Hetzner VPS, systemd, nginx reverse proxy",
-      repo: "https://github.com/0xArtex/AgentOS"
+      repo: "https://github.com/0xArtex/Palmyr"
     },
     try_it: {
-      health: "curl https://agntos.dev/health",
-      register: `curl -X POST https://agntos.dev/api/agents/register`,
-      explore: "curl https://agntos.dev/api/judges",
-      docs: "https://agntos.dev/docs"
+      health: "curl https://palmyr.ai/health",
+      register: `curl -X POST https://palmyr.ai/api/agents/register`,
+      explore: "curl https://palmyr.ai/api/judges",
+      docs: "https://palmyr.ai/docs"
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      repo: "https://github.com/0xArtex/AgentOS",
-      skill: "https://agntos.dev/skill.md"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      repo: "https://github.com/0xArtex/Palmyr",
+      skill: "https://palmyr.ai/skill.md"
     }
   });
 });

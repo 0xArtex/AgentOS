@@ -37,7 +37,7 @@ const guides: Record<string, any> = {
 router.get("/integrations", (_req: Request, res: Response) => {
   res.json({
     title: "Framework Integration Guides",
-    description: "Copy-paste code to integrate AgentOS with your AI framework",
+    description: "Copy-paste code to integrate Palmyr with your AI framework",
     frameworks: Object.keys(guides),
     guides,
     tip: "GET /api/integrations/:framework for a specific guide"

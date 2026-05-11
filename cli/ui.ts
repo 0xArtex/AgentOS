@@ -1,5 +1,5 @@
 /**
- * AgentOS CLI UI — terminal rendering utilities
+ * Palmyr CLI UI — terminal rendering utilities
  * Inspired by Claude Code's aesthetic
  */
 
@@ -319,7 +319,7 @@ export function initReport(title: string, items: Array<{name: string, status: 'c
 export function banner() {
   if (agentMode) return
   console.log()
-  console.log(`  ${theme.accent}${theme.bold}▲ AgentOS${theme.reset} ${theme.muted}v${process.env.AGENTOS_VERSION || '0.5.0'}${theme.reset}`)
+  console.log(`  ${theme.accent}${theme.bold}▲ Palmyr${theme.reset} ${theme.muted}v${process.env.PALMYR_VERSION || '0.5.0'}${theme.reset}`)
   console.log(`  ${theme.dim}Everything your AI agent needs${theme.reset}`)
   console.log()
 }
@@ -410,7 +410,7 @@ export function welcomeScreen(config: { version: string, name?: string, model?: 
     ...logo,
     '',
     `${theme.muted}  ${config.chain || 'solana'} · ${config.apiOk ? `${theme.success}connected${theme.reset}` : `${theme.error}offline${theme.reset}`}${theme.reset}`,
-    `${theme.dim}  ~/.agentos/${theme.reset}`,
+    `${theme.dim}  ~/.palmyr/${theme.reset}`,
     '',
   ]
 
@@ -418,9 +418,9 @@ export function welcomeScreen(config: { version: string, name?: string, model?: 
   const hasWallets = config.wallets && (config.wallets.solana || config.wallets.base)
   const rightLines = [
     `${theme.accent}Quick start${theme.reset}`,
-    `${theme.muted}agentos phone search --country US${theme.reset}`,
-    `${theme.muted}agentos compute plans${theme.reset}`,
-    `${theme.muted}agentos domain check --name my.dev${theme.reset}`,
+    `${theme.muted}palmyr phone search --country US${theme.reset}`,
+    `${theme.muted}palmyr compute plans${theme.reset}`,
+    `${theme.muted}palmyr domain check --name my.dev${theme.reset}`,
     '',
     `${theme.accent}Status${theme.reset}`,
     `${hasWallets ? `${theme.success}●${theme.reset}` : `${theme.error}●${theme.reset}`} ${theme.muted}Wallets: ${hasWallets ? Object.keys(config.wallets).join(', ') : 'not configured'}${theme.reset}`,
@@ -428,7 +428,7 @@ export function welcomeScreen(config: { version: string, name?: string, model?: 
     '',
   ]
 
-  const leftPanel = panel(`AgentOS v${config.version}`, leftLines, leftWidth, theme.dim)
+  const leftPanel = panel(`Palmyr v${config.version}`, leftLines, leftWidth, theme.dim)
   const rightPanel = panel('', rightLines, rightWidth, theme.dim)
   const combined = sideBySide(leftPanel, rightPanel, 1)
 

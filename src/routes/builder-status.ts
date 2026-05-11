@@ -22,7 +22,7 @@ router.get('/api/builder-status', async (_req: Request, res: Response) => {
   const servers = await safeCount('servers');
 
   res.json({
-    project: 'AgentOS',
+    project: 'Palmyr',
     status: 'LIVE — Post-Hackathon Builder Mode',
     tagline: 'Autonomous infrastructure for AI agents. Phone, email, compute, domains — paid with USDC via x402.',
     uptime: {
@@ -48,7 +48,7 @@ router.get('/api/builder-status', async (_req: Request, res: Response) => {
       paymentMethod: 'USDC via x402 (Solana + Base)'
     },
     tryItNow: {
-      step1: 'curl -X POST https://agntos.dev/api/agents/register -H "Content-Type: application/json" -d \'{ "name": "my-agent", "type": "autonomous" }\'',
+      step1: 'curl -X POST https://palmyr.ai/api/agents/register -H "Content-Type: application/json" -d \'{ "name": "my-agent", "type": "autonomous" }\'',
       step2: 'Use the returned API key in X-API-Key header for all subsequent calls',
       step3: 'Provision: POST /api/phones, /api/emails, /api/compute, /api/domains'
     },
@@ -58,10 +58,10 @@ router.get('/api/builder-status', async (_req: Request, res: Response) => {
       q2_2026: 'Decentralized compute, TEE support, on-chain billing'
     },
     links: {
-      api: 'https://agntos.dev',
-      docs: 'https://agntos.dev/docs',
-      github: 'https://github.com/0xArtex/AgentOS',
-      skill: 'https://agntos.dev/skill.md'
+      api: 'https://palmyr.ai',
+      docs: 'https://palmyr.ai/docs',
+      github: 'https://github.com/0xArtex/Palmyr',
+      skill: 'https://palmyr.ai/skill.md'
     }
   });
 });

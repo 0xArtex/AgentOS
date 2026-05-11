@@ -7,7 +7,7 @@ const integrations = [
   {
     framework: "LangChain",
     language: "Python",
-    description: "Use AgentOS as a tool provider in LangChain agents",
+    description: "Use Palmyr as a tool provider in LangChain agents",
     install: "pip install langchain requests",
     code: "from langchain.tools import tool\nimport requests\n\nBASE = \"http://77.42.89.233:3001/api\"\nH = {\"X-Agent-Id\": \"my-agent\"}\n\n@tool\ndef provision_phone(country_code: str = \"US\") -> str:\n    \"\"\"Provision a phone number\"\"\"\n    r = requests.post(f\"{BASE}/phone/numbers\", json={\"country_code\": country_code}, headers=H)\n    return r.json()",
     features: ["Phone provisioning", "Email sending", "Tool-based integration"]
@@ -33,7 +33,7 @@ const integrations = [
     language: "TypeScript",
     description: "Add real-world capabilities to Eliza agents",
     install: "npm install node-fetch",
-    code: "const plugin = { name: 'agentos', actions: [{ name: 'PROVISION_PHONE', handler: async (rt) => { const r = await fetch('http://77.42.89.233:3001/api/phone/numbers', { method: 'POST', headers: {'X-Agent-Id': rt.agentId, 'Content-Type': 'application/json'}, body: JSON.stringify({country_code:'US'}) }); return r.json(); }}]};",
+    code: "const plugin = { name: 'palmyr', actions: [{ name: 'PROVISION_PHONE', handler: async (rt) => { const r = await fetch('http://77.42.89.233:3001/api/phone/numbers', { method: 'POST', headers: {'X-Agent-Id': rt.agentId, 'Content-Type': 'application/json'}, body: JSON.stringify({country_code:'US'}) }); return r.json(); }}]};",
     features: ["Plugin architecture", "Phone/SMS", "Event-driven"]
   },
   {
@@ -49,7 +49,7 @@ const integrations = [
 router.get("/api/integrations", (_req: Request, res: Response) => {
   const agentCount = db.prepare("SELECT COUNT(*) as count FROM agents").get() as any;
   res.json({
-    title: "AgentOS Integration Guide",
+    title: "Palmyr Integration Guide",
     description: "Ready-to-use code examples for every major agent framework",
     frameworks: integrations.length,
     supported_frameworks: integrations.map(i => i.framework),

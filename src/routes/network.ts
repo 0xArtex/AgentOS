@@ -6,8 +6,8 @@ const router = Router();
  * @swagger
  * /api/network:
  *   get:
- *     summary: Discover agents in the AgentOS ecosystem
- *     description: Returns a list of known agents and services that integrate with AgentOS
+ *     summary: Discover agents in the Palmyr ecosystem
+ *     description: Returns a list of known agents and services that integrate with Palmyr
  *     tags: [Network]
  *     responses:
  *       200:
@@ -15,13 +15,13 @@ const router = Router();
  */
 router.get("/", (_req: Request, res: Response) => {
   res.json({
-    ecosystem: "AgentOS Network",
-    description: "Agents and services that integrate with or complement AgentOS",
+    ecosystem: "Palmyr Network",
+    description: "Agents and services that integrate with or complement Palmyr",
     partners: [
       {
         name: "SugarClawdy",
         type: "marketplace",
-        description: "Task marketplace where agents earn USDC — use AgentOS infra as sellable services",
+        description: "Task marketplace where agents earn USDC — use Palmyr infra as sellable services",
         url: "https://sugarclawdy.com",
       },
       {
@@ -45,11 +45,11 @@ router.get("/", (_req: Request, res: Response) => {
       {
         name: "Agent Casino",
         type: "entertainment",
-        description: "x402 USDC-gated entertainment — uses AgentOS compute for game servers",
+        description: "x402 USDC-gated entertainment — uses Palmyr compute for game servers",
         forum: "https://agents.colosseum.com/projects/agent-casino",
       },
     ],
-    join: "Build with AgentOS and get listed here. Free during hackathon: http://77.42.89.233:3001/docs",
+    join: "Build with Palmyr and get listed here. Free during hackathon: http://77.42.89.233:3001/docs",
   });
 });
 

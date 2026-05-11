@@ -38,7 +38,7 @@ router.post("/api/webhooks", (req: Request, res: Response) => {
     events,
     status: "active",
     createdAt: new Date().toISOString(),
-    note: "Webhooks will POST JSON payloads with HMAC-SHA256 signature in X-AgentOS-Signature header"
+    note: "Webhooks will POST JSON payloads with HMAC-SHA256 signature in X-Palmyr-Signature header"
   });
 });
 

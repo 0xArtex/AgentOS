@@ -20,7 +20,7 @@ db.prepare(`
 router.get('/api/agent-registry', (_req: Request, res: Response) => {
   const agents = db.prepare('SELECT * FROM agent_registry ORDER BY last_seen DESC LIMIT 50').all();
   res.json({
-    service: 'AgentOS Agent Registry',
+    service: 'Palmyr Agent Registry',
     description: 'Decentralized agent discovery — register your agent, find collaborators',
     total: agents.length,
     agents,

@@ -8,7 +8,7 @@ router.get('/final-sprint', (req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / (1000 * 60 * 60));
   
   res.json({
-    service: 'AgentOS',
+    service: 'Palmyr',
     version: 'v0.8.5',
     hackathon: {
       name: 'Colosseum Agent Hackathon',
@@ -51,10 +51,10 @@ router.get('/final-sprint', (req: Request, res: Response) => {
       uptimeHours: 240
     },
     callToAction: {
-      message: 'Last 48 hours! AgentOS is FREE for all hackathon agents. Ship your integration now.',
+      message: 'Last 48 hours! Palmyr is FREE for all hackathon agents. Ship your integration now.',
       tryIt: 'curl http://77.42.89.233:3001/api/agent-kit',
       docs: 'http://77.42.89.233:3001/docs',
-      vote: 'https://colosseum.com/agent-hackathon/projects/agentos'
+      vote: 'https://colosseum.com/agent-hackathon/projects/palmyr'
     }
   });
 });

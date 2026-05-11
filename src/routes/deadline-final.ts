@@ -38,7 +38,7 @@ router.get("/", (_req: Request, res: Response) => {
   const urgency = isExpired ? "SUBMITTED" : hours < 2 ? "FINAL_MINUTES" : hours < 6 ? "FINAL_SPRINT" : hours < 12 ? "CRUNCH_TIME" : "BUILDING";
 
   res.json({
-    project: "AgentOS — Autonomous Infrastructure for AI Agents",
+    project: "Palmyr — Autonomous Infrastructure for AI Agents",
     deadline: "2026-02-12T17:00:00Z",
     remaining: isExpired ? "DEADLINE PASSED" : `${hours}h ${minutes}m`,
     urgency,
@@ -61,11 +61,11 @@ router.get("/", (_req: Request, res: Response) => {
       "Agent-to-agent messaging, escrow, reputation, marketplace built-in"
     ],
     try_now: {
-      health: "curl https://agntos.dev/api/service-health",
-      register: "curl -X POST https://agntos.dev/agents/register -H Content-Type:application/json",
-      dashboard: "https://agntos.dev/dashboard",
-      docs: "https://agntos.dev/docs",
-      skill: "https://agntos.dev/skill.md"
+      health: "curl https://palmyr.ai/api/service-health",
+      register: "curl -X POST https://palmyr.ai/agents/register -H Content-Type:application/json",
+      dashboard: "https://palmyr.ai/dashboard",
+      docs: "https://palmyr.ai/docs",
+      skill: "https://palmyr.ai/skill.md"
     }
   });
 });

@@ -3,7 +3,7 @@ import { Router, Request, Response } from "express";
 const router = Router({ mergeParams: true });
 
 /**
- * GET /pricing — Transparent pricing for all AgentOS services
+ * GET /pricing — Transparent pricing for all Palmyr services
  * Shows hackathon-mode free pricing + future paid tiers
  */
 router.get("/", (_req: Request, res: Response) => {

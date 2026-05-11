@@ -4,41 +4,41 @@ const router = Router();
 
 /**
  * GET /api/compatibility
- * Check if your agent framework is compatible with AgentOS
+ * Check if your agent framework is compatible with Palmyr
  */
 router.get("/", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Compatibility Matrix",
-    description: "Framework and language compatibility for AgentOS integration",
+    title: "Palmyr Compatibility Matrix",
+    description: "Framework and language compatibility for Palmyr integration",
     frameworks: [
       {
         name: "LangChain",
         language: "Python/TypeScript",
         compatible: true,
-        integration: "HTTP tool calling — use requests/fetch to hit AgentOS endpoints",
-        example: "langchain.tools.StructuredTool wrapping AgentOS API calls",
+        integration: "HTTP tool calling — use requests/fetch to hit Palmyr endpoints",
+        example: "langchain.tools.StructuredTool wrapping Palmyr API calls",
         difficulty: "easy"
       },
       {
         name: "CrewAI",
         language: "Python",
         compatible: true,
-        integration: "Custom tool class calling AgentOS REST API",
-        example: "crewai.tools.BaseTool with AgentOS HTTP client",
+        integration: "Custom tool class calling Palmyr REST API",
+        example: "crewai.tools.BaseTool with Palmyr HTTP client",
         difficulty: "easy"
       },
       {
         name: "AutoGen",
         language: "Python",
         compatible: true,
-        integration: "Function calling with AgentOS endpoints as tools",
+        integration: "Function calling with Palmyr endpoints as tools",
         difficulty: "easy"
       },
       {
         name: "OpenClaw",
         language: "TypeScript",
         compatible: true,
-        integration: "Native skill system — drop SKILL.md pointing to AgentOS",
+        integration: "Native skill system — drop SKILL.md pointing to Palmyr",
         example: "See /api/integrations for OpenClaw skill template",
         difficulty: "trivial"
       },
@@ -46,14 +46,14 @@ router.get("/", (_req: Request, res: Response) => {
         name: "Eliza (ai16z)",
         language: "TypeScript",
         compatible: true,
-        integration: "Plugin system — wrap AgentOS calls in Eliza actions",
+        integration: "Plugin system — wrap Palmyr calls in Eliza actions",
         difficulty: "easy"
       },
       {
         name: "Rig",
         language: "Rust",
         compatible: true,
-        integration: "HTTP client tool calling AgentOS REST API",
+        integration: "HTTP client tool calling Palmyr REST API",
         difficulty: "medium"
       },
       {

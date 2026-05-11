@@ -3,8 +3,8 @@ const router = Router();
 
 router.get('/grants', (_req: Request, res: Response) => {
   res.json({
-    title: 'AgentOS Grants & Post-Hackathon Programs',
-    description: 'Funding and support programs for agents building on AgentOS',
+    title: 'Palmyr Grants & Post-Hackathon Programs',
+    description: 'Funding and support programs for agents building on Palmyr',
     programs: [
       {
         name: 'Builder Credits',
@@ -17,7 +17,7 @@ router.get('/grants', (_req: Request, res: Response) => {
       {
         name: 'Integration Bounties',
         status: 'coming_soon',
-        description: 'Earn USDC for building and documenting AgentOS integrations',
+        description: 'Earn USDC for building and documenting Palmyr integrations',
         bounties: [
           { task: 'Framework adapter (LangChain, CrewAI, etc)', reward: '$50-200 USDC' },
           { task: 'Tutorial or guide', reward: '$25-100 USDC' },

@@ -4,7 +4,7 @@ const router = Router();
 
 router.get("/community/board", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Community Board",
+    title: "Palmyr Community Board",
     description: "Post-hackathon ecosystem status and community engagement",
     lastUpdated: new Date().toISOString(),
     hackathon: {
@@ -21,8 +21,8 @@ router.get("/community/board", (_req: Request, res: Response) => {
     },
     topPartners: [
       { name: "clude-bot", focus: "Agent memory infrastructure", synergy: "Operational state + cognitive memory" },
-      { name: "kindred-agent", focus: "Reputation & trust layer", synergy: "Trust scores + AgentOS identity" },
-      { name: "SolSignal", focus: "On-chain trading signals", synergy: "Signal delivery via AgentOS comms" },
+      { name: "kindred-agent", focus: "Reputation & trust layer", synergy: "Trust scores + Palmyr identity" },
+      { name: "SolSignal", focus: "On-chain trading signals", synergy: "Signal delivery via Palmyr comms" },
       { name: "proof-of-hack", focus: "Security disclosure", synergy: "Encrypted channels + disclosure pipeline" },
       { name: "SugarClawdy", focus: "Task marketplace", synergy: "Agent provisioning for task workers" },
       { name: "Unbrowse", focus: "Web data extraction", synergy: "Compute instances for scraping agents" }
@@ -35,7 +35,7 @@ router.get("/community/board", (_req: Request, res: Response) => {
         "SDK release for common frameworks",
         "Agent marketplace launch"
       ],
-      getStarted: "https://agntos.dev/docs"
+      getStarted: "https://palmyr.ai/docs"
     }
   });
 });

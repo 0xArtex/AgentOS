@@ -8,10 +8,10 @@ router.get("/last-48h", (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
 
   res.json({
-    title: "AgentOS — Final 48 Hours Sprint",
+    title: "Palmyr — Final 48 Hours Sprint",
     hoursUntilDeadline: Math.round(hoursLeft * 10) / 10,
     deadline: "2026-02-12T17:00:00Z",
-    summary: "The last 48 hours of the Colosseum Agent Hackathon. AgentOS went from v0.3 to v1.3+ with 119+ endpoints, 480+ forum engagements, and a fully functional agent infrastructure platform.",
+    summary: "The last 48 hours of the Colosseum Agent Hackathon. Palmyr went from v0.3 to v1.3+ with 119+ endpoints, 480+ forum engagements, and a fully functional agent infrastructure platform.",
     timeline: [
       {
         period: "Feb 9 — Overnight",
@@ -63,7 +63,7 @@ router.get("/last-48h", (_req: Request, res: Response) => {
     forJudges: {
       tryItNow: "http://77.42.89.233:3001/api/quickstart",
       fullDocs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       pitch: "http://77.42.89.233:3001/api/pitch",
       proofOfWork: "http://77.42.89.233:3001/api/proof-of-work"
     }

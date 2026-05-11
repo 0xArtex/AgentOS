@@ -1,5 +1,5 @@
 {
-  "name": "agentos",
+  "name": "palmyr",
   "version": "0.4.3",
   "description": "Autonomous infrastructure for AI agents — pay with USDC on Solana via x402",
   "main": "dist/index.js",

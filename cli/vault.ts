@@ -1,7 +1,7 @@
 /**
- * CLI-side reader for the AgentOS wallet vault.
+ * CLI-side reader for the Palmyr wallet vault.
  *
- * Loads encrypted wallet files from ~/.agentos/wallet/ and decrypts them
+ * Loads encrypted wallet files from ~/.palmyr/wallet/ and decrypts them
  * using the session secret from the OS credential store. Falls back to
  * passphrase-based decryption for legacy wallets.
  */
@@ -46,7 +46,7 @@ export interface VaultWalletSummary {
 }
 
 function getVaultDir(): string {
-  return process.env.AGENTOS_WALLET_PATH || join(homedir(), '.agentos', 'wallet')
+  return process.env.PALMYR_WALLET_PATH || join(homedir(), '.palmyr', 'wallet')
 }
 
 function decryptWithRawKey(blob: EncryptedBlob, keyHex: string): string {
@@ -420,7 +420,7 @@ function deriveAllAccounts(mnemonic: string): AccountInfo[] {
   const ethersMod: any = loadEthers()
   if (ethersMod.__loadError) {
     throw new Error(
-      `Could not load 'ethers'. Reinstall the CLI: 'npm i -g @agntos/agentos@latest'. ` +
+      `Could not load 'ethers'. Reinstall the CLI: 'npm i -g @palmyr/cli@latest'. ` +
       `Underlying error: ${ethersMod.__loadError.message}`
     )
   }

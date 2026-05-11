@@ -4,16 +4,16 @@
 
 If you discover a security vulnerability, please report it responsibly:
 
-**Email:** hello@agntos.dev
+**Email:** hello@palmyr.ai
 
 Do **not** open a public GitHub issue for security vulnerabilities.
 
 ## Scope
 
-- AgentOS API (agntos.dev)
+- Palmyr API (palmyr.ai)
 - AgentWallet smart contracts (Base + Solana)
-- CLI packages (@agntos/agentos, @agntos/agentwallet)
-- Dashboard (agntos.dev/dashboard.html)
+- CLI packages (@palmyr/cli, @agntos/agentwallet)
+- Dashboard (palmyr.ai/dashboard.html)
 
 ## Response
 

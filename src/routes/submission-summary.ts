@@ -15,7 +15,7 @@ router.get("/", async (_req: Request, res: Response) => {
     const hoursLeft = Math.max(0, Math.round((deadline - now) / 3600000 * 10) / 10);
 
     res.json({
-      project: "AgentOS",
+      project: "Palmyr",
       tagline: "Autonomous Infrastructure for AI Agents",
       version: "v1.7.7",
       hackathon: {
@@ -47,7 +47,7 @@ router.get("/", async (_req: Request, res: Response) => {
       links: {
         api_docs: "http://77.42.89.233:3001/docs",
         skill_md: "http://77.42.89.233:3001/skill.md",
-        github: "https://github.com/0xArtex/AgentOS",
+        github: "https://github.com/0xArtex/Palmyr",
         sandbox: "http://77.42.89.233:3001/api/sandbox",
         colosseum: "https://agents.colosseum.com/projects/432"
       },

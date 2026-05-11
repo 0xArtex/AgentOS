@@ -4,9 +4,9 @@
  * Three responsibilities:
  *   1. Local keypair generation (`generateKeypair`) — shells out to `ssh-keygen`
  *      so we don't have to ship our own OpenSSH-format encoder. Saved under
- *      `~/.agentos/ssh/<server-id>/id_ed25519{,.pub}` with chmod 600.
+ *      `~/.palmyr/ssh/<server-id>/id_ed25519{,.pub}` with chmod 600.
  *   2. Local server cache (`saveDeployedServer` / `findCachedServer`) — lets
- *      `agentos compute ssh <name>` resolve a friendly name → IP without a
+ *      `palmyr compute ssh <name>` resolve a friendly name → IP without a
  *      paid `GET /compute/servers` round-trip.
  *   3. Wait-for-running (`waitForRunning`) — polls the server's status with
  *      backoff until Hetzner reports `running` or the deadline trips.
@@ -18,9 +18,9 @@ import { homedir } from 'os'
 import { join, dirname } from 'path'
 import { createConnection } from 'net'
 
-const AGENTOS_DIR = join(homedir(), '.agentos')
-const SSH_DIR = join(AGENTOS_DIR, 'ssh')
-const SERVER_CACHE = join(AGENTOS_DIR, 'data', 'servers.json')
+const PALMYR_DIR = join(homedir(), '.palmyr')
+const SSH_DIR = join(PALMYR_DIR, 'ssh')
+const SERVER_CACHE = join(PALMYR_DIR, 'data', 'servers.json')
 
 function ensureDir(p: string): void {
   if (!existsSync(p)) mkdirSync(p, { recursive: true })
@@ -49,12 +49,12 @@ export interface GeneratedKeypair {
   privateKeyPath: string
   publicKeyPath: string
   publicKey: string
-  /** Comment field embedded in the .pub file ("agentos-<serverId>"). */
+  /** Comment field embedded in the .pub file ("palmyr-<serverId>"). */
   comment: string
 }
 
 /**
- * Generate a fresh ed25519 keypair in `~/.agentos/ssh/<serverId>/`. The label
+ * Generate a fresh ed25519 keypair in `~/.palmyr/ssh/<serverId>/`. The label
  * (typically the Hetzner server id, but any safe slug works) namespaces the
  * key so multiple deploys don't trample each other. Caller is responsible for
  * passing the resulting `publicKey` string to the deploy endpoint.
@@ -81,7 +81,7 @@ export function generateKeypair(label: string): GeneratedKeypair {
       `Key already exists at ${privateKeyPath}. Delete it first or pass --pubkey-file ${publicKeyPath} to reuse it.`,
     )
   }
-  const comment = `agentos-${label}`
+  const comment = `palmyr-${label}`
   // -N "" is empty passphrase. -q suppresses ssh-keygen's banner.
   // We pass the path with no shell metachars (label already validated).
   const r = spawnSync(
@@ -177,10 +177,10 @@ export function spawnInteractiveSsh(ip: string, keyPath?: string): number {
   if (keyPath && existsSync(keyPath)) args.push('-i', keyPath)
   args.push(
     '-o', 'StrictHostKeyChecking=accept-new',
-    '-o', 'UserKnownHostsFile=' + join(AGENTOS_DIR, 'ssh', 'known_hosts'),
+    '-o', 'UserKnownHostsFile=' + join(PALMYR_DIR, 'ssh', 'known_hosts'),
     `root@${ip}`,
   )
-  ensureDir(join(AGENTOS_DIR, 'ssh'))
+  ensureDir(join(PALMYR_DIR, 'ssh'))
   const r = spawnSync('ssh', args, { stdio: 'inherit' })
   if (r.error) {
     process.stderr.write(`ssh spawn failed: ${(r.error as any).message}\n`)
@@ -321,13 +321,13 @@ export interface ReadinessResult {
   elapsedMs: number
   /** Diagnostic string when `ready === false`. */
   reason?: string
-  /** Parsed contents of /etc/agentos/install-status.json on success. */
+  /** Parsed contents of /etc/palmyr/install-status.json on success. */
   installStatus?: { installs: string[]; completed_at: string; status: string }
   /** Cloud-init logs + recipe logs, fetched on failure when we can SSH. */
   diagnostics?: {
     cloudInitStatus?: string | null
     cloudInitLogTail?: string | null
-    agentosLogTail?: string | null
+    palmyrLogTail?: string | null
     recipeLogs?: Array<{ name: string; tail: string }>
   }
 }
@@ -345,7 +345,7 @@ function sshRun(ip: string, keyPath: string, command: string, timeoutSec: number
   if (!existsSync(keyPath)) return { stdout: '', status: 127 }
   // -q + -T: quiet, no PTY (issue #85).
   // UserKnownHostsFile=/dev/null + StrictHostKeyChecking=no: not security-
-  // critical (we're polling /etc/agentos/install-status.json on a server
+  // critical (we're polling /etc/palmyr/install-status.json on a server
   // we just deployed). See sshProbe for full rationale.
   const r = spawnSync('ssh', [
     '-i', keyPath,
@@ -365,7 +365,7 @@ function sshRun(ip: string, keyPath: string, command: string, timeoutSec: number
 }
 
 /**
- * Read /etc/agentos/install-status.json from the server via SSH. Returns the
+ * Read /etc/palmyr/install-status.json from the server via SSH. Returns the
  * parsed object on success, null if the file doesn't exist yet (cloud-init
  * still running) or can't be parsed. Used as gate 4 of the readiness chain
  * when a deploy requested install recipes.
@@ -376,7 +376,7 @@ export function readInstallStatus(ip: string, keyPath: string, timeoutSec: numbe
 {
   // 2>/dev/null suppresses the "no such file" error so the missing-file
   // case is just an empty stdout, not a parse failure with stderr noise.
-  const r = sshRun(ip, keyPath, 'cat /etc/agentos/install-status.json 2>/dev/null', timeoutSec)
+  const r = sshRun(ip, keyPath, 'cat /etc/palmyr/install-status.json 2>/dev/null', timeoutSec)
   if (r.status !== 0) return null
   const out = r.stdout.trim()
   if (!out) return null
@@ -414,8 +414,8 @@ export function readCloudInitStatus(ip: string, keyPath: string, timeoutSec: num
  *
  *   - cloud-init status (--long if available)
  *   - tail of /var/log/cloud-init-output.log
- *   - tail of /var/log/agentos/cloud-init.log (the wrapper's own tee)
- *   - tail of any /var/log/agentos/<recipe>-install.log files
+ *   - tail of /var/log/palmyr/cloud-init.log (the wrapper's own tee)
+ *   - tail of any /var/log/palmyr/<recipe>-install.log files
  *
  * Tails are capped to keep response bodies sane. If SSH is unreachable
  * (gate 2 or 3 tripped), returns a short note instead of throwing.
@@ -423,13 +423,13 @@ export function readCloudInitStatus(ip: string, keyPath: string, timeoutSec: num
 export function fetchDeployDiagnostics(ip: string, keyPath: string): {
   cloudInitStatus: string | null
   cloudInitLogTail: string | null
-  agentosLogTail: string | null
+  palmyrLogTail: string | null
   recipeLogs: Array<{ name: string; tail: string }>
 } {
   const result = {
     cloudInitStatus: null as string | null,
     cloudInitLogTail: null as string | null,
-    agentosLogTail: null as string | null,
+    palmyrLogTail: null as string | null,
     recipeLogs: [] as Array<{ name: string; tail: string }>,
   }
   if (!existsSync(keyPath)) return result
@@ -447,14 +447,14 @@ export function fetchDeployDiagnostics(ip: string, keyPath: string): {
     result.cloudInitLogTail = ciLog.stdout
   }
 
-  const agentosLog = sshRun(ip, keyPath, 'tail -80 /var/log/agentos/cloud-init.log 2>/dev/null', 15)
-  if (agentosLog.status === 0 && agentosLog.stdout.trim()) {
-    result.agentosLogTail = agentosLog.stdout
+  const palmyrLog = sshRun(ip, keyPath, 'tail -80 /var/log/palmyr/cloud-init.log 2>/dev/null', 15)
+  if (palmyrLog.status === 0 && palmyrLog.stdout.trim()) {
+    result.palmyrLogTail = palmyrLog.stdout
   }
 
   // List per-recipe install logs and tail the last one each. We use ls + a
   // capped find so we don't accidentally pull megabytes from a runaway log.
-  const list = sshRun(ip, keyPath, 'ls /var/log/agentos/*-install.log 2>/dev/null', 10)
+  const list = sshRun(ip, keyPath, 'ls /var/log/palmyr/*-install.log 2>/dev/null', 10)
   if (list.status === 0) {
     const files = list.stdout.split('\n').map(s => s.trim()).filter(Boolean).slice(0, 8)
     for (const file of files) {
@@ -477,7 +477,7 @@ export function fetchDeployDiagnostics(ip: string, keyPath: string): {
  *   1. Hetzner status flips to `running`.
  *   2. TCP port 22 accepts connections.
  *   3. (Optional) `ssh -i <key> root@<ip> 'true'` exits 0.
- *   4. (Optional) /etc/agentos/install-status.json exists with `status: ok`
+ *   4. (Optional) /etc/palmyr/install-status.json exists with `status: ok`
  *      and contains every recipe in `expectedInstalls`. Skipped when no
  *      installs were requested at deploy time, OR when we don't have a
  *      private key path to SSH in with.
@@ -601,7 +601,7 @@ export async function waitForReady(opts: {
   }
 
   // Gate 4: Install marker (optional). Cloud-init writes
-  // /etc/agentos/install-status.json once every requested recipe finishes.
+  // /etc/palmyr/install-status.json once every requested recipe finishes.
   // We poll it via SSH every 5–8s, AND probe `cloud-init status` so we can
   // fail fast when scripts_user has aborted (no point polling for a marker
   // file that's never going to land).
@@ -665,8 +665,8 @@ export async function waitForReady(opts: {
       // poll the marker. Mark skipped so the caller knows the gate didn't run.
       checks.installs = 'skipped'
       skipReasons.installs = opts.keyPath
-        ? `Private key not found at ${opts.keyPath}; can't read /etc/agentos/install-status.json.`
-        : 'No local SSH key path supplied; can\'t read /etc/agentos/install-status.json. Pass --key <path>, or check the marker manually: agentos compute exec <id> -- cat /etc/agentos/install-status.json'
+        ? `Private key not found at ${opts.keyPath}; can't read /etc/palmyr/install-status.json.`
+        : 'No local SSH key path supplied; can\'t read /etc/palmyr/install-status.json. Pass --key <path>, or check the marker manually: palmyr compute exec <id> -- cat /etc/palmyr/install-status.json'
     }
   }
 

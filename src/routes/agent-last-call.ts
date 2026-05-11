@@ -17,7 +17,7 @@ router.get("/api/last-call", (_req: Request, res: Response) => {
       minutes: minutesLeft,
       human: hoursLeft > 0 ? `${hoursLeft}h ${minutesLeft}m` : `${minutesLeft} minutes`,
     },
-    whyAgentOS: {
+    whyPalmyr: {
       problem: "Building agent infra from scratch takes weeks. You have hours.",
       solution: "One API call = phone number, email, compute, domain. Done.",
       cost: "FREE during hackathon (x-agent-id header)",

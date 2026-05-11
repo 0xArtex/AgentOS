@@ -1,6 +1,6 @@
 VARIANT 1 — minimal soft cube
 
-   AgentOS
+   Palmyr
    ╭────────╮
    │  •  •  │
    │   ──   │
@@ -9,7 +9,7 @@ VARIANT 1 — minimal soft cube
 
 VARIANT 2 — hero rounded cube
 
-      AgentOS
+      Palmyr
     ╭──────────╮
    ╭│  •    •  │╮
    ││    ──    ││
@@ -20,7 +20,7 @@ VARIANT 2 — hero rounded cube
 
 VARIANT 3 — premium raster cube
 
-        AgentOS
+        Palmyr
       ░░░░░░░░░░
     ╭────────────╮
    ╭│  •      •  │╮

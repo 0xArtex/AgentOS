@@ -1,12 +1,12 @@
 /**
- * Test x402 Solana payment against AgentOS
+ * Test x402 Solana payment against Palmyr
  * Uses @x402/svm client to build a proper payment payload
  */
 import { Connection, Keypair, PublicKey, Transaction, TransactionMessage, VersionedTransaction, ComputeBudgetProgram } from '@solana/web3.js';
 import { getAssociatedTokenAddress, createTransferCheckedInstruction, getMint } from '@solana/spl-token';
 import bs58 from 'bs58';
 
-const AGENTOS_URL = 'http://localhost:3001';
+const PALMYR_URL = 'http://localhost:3001';
 const AGENT_TOKEN = 'aos_n8t7pr3qzmgoxmxxmumzfwkef3jqhfzjp4u9y89325jlyf0l';
 const RPC_URL = 'https://api.mainnet-beta.solana.com';
 
@@ -17,7 +17,7 @@ const walletData = JSON.parse(readFileSync('/root/.zolty-keypair.json', 'utf8'))
 async function main() {
   // Step 1: Make request, get 402 response
   console.log('Step 1: Getting 402 payment requirements...');
-  const resp = await fetch(`${AGENTOS_URL}/email/inboxes`, {
+  const resp = await fetch(`${PALMYR_URL}/email/inboxes`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -115,7 +115,7 @@ async function main() {
   const paymentHeader = Buffer.from(JSON.stringify(paymentPayload)).toString('base64');
 
   console.log('\nStep 3: Retrying with payment...');
-  const resp2 = await fetch(`${AGENTOS_URL}/email/inboxes`, {
+  const resp2 = await fetch(`${PALMYR_URL}/email/inboxes`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

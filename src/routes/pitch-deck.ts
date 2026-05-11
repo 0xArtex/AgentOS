@@ -6,7 +6,7 @@ router.get("/api/pitch-deck", (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (new Date("2026-02-12T17:00:00Z").getTime() - Date.now()) / 3600000).toFixed(1);
   
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents",
     problem: {
       title: "Agents can think but cannot act",
@@ -44,14 +44,14 @@ router.get("/api/pitch-deck", (_req: Request, res: Response) => {
       "Framework-agnostic: LangChain, CrewAI, OpenClaw, raw HTTP"
     ],
     try_it: {
-      health: "curl https://agntos.dev/health",
-      register: "curl -X POST https://agntos.dev/api/agents/register -H 'Content-Type: application/json' -d '{\"name\":\"my-agent\"}'",
-      docs: "https://agntos.dev/docs"
+      health: "curl https://palmyr.ai/health",
+      register: "curl -X POST https://palmyr.ai/api/agents/register -H 'Content-Type: application/json' -d '{\"name\":\"my-agent\"}'",
+      docs: "https://palmyr.ai/docs"
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr"
     },
     deadline: { hours_remaining: hoursLeft, date: "Feb 12, 2026 17:00 UTC" }
   });

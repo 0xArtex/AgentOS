@@ -28,7 +28,7 @@ router.get("/api/submission-status", (_req: Request, res: Response) => {
   if (expired) urgency = "SUBMITTED";
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Infrastructure for Autonomous AI Agents",
     deadline: deadline.toISOString(),
     hoursRemaining: Math.round(hoursLeft * 10) / 10,
@@ -52,16 +52,16 @@ router.get("/api/submission-status", (_req: Request, res: Response) => {
       "211+ endpoints in 12 days of continuous development"
     ],
     tryItNow: {
-      health: "curl https://agntos.dev/health",
-      register: "curl -X POST https://agntos.dev/api/agents -H X-Agent-Id: demo",
-      docs: "https://agntos.dev/docs",
-      dashboard: "https://agntos.dev/dashboard"
+      health: "curl https://palmyr.ai/health",
+      register: "curl -X POST https://palmyr.ai/api/agents -H X-Agent-Id: demo",
+      docs: "https://palmyr.ai/docs",
+      dashboard: "https://palmyr.ai/dashboard"
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      skill: "https://agntos.dev/skill.md",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      skill: "https://palmyr.ai/skill.md",
       colosseum: "https://agents.colosseum.com/project/432"
     }
   });

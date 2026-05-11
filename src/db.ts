@@ -17,7 +17,7 @@ export const db: Database.Database = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
 /**
- * Initialize all tables for AgentOS
+ * Initialize all tables for Palmyr
  */
 export function initDatabase(): void {
   // Phone Numbers table
@@ -796,7 +796,7 @@ export function initDatabase(): void {
   `);
 
   // i402 protocol — provider registry
-  // Federated across: AgentOS primitives, Agentic Market, curated external APIs, ClawHub.
+  // Federated across: Palmyr primitives, Agentic Market, curated external APIs, ClawHub.
   // Every row is one callable x402 endpoint registered under one capability class.
   db.exec(`
     CREATE TABLE IF NOT EXISTS i402_providers (

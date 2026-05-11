@@ -11,11 +11,11 @@ interface Props {
 /**
  * Brand icon per capability. Per-name overrides take priority over
  * category-based defaults so e.g. `configure_openclaw` can show the
- * OpenClaw mark while the rest of `compute` shows the AgentOS mark.
+ * OpenClaw mark while the rest of `compute` shows the Palmyr mark.
  *
  * Three rendering modes:
  *  - `mono`   – external branded asset, drained of color via grayscale filter
- *  - `invert` – dark logo on white bg (e.g. AgentOS), flipped via invert filter
+ *  - `invert` – dark logo on white bg (e.g. Palmyr), flipped via invert filter
  *  - `raw`    – inline SVG using `currentColor`, no filter, color set by CSS
  */
 type Filter = "mono" | "invert" | "raw";
@@ -84,7 +84,7 @@ function map(name: string, category: string, size: number): IconConfig {
         filter: "mono",
       };
     case "compute":
-      return { kind: "img", src: "/assets/logo.png", alt: "AgentOS", filter: "invert" };
+      return { kind: "img", src: "/assets/logo.png", alt: "Palmyr", filter: "invert" };
     case "twitter":
       return { kind: "svg", alt: "X", filter: "raw", node: <XSvg size={size} /> };
     case "tiktok":
@@ -94,7 +94,7 @@ function map(name: string, category: string, size: number): IconConfig {
     case "keys":
     case "other":
     default:
-      return { kind: "img", src: "/assets/logo.png", alt: "AgentOS", filter: "invert" };
+      return { kind: "img", src: "/assets/logo.png", alt: "Palmyr", filter: "invert" };
   }
 }
 

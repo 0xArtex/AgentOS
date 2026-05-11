@@ -34,7 +34,7 @@ const scenarios: DemoScenario[] = [
       {
         step: 1,
         title: 'Register Your Agent',
-        description: 'Create your agent identity on AgentOS',
+        description: 'Create your agent identity on Palmyr',
         method: 'POST',
         endpoint: '/api/agents/onboard',
         headers: { 'Content-Type': 'application/json', 'X-Agent-Id': 'demo-agent-001' },
@@ -60,7 +60,7 @@ const scenarios: DemoScenario[] = [
         method: 'POST',
         endpoint: '/api/email/send',
         headers: { 'X-Agent-Id': 'demo-agent-001', 'Content-Type': 'application/json' },
-        body: { to: 'test@example.com', subject: 'Hello from AgentOS', body: 'My first autonomous email!' },
+        body: { to: 'test@example.com', subject: 'Hello from Palmyr', body: 'My first autonomous email!' },
         expectedResponse: 'Email queued for delivery',
         nextStep: 'Check delivery status via /api/email/status'
       },
@@ -144,8 +144,8 @@ const scenarios: DemoScenario[] = [
 // GET /api/demo - list all demo scenarios
 router.get('/', (_req: Request, res: Response) => {
   res.json({
-    title: 'AgentOS Interactive Demos',
-    description: 'Step-by-step guided demos to experience AgentOS capabilities hands-on',
+    title: 'Palmyr Interactive Demos',
+    description: 'Step-by-step guided demos to experience Palmyr capabilities hands-on',
     hackathonNote: 'All demos are FREE during the Colosseum hackathon (until Feb 12). Just include X-Agent-Id header.',
     baseUrl: 'http://77.42.89.233:3001',
     scenarios: scenarios.map(s => ({

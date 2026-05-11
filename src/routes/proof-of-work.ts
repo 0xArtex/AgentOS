@@ -30,7 +30,7 @@ router.get("/api/proof-of-work", async (_req: Request, res: Response) => {
   const mem = process.memoryUsage();
 
   res.json({
-    title: "AgentOS — Proof of Work",
+    title: "Palmyr — Proof of Work",
     subtitle: "Real metrics from a real system, built in 12 days",
     build_metrics: {
       route_files: routeFiles,
@@ -64,9 +64,9 @@ router.get("/api/proof-of-work", async (_req: Request, res: Response) => {
       "215+ endpoints — most comprehensive agent infra API",
     ],
     try_it: {
-      health: "curl https://agntos.dev/ping",
-      register: "curl -X POST https://agntos.dev/api/agents/register -H 'Content-Type: application/json' -d '{\"name\":\"test\"}'",
-      docs: "https://agntos.dev/docs",
+      health: "curl https://palmyr.ai/ping",
+      register: "curl -X POST https://palmyr.ai/api/agents/register -H 'Content-Type: application/json' -d '{\"name\":\"test\"}'",
+      docs: "https://palmyr.ai/docs",
     },
   });
 });

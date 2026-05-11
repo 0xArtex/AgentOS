@@ -20,7 +20,7 @@ router.get("/colosseum-ready", async (_req, res) => {
   const memUsed = process.memoryUsage();
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents — phone, email, compute, domains — one API call each",
     version: "v1.1.3",
     hackathon: {
@@ -70,7 +70,7 @@ router.get("/colosseum-ready", async (_req, res) => {
     links: {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
     },
   });
 });

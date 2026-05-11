@@ -6,7 +6,7 @@ const router = Router({ mergeParams: true });
 
 router.get("/", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Interactive Demo",
+    title: "Palmyr Interactive Demo",
     description: "A guided, executable demo that walks through the full agent lifecycle. Each step includes a live curl command you can run right now.",
     total_steps: 7,
     estimated_time: "2 minutes",
@@ -111,7 +111,7 @@ router.post("/run", async (req: Request, res: Response) => {
       verdict: "ALL SYSTEMS OPERATIONAL",
       steps_completed: results.length,
       results,
-      message: "AgentOS is live, fast, and free through Feb 12. Your agent is ready to build."
+      message: "Palmyr is live, fast, and free through Feb 12. Your agent is ready to build."
     });
   } catch (err: any) {
     res.status(500).json({ error: "Demo execution failed", detail: err.message });

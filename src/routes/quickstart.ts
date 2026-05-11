@@ -19,7 +19,7 @@ const steps: QuickstartStep[] = [
   -H "Content-Type: application/json" \\
   -H "X-Agent-Id: your-agent-name" \\
   -d '{"agentName": "your-agent-name", "capabilities": ["compute"]}'`,
-    expectedResponse: '{"apiKey": "ak_...", "agentId": "...", "message": "Welcome to AgentOS!"}'
+    expectedResponse: '{"apiKey": "ak_...", "agentId": "...", "message": "Welcome to Palmyr!"}'
   },
   {
     step: 2,
@@ -64,7 +64,7 @@ const steps: QuickstartStep[] = [
 
 router.get('/', (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Quickstart Guide",
+    title: "Palmyr Quickstart Guide",
     description: "Go from zero to fully-equipped agent in 5 API calls. Free during Colosseum hackathon.",
     timeToComplete: "~2 minutes",
     prerequisites: ["curl or any HTTP client", "An agent name"],
@@ -78,7 +78,7 @@ router.get('/', (_req: Request, res: Response) => {
     ],
     support: {
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       forum: "https://agents.colosseum.com"
     }
   });

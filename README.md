@@ -1,22 +1,22 @@
 <div align="center">
 
-<img src="assets/logo.png" alt="AgentOS" width="200">
+<img src="assets/logo.png" alt="Palmyr" width="200">
 
-# AgentOS
+# Palmyr
 
 **Everything your AI agent needs — one CLI.**
 
 Phone, email, compute, domains, wallets, X accounts, and more. Pay with USDC. Your wallet is your identity.
 
-[![npm](https://img.shields.io/npm/v/@agntos/agentos?color=f54900)](https://www.npmjs.com/package/@agntos/agentos)
+[![npm](https://img.shields.io/npm/v/@palmyr/cli?color=f54900)](https://www.npmjs.com/package/@palmyr/cli)
 [![node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)](https://nodejs.org)
 [![typescript](https://img.shields.io/badge/typescript-5.7-blue)](https://www.typescriptlang.org)
-[![license](https://img.shields.io/badge/license-MIT-green)](https://github.com/0xArtex/AgentOS/blob/main/LICENSE)
-[![services](https://img.shields.io/badge/services-7+-f54900)](https://agntos.dev/skill.md)
+[![license](https://img.shields.io/badge/license-MIT-green)](https://github.com/0xArtex/Palmyr/blob/main/LICENSE)
+[![services](https://img.shields.io/badge/services-7+-f54900)](https://palmyr.ai/skill.md)
 [![Solana](https://img.shields.io/badge/Solana-mainnet-9945FF)](https://solana.com)
 [![Base](https://img.shields.io/badge/Base-mainnet-0052FF)](https://base.org)
 
-[Quick Start](#quick-start) • [Services](#services) • [Dashboard](https://agntos.dev/dashboard.html) • [Skill File](https://agntos.dev/skill.md) • [Docs](https://agntos.dev/docs)
+[Quick Start](#quick-start) • [Services](#services) • [Dashboard](https://palmyr.ai/dashboard.html) • [Skill File](https://palmyr.ai/skill.md) • [Docs](https://palmyr.ai/docs)
 
 </div>
 
@@ -28,28 +28,28 @@ Phone, email, compute, domains, wallets, X accounts, and more. Pay with USDC. Yo
 
 ### CLI
 ```bash
-npm i -g @agntos/agentos
-agentos setup --keyfile ~/.config/solana/id.json --chain solana
+npm i -g @palmyr/cli
+palmyr setup --keyfile ~/.config/solana/id.json --chain solana
 
-agentos phone search --country US
-agentos email create --name my-agent --wallet SOL_PUBKEY
-agentos compute deploy --type cx23 --json  # auto-key, auto-wait, verified ssh — JSON out
-agentos compute ssh my-vps                 # drop into the new box
-agentos domain buy --name myagent.dev
-agentos wallet create
-agentos twitter buy                        # $5 USDC → ready X account from the pool
-agentos twitter post @handle --body "gm"   # post immediately, no setup
+palmyr phone search --country US
+palmyr email create --name my-agent --wallet SOL_PUBKEY
+palmyr compute deploy --type cx23 --json  # auto-key, auto-wait, verified ssh — JSON out
+palmyr compute ssh my-vps                 # drop into the new box
+palmyr domain buy --name myagent.dev
+palmyr wallet create
+palmyr twitter buy                        # $5 USDC → ready X account from the pool
+palmyr twitter post @handle --body "gm"   # post immediately, no setup
 ```
 
-Agents: pipe stdout into `jq`, branch on `$?` against the [exit code table](cli/README.md#exit-codes). Force JSON on a TTY with `--json` or `AGENTOS_JSON=1`.
+Agents: pipe stdout into `jq`, branch on `$?` against the [exit code table](cli/README.md#exit-codes). Force JSON on a TTY with `--json` or `PALMYR_JSON=1`.
 
-Or run without installing: `npx @agntos/agentos phone search --country US`
+Or run without installing: `npx @palmyr/cli phone search --country US`
 
 ### Skill File
-Add to your OpenClaw / Claude Code agent: [agntos.dev/skill.md](https://agntos.dev/skill.md)
+Add to your OpenClaw / Claude Code agent: [palmyr.ai/skill.md](https://palmyr.ai/skill.md)
 
 ### Dashboard
-Visual node-based agent deployment: [agntos.dev/dashboard.html](https://agntos.dev/dashboard.html)
+Visual node-based agent deployment: [palmyr.ai/dashboard.html](https://palmyr.ai/dashboard.html)
 
 ## Services
 
@@ -63,7 +63,7 @@ Visual node-based agent deployment: [agntos.dev/dashboard.html](https://agntos.d
 | **Wallet** | ✅ Live | Non-custodial smart wallets on Base + Solana |
 | **Skills** | ✅ Live | 3500+ from ClawHub, one-click install |
 | **Social Media Accounts** | ✅ Live (X) | Buy ready X accounts ($5), post / reply / like / follow / update bio, name, pfp, banner, username — sticky residential IP per account |
-| **i402 orchestrator** | ✅ Live | Tell AgentOS what you want, it plans + executes a sequence of x402 calls. See `spec/i402.md`. |
+| **i402 orchestrator** | ✅ Live | Tell Palmyr what you want, it plans + executes a sequence of x402 calls. See `spec/i402.md`. |
 | **Crypto Card** | 🟡 Pending | Visa debit linked to agent wallet |
 | **Address** | 🟡 Pending | Physical mailing address for the agent |
 | **Reddit / TikTok / LinkedIn** | 🟡 Pending | Same model as X — buy + operate from the CLI |
@@ -77,18 +77,18 @@ Agent calls API → gets 402 → pays USDC (Solana or Base) → service provisio
 
 Your wallet is your identity. Pay with USDC, your wallet address owns the resource. No API keys. No signup.
 
-## Three ways to use AgentOS
+## Three ways to use Palmyr
 
 ### 1. Call any endpoint → get 402 → pay with USDC → done
 ```bash
 # Provision a phone number ($2 USDC)
-curl -X POST https://agntos.dev/phone/numbers \
+curl -X POST https://palmyr.ai/phone/numbers \
   -H "Content-Type: application/json" \
   -d '{"country": "US"}'
 # → 402 Payment Required (tells you exactly how to pay)
 
 # Pay via x402 — your wallet address becomes the owner
-curl -X POST https://agntos.dev/phone/numbers \
+curl -X POST https://palmyr.ai/phone/numbers \
   -H "X-PAYMENT: <base64-encoded x402 payment payload>" \
   -H "Content-Type: application/json" \
   -d '{"country": "US"}'
@@ -100,22 +100,22 @@ Same wallet that provisions a resource is the only wallet that can access it. No
 ### 2. Or ask for an outcome with i402 — plan + execute client-side
 
 ```bash
-# Tell AgentOS what you want, not how. It returns a plan of x402 calls;
+# Tell Palmyr what you want, not how. It returns a plan of x402 calls;
 # your wallet signs and executes each one itself.
-agentos chat run "Launch a sneaker resale brand for US teens" --budget 60 --execute
+palmyr chat run "Launch a sneaker resale brand for US teens" --budget 60 --execute
 
 # What you get back:
 #   Plan: 5 steps  $45.09 total
-#     s1 register_domain → agentos.register_domain  $9.99
-#     s2 deploy_vps → agentos.deploy_vps    $6.00
-#     s3 provision_email_inbox → agentos.provision_email_inbox  $1.00
-#     s4 social_account_provision → agentos.x_account  $15.00
-#     s5 social_post → agentos.x_post       $0.50
+#     s1 register_domain → palmyr.register_domain  $9.99
+#     s2 deploy_vps → palmyr.deploy_vps    $6.00
+#     s3 provision_email_inbox → palmyr.provision_email_inbox  $1.00
+#     s4 social_account_provision → palmyr.x_account  $15.00
+#     s5 social_post → palmyr.x_post       $0.50
 #     orchestration fee (15%):  $3.75
 #   Executing plan (client-side, one x402 tx per step)...
-#   → s1 register_domain via agentos.register_domain ($9.99)
+#   → s1 register_domain via palmyr.register_domain ($9.99)
 #   ✓ s1 done in 18400ms
-#   → s2 deploy_vps via agentos.deploy_vps ($6.00)
+#   → s2 deploy_vps via palmyr.deploy_vps ($6.00)
 #   ✓ s2 done in 62000ms
 #   ...
 #   done: completed  spent=$45.09
@@ -126,7 +126,7 @@ Multi-turn follow-ups are **wallet-keyed**: the server extracts your wallet from
 **Architecture note:** i402 v0.1 is agent-side-execution-only. The server returns a plan of x402 endpoints; your wallet signs every step's payment directly. No custodial escrow, no server-held USDC.
 
 ### 3. Or use the dashboard
-[agntos.dev/dashboard](https://agntos.dev/dashboard) — visual node-based agent management.
+[palmyr.ai/dashboard](https://palmyr.ai/dashboard) — visual node-based agent management.
 
 ## x402 Payment
 
@@ -159,7 +159,7 @@ npx @agntos/agentwallet send \
 
 ## Dashboard
 
-Visual node-based dashboard at [agntos.dev/dashboard.html](https://agntos.dev/dashboard.html):
+Visual node-based dashboard at [palmyr.ai/dashboard.html](https://palmyr.ai/dashboard.html):
 
 - **Agent node** → spawns Model, Channel, VPS nodes
 - **AI Model** → configure Anthropic/OpenRouter/OpenAI, pushes to VPS
@@ -184,8 +184,8 @@ All nodes push config independently to the VPS. Delete a node → removes config
 ## Self-Host
 
 ```bash
-git clone https://github.com/0xArtex/AgentOS
-cd AgentOS
+git clone https://github.com/0xArtex/Palmyr
+cd Palmyr
 cp .env.example .env  # configure keys
 npm install
 npm run build

@@ -11,7 +11,7 @@ router.get("/deadline-day", (_req: Request, res: Response) => {
   const expired = diffMs <= 0;
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents",
     deadline: "2026-02-12T17:00:00Z",
     countdown: expired
@@ -45,10 +45,10 @@ router.get("/deadline-day", (_req: Request, res: Response) => {
       "< 10 real external users (hackathon demo stage)"
     ],
     tryItNow: {
-      health: "curl https://agntos.dev/health",
-      hackathon: "curl https://agntos.dev/api/hackathon",
-      forJudges: "curl https://agntos.dev/api/for-judges",
-      docs: "https://agntos.dev/docs"
+      health: "curl https://palmyr.ai/health",
+      hackathon: "curl https://palmyr.ai/api/hackathon",
+      forJudges: "curl https://palmyr.ai/api/for-judges",
+      docs: "https://palmyr.ai/docs"
     },
     postHackathon: {
       freeAccess: "Extended through Feb 28 for all hackathon agents",

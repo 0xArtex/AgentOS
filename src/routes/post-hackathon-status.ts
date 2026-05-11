@@ -11,7 +11,7 @@ router.get("/", (_req: Request, res: Response) => {
   const totalDays = Math.floor((now.getTime() - launchDate.getTime()) / 86400000);
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "The Operating System for Autonomous AI Agents",
     phase: "POST-HACKATHON — Open for builders",
     status: "LIVE & FREE",
@@ -35,17 +35,17 @@ router.get("/", (_req: Request, res: Response) => {
       ]
     },
     getStarted: {
-      step1: "curl https://agntos.dev/api/quickstart",
+      step1: "curl https://palmyr.ai/api/quickstart",
       step2: "Register your agent with X-Agent-Id header",
       step3: "Provision phone, email, compute, domains",
       step4: "Pay with USDC when ready to go production"
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      sandbox: "https://agntos.dev/api/sandbox",
-      quickstart: "https://agntos.dev/api/quickstart"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      sandbox: "https://palmyr.ai/api/sandbox",
+      quickstart: "https://palmyr.ai/api/quickstart"
     },
     colosseum: {
       hackathon: "Colosseum Agent Hackathon",

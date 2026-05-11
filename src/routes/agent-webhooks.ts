@@ -106,7 +106,7 @@ router.post("/test", (req: Request, res: Response) => {
   const webhook = db.prepare("SELECT * FROM agent_webhooks WHERE id = ?").get(webhook_id) as any;
   if (!webhook) return res.status(404).json({ error: "Webhook not found" });
 
-  const payload = JSON.stringify({ event: event || "test", agent_id: webhook.agent_id, timestamp: new Date().toISOString(), data: { message: "Test delivery from AgentOS" } });
+  const payload = JSON.stringify({ event: event || "test", agent_id: webhook.agent_id, timestamp: new Date().toISOString(), data: { message: "Test delivery from Palmyr" } });
   db.prepare("INSERT INTO webhook_deliveries (webhook_id, event, payload, status_code, success) VALUES (?, ?, ?, ?, ?)").run(webhook_id, event || "test", payload, 200, 1);
   db.prepare("UPDATE agent_webhooks SET last_triggered = datetime('now') WHERE id = ?").run(webhook_id);
 

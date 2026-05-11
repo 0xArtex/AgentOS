@@ -7,7 +7,7 @@
  * `_x402PaidMin` (set by `requireAuth(>0)` in auth.ts and `x402()` in x402.ts).
  *
  * Express layer regex parsing is the brittle part. We keep it minimal: only
- * decode the two patterns AgentOS uses — `app.use("/<prefix>", router)` and
+ * decode the two patterns Palmyr uses — `app.use("/<prefix>", router)` and
  * `app.get/post/...("/path", handler)`. Anything fancier (regex mounts,
  * sub-sub-routers) returns "" and the caller can audit the result.
  */
@@ -83,7 +83,7 @@ function walk(stack: any[], prefix: string, out: PaidRoute[]): void {
 }
 
 /**
- * Enumerate every paid route registered on `app`. Cheap (<1 ms for AgentOS-
+ * Enumerate every paid route registered on `app`. Cheap (<1 ms for Palmyr-
  * sized apps); fine to call on every request.
  *
  * @param opts.includeNonDiscoverable when true, returns *all* paid routes

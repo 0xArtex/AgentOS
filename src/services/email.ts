@@ -15,7 +15,7 @@ import { storage } from "./storage";
  * In production, this should come from a KMS or HSM.
  * If not set, falls back to a deterministic key (less secure but functional).
  */
-const MASTER_SECRET = process.env.EMAIL_MASTER_SECRET || "agentos-email-master-secret-2026";
+const MASTER_SECRET = process.env.EMAIL_MASTER_SECRET || "palmyr-email-master-secret-2026";
 
 /**
  * Derive a per-inbox AES-256 key from the master secret + inbox ID.
@@ -430,7 +430,7 @@ export function listInboxes(owner: string): EmailInbox[] {
 export function generateChallenge(inboxId: string): { challenge: string; expiresAt: string } {
   const timestamp = Date.now();
   const nonce = encodeBase64(nacl.randomBytes(16));
-  const challenge = `agentos-email:${inboxId}:${timestamp}:${nonce}`;
+  const challenge = `palmyr-email:${inboxId}:${timestamp}:${nonce}`;
   const expiresAt = new Date(timestamp + 5 * 60 * 1000).toISOString();
   storage.setEmailChallenge(inboxId, challenge, timestamp + 5 * 60 * 1000);
   return { challenge, expiresAt };

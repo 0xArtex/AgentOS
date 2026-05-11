@@ -73,7 +73,7 @@ router.get('/', (_req: Request, res: Response) => {
     how_it_works: {
       step_1: 'Agent A posts collaboration request with task + budget',
       step_2: 'Agent B discovers request via GET /api/agent-collaboration',
-      step_3: 'Agent B provisions resources via AgentOS (phone/email/compute)',
+      step_3: 'Agent B provisions resources via Palmyr (phone/email/compute)',
       step_4: 'Payment settles via x402 USDC on completion',
       step_5: 'Both agents rate the collaboration via /api/agent-rating'
     },

@@ -1,8 +1,8 @@
 /**
- * AgentOS SDK — programmatic access to all AgentOS services.
+ * Palmyr SDK — programmatic access to all Palmyr services.
  */
 
-const DEFAULT_API = 'https://agntos.dev'
+const DEFAULT_API = 'https://palmyr.ai'
 
 // -------------------- Client-side executor helpers --------------------
 
@@ -178,7 +178,7 @@ async function* injectSocialCredentials(opts: {
   if (!acc) {
     throw new Error(
       `${opts.platform} account "@${rawHandle}" is not in the local vault. ` +
-      `Run: agentos ${opts.platform} import @${rawHandle}`
+      `Run: palmyr ${opts.platform} import @${rawHandle}`
     )
   }
 
@@ -271,16 +271,16 @@ function substitutePathParams(
   return { url, body }
 }
 
-export class AgentOS {
+export class Palmyr {
   public api: string
   public token?: string
   public passphrase?: string
   private autoPay: boolean
 
   constructor(apiUrl?: string, autoPay?: boolean, token?: string, passphrase?: string) {
-    this.api = apiUrl || process.env.AGENTOS_API || DEFAULT_API
-    this.token = token || process.env.AGENTOS_TOKEN || process.env.AGENTOS_API_KEY
-    this.passphrase = passphrase || process.env.AGENTOS_WALLET_PASSPHRASE
+    this.api = apiUrl || process.env.PALMYR_API || DEFAULT_API
+    this.token = token || process.env.PALMYR_TOKEN || process.env.PALMYR_API_KEY
+    this.passphrase = passphrase || process.env.PALMYR_WALLET_PASSPHRASE
     this.autoPay = autoPay ?? true
   }
 
@@ -1126,4 +1126,4 @@ export class AgentOS {
   }
 }
 
-export default AgentOS
+export default Palmyr

@@ -16,7 +16,7 @@ const router = Router();
  * Cost: 1.00 USDC (or free during hackathon)
  */
 router.post("/provision", requireAuth(2.0, "email", {
-  description: "Create an end-to-end encrypted email inbox at {name}@agntos.dev, keyed to your Solana wallet.",
+  description: "Create an end-to-end encrypted email inbox at {name}@palmyr.ai, keyed to your Solana wallet.",
   category: "communications",
   tags: ["email", "inbox", "e2e", "encryption", "provision"],
   discoverable: false, // legacy alias of POST /email/inboxes
@@ -27,7 +27,7 @@ router.post("/provision", requireAuth(2.0, "email", {
     if (!name) {
       res.status(400).json({
         error: "Missing 'name' field",
-        hint: "Your email will be {name}@agntos.dev",
+        hint: "Your email will be {name}@palmyr.ai",
       });
       return;
     }
@@ -149,7 +149,7 @@ router.get("/inboxes", requireAuth(0.01, "general", {
 });
 
 router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
-  description: "Create an end-to-end encrypted email inbox keyed to your Solana wallet. Defaults to {name}@agntos.dev; pass `domain` to provision on a Namecheap-registered domain you own (auto-sets MX/SPF/DKIM records).",
+  description: "Create an end-to-end encrypted email inbox keyed to your Solana wallet. Defaults to {name}@palmyr.ai; pass `domain` to provision on a Namecheap-registered domain you own (auto-sets MX/SPF/DKIM records).",
   category: "communications",
   tags: ["email", "inbox", "e2e", "encryption", "provision"],
 }), async (req: AuthenticatedRequest, res: Response) => {
@@ -229,7 +229,7 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         dnsApplied = true;
 
         // Tell Mailgun to re-poll DNS now. Without this, the provision
-        // response and subsequent `agentos email status` calls return
+        // response and subsequent `palmyr email status` calls return
         // Mailgun's pre-write cached state for several minutes.
         if (mailgunRegistered) {
           try {
@@ -260,7 +260,7 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         ? (mailgunStatus === 'verified'
           ? 'ready'
           : mailgunRegistered
-            ? 'pending_verification - DNS propagating; sending will work once Mailgun verifies the domain (typically a few minutes). Poll with: agentos email status <domain>'
+            ? 'pending_verification - DNS propagating; sending will work once Mailgun verifies the domain (typically a few minutes). Poll with: palmyr email status <domain>'
             : 'unverified - Mailgun not configured on server; outbound send unavailable until MAILGUN_API_KEY is set')
         : undefined,
     });
@@ -328,7 +328,7 @@ router.post("/domains/:domain/register", requireAuth(0.05, "email", {
       dnsApplied: true,
       message: postWriteStatus === 'verified'
         ? 'Domain is verified and ready to send from.'
-        : 'Domain registered with Mailgun. DNS records set on Namecheap. Mailgun will auto-verify within a few minutes - poll with: agentos email status ' + domain,
+        : 'Domain registered with Mailgun. DNS records set on Namecheap. Mailgun will auto-verify within a few minutes - poll with: palmyr email status ' + domain,
     });
   } catch (err: any) {
     res.status(500).json({ error: err?.message || String(err) });
@@ -529,7 +529,7 @@ router.post("/inboxes/:id/send", x402(0.08, {
  * message fields plus a signature triple (timestamp + token + signature).
  * We HMAC-verify with MAILGUN_WEBHOOK_SIGNING_KEY before doing anything.
  *
- * Field map (Mailgun → AgentOS):
+ * Field map (Mailgun → Palmyr):
  *   recipient         → to
  *   sender            → from
  *   subject           → subject
@@ -540,7 +540,7 @@ router.post("/inboxes/:id/send", x402(0.08, {
  *   Cc                → cc
  *
  * Set up the route in Mailgun → Receiving → Routes:
- *   Match: catch_all()    Action: forward("https://agntos.dev/email/inbound")
+ *   Match: catch_all()    Action: forward("https://palmyr.ai/email/inbound")
  */
 router.post("/inbound", urlencoded({ extended: true, limit: '25mb' }), async (req, res: Response) => {
   try {
@@ -703,8 +703,8 @@ router.post("/webhooks", x402(0.02, { discoverable: false }), async (req: Authen
  */
 router.get("/info", (_req, res: Response) => {
   res.json({
-    service: "AgentOS Email",
-    domain: "agntos.dev",
+    service: "Palmyr Email",
+    domain: "palmyr.ai",
     pricing: {
       provision: "2.00 USDC",
       read: "0.02 USDC",
@@ -722,7 +722,7 @@ router.get("/info", (_req, res: Response) => {
     },
     howItWorks: [
       "1. POST /email/inboxes — provision inbox (1 USDC)",
-      "2. Receive emails at {name}@agntos.dev — stored encrypted",
+      "2. Receive emails at {name}@palmyr.ai — stored encrypted",
       "3. GET /email/inboxes/:id/messages — pay $0.02 via x402, get decrypted messages",
       "4. POST /email/inboxes/:id/send — send email ($0.05 via x402)",
     ],

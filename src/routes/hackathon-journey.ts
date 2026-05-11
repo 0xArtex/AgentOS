@@ -10,7 +10,7 @@ router.get("/", (_req: Request, res: Response) => {
   const minutesLeft = Math.max(0, Math.floor((diffMs % 3600000) / 60000));
 
   res.json({
-    title: "AgentOS Hackathon Journey — 12 Days of Building",
+    title: "Palmyr Hackathon Journey — 12 Days of Building",
     deadline: deadline.toISOString(),
     timeRemaining: diffMs > 0 ? `${hoursLeft}h ${minutesLeft}m` : "SUBMITTED",
     journey: {
@@ -69,9 +69,9 @@ router.get("/", (_req: Request, res: Response) => {
     },
     philosophy: "Infrastructure should be invisible. Agents should focus on their mission, not on provisioning servers.",
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
       colosseum: "https://agents.colosseum.com/project/432"
     }
   });

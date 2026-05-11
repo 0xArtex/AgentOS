@@ -7,15 +7,15 @@ const integrationGuides = [
     name: "LangChain",
     language: "python",
     difficulty: "beginner",
-    description: "Use AgentOS as a tool provider in LangChain agents",
+    description: "Use Palmyr as a tool provider in LangChain agents",
     snippet: `from langchain.tools import Tool
 import requests
 
-AGENTOS_URL = "https://agntos.dev"
+PALMYR_URL = "https://palmyr.ai"
 API_KEY = "your_api_key"
 
 def provision_phone(input: str) -> str:
-    r = requests.post(f"{AGENTOS_URL}/phones/provision",
+    r = requests.post(f"{PALMYR_URL}/phones/provision",
         headers={"Authorization": f"Bearer {API_KEY}"},
         json={"agentId": input})
     return r.json()
@@ -23,7 +23,7 @@ def provision_phone(input: str) -> str:
 phone_tool = Tool(name="ProvisionPhone",
     func=provision_phone,
     description="Provision a phone number for an agent")`,
-    docs_url: "https://agntos.dev/docs#langchain"
+    docs_url: "https://palmyr.ai/docs#langchain"
   },
   {
     name: "CrewAI",
@@ -36,8 +36,8 @@ import requests
 
 @tool("Send SMS")
 def send_sms(to: str, message: str) -> str:
-    """Send an SMS via AgentOS"""
-    r = requests.post("https://agntos.dev/phones/send-sms",
+    """Send an SMS via Palmyr"""
+    r = requests.post("https://palmyr.ai/phones/send-sms",
         headers={"Authorization": "Bearer YOUR_KEY"},
         json={"to": to, "message": message})
     return r.json()
@@ -45,42 +45,42 @@ def send_sms(to: str, message: str) -> str:
 agent = Agent(role="Outreach Agent",
     tools=[send_sms],
     goal="Contact leads via SMS")`,
-    docs_url: "https://agntos.dev/docs#crewai"
+    docs_url: "https://palmyr.ai/docs#crewai"
   },
   {
     name: "Eliza (ai16z)",
     language: "typescript",
     difficulty: "intermediate",
-    description: "Add AgentOS capabilities as Eliza plugins",
+    description: "Add Palmyr capabilities as Eliza plugins",
     snippet: `import { Plugin } from '@ai16z/eliza';
 
 const agentOSPlugin: Plugin = {
-  name: 'agentos',
+  name: 'palmyr',
   actions: [{
     name: 'PROVISION_INFRA',
     handler: async (runtime, message) => {
-      const res = await fetch('https://agntos.dev/agent/onboard', {
+      const res = await fetch('https://palmyr.ai/agent/onboard', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + runtime.getSetting('AGENTOS_KEY') },
+        headers: { 'Authorization': 'Bearer ' + runtime.getSetting('PALMYR_KEY') },
         body: JSON.stringify({ agentId: runtime.agentId, services: ['phone','email'] })
       });
       return res.json();
     }
   }]
 };`,
-    docs_url: "https://agntos.dev/docs#eliza"
+    docs_url: "https://palmyr.ai/docs#eliza"
   },
   {
     name: "AutoGen",
     language: "python",
     difficulty: "intermediate",
-    description: "Register AgentOS as function calls in AutoGen multi-agent conversations",
+    description: "Register Palmyr as function calls in AutoGen multi-agent conversations",
     snippet: `import autogen
 import requests
 
 def check_email(agent_id: str) -> dict:
-    """Check agent's email inbox via AgentOS"""
-    r = requests.get(f"https://agntos.dev/emails/{agent_id}/inbox",
+    """Check agent's email inbox via Palmyr"""
+    r = requests.get(f"https://palmyr.ai/emails/{agent_id}/inbox",
         headers={"Authorization": "Bearer YOUR_KEY"})
     return r.json()
 
@@ -88,7 +88,7 @@ assistant = autogen.AssistantAgent("assistant",
     llm_config={"functions": [{"name": "check_email",
         "description": "Check email inbox", 
         "parameters": {"type": "object", "properties": {"agent_id": {"type": "string"}}}}]})`,
-    docs_url: "https://agntos.dev/docs#autogen"
+    docs_url: "https://palmyr.ai/docs#autogen"
   },
   {
     name: "cURL / Raw HTTP",
@@ -96,26 +96,26 @@ assistant = autogen.AssistantAgent("assistant",
     difficulty: "beginner",
     description: "Direct API access — works with any language or framework",
     snippet: `# Register your agent
-curl -X POST https://agntos.dev/agents/register \\
+curl -X POST https://palmyr.ai/agents/register \\
   -H "Content-Type: application/json" \\
   -d '{"name":"my-agent","framework":"custom"}'
 
 # One-call onboard (phone + email + compute)
-curl -X POST https://agntos.dev/agent/onboard \\
+curl -X POST https://palmyr.ai/agent/onboard \\
   -H "Authorization: Bearer YOUR_KEY" \\
   -d '{"agentId":"my-agent","services":["phone","email","compute"]}'`,
-    docs_url: "https://agntos.dev/docs"
+    docs_url: "https://palmyr.ai/docs"
   }
 ];
 
 router.get('/api/integrations-guide', (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Integration Guides",
+    title: "Palmyr Integration Guides",
     description: "Copy-paste integration examples for popular AI agent frameworks",
     total_frameworks: integrationGuides.length,
     guides: integrationGuides,
     note: "All integrations use the same REST API — these are convenience patterns for popular frameworks",
-    get_started: "https://agntos.dev/docs"
+    get_started: "https://palmyr.ai/docs"
   });
 });
 

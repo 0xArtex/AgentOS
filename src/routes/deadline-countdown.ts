@@ -27,7 +27,7 @@ router.get("/api/deadline-countdown", (_req: Request, res: Response) => {
   ];
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents",
     deadline: deadline.toISOString(),
     remaining: expired ? "EXPIRED" : `${hours}h ${minutes}m`,
@@ -39,7 +39,7 @@ router.get("/api/deadline-countdown", (_req: Request, res: Response) => {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
       dashboard: "http://77.42.89.233:3001/dashboard",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill: "http://77.42.89.233:3001/skill.md"
     },
     tryIt: "curl http://77.42.89.233:3001/api/proof-of-work"

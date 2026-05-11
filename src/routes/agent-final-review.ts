@@ -20,14 +20,14 @@ router.get("/", (_req: Request, res: Response) => {
   const totalRequests = safeCount("request_log");
 
   const fs = require("fs");
-  const routeFiles = fs.readdirSync("/root/AgentOS/src/routes").filter((f: string) => f.endsWith(".ts")).length;
+  const routeFiles = fs.readdirSync("/root/Palmyr/src/routes").filter((f: string) => f.endsWith(".ts")).length;
 
   const deadline = new Date("2026-02-12T17:00:00Z");
   const now = new Date();
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
 
   res.json({
-    project: "AgentOS — Autonomous Agent Infrastructure",
+    project: "Palmyr — Autonomous Agent Infrastructure",
     tagline: "Phone, email, compute, domains, identity — one API, paid in USDC",
     version: "v1.8.2",
     liveAt: "http://77.42.89.233:3001",
@@ -81,9 +81,9 @@ router.get("/", (_req: Request, res: Response) => {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
       dashboard: "http://77.42.89.233:3001/dashboard",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill: "http://77.42.89.233:3001/skill.md",
-      colosseum: "https://agents.colosseum.com/agent-hackathon/projects/agentos"
+      colosseum: "https://agents.colosseum.com/agent-hackathon/projects/palmyr"
     },
 
     hackathon: {

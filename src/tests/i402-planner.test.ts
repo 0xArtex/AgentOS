@@ -15,10 +15,10 @@ import assert from "node:assert/strict";
 process.env.I402_ORCHESTRATION_FEE_PCT = "0.15";
 process.env.I402_SESSION_IDLE_TIMEOUT_HOURS = "24";
 process.env.I402_SESSION_MAX_BUDGET_USDC = "1000";
-process.env.AGENTOS_API_BASE = "https://staging.agntos.dev";
+process.env.PALMYR_API_BASE = "https://staging.palmyr.ai";
 
 import { db, initDatabase } from "../db";
-import { seedAgentOSPrimitives, listProviders, CAPABILITY_CLASSES } from "../services/i402-providers";
+import { seedPalmyrPrimitives, listProviders, CAPABILITY_CLASSES } from "../services/i402-providers";
 import {
   computeTotals,
   validatePlanSteps,
@@ -32,7 +32,7 @@ import type { PlanStep, PlannerRequest } from "../services/i402-types";
 // -------------------- Setup --------------------
 
 initDatabase();
-seedAgentOSPrimitives();
+seedPalmyrPrimitives();
 
 function clearI402Dynamic(): void {
   db.exec(`
@@ -49,14 +49,14 @@ function makeStep(overrides: Partial<PlanStep> = {}): PlanStep {
   return {
     stepId: overrides.stepId ?? "s1",
     capability: overrides.capability ?? "register_domain",
-    provider: overrides.provider ?? "agentos.register_domain",
+    provider: overrides.provider ?? "palmyr.register_domain",
     input: overrides.input ?? { domain_preferences: ["test.io"] },
     costUsdc: overrides.costUsdc ?? 9.99,
     etaSeconds: overrides.etaSeconds ?? 30,
     dependsOn: overrides.dependsOn,
     description: overrides.description,
     x402: overrides.x402 ?? {
-      endpoint: "https://agntos.dev/domain/register",
+      endpoint: "https://palmyr.ai/domain/register",
       method: "POST",
       paymentRail: "x402-solana",
     },
@@ -120,7 +120,7 @@ describe("validatePlanSteps", () => {
     const llmPlan = {
       interpreted_intent: "register a domain",
       steps: [
-        { step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: { domain_preferences: ["x.io"] } },
+        { step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: { domain_preferences: ["x.io"] } },
       ],
     };
     const result = validatePlanSteps(llmPlan, providers, undefined);
@@ -140,7 +140,7 @@ describe("validatePlanSteps", () => {
   it("rejects unknown capability", () => {
     const plan = {
       interpreted_intent: "x",
-      steps: [{ step_id: "s1", capability: "bogus_capability", provider_id: "agentos.register_domain", input: {} }],
+      steps: [{ step_id: "s1", capability: "bogus_capability", provider_id: "palmyr.register_domain", input: {} }],
     };
     const r = validatePlanSteps(plan, providers, undefined);
     assert.equal(r.ok, false);
@@ -160,7 +160,7 @@ describe("validatePlanSteps", () => {
   it("rejects provider/capability mismatch", () => {
     const plan = {
       interpreted_intent: "x",
-      steps: [{ step_id: "s1", capability: "deploy_vps", provider_id: "agentos.register_domain", input: {} }],
+      steps: [{ step_id: "s1", capability: "deploy_vps", provider_id: "palmyr.register_domain", input: {} }],
     };
     const r = validatePlanSteps(plan, providers, undefined);
     assert.equal(r.ok, false);
@@ -171,8 +171,8 @@ describe("validatePlanSteps", () => {
     const plan = {
       interpreted_intent: "x",
       steps: [
-        { step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: {} },
-        { step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: {} },
+        { step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: {} },
+        { step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: {} },
       ],
     };
     const r = validatePlanSteps(plan, providers, undefined);
@@ -187,7 +187,7 @@ describe("validatePlanSteps", () => {
         {
           step_id: "s1",
           capability: "register_domain",
-          provider_id: "agentos.register_domain",
+          provider_id: "palmyr.register_domain",
           input: {},
           depends_on: ["nope"],
         },
@@ -201,7 +201,7 @@ describe("validatePlanSteps", () => {
   it("honors excludeCapabilities", () => {
     const plan = {
       interpreted_intent: "x",
-      steps: [{ step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: {} }],
+      steps: [{ step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: {} }],
     };
     const r = validatePlanSteps(plan, providers, { excludeCapabilities: ["register_domain"] });
     assert.equal(r.ok, false);
@@ -211,9 +211,9 @@ describe("validatePlanSteps", () => {
   it("honors excludeProviders", () => {
     const plan = {
       interpreted_intent: "x",
-      steps: [{ step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: {} }],
+      steps: [{ step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: {} }],
     };
-    const r = validatePlanSteps(plan, providers, { excludeProviders: ["agentos.register_domain"] });
+    const r = validatePlanSteps(plan, providers, { excludeProviders: ["palmyr.register_domain"] });
     assert.equal(r.ok, false);
     if (!r.ok) assert.match(r.reason, /excluded provider/i);
   });
@@ -221,9 +221,9 @@ describe("validatePlanSteps", () => {
   it("honors requireProviders", () => {
     const plan = {
       interpreted_intent: "x",
-      steps: [{ step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: {} }],
+      steps: [{ step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: {} }],
     };
-    const r = validatePlanSteps(plan, providers, { requireProviders: ["agentos.deploy_vps"] });
+    const r = validatePlanSteps(plan, providers, { requireProviders: ["palmyr.deploy_vps"] });
     assert.equal(r.ok, false);
     if (!r.ok) assert.match(r.reason, /required provider/i);
   });
@@ -318,8 +318,8 @@ describe("generatePlan — stubbed LLM", () => {
         content: {
           interpreted_intent: "launch brand",
           steps: [
-            { step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: { domain_preferences: ["brand.io"] } },
-            { step_id: "s2", capability: "deploy_vps", provider_id: "agentos.deploy_vps", input: { plan: "cx23" }, depends_on: ["s1"] },
+            { step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: { domain_preferences: ["brand.io"] } },
+            { step_id: "s2", capability: "deploy_vps", provider_id: "palmyr.deploy_vps", input: { plan: "cx23" }, depends_on: ["s1"] },
           ],
         },
         usage: { tokensIn: 500, tokensOut: 200, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.02 },
@@ -352,8 +352,8 @@ describe("generatePlan — stubbed LLM", () => {
         content: {
           interpreted_intent: "big plan",
           steps: [
-            { step_id: "s1", capability: "deploy_vps", provider_id: "agentos.deploy_vps", input: { plan: "cx23" } },
-            { step_id: "s2", capability: "register_domain", provider_id: "agentos.register_domain", input: { domain_preferences: ["x.io"] } },
+            { step_id: "s1", capability: "deploy_vps", provider_id: "palmyr.deploy_vps", input: { plan: "cx23" } },
+            { step_id: "s2", capability: "register_domain", provider_id: "palmyr.register_domain", input: { domain_preferences: ["x.io"] } },
           ],
         },
         usage: { tokensIn: 500, tokensOut: 200, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.02 },
@@ -406,8 +406,8 @@ describe("generatePlan — stubbed LLM", () => {
         content: {
           interpreted_intent: "domain + vps",
           steps: [
-            { step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: { domain_preferences: ["x.io"] } },
-            { step_id: "s2", capability: "deploy_vps", provider_id: "agentos.deploy_vps", input: { plan: "cx23" }, depends_on: ["s1"] },
+            { step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: { domain_preferences: ["x.io"] } },
+            { step_id: "s2", capability: "deploy_vps", provider_id: "palmyr.deploy_vps", input: { plan: "cx23" }, depends_on: ["s1"] },
           ],
         },
         usage: { tokensIn: 500, tokensOut: 200, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.02 },

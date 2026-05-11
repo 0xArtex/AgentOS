@@ -20,7 +20,7 @@ router.get("/submission-ready", (_req: Request, res: Response) => {
     { category: "Security", item: "CORS configured", status: "pass" },
     { category: "Ecosystem", item: "Forum engagement (294+ comments)", status: "pass" },
     { category: "Ecosystem", item: "Partner integrations (11+ projects)", status: "pass" },
-    { category: "Ecosystem", item: "GitHub repo public", status: "pass", url: "https://github.com/0xArtex/AgentOS" },
+    { category: "Ecosystem", item: "GitHub repo public", status: "pass", url: "https://github.com/0xArtex/Palmyr" },
     { category: "DX", item: "Interactive quickstart guide", status: "pass" },
     { category: "DX", item: "Framework integration guides", status: "pass" },
     { category: "DX", item: "Copy-paste curl examples", status: "pass" },
@@ -35,7 +35,7 @@ router.get("/submission-ready", (_req: Request, res: Response) => {
   const score = Math.round((passed / total) * 100);
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     version: "v0.9.8",
     hackathon: "Colosseum Agent Hackathon",
     deadline: "2026-02-12T17:00:00Z",

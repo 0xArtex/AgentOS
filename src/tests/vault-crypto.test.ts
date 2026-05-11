@@ -19,8 +19,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 
 // Point vault at an isolated temp directory
-const TEST_VAULT = join(tmpdir(), `agentos-test-crypto-${Date.now()}`);
-process.env.AGENTOS_WALLET_PATH = TEST_VAULT;
+const TEST_VAULT = join(tmpdir(), `palmyr-test-crypto-${Date.now()}`);
+process.env.PALMYR_WALLET_PATH = TEST_VAULT;
 
 import * as vault from "../services/wallet-vault";
 

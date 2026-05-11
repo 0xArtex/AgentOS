@@ -51,7 +51,7 @@ const payToSolana = config.treasuryWallet;
 // Internal: used for server-side verify/settle
 const FACILITATOR_URL_INTERNAL = process.env.X402_FACILITATOR_URL_INTERNAL || "http://localhost:8090";
 // External: shown in 402 response for clients that need it
-const SELF_FACILITATOR_URL = process.env.X402_FACILITATOR_URL || "https://agntos.dev/x402";
+const SELF_FACILITATOR_URL = process.env.X402_FACILITATOR_URL || "https://palmyr.ai/x402";
 const FACILITATOR_BEARER = process.env.X402_FACILITATOR_BEARER;
 
 // Optional CDP facilitator — when enabled, EVM verify/settle goes through
@@ -97,8 +97,8 @@ export type X402Metadata = {
 };
 
 function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Metadata) {
-  const resource = "https://" + (req.get("host") || "agntos.dev") + req.originalUrl;
-  const description = metadata?.description || "AgentOS: " + req.method + " " + req.originalUrl;
+  const resource = "https://" + (req.get("host") || "palmyr.ai") + req.originalUrl;
+  const description = metadata?.description || "Palmyr: " + req.method + " " + req.originalUrl;
   const amount = String(Math.round(minUsdc * 1e6));
 
   const bazaar: Record<string, any> = { discoverable: true };
@@ -110,7 +110,7 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
   //   extensions.bazaar.schema.properties.output.properties.example
   // Anything shallower or differently-shaped trips SCHEMA_INPUT_MISSING /
   // SCHEMA_OUTPUT_MISSING. Permissive `{type: "object"}` is honest — every
-  // paid AgentOS route accepts/returns a JSON object — and resolves the
+  // paid Palmyr route accepts/returns a JSON object — and resolves the
   // errors without committing to per-field shapes.
   const permissiveJsonSchema = { type: "object", additionalProperties: true };
   const isBodyMethod = req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE";
@@ -139,7 +139,7 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
         maxTimeoutSeconds: 60,
         asset: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
         extra: {
-          name: "AgentOS",
+          name: "Palmyr",
           // Solana still uses our self-hosted fee-payer path, even when CDP is on
           facilitator: SELF_FACILITATOR_URL,
           feePayer: SOLANA_FEE_PAYER,

@@ -27,7 +27,7 @@ router.get("/api/service-probe", async (_req: Request, res: Response) => {
   // Disk probe
   try {
     const fs = require("fs");
-    const stats = fs.statSync("/root/AgentOS/data/agentos.db");
+    const stats = fs.statSync("/root/Palmyr/data/palmyr.db");
     probes.disk = { status: "ok", db_size_mb: Math.round(stats.size / 1048576 * 100) / 100 };
   } catch {
     probes.disk = { status: "ok", note: "db file check skipped" };

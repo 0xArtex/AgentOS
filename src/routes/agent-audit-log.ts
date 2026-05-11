@@ -15,7 +15,7 @@ router.get('/api/agent-audit-log', (req: Request, res: Response) => {
     { action: 'auth.token_refresh', service: 'auth', status: 'success', durationMs: 45, details: 'Token refreshed' },
     { action: 'storage.upload', service: 'storage', status: 'success', durationMs: 890, details: 'Uploaded 2.3MB to /agent-data/' },
     { action: 'payment.x402', service: 'payments', status: 'success', durationMs: 2300, details: '0.50 USDC via x402 (Solana)' },
-    { action: 'domain.dns_update', service: 'domains', status: 'success', durationMs: 560, details: 'A record updated for agent.agntos.dev' },
+    { action: 'domain.dns_update', service: 'domains', status: 'success', durationMs: 560, details: 'A record updated for agent.palmyr.ai' },
     { action: 'webhook.fire', service: 'notifications', status: 'success', durationMs: 120, details: 'Webhook delivered to callback URL' },
   ];
 

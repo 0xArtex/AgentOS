@@ -16,7 +16,7 @@ router.get("/api/judge-summary", (_req: Request, res: Response) => {
   try { routeFiles = fs.readdirSync(routeDir).filter(f => f.endsWith(".ts") || f.endsWith(".js")).length; } catch {}
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents — phone, email, compute, domains — paid with USDC via x402",
     version: "v1.8.4",
     hackathon: {
@@ -48,7 +48,7 @@ router.get("/api/judge-summary", (_req: Request, res: Response) => {
     links: {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       dashboard: "http://77.42.89.233:3001/dashboard",
       skillMd: "http://77.42.89.233:3001/skill.md"
     },

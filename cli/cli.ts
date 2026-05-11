@@ -17,7 +17,7 @@ console.warn = (...args: any[]) => {
 import React from 'react'
 import { render as inkRender } from 'ink'
 import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, ConfigScreen, Dashboard, DoctorScreen, DomainCheckScreen, DomainPricingScreen, ErrorScreen, HealthScreen, MenuScreen, PricingScreen, RecordsScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen, WalletListScreen } from './app.js'
-import { AgentOS } from './sdk.js'
+import { Palmyr } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addNote } from './config.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel, setAgentMode as setUiAgentMode } from './ui.js'
 import { existsSync, readFileSync } from 'fs'
@@ -74,7 +74,7 @@ function render(node: React.ReactElement) {
 // ─── Parse args ───
 // Boolean flags that never take a value (prevents flag <next> from eating the next positional)
 // `json` and `no-color` are agent-mode toggles; the rest are command-specific.
-// Boolean flags never consume the next argv token — important so `agentos
+// Boolean flags never consume the next argv token — important so `palmyr
 // wallet list --json` doesn't try to swallow whatever comes after.
 const BOOLEAN_FLAGS = new Set([
   'help', 'version', 'managed', 'quiet', 'confirm', 'json', 'no-color',
@@ -88,7 +88,7 @@ function parse(argv: string[]) {
   let command = ''
   let subcommand = ''
   // After we hit a bare `--`, every remaining argv element is a positional —
-  // even if it starts with a dash. Lets `agentos compute exec my-vps --
+  // even if it starts with a dash. Lets `palmyr compute exec my-vps --
   // systemctl status --no-pager openclaw` pass `--no-pager` through to the
   // remote shell instead of being swallowed as a CLI flag.
   let inPositionalRun = false
@@ -159,7 +159,7 @@ function subcommandHelp(command: string, subcommand: string, options: Array<{ fl
     print({ command, subcommand, options })
     return
   }
-  console.log(`\n  ${t.accent}agentos ${command} ${subcommand}${t.reset}\n`)
+  console.log(`\n  ${t.accent}palmyr ${command} ${subcommand}${t.reset}\n`)
   for (const opt of options) {
     const flagStr = `  ${t.info}${opt.flag.padEnd(24)}${t.reset}`
     const hintStr = opt.hint ? ` ${t.muted}${opt.hint}${t.reset}` : ''
@@ -206,8 +206,8 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
 }
 /**
  * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
- * with the AgentOS aesthetic. In agent mode → flat JSON listing the available
- * subcommands so an agent can drive discovery (e.g. `agentos phone --json`
+ * with the Palmyr aesthetic. In agent mode → flat JSON listing the available
+ * subcommands so an agent can drive discovery (e.g. `palmyr phone --json`
  * → `{"command":"phone","subcommands":[{"name":"search",...}, ...]}`).
  */
 function showMenu(opts: {
@@ -230,7 +230,7 @@ function showMenu(opts: {
     commands: opts.commands,
     interactive: opts.fromHome,
     onBack: opts.fromHome ? () => {
-      process.env.AGENTOS_FROM_HOME = '0'
+      process.env.PALMYR_FROM_HOME = '0'
       process.argv = [process.argv[0], process.argv[1]]
       void main()
     } : undefined,
@@ -239,7 +239,7 @@ function showMenu(opts: {
 
 function print(obj: any) {
   const json = JSON.stringify(obj, null, 2)
-  // Plain JSON in agent mode (stdout is piped, --json is set, or AGENTOS_JSON
+  // Plain JSON in agent mode (stdout is piped, --json is set, or PALMYR_JSON
   // env is on). On a real TTY without --json, color the keys so humans get a
   // little visual aid — but the structure is still valid JSON either way.
   if (AGENT_MODE) {
@@ -328,7 +328,7 @@ function help() {
           { flag: '--json', desc: 'Force machine-parseable JSON output (auto-on when stdout isn\'t a TTY)' },
           { flag: '--quiet', desc: 'Suppress decorative log lines' },
           { flag: '--token <api-key>', desc: 'Bearer token for authenticated calls' },
-          { flag: '--passphrase <pass>', desc: 'Wallet passphrase (or AGENTOS_WALLET_PASSPHRASE env)' },
+          { flag: '--passphrase <pass>', desc: 'Wallet passphrase (or PALMYR_WALLET_PASSPHRASE env)' },
         ],
       },
       exitCodes: EXIT_CODE_DOCS,
@@ -347,14 +347,14 @@ function help() {
 // ─── Commands ───
 async function main() {
   const { command, subcommand, positional, flags } = parse(process.argv)
-  const fromHome = process.env.AGENTOS_FROM_HOME === '1'
+  const fromHome = process.env.PALMYR_FROM_HOME === '1'
 
   // Agent-mode detection: piped stdout (no TTY) or explicit --json. Once set,
   // it drives everything — Ink screens flip to JSON output, Spinner/decorators
   // self-suppress (see ui.ts:setAgentMode), and err() stringifies to stderr.
-  // Honor AGENTOS_JSON=1 too so agents can opt in via env var when their
+  // Honor PALMYR_JSON=1 too so agents can opt in via env var when their
   // runtime allocates a TTY they can't easily suppress.
-  AGENT_MODE = !process.stdout.isTTY || !!flags.json || process.env.AGENTOS_JSON === '1'
+  AGENT_MODE = !process.stdout.isTTY || !!flags.json || process.env.PALMYR_JSON === '1'
   setUiAgentMode(AGENT_MODE)
 
   if (flags.version) {
@@ -369,7 +369,7 @@ async function main() {
   if (!command) {
     const cfg = loadConfig()
     let apiOk = false
-    try { const h = await new AgentOS(cfg.api).health(); apiOk = h.status === 'healthy' } catch {}
+    try { const h = await new Palmyr(cfg.api).health(); apiOk = h.status === 'healthy' } catch {}
     if (AGENT_MODE) {
       print({
         version: VERSION,
@@ -389,17 +389,17 @@ async function main() {
     return
   }
 
-  // Always ensure ~/.agentos/ exists on any command
+  // Always ensure ~/.palmyr/ exists on any command
   ensureDirs()
 
   const config = loadConfig()
   const startTime = Date.now()
 
   // No first-time banner — agent-first CLI should never pollute output.
-  const url = process.env.AGENTOS_API || config.api
-  const token = (flags.token as string) || config.apiKey || process.env.AGENTOS_TOKEN || process.env.AGENTOS_API_KEY
-  const passphrase = (flags.passphrase as string) || process.env.AGENTOS_WALLET_PASSPHRASE
-  const ao = new AgentOS(url, true, token, passphrase)
+  const url = process.env.PALMYR_API || config.api
+  const token = (flags.token as string) || config.apiKey || process.env.PALMYR_TOKEN || process.env.PALMYR_API_KEY
+  const passphrase = (flags.passphrase as string) || process.env.PALMYR_WALLET_PASSPHRASE
+  const ao = new Palmyr(url, true, token, passphrase)
 
   try {
     switch (command) {
@@ -407,7 +407,7 @@ async function main() {
         ensureDirs()
 
         const keyfile = flags.keyfile as string
-          || process.env.AGENTOS_KEYFILE
+          || process.env.PALMYR_KEYFILE
           || (() => {
             const defaultPath = homedir() + '/.config/solana/id.json'
             if (existsSync(defaultPath)) return defaultPath
@@ -464,7 +464,7 @@ async function main() {
             defaultChain: config.defaultChain || 'solana',
             interactive: fromHome,
             onBack: fromHome ? () => {
-              process.env.AGENTOS_FROM_HOME = '0'
+              process.env.PALMYR_FROM_HOME = '0'
               process.argv = [process.argv[0], process.argv[1]]
               void main()
             } : undefined,
@@ -475,12 +475,12 @@ async function main() {
 
       case 'note': {
         const text = positional.join(' ') || subcommand || ''
-        if (!text) err('Usage: agentos note "your note here"')
+        if (!text) err('Usage: palmyr note "your note here"')
         addNote(text)
         if (AGENT_MODE) {
-          print({ ok: true, note: text, path: '~/.agentos/memory/notes.md' })
+          print({ ok: true, note: text, path: '~/.palmyr/memory/notes.md' })
         } else {
-          render(React.createElement(SuccessScreen, { version: VERSION, title: 'note saved', subtitle: text, details: [{ label: 'Path', value: '~/.agentos/memory/notes.md' }], footerLeft: 'Note saved' }))
+          render(React.createElement(SuccessScreen, { version: VERSION, title: 'note saved', subtitle: text, details: [{ label: 'Path', value: '~/.palmyr/memory/notes.md' }], footerLeft: 'Note saved' }))
         }
         break
       }
@@ -518,7 +518,7 @@ async function main() {
               })),
               interactive: fromHome,
               onBack: fromHome ? () => {
-                process.env.AGENTOS_FROM_HOME = '0'
+                process.env.PALMYR_FROM_HOME = '0'
                 process.argv = [process.argv[0], process.argv[1]]
                 void main()
               } : undefined,
@@ -594,7 +594,7 @@ async function main() {
             const name = flags.name as string || positional[0]
             const wallet = flags.wallet as string | undefined
             const domain = flags.domain as string | undefined
-            if (!name) err('--name required (e.g. agentos email create --name hello [--domain example.com])')
+            if (!name) err('--name required (e.g. palmyr email create --name hello [--domain example.com])')
             const spin = new Spinner()
             spin.start('Creating inbox...')
             const data = await ao.emailCreate(name, wallet, domain)
@@ -607,13 +607,13 @@ async function main() {
           }
           case 'status': {
             const domain = (flags.domain as string) || positional[0]
-            if (!domain) err('domain required: agentos email status <domain>')
+            if (!domain) err('domain required: palmyr email status <domain>')
             const data = await ao.emailDomainStatus(domain)
             return print(data)
           }
           case 'register': {
             const domain = (flags.domain as string) || positional[0]
-            if (!domain) err('domain required: agentos email register <domain>')
+            if (!domain) err('domain required: palmyr email register <domain>')
             const data = await ao.emailRegisterDomain(domain)
             return print(data)
           }
@@ -634,7 +634,7 @@ async function main() {
               })),
               interactive: fromHome,
               onBack: fromHome ? () => {
-                process.env.AGENTOS_FROM_HOME = '0'
+                process.env.PALMYR_FROM_HOME = '0'
                 process.argv = [process.argv[0], process.argv[1]]
                 void main()
               } : undefined,
@@ -728,7 +728,7 @@ async function main() {
             }
             if (op === 'add') {
               const pubkeyFile = arg || (flags.file as string) || (flags['pubkey-file'] as string)
-              if (!pubkeyFile) err('Usage: agentos compute ssh-key add <pubkey-file> [--name "label"]', EXIT.BAD_INPUT)
+              if (!pubkeyFile) err('Usage: palmyr compute ssh-key add <pubkey-file> [--name "label"]', EXIT.BAD_INPUT)
               const fullPath = pubkeyFile.replace('~', homedir())
               if (!existsSync(fullPath)) err(`Public key file not found: ${pubkeyFile}`, EXIT.NOT_FOUND)
               const publicKey = readFileSync(fullPath, 'utf8').trim()
@@ -739,7 +739,7 @@ async function main() {
             }
             if (op === 'delete' || op === 'remove' || op === 'rm') {
               const id = arg || (flags.id as string)
-              if (!id) err('Usage: agentos compute ssh-key delete <id>', EXIT.BAD_INPUT)
+              if (!id) err('Usage: palmyr compute ssh-key delete <id>', EXIT.BAD_INPUT)
               const data = await ao.computeSshKeyDelete(id)
               return print(data)
             }
@@ -784,7 +784,7 @@ async function main() {
 
             if (sshKeyIdRaw) {
               const n = Number(sshKeyIdRaw)
-              if (!Number.isFinite(n) || n <= 0) err(`--ssh-key must be a numeric Hetzner key ID (got "${sshKeyIdRaw}"). Run \`agentos compute ssh-key list\` to find it, or \`compute ssh-key add <pubkey-file>\` to upload one.`, EXIT.BAD_INPUT)
+              if (!Number.isFinite(n) || n <= 0) err(`--ssh-key must be a numeric Hetzner key ID (got "${sshKeyIdRaw}"). Run \`palmyr compute ssh-key list\` to find it, or \`compute ssh-key add <pubkey-file>\` to upload one.`, EXIT.BAD_INPUT)
               sshKeyIds = [n]
             } else if (pubkeyFile) {
               const fullPath = pubkeyFile.replace('~', homedir())
@@ -842,10 +842,10 @@ async function main() {
               // transient or payment-related.
               const msg = String(e?.message || '')
               if (/install recipe/i.test(msg)) {
-                err(`${e.message} Run \`agentos compute install-recipes --json\` to list available recipes.`, EXIT.BAD_INPUT)
+                err(`${e.message} Run \`palmyr compute install-recipes --json\` to list available recipes.`, EXIT.BAD_INPUT)
               }
               if (/Type not available in location|Invalid location/i.test(msg)) {
-                err(`${e.message} Run \`agentos compute locations --json\` to see what's deployable where.`, EXIT.BAD_INPUT)
+                err(`${e.message} Run \`palmyr compute locations --json\` to see what's deployable where.`, EXIT.BAD_INPUT)
               }
               if (/Invalid server name/i.test(msg)) {
                 err(`${e.message}`, EXIT.BAD_INPUT)
@@ -1018,12 +1018,12 @@ async function main() {
             // also gate on the install marker file (gate 4).
             const csshMod = await import('./compute-ssh.js')
             const target = positional[0] || (flags.id as string) || (flags.name as string)
-            if (!target) err('Usage: agentos compute wait <name|id> [--key <path>] [--wait-timeout <sec>] [--install hermes,...]', EXIT.BAD_INPUT)
+            if (!target) err('Usage: palmyr compute wait <name|id> [--key <path>] [--wait-timeout <sec>] [--install hermes,...]', EXIT.BAD_INPUT)
             const cached = csshMod.findCachedServer(target)
             // Resolve the server id — cache first (to skip a paid round-trip
             // when possible), but accept a numeric arg as the id directly.
             const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
-            if (!serverId) err(`Server "${target}" not in local cache. Pass the numeric id as the first arg, or run 'agentos compute list' to refresh.`, EXIT.NOT_FOUND)
+            if (!serverId) err(`Server "${target}" not in local cache. Pass the numeric id as the first arg, or run 'palmyr compute list' to refresh.`, EXIT.NOT_FOUND)
             const explicitKeyPath = (flags.key as string) || (flags['key-path'] as string) || (flags['private-key'] as string)
             const keyPath = (explicitKeyPath ? explicitKeyPath.replace('~', homedir()) : cached?.sshPrivateKeyPath)
             const installRaw = flags.install
@@ -1085,7 +1085,7 @@ async function main() {
           case 'ssh': {
             const csshMod = await import('./compute-ssh.js')
             const target = positional[0] || (flags.id as string) || (flags.name as string)
-            if (!target) err('Usage: agentos compute ssh <name|id>', EXIT.BAD_INPUT)
+            if (!target) err('Usage: palmyr compute ssh <name|id>', EXIT.BAD_INPUT)
             // Local cache first — free, instant. Server-side fallback is
             // available but not auto-triggered: it would cost 0.01 USDC and
             // we'd rather make the user opt in than charge them silently.
@@ -1093,7 +1093,7 @@ async function main() {
             if (!cached?.ipv4) {
               err(
                 `Server "${target}" not in local cache. ` +
-                `Either run 'agentos compute list --json' first, ` +
+                `Either run 'palmyr compute list --json' first, ` +
                 `or use the explicit IP: ssh root@<ip>.`,
                 EXIT.NOT_FOUND,
               )
@@ -1152,11 +1152,11 @@ async function main() {
             const target = positional[0] || (flags.id as string) || (flags.name as string)
             const newName = positional[1] || (flags.to as string) || (flags['new-name'] as string)
             if (!target || !newName) {
-              err('Usage: agentos compute rename <name|id> <new-name>', EXIT.BAD_INPUT)
+              err('Usage: palmyr compute rename <name|id> <new-name>', EXIT.BAD_INPUT)
             }
             const cached = csshMod.findCachedServer(target)
             const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
-            if (!serverId) err(`Server "${target}" not in local cache. Pass numeric Hetzner id or run 'agentos compute list' first.`, EXIT.NOT_FOUND)
+            if (!serverId) err(`Server "${target}" not in local cache. Pass numeric Hetzner id or run 'palmyr compute list' first.`, EXIT.NOT_FOUND)
             let data: any
             try {
               data = await ao.computeRename(serverId, newName)
@@ -1180,17 +1180,17 @@ async function main() {
             return print(data)
           }
           case 'exec': {
-            // Usage: agentos compute exec <name|id> -- <command> [args...]
-            // Or:    agentos compute exec <name|id> --command "..." --arg "..." --arg "..."
+            // Usage: palmyr compute exec <name|id> -- <command> [args...]
+            // Or:    palmyr compute exec <name|id> --command "..." --arg "..." --arg "..."
             // The double-dash form is the natural one for shells that already
             // know how to split argv; the explicit form lets agents that build
             // arrays JSON-encode args without shell-splitting.
             const csshMod = await import('./compute-ssh.js')
             const target = positional[0] || (flags.id as string) || (flags.name as string)
-            if (!target) err('Usage: agentos compute exec <name|id> -- <command> [args...]', EXIT.BAD_INPUT)
+            if (!target) err('Usage: palmyr compute exec <name|id> -- <command> [args...]', EXIT.BAD_INPUT)
             const cached = csshMod.findCachedServer(target)
             const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
-            if (!serverId) err(`Server "${target}" not in local cache. Pass numeric id, or run 'agentos compute list' first.`, EXIT.NOT_FOUND)
+            if (!serverId) err(`Server "${target}" not in local cache. Pass numeric id, or run 'palmyr compute list' first.`, EXIT.NOT_FOUND)
 
             // Pull command + args from the remaining argv after the target.
             // Bare `--` is a conventional separator; argv after it is treated
@@ -1206,7 +1206,7 @@ async function main() {
               const argFlag = flags.arg
               args = Array.isArray(argFlag) ? argFlag.map(String) : argFlag ? [String(argFlag)] : []
             }
-            if (!command) err('No command. Try: agentos compute exec my-vps -- systemctl status openclaw', EXIT.BAD_INPUT)
+            if (!command) err('No command. Try: palmyr compute exec my-vps -- systemctl status openclaw', EXIT.BAD_INPUT)
             const timeoutSec = flags.timeout ? Math.max(1, Math.min(120, parseInt(String(flags.timeout), 10))) : undefined
             const data = await ao.computeExec(serverId, command, args, timeoutSec ? { timeoutSec } : {})
             return print(data)
@@ -1215,7 +1215,7 @@ async function main() {
           case 'reset_password': {
             const csshMod = await import('./compute-ssh.js')
             const target = positional[0] || (flags.id as string) || (flags.name as string)
-            if (!target) err('Usage: agentos compute reset-password <name|id>', EXIT.BAD_INPUT)
+            if (!target) err('Usage: palmyr compute reset-password <name|id>', EXIT.BAD_INPUT)
             const cached = csshMod.findCachedServer(target)
             const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
             if (!serverId) err(`Server "${target}" not in local cache.`, EXIT.NOT_FOUND)
@@ -1226,7 +1226,7 @@ async function main() {
           case 'request-console': {
             const csshMod = await import('./compute-ssh.js')
             const target = positional[0] || (flags.id as string) || (flags.name as string)
-            if (!target) err('Usage: agentos compute console <name|id>', EXIT.BAD_INPUT)
+            if (!target) err('Usage: palmyr compute console <name|id>', EXIT.BAD_INPUT)
             const cached = csshMod.findCachedServer(target)
             const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
             if (!serverId) err(`Server "${target}" not in local cache.`, EXIT.NOT_FOUND)
@@ -1240,7 +1240,7 @@ async function main() {
           case 'rebuild': {
             const csshMod = await import('./compute-ssh.js')
             const target = positional[0] || (flags.id as string) || (flags.name as string)
-            if (!target) err(`Usage: agentos compute ${subcommand} <name|id>`, EXIT.BAD_INPUT)
+            if (!target) err(`Usage: palmyr compute ${subcommand} <name|id>`, EXIT.BAD_INPUT)
             const cached = csshMod.findCachedServer(target)
             const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
             if (!serverId) err(`Server "${target}" not in local cache.`, EXIT.NOT_FOUND)
@@ -1299,7 +1299,7 @@ async function main() {
               available: !!data.available,
               interactive: fromHome,
               onBack: fromHome ? () => {
-                process.env.AGENTOS_FROM_HOME = '0'
+                process.env.PALMYR_FROM_HOME = '0'
                 process.argv = [process.argv[0], process.argv[1]]
                 void main()
               } : undefined,
@@ -1321,7 +1321,7 @@ async function main() {
               items,
               interactive: fromHome,
               onBack: fromHome ? () => {
-                process.env.AGENTOS_FROM_HOME = '0'
+                process.env.PALMYR_FROM_HOME = '0'
                 process.argv = [process.argv[0], process.argv[1]]
                 void main()
               } : undefined,
@@ -1356,7 +1356,7 @@ async function main() {
             const domains = data?.domains || []
             console.log(`\n  ${t.accent}your domains${t.reset} — ${t.muted}${data.owner}${t.reset}\n`)
             if (domains.length === 0) {
-              console.log(`  ${t.muted}No domains yet. Try: agentos domain buy --name example.xyz${t.reset}\n`)
+              console.log(`  ${t.muted}No domains yet. Try: palmyr domain buy --name example.xyz${t.reset}\n`)
               return
             }
             const pad = (s: string, n: number) => s + ' '.repeat(Math.max(0, n - s.length))
@@ -1689,7 +1689,7 @@ async function main() {
                 'This will display your mnemonic in plaintext. ' +
                 'Anyone who sees it can steal your funds.\n\n' +
                 '  Re-run with --confirm to proceed:\n' +
-                `  agentos wallet export ${walletId} --confirm`
+                `  palmyr wallet export ${walletId} --confirm`
               )
             }
             // Decrypt via vault's single decryption path (session secret from OS cred store)
@@ -1723,7 +1723,7 @@ async function main() {
           showMenu({
             command: 'chat',
             title: 'chat',
-            subtitle: 'i402 (intent layer for x402): tell AgentOS what you want, pay USDC, get the outcome',
+            subtitle: 'i402 (intent layer for x402): tell Palmyr what you want, pay USDC, get the outcome',
             footerLeft: 'Powered by the i402 protocol — see spec/i402.md',
             commands: [
               { name: 'run',         description: 'Generate a plan (and optionally execute it)', hint: '"launch a sneaker brand" --budget 50' },
@@ -1776,7 +1776,7 @@ async function main() {
                     primary: q.text,
                     secondary: `id: ${q.id}`,
                   })),
-                  footerLeft: 'Re-run `agentos chat resume <session_id> "<your answer>"`',
+                  footerLeft: 'Re-run `palmyr chat resume <session_id> "<your answer>"`',
                 }))
               }
               break
@@ -1810,11 +1810,11 @@ async function main() {
                   event: 'awaiting_approval',
                   sessionId: plan.session_id,
                   planId: plan.plan_id,
-                  resumeCommand: `agentos chat resume ${plan.session_id} --approve --plan-id ${plan.plan_id}`,
+                  resumeCommand: `palmyr chat resume ${plan.session_id} --approve --plan-id ${plan.plan_id}`,
                 })
               } else {
                 console.log(`${c.yellow}Plan not auto-approved.${c.white} To execute:`)
-                console.log(`  ${c.cyan}agentos chat resume ${plan.session_id} --approve --plan-id ${plan.plan_id}${c.white}`)
+                console.log(`  ${c.cyan}palmyr chat resume ${plan.session_id} --approve --plan-id ${plan.plan_id}${c.white}`)
               }
               break
             }
@@ -1891,7 +1891,7 @@ async function main() {
             const intentParts = positional.slice(1)
             const intent = intentParts.join(' ').trim() || (flags.intent as string | undefined) || ''
             const planId = flags['plan-id'] as string | undefined
-            if (!sessionId) err('session_id required: agentos chat resume <session_id> "follow-up intent"')
+            if (!sessionId) err('session_id required: palmyr chat resume <session_id> "follow-up intent"')
 
             // If intent is provided, generate a new plan in this session
             if (intent) {
@@ -2089,7 +2089,7 @@ async function main() {
               err(
                 `This deletes the local copy of "${username}". The X account itself is NOT deleted.\n\n` +
                 `  Re-run with --confirm to proceed:\n` +
-                `  agentos twitter remove ${username} --confirm`
+                `  palmyr twitter remove ${username} --confirm`
               )
             }
             sv.removeAccount(platform, username)
@@ -2223,7 +2223,7 @@ async function main() {
           }
 
           case 'register': {
-            // Register an X account with the AgentOS server. Server tests the
+            // Register an X account with the Palmyr server. Server tests the
             // login, encrypts credentials at rest, and from then on can refresh
             // cookies on this wallet's behalf — foundation for server-side
             // scheduling. If the account already exists in the local vault,
@@ -2254,7 +2254,7 @@ async function main() {
             }
 
             if (!password) {
-              err('--password required (or import the account locally first via `agentos twitter import`)')
+              err('--password required (or import the account locally first via `palmyr twitter import`)')
             }
 
             let data: any
@@ -2278,7 +2278,7 @@ async function main() {
               platform, username,
               account_id: data.id,
               cookies_captured: data.cookies_captured,
-              hint: 'Server holds encrypted credentials. Use `agentos twitter schedule` (next PR) to schedule fire-and-forget posts.',
+              hint: 'Server holds encrypted credentials. Use `palmyr twitter schedule` (next PR) to schedule fire-and-forget posts.',
             })
           }
 
@@ -2298,7 +2298,7 @@ async function main() {
               }
               const match = (registered?.accounts || []).find((a: any) => a.username === usernameOrId)
               if (!match) {
-                err(`No registered account with username "${usernameOrId}". Run \`agentos twitter registered\` to list.`, EXIT.NOT_FOUND)
+                err(`No registered account with username "${usernameOrId}". Run \`palmyr twitter registered\` to list.`, EXIT.NOT_FOUND)
               }
               accountId = match!.id
             }
@@ -2330,9 +2330,9 @@ async function main() {
           case 'schedule': {
             // Server-backed: pays $0.001 (text) / $0.005 (thread or media)
             // upfront via x402, schedule fires from the server at --at time.
-            // Account must be registered first via `agentos twitter register`.
+            // Account must be registered first via `palmyr twitter register`.
             const username = positional[0] || (flags.username as string)
-            if (!username) err('<username> required (must be registered via `agentos twitter register` first)')
+            if (!username) err('<username> required (must be registered via `palmyr twitter register` first)')
 
             const postAt = flags.at as string
             if (!postAt) err('--at "ISO 8601" required (e.g. --at "2026-05-15T14:00:00Z")')
@@ -2368,7 +2368,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             if (!match) {
               err(
                 `Account "${username}" is not registered server-side. Register first: ` +
-                `agentos twitter register ${username}`,
+                `palmyr twitter register ${username}`,
                 EXIT.NOT_FOUND
               )
             }
@@ -2421,7 +2421,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               platform, username,
               schedule_id: data.id,
               post_at: postAt,
-              hint: 'Server fires this at post_at automatically — no daemon needed. Cancel via `agentos twitter cancel <id>`.',
+              hint: 'Server fires this at post_at automatically — no daemon needed. Cancel via `palmyr twitter cancel <id>`.',
             })
           }
 
@@ -2450,7 +2450,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           case 'cancel': {
             // Server-backed: cancels a pending scheduled post.
             const id = positional[0] || (flags.id as string)
-            if (!id) err('<schedule-id> required (from `agentos twitter queue`)')
+            if (!id) err('<schedule-id> required (from `palmyr twitter queue`)')
 
             let data: any
             try {
@@ -2969,7 +2969,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               err(
                 `This deletes the local copy of "${username}". The TikTok account itself is NOT deleted.\n\n` +
                 `  Re-run with --confirm to proceed:\n` +
-                `  agentos tiktok remove ${username} --confirm`
+                `  palmyr tiktok remove ${username} --confirm`
               )
             }
             sv.removeAccount(platform, username)
@@ -3057,7 +3057,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 platform,
                 username,
                 cached: false,
-                hint: `No cached session. Run: agentos tiktok login ${username}`,
+                hint: `No cached session. Run: palmyr tiktok login ${username}`,
               })
             }
             const ageHours = sv.sessionAgeHours(acc!.id)
@@ -3172,14 +3172,14 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
       case 'worker': {
         // The local worker daemon was deprecated in favor of server-side
-        // scheduling — `agentos twitter schedule` now POSTs to the AgentOS
+        // scheduling — `palmyr twitter schedule` now POSTs to the Palmyr
         // server, which runs its own scheduler internally and fires posts
         // automatically. No daemon to manage on the user's machine.
         err(
           'Local worker is deprecated. Server-side scheduling is automatic — ' +
-          'register an account (`agentos twitter register <user>`), then schedule ' +
-          'posts (`agentos twitter schedule <user> --body "..." --at "..."`). ' +
-          'The AgentOS server fires them at post_at without any client process.',
+          'register an account (`palmyr twitter register <user>`), then schedule ' +
+          'posts (`palmyr twitter schedule <user> --body "..." --at "..."`). ' +
+          'The Palmyr server fires them at post_at without any client process.',
           EXIT.BAD_INPUT
         )
         break
@@ -3189,7 +3189,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
         const cfg = loadConfig()
         const { homedir } = await import('os')
         const { join } = await import('path')
-        const vaultDir = process.env.AGENTOS_WALLET_PATH || join(homedir(), '.agentos', 'wallet')
+        const vaultDir = process.env.PALMYR_WALLET_PATH || join(homedir(), '.palmyr', 'wallet')
         const { isCredentialStoreAvailable } = await import('./credential-store.js')
 
         const configData = {
@@ -3200,7 +3200,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           defaultPayChain: (cfg as any).defaultPayChain || 'solana',
           vaultPath: vaultDir,
           credentialStore: isCredentialStoreAvailable() ? 'available' : 'unavailable',
-          configPath: join(homedir(), '.agentos', 'config.json'),
+          configPath: join(homedir(), '.palmyr', 'config.json'),
           cliVersion: VERSION,
         }
 
@@ -3219,9 +3219,9 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
         const { existsSync } = await import('fs')
 
         // 1. Vault directory
-        const vaultDir = process.env.AGENTOS_WALLET_PATH || join(homedir(), '.agentos', 'wallet')
+        const vaultDir = process.env.PALMYR_WALLET_PATH || join(homedir(), '.palmyr', 'wallet')
         const vaultExists = existsSync(join(vaultDir, 'wallets'))
-        checks.push({ name: 'Vault directory', status: vaultExists ? 'pass' : 'fail', detail: vaultExists ? vaultDir : 'Not found — run: agentos wallet create' })
+        checks.push({ name: 'Vault directory', status: vaultExists ? 'pass' : 'fail', detail: vaultExists ? vaultDir : 'Not found — run: palmyr wallet create' })
 
         // 2. Credential store
         const { isCredentialStoreAvailable } = await import('./credential-store.js')
@@ -3285,7 +3285,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           services,
           interactive: fromHome,
           onBack: fromHome ? () => {
-            process.env.AGENTOS_FROM_HOME = '0'
+            process.env.PALMYR_FROM_HOME = '0'
             process.argv = [process.argv[0], process.argv[1]]
             void main()
           } : undefined,
@@ -3301,7 +3301,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
         const serverVersion = data.version?.version
         if (serverVersion && serverVersion !== VERSION) {
           console.log(`  ${t.warn}Update available:${t.reset} CLI ${VERSION} → server ${serverVersion}`)
-          console.log(`  ${t.muted}Run: npm install -g @agntos/agentos${t.reset}\n`)
+          console.log(`  ${t.muted}Run: npm install -g @palmyr/cli${t.reset}\n`)
         }
 
         render(React.createElement(HealthScreen, {
@@ -3311,7 +3311,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           apiVersion: serverVersion || '?',
           interactive: fromHome,
           onBack: fromHome ? () => {
-            process.env.AGENTOS_FROM_HOME = '0'
+            process.env.PALMYR_FROM_HOME = '0'
             process.argv = [process.argv[0], process.argv[1]]
             void main()
           } : undefined,
@@ -3323,7 +3323,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
         if (AGENT_MODE) {
           process.stderr.write(JSON.stringify({
             error: `Unknown command: ${command}`,
-            hint: 'Run agentos --help for usage',
+            hint: 'Run palmyr --help for usage',
             exitCode: EXIT.BAD_INPUT,
           }) + '\n')
         } else {
@@ -3331,7 +3331,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             version: VERSION,
             title: 'Unknown command',
             message: `Unknown command: ${command}`,
-            hint: 'Run agentos --help for usage',
+            hint: 'Run palmyr --help for usage',
             footerLeft: 'Command not found',
           }))
         }
@@ -3352,19 +3352,19 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
     let exitCode: number = EXIT.GENERAL
     let title = 'Command failed'
     let hint: string | undefined
-    let footerLeft = 'See agentos --help'
+    let footerLeft = 'See palmyr --help'
 
     if (rawMsg.startsWith('Payment Required:') || rawMsg.includes('settlement failed') || rawMsg.includes('verification failed')) {
       exitCode = EXIT.PAYMENT
       title = 'Payment rejected'
       hint = rawMsg.includes('settlement failed')
         ? 'On-chain tx reverted. Check wallet balance (USDC only — chain fees are paid by the server). View tx on explorer if settled partially.'
-        : 'The server rejected the payment signature. Check your default pay wallet: agentos config'
+        : 'The server rejected the payment signature. Check your default pay wallet: palmyr config'
       footerLeft = 'x402 payment failed'
     } else if (rawMsg === 'Payment Required' || rawMsg.includes('402')) {
       exitCode = EXIT.PAYMENT
       title = 'Payment required'
-      hint = 'Set a default pay wallet: agentos wallet use <ID>'
+      hint = 'Set a default pay wallet: palmyr wallet use <ID>'
       footerLeft = 'Provisioning blocked until payment'
     } else if (rawMsg.includes('SECURITY')) {
       exitCode = EXIT.SECURITY
@@ -3373,19 +3373,19 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
       footerLeft = 'Operation blocked'
     } else if (rawMsg.includes('ECONNREFUSED') || rawMsg.includes('fetch failed')) {
       exitCode = EXIT.NETWORK
-      hint = 'Is the API running? Check: agentos health'
+      hint = 'Is the API running? Check: palmyr health'
     } else if (rawMsg.includes('Authentication') || rawMsg.includes('401') || rawMsg.includes('Unauthorized')) {
       exitCode = EXIT.AUTH_FAIL
       hint = 'Check your API token or session'
     } else if (rawMsg.includes('session secret') || rawMsg.includes('credential store')) {
       exitCode = EXIT.NOT_FOUND
-      hint = 'Create a wallet first: agentos wallet create'
+      hint = 'Create a wallet first: palmyr wallet create'
     } else if (rawMsg.includes('not found')) {
       exitCode = EXIT.NOT_FOUND
       const scope = rawMsg.includes('twitter account') ? 'twitter'
                   : rawMsg.includes('tiktok account') ? 'tiktok'
                   : 'wallet'
-      hint = `Check the name with: agentos ${scope} list`
+      hint = `Check the name with: palmyr ${scope} list`
     }
 
     if (AGENT_MODE) {

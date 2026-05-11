@@ -1,7 +1,7 @@
 /**
  * Local encrypted vault for social account credentials (X, TikTok, etc.).
  *
- * Each account is stored as a JSON file in ~/.agentos/social/accounts/<id>.json
+ * Each account is stored as a JSON file in ~/.palmyr/social/accounts/<id>.json
  * with public metadata (id, platform, username, status) alongside an
  * AES-256-GCM encrypted `cred_crypto` blob containing email + password +
  * TOTP seed + recovery codes.
@@ -96,7 +96,7 @@ export interface SocialAccountSummary {
 }
 
 function getSocialDir(): string {
-  return process.env.AGENTOS_SOCIAL_PATH || join(homedir(), '.agentos', 'social')
+  return process.env.PALMYR_SOCIAL_PATH || join(homedir(), '.palmyr', 'social')
 }
 
 function getAccountsDir(): string {
@@ -318,7 +318,7 @@ function sessionPath(accountId: string): string {
 /**
  * Persist a login session. Cookies are AES-GCM encrypted with the same per-
  * account session secret that protects credentials — an attacker with only
- * read access to ~/.agentos/social/sessions/ gets ciphertext, not cookies.
+ * read access to ~/.palmyr/social/sessions/ gets ciphertext, not cookies.
  */
 export function saveSession(accountId: string, platform: Platform, cookies: any[]): SocialSession {
   ensureDirs()

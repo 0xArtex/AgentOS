@@ -49,7 +49,7 @@ router.get('/', (_req: Request, res: Response) => {
       total: directory.length,
     },
     agents: filtered,
-    note: 'Want to be listed? Build on AgentOS and your agent appears here automatically.',
+    note: 'Want to be listed? Build on Palmyr and your agent appears here automatically.',
     docs: 'http://77.42.89.233:3001/docs',
   });
 });

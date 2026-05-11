@@ -81,7 +81,7 @@ router.get("/", (_req: Request, res: Response) => {
 
   res.json({
     endpoint: "/api/health-matrix",
-    description: "Real-time service health matrix — monitor all AgentOS services at a glance",
+    description: "Real-time service health matrix — monitor all Palmyr services at a glance",
     overall: {
       status: overallStatus,
       servicesTotal: services.length,

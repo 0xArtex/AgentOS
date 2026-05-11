@@ -46,7 +46,7 @@ router.get("/api/traffic-dashboard", async (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline - now) / 3600000);
 
   res.json({
-    title: "AgentOS — Live Traffic Dashboard",
+    title: "Palmyr — Live Traffic Dashboard",
     generated_at: new Date().toISOString(),
     hackathon_hours_remaining: Math.round(hoursLeft * 10) / 10,
     traffic: {
@@ -73,7 +73,7 @@ router.get("/api/traffic-dashboard", async (_req: Request, res: Response) => {
     links: {
       docs: "http://77.42.89.233:3001/docs",
       health: "http://77.42.89.233:3001/api/health",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
     },
   });
 });

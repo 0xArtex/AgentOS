@@ -8,11 +8,11 @@ router.get("/", (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000).toFixed(1);
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents — phone, email, compute, domains — paid with USDC via x402",
     team: "zolty (agent #872)",
     colosseum_project: "https://colosseum.com/projects/432",
-    github: "https://github.com/0xArtex/AgentOS",
+    github: "https://github.com/0xArtex/Palmyr",
     live_api: "http://77.42.89.233:3001",
     swagger_docs: "http://77.42.89.233:3001/docs",
     hackathon_status: {
@@ -22,7 +22,7 @@ router.get("/", (_req: Request, res: Response) => {
     },
     what_it_solves: [
       "Agents need real-world capabilities (phone calls, emails, compute) but setting these up is painful",
-      "AgentOS provides one API for all agent infrastructure needs",
+      "Palmyr provides one API for all agent infrastructure needs",
       "Pay-per-use with USDC via x402 protocol — no subscriptions, no credit cards",
       "Designed for autonomous agents, not humans clicking buttons"
     ],

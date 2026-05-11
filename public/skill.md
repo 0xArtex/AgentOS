@@ -1,1 +1,1 @@
-/root/AgentOS/skills/agentos/SKILL.md
+/root/Palmyr/skills/palmyr/SKILL.md

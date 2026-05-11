@@ -28,11 +28,11 @@ router.get("/", (req: Request, res: Response) => {
       timeToIntegrate: "5 minutes",
       steps: [
         { step: 1, title: "Install", code: "pip install langchain requests" },
-        { step: 2, title: "Register agent", code: "curl -X POST https://agntos.dev/api/agents -H Content-Type: application/json -d ..." },
-        { step: 3, title: "Add AgentOS tool", description: "Create a LangChain Tool that calls AgentOS endpoints for phone, email, compute" },
+        { step: 2, title: "Register agent", code: "curl -X POST https://palmyr.ai/api/agents -H Content-Type: application/json -d ..." },
+        { step: 3, title: "Add Palmyr tool", description: "Create a LangChain Tool that calls Palmyr endpoints for phone, email, compute" },
         { step: 4, title: "Use in chain", code: "agent = initialize_agent(tools=[agentos_tool], llm=llm, agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION)" }
       ],
-      example: "from langchain.tools import Tool\nagentos = Tool(name=AgentOS, func=call_agentos, description=Provision infrastructure)"
+      example: "from langchain.tools import Tool\nagentos = Tool(name=Palmyr, func=call_agentos, description=Provision infrastructure)"
     },
     crewai: {
       framework: "CrewAI",
@@ -40,8 +40,8 @@ router.get("/", (req: Request, res: Response) => {
       timeToIntegrate: "5 minutes",
       steps: [
         { step: 1, title: "Install", code: "pip install crewai requests" },
-        { step: 2, title: "Register agent", code: "curl -X POST https://agntos.dev/api/agents -H Content-Type: application/json -d ..." },
-        { step: 3, title: "Create AgentOS tool for crew", description: "Define a tool that maps to AgentOS API endpoints" },
+        { step: 2, title: "Register agent", code: "curl -X POST https://palmyr.ai/api/agents -H Content-Type: application/json -d ..." },
+        { step: 3, title: "Create Palmyr tool for crew", description: "Define a tool that maps to Palmyr API endpoints" },
         { step: 4, title: "Assign to agent in crew", code: "agent = Agent(role=infra-manager, tools=[agentos_tool])" }
       ]
     },
@@ -50,9 +50,9 @@ router.get("/", (req: Request, res: Response) => {
       difficulty: "beginner",
       timeToIntegrate: "3 minutes",
       steps: [
-        { step: 1, title: "Define function schema", description: "Add AgentOS endpoints as function definitions" },
-        { step: 2, title: "Handle function calls", description: "Route function calls to AgentOS API via HTTP" },
-        { step: 3, title: "Return results", description: "Pass AgentOS response back to conversation" }
+        { step: 1, title: "Define function schema", description: "Add Palmyr endpoints as function definitions" },
+        { step: 2, title: "Handle function calls", description: "Route function calls to Palmyr API via HTTP" },
+        { step: 3, title: "Return results", description: "Pass Palmyr response back to conversation" }
       ],
       example: "functions = [{name: provision_phone, parameters: {type: object, properties: {country: {type: string}}}}]"
     },
@@ -61,22 +61,22 @@ router.get("/", (req: Request, res: Response) => {
       difficulty: "any",
       timeToIntegrate: "1 minute",
       steps: [
-        { step: 1, title: "Get API token", code: "curl https://agntos.dev/api/agents -X POST" },
-        { step: 2, title: "Call any endpoint", code: "curl https://agntos.dev/api/phones -H X-Agent-Id:YOUR_ID" },
+        { step: 1, title: "Get API token", code: "curl https://palmyr.ai/api/agents -X POST" },
+        { step: 2, title: "Call any endpoint", code: "curl https://palmyr.ai/api/phones -H X-Agent-Id:YOUR_ID" },
         { step: 3, title: "Pay with x402", description: "USDC payments on Solana or Base — automatic via 402 protocol" }
       ]
     }
   };
 
   if (framework && guides[framework]) {
-    res.json({ guide: guides[framework], docs: "https://agntos.dev/docs" });
+    res.json({ guide: guides[framework], docs: "https://palmyr.ai/docs" });
   } else {
     res.json({
       availableFrameworks: Object.keys(guides),
       usage: "Add ?framework=langchain for specific guide",
       guides,
-      docs: "https://agntos.dev/docs",
-      quickstart: "https://agntos.dev/api/quickstart"
+      docs: "https://palmyr.ai/docs",
+      quickstart: "https://palmyr.ai/api/quickstart"
     });
   }
 });

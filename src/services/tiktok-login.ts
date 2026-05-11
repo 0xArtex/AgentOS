@@ -275,7 +275,7 @@ export async function loginTikTok(
         const text: string = await page
           .evaluate("(() => (document.body && document.body.innerText ? document.body.innerText.slice(0, 500) : ''))()")
           .catch(() => "");
-        const shotDir = "/tmp/agentos-social-shots";
+        const shotDir = "/tmp/palmyr-social-shots";
         const fs = await import("fs");
         if (!fs.existsSync(shotDir)) fs.mkdirSync(shotDir, { recursive: true });
         const shotPath = `${shotDir}/tiktok-${tag}-${Date.now()}.png`;

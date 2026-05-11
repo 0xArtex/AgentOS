@@ -1,12 +1,12 @@
-# Contributing to AgentOS
+# Contributing to Palmyr
 
 Thanks for your interest in contributing.
 
 ## Getting Started
 
 ```bash
-git clone https://github.com/0xArtex/AgentOS
-cd AgentOS
+git clone https://github.com/0xArtex/Palmyr
+cd Palmyr
 cp .env.example .env
 npm install
 npm run build
@@ -32,8 +32,8 @@ node dist/cli.js --help
 
 ## Reporting Issues
 
-Open an issue at [github.com/0xArtex/AgentOS/issues](https://github.com/0xArtex/AgentOS/issues).
+Open an issue at [github.com/0xArtex/Palmyr/issues](https://github.com/0xArtex/Palmyr/issues).
 
 ## Questions
 
-Join our [Discord](https://discord.gg/clawd) or reach out at hello@agntos.dev.
+Join our [Discord](https://discord.gg/clawd) or reach out at hello@palmyr.ai.

@@ -20,8 +20,8 @@ const ECOSYSTEM_PARTNERS = [
 router.get("/", (_req: Request, res: Response) => {
   const now = new Date();
   res.json({
-    title: "AgentOS Community & Ecosystem",
-    description: "Post-hackathon ecosystem status — who is still building and how they compose with AgentOS",
+    title: "Palmyr Community & Ecosystem",
+    description: "Post-hackathon ecosystem status — who is still building and how they compose with Palmyr",
     stats: {
       total_partners: ECOSYSTEM_PARTNERS.length,
       active: ECOSYSTEM_PARTNERS.filter(p => p.status === "active").length,
@@ -32,7 +32,7 @@ router.get("/", (_req: Request, res: Response) => {
     },
     partners: ECOSYSTEM_PARTNERS,
     post_hackathon: {
-      message: "AgentOS stays live and free for all builders. No sunset date.",
+      message: "Palmyr stays live and free for all builders. No sunset date.",
       whats_next: [
         "Production hardening (real Twilio/SendGrid integration)",
         "On-chain identity integration (MoltLaunch PDA reads)",
@@ -41,10 +41,10 @@ router.get("/", (_req: Request, res: Response) => {
       ],
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      skill: "https://agntos.dev/skill.md",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      skill: "https://palmyr.ai/skill.md",
     },
   });
 });

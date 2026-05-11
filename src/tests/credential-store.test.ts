@@ -16,7 +16,7 @@ import { join } from "path";
 import { homedir } from "os";
 import { randomBytes } from "crypto";
 
-const SECRETS_DIR = join(homedir(), ".agentos", "secrets");
+const SECRETS_DIR = join(homedir(), ".palmyr", "secrets");
 const HEX_RE = /^[0-9a-f]+$/i;
 
 function assertHex(value: string, label: string): void {

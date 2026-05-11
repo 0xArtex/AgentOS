@@ -58,7 +58,7 @@ export interface SendSmsRequest {
 export interface EmailInbox {
   id: string;
   address: string;
-  /** e.g. "agent-name" portion of agent-name@agntos.dev */
+  /** e.g. "agent-name" portion of agent-name@palmyr.ai */
   localPart: string;
   owner: string;
   /** X25519 public key derived from Solana wallet (base64) */
@@ -113,7 +113,7 @@ export interface EmailThread {
 }
 
 export interface CreateInboxRequest {
-  /** Desired local part — becomes {name}@mail.agentos.dev */
+  /** Desired local part — becomes {name}@mail.palmyr.dev */
   name: string;
 }
 

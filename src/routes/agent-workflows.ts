@@ -8,7 +8,7 @@ const router = Router({ mergeParams: true });
  */
 router.get("/", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Workflow Recipes",
+    title: "Palmyr Workflow Recipes",
     description: "Copy-paste multi-step workflows. Each step is a real API call.",
     workflows: [
       {
@@ -32,7 +32,7 @@ router.get("/", (_req: Request, res: Response) => {
             method: "POST",
             endpoint: "/email/inboxes",
             body: { domain: "support", prefix: "help" },
-            note: "Agent gets help@support.agentos.dev"
+            note: "Agent gets help@support.palmyr.dev"
           },
           {
             step: 3,
@@ -74,7 +74,7 @@ router.get("/", (_req: Request, res: Response) => {
             method: "POST",
             endpoint: "/email/inboxes",
             body: { domain: "alerts", prefix: "trades" },
-            note: "trades@alerts.agentos.dev for email alerts"
+            note: "trades@alerts.palmyr.dev for email alerts"
           },
           {
             step: 3,
@@ -100,7 +100,7 @@ router.get("/", (_req: Request, res: Response) => {
         name: "Multi-Agent Coordination",
         difficulty: "advanced",
         estimatedTime: "15 minutes",
-        description: "Spin up a team of specialized agents that communicate via AgentOS",
+        description: "Spin up a team of specialized agents that communicate via Palmyr",
         steps: [
           {
             step: 1,
@@ -123,7 +123,7 @@ router.get("/", (_req: Request, res: Response) => {
             method: "POST",
             endpoint: "/email/inboxes",
             body: { domain: "team", prefix: "internal" },
-            note: "Agents communicate via internal@team.agentos.dev"
+            note: "Agents communicate via internal@team.palmyr.dev"
           },
           {
             step: 4,

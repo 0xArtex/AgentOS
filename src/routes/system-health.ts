@@ -63,7 +63,7 @@ router.get("/", (_req, res) => {
       pid: process.pid,
     },
     timestamp: new Date().toISOString(),
-    note: "These are live metrics from the AgentOS production server. Not mocked.",
+    note: "These are live metrics from the Palmyr production server. Not mocked.",
   });
 });
 

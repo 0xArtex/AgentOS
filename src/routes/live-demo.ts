@@ -22,7 +22,7 @@ router.get("/api/live-demo", (req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
 
   res.json({
-    title: "AgentOS Live System State",
+    title: "Palmyr Live System State",
     description: "Real-time data from a running production system",
     system: {
       uptime_seconds: Math.floor(uptime),
@@ -51,7 +51,7 @@ router.get("/api/live-demo", (req: Request, res: Response) => {
     },
     links: {
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill: "http://77.42.89.233:3001/skill.md"
     }
   });

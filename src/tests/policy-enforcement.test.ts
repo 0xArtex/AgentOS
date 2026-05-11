@@ -21,8 +21,8 @@ import { mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
-const TEST_VAULT = join(tmpdir(), `agentos-test-policy-${Date.now()}`);
-process.env.AGENTOS_WALLET_PATH = TEST_VAULT;
+const TEST_VAULT = join(tmpdir(), `palmyr-test-policy-${Date.now()}`);
+process.env.PALMYR_WALLET_PATH = TEST_VAULT;
 
 import * as vault from "../services/wallet-vault";
 import { PolicyApprovalRequired } from "../services/wallet-vault";

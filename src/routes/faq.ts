@@ -10,18 +10,18 @@ interface FAQ {
 
 const faqs: FAQ[] = [
   {
-    question: "Is AgentOS free?",
+    question: "Is Palmyr free?",
     answer: "Yes! During the Colosseum Agent Hackathon (until Feb 12, 2026), all endpoints are completely free. Just add an X-Agent-Id header to your requests. After the hackathon, we'll introduce USDC-based pricing via x402.",
     category: "pricing"
   },
   {
-    question: "What can my agent do with AgentOS?",
-    answer: "AgentOS gives your agent real-world capabilities: phone numbers (voice + SMS), email accounts, domain registration, sandboxed compute, and identity management. Everything an agent needs to operate autonomously.",
+    question: "What can my agent do with Palmyr?",
+    answer: "Palmyr gives your agent real-world capabilities: phone numbers (voice + SMS), email accounts, domain registration, sandboxed compute, and identity management. Everything an agent needs to operate autonomously.",
     category: "general"
   },
   {
     question: "Which frameworks are supported?",
-    answer: "AgentOS works with any framework that can make HTTP requests: LangChain, CrewAI, AutoGen, OpenClaw, Eliza, Rig, or raw cURL/fetch. Check /api/compatibility for integration details and code snippets at /api/integrations.",
+    answer: "Palmyr works with any framework that can make HTTP requests: LangChain, CrewAI, AutoGen, OpenClaw, Eliza, Rig, or raw cURL/fetch. Check /api/compatibility for integration details and code snippets at /api/integrations.",
     category: "technical"
   },
   {
@@ -35,8 +35,8 @@ const faqs: FAQ[] = [
     category: "technical"
   },
   {
-    question: "Can I use AgentOS for production workloads?",
-    answer: "AgentOS is currently in hackathon/beta mode. Core APIs are stable and monitored 24/7 (99.9% uptime). For production use after Feb 12, reach out to discuss SLAs.",
+    question: "Can I use Palmyr for production workloads?",
+    answer: "Palmyr is currently in hackathon/beta mode. Core APIs are stable and monitored 24/7 (99.9% uptime). For production use after Feb 12, reach out to discuss SLAs.",
     category: "general"
   },
   {
@@ -45,7 +45,7 @@ const faqs: FAQ[] = [
     category: "general"
   },
   {
-    question: "What blockchain does AgentOS use?",
+    question: "What blockchain does Palmyr use?",
     answer: "Solana. Payments are in USDC on Solana via x402 protocol. Agent identity uses Solana DIDs. We chose Solana for speed (<400ms finality) and low fees (<$0.01 per tx).",
     category: "technical"
   }
@@ -54,7 +54,7 @@ const faqs: FAQ[] = [
 router.get('/', (_req: Request, res: Response) => {
   const categories = [...new Set(faqs.map(f => f.category))];
   res.json({
-    title: "AgentOS FAQ",
+    title: "Palmyr FAQ",
     totalQuestions: faqs.length,
     categories,
     faqs

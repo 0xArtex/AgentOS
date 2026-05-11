@@ -8,7 +8,7 @@ router.get("/", (_req: Request, res: Response) => {
   const hoursLeft = Math.floor(msLeft / 3600000);
 
   res.json({
-    title: "AgentOS Launch Checklist — Pre-Submission",
+    title: "Palmyr Launch Checklist — Pre-Submission",
     hours_remaining: hoursLeft,
     status: hoursLeft < 24 ? "CRITICAL" : hoursLeft < 48 ? "URGENT" : "ON_TRACK",
 
@@ -28,7 +28,7 @@ router.get("/", (_req: Request, res: Response) => {
       { task: "Ecosystem partners", status: "done", details: "14 partner integrations" },
       { task: "Forum presence", status: "done", details: "265+ community comments" },
       { task: "Colosseum submission", status: "pending", details: "Project #432 — needs final submit" },
-      { task: "GitHub repo public", status: "done", details: "github.com/0xArtex/AgentOS" },
+      { task: "GitHub repo public", status: "done", details: "github.com/0xArtex/Palmyr" },
       { task: "Demo video", status: "pending", details: "Record walkthrough before deadline" },
       { task: "Real Twilio creds", status: "blocked", details: "Need account setup" },
       { task: "Real SendGrid creds", status: "blocked", details: "Need account setup" },

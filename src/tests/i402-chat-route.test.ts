@@ -18,11 +18,11 @@ import express from "express";
 process.env.I402_ORCHESTRATION_FEE_PCT = "0.15";
 process.env.I402_SESSION_IDLE_TIMEOUT_HOURS = "24";
 process.env.I402_SESSION_MAX_BUDGET_USDC = "1000";
-process.env.AGENTOS_API_BASE = "https://staging.agntos.dev";
+process.env.PALMYR_API_BASE = "https://staging.palmyr.ai";
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "test-key";
 
 import { db, initDatabase } from "../db";
-import { seedAgentOSPrimitives, listProviders } from "../services/i402-providers";
+import { seedPalmyrPrimitives, listProviders } from "../services/i402-providers";
 import { generatePlan, getPlan } from "../services/i402-planner";
 import { createSession, findActiveSessionForWallet } from "../services/i402-session";
 import { llm } from "../services/i402-llm";
@@ -32,7 +32,7 @@ import type { PlannerRequest } from "../services/i402-types";
 // -------------------- Setup --------------------
 
 initDatabase();
-seedAgentOSPrimitives();
+seedPalmyrPrimitives();
 
 function clearI402Dynamic(): void {
   db.exec(`
@@ -331,8 +331,8 @@ describe("generatePlan — wallet-keyed session resolution", () => {
         content: {
           interpreted_intent: "domain + vps",
           steps: [
-            { step_id: "s1", capability: "register_domain", provider_id: "agentos.register_domain", input: { domain_preferences: ["test.io"] } },
-            { step_id: "s2", capability: "deploy_vps", provider_id: "agentos.deploy_vps", input: { plan: "cx23" }, depends_on: ["s1"] },
+            { step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: { domain_preferences: ["test.io"] } },
+            { step_id: "s2", capability: "deploy_vps", provider_id: "palmyr.deploy_vps", input: { plan: "cx23" }, depends_on: ["s1"] },
           ],
         },
         usage: { tokensIn: 500, tokensOut: 200, cacheReadTokens: 0, cacheCreationTokens: 0, costUsdc: 0.02 },

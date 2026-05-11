@@ -37,7 +37,7 @@ router.post("/", (req: Request, res: Response) => {
   } catch(e: any) { provisioned.phone = { error: e.message }; }
 
   // Email
-  const emailAddr = `${agentId}@agentos.dev`;
+  const emailAddr = `${agentId}@palmyr.dev`;
   const emailId = uuid();
   try {
     db.prepare("INSERT INTO email_inboxes (id, agent_id, email_address, created_at) VALUES (?, ?, ?, datetime('now'))").run(emailId, agentId, emailAddr);

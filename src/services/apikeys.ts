@@ -9,8 +9,8 @@ import { ApiKey, ApiKeyProvider, API_KEY_PRICING } from "../types";
 const providerGenerators: Record<ApiKeyProvider, () => Promise<string>> = {
   brave_search: async () => `BSK-${crypto.randomBytes(24).toString("hex")}`,
   helius: async () => `helius-${crypto.randomBytes(20).toString("hex")}`,
-  openai: async () => `sk-agentos-${crypto.randomBytes(24).toString("hex")}`,
-  anthropic: async () => `sk-ant-agentos-${crypto.randomBytes(24).toString("hex")}`,
+  openai: async () => `sk-palmyr-${crypto.randomBytes(24).toString("hex")}`,
+  anthropic: async () => `sk-ant-palmyr-${crypto.randomBytes(24).toString("hex")}`,
   elevenlabs: async () => `el-${crypto.randomBytes(20).toString("hex")}`,
   custom: async () => `key-${crypto.randomBytes(24).toString("hex")}`,
 };

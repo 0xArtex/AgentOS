@@ -19,7 +19,7 @@ router.get("/api/api-map", (_req: Request, res: Response) => {
     "Developer Experience": ["sdk", "examples", "faq", "quickstart", "walkthrough", "demo", "demo-flow", "demo-interactive", "demo-walkthrough", "playground", "sandbox", "starter-kit", "debug", "integration-test", "integration-guide"],
     "Hackathon": ["hackathon", "hackathon-stats", "hackathon-status", "countdown", "deadline", "deadlines", "final-push", "final-sprint", "submit-checklist", "submission-ready", "judge-ready", "judge-brief", "judge-summary", "for-judges", "colosseum-ready", "live-demo"],
     "Ecosystem": ["ecosystem", "network", "partners", "partner-workflows", "agent-toolkit", "integrations", "compatibility", "templates", "leaderboard"],
-    "Business": ["pricing", "calculator", "grants", "invoice", "demo-request", "pitch", "why-agentos", "comparison", "migration"],
+    "Business": ["pricing", "calculator", "grants", "invoice", "demo-request", "pitch", "why-palmyr", "comparison", "migration"],
     "Configuration": ["config", "webhooks", "events", "feedback", "apikeys", "ratelimits", "sla", "security"]
   };
 
@@ -31,7 +31,7 @@ router.get("/api/api-map", (_req: Request, res: Response) => {
   const uncategorized = files.filter(f => !categorized.has(f) && f !== "api-map");
 
   res.json({
-    name: "AgentOS API Map",
+    name: "Palmyr API Map",
     version: "v1.2.3",
     totalRouteFiles: files.length,
     baseUrl: "http://77.42.89.233:3001",

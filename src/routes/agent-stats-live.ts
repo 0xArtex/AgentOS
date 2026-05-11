@@ -47,7 +47,7 @@ router.get("/", (_req: Request, res: Response) => {
   const mem = process.memoryUsage();
 
   res.json({
-    title: "AgentOS — Live Platform Statistics",
+    title: "Palmyr — Live Platform Statistics",
     generated_at: now.toISOString(),
     hackathon: {
       hours_remaining: Math.round(hoursLeft * 10) / 10,
@@ -83,7 +83,7 @@ router.get("/", (_req: Request, res: Response) => {
     links: {
       docs: "http://77.42.89.233:3001/docs",
       skill: "http://77.42.89.233:3001/skill.md",
-      github: "https://github.com/0xArtex/AgentOS"
+      github: "https://github.com/0xArtex/Palmyr"
     }
   });
 });

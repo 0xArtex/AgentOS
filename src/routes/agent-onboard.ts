@@ -37,7 +37,7 @@ router.post("/", (req: Request, res: Response) => {
   }
 
   if (requestedServices.includes("email")) {
-    const emailAddr = `${name.toLowerCase().replace(/[^a-z0-9]/g, "")}@agent.agentos.dev`;
+    const emailAddr = `${name.toLowerCase().replace(/[^a-z0-9]/g, "")}@agent.palmyr.dev`;
     try {
       db.prepare("INSERT INTO emails (agent_id, address, created_at) VALUES (?, ?, datetime(\"now\"))").run(agentId, emailAddr);
     } catch { /* table may not exist */ }

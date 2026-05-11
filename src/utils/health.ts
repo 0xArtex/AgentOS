@@ -39,7 +39,7 @@ export function getHealth() {
 export function getVersion() {
   return {
     version: VERSION,
-    name: "AgentOS",
+    name: "Palmyr",
     build: process.env.BUILD_SHA || "dev",
     nodeVersion: process.version,
   };

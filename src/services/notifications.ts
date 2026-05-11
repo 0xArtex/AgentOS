@@ -36,8 +36,8 @@ export async function notifyAgent(
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-AgentOS-Event": event,
-        "User-Agent": "AgentOS/0.4.3",
+        "X-Palmyr-Event": event,
+        "User-Agent": "Palmyr/0.4.3",
       },
       body: JSON.stringify(payload),
       signal: controller.signal,

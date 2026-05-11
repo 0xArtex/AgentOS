@@ -15,8 +15,8 @@ import { join } from "path";
 import { tmpdir } from "os";
 import { execSync } from "child_process";
 
-const TEST_VAULT = join(tmpdir(), `agentos-test-concurrency-${Date.now()}`);
-process.env.AGENTOS_WALLET_PATH = TEST_VAULT;
+const TEST_VAULT = join(tmpdir(), `palmyr-test-concurrency-${Date.now()}`);
+process.env.PALMYR_WALLET_PATH = TEST_VAULT;
 
 import * as vault from "../services/wallet-vault";
 
@@ -127,7 +127,7 @@ describe("concurrency", () => {
     it("parallel wallet creates don't corrupt each other", () => {
       // Spawn 5 child processes that each create a wallet
       const script = `
-        process.env.AGENTOS_WALLET_PATH = '${TEST_VAULT.replace(/\\/g, "\\\\")}';
+        process.env.PALMYR_WALLET_PATH = '${TEST_VAULT.replace(/\\/g, "\\\\")}';
         const vault = require('./dist/services/wallet-vault');
         const w = vault.createWallet('parallel-' + process.argv[2], 'unmanaged');
         console.log(JSON.stringify({ id: w.wallet.id }));

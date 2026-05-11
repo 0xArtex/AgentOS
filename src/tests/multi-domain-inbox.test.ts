@@ -14,7 +14,7 @@
 import { describe, it, before, beforeEach } from "node:test";
 import assert from "node:assert/strict";
 
-process.env.EMAIL_DOMAIN = "agntos.dev";
+process.env.EMAIL_DOMAIN = "palmyr.ai";
 
 import { db, initDatabase } from "../db";
 import { storage } from "../services/storage";
@@ -43,14 +43,14 @@ before(() => {
   initDatabase();
   // Delete in FK-dependency order so PRAGMA foreign_keys=ON doesn't reject
   // the email_inboxes wipe when stale email_messages rows exist (e.g. from
-  // a real `agentos email send` run against the dev DB).
+  // a real `palmyr email send` run against the dev DB).
   db.exec("DELETE FROM email_messages; DELETE FROM email_inboxes; DELETE FROM domains;");
 });
 
 beforeEach(() => {
   // Delete in FK-dependency order so PRAGMA foreign_keys=ON doesn't reject
   // the email_inboxes wipe when stale email_messages rows exist (e.g. from
-  // a real `agentos email send` run against the dev DB).
+  // a real `palmyr email send` run against the dev DB).
   db.exec("DELETE FROM email_messages; DELETE FROM email_inboxes; DELETE FROM domains;");
 });
 
@@ -62,12 +62,12 @@ describe("createInbox — custom domain", () => {
 
   it("falls back to config.emailDomain when domain is omitted", () => {
     const inbox = createInbox("hello", WALLET_A, SOL_PUBKEY_A);
-    assert.equal(inbox.address, "hello@agntos.dev");
+    assert.equal(inbox.address, "hello@palmyr.ai");
   });
 
   it("falls back to config.emailDomain when an invalid domain is passed", () => {
     const inbox = createInbox("hello", WALLET_A, SOL_PUBKEY_A, "not a real domain!!!");
-    assert.equal(inbox.address, "hello@agntos.dev");
+    assert.equal(inbox.address, "hello@palmyr.ai");
   });
 
   it("normalizes a custom domain to lowercase", () => {
@@ -80,13 +80,13 @@ describe("hasEmailAddress — multi-domain dedup", () => {
   it("allows the same local-part on different domains", () => {
     createInbox("hello", WALLET_A, SOL_PUBKEY_A, "stealthkicks.xyz");
     // Same local-part on a different domain should NOT collide.
-    assert.equal(storage.hasEmailAddress("hello@agntos.dev"), false);
+    assert.equal(storage.hasEmailAddress("hello@palmyr.ai"), false);
     assert.equal(storage.hasEmailAddress("hello@stealthkicks.xyz"), true);
 
     // Provision the second one — must succeed (would have failed under the
     // old hasEmailLocalPart check).
     const second = createInbox("hello", WALLET_A, SOL_PUBKEY_A);
-    assert.equal(second.address, "hello@agntos.dev");
+    assert.equal(second.address, "hello@palmyr.ai");
   });
 
   it("rejects exact-address duplicates", () => {

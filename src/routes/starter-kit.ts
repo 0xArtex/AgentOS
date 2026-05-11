@@ -10,12 +10,12 @@ router.get("/", (req: Request, res: Response) => {
     langchain: {
       framework: "LangChain",
       install: "pip install langchain requests",
-      note: "Use LangChain HTTP Tool with AgentOS base URL",
+      note: "Use LangChain HTTP Tool with Palmyr base URL",
     },
     crewai: {
       framework: "CrewAI",
       install: "pip install crewai requests",
-      note: "Create BaseTool subclasses per AgentOS service",
+      note: "Create BaseTool subclasses per Palmyr service",
     },
     raw: {
       framework: "Raw HTTP (curl/fetch/requests)",
@@ -26,14 +26,14 @@ router.get("/", (req: Request, res: Response) => {
   const config = frameworkConfigs[framework] || frameworkConfigs.raw;
 
   res.json({
-    title: "AgentOS Starter Kit",
-    description: "Everything you need to integrate AgentOS in 5 minutes",
+    title: "Palmyr Starter Kit",
+    description: "Everything you need to integrate Palmyr in 5 minutes",
     selectedFramework: config,
     availableFrameworks: ["raw", "langchain", "crewai"],
     usage: "Add ?framework=langchain for framework-specific tips",
     envConfig: {
-      AGENTOS_BASE_URL: baseUrl,
-      AGENTOS_AGENT_ID: "your-agent-id-here",
+      PALMYR_BASE_URL: baseUrl,
+      PALMYR_AGENT_ID: "your-agent-id-here",
       note: "Get agent ID via POST /api/agents/register",
     },
     quickStart: [

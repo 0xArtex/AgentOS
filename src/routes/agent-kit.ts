@@ -7,7 +7,7 @@ router.get("/", (_req: Request, res: Response) => {
   const health = getHealth();
 
   res.json({
-    welcome: "Welcome to AgentOS — autonomous infrastructure for AI agents",
+    welcome: "Welcome to Palmyr — autonomous infrastructure for AI agents",
     version: getVersion().version,
     status: health.status,
     quick_start: {
@@ -28,7 +28,7 @@ router.get("/", (_req: Request, res: Response) => {
     payment: { currency: "USDC", network: "Solana", protocol: "x402" },
     links: {
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill_md: "http://77.42.89.233:3001/skill.md",
     },
   });

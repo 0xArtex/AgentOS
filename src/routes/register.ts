@@ -5,7 +5,7 @@ import { v4 as uuid } from "uuid";
 const router = Router();
 
 /**
- * POST /agents/register — Register an agent with AgentOS
+ * POST /agents/register — Register an agent with Palmyr
  * 
  * Required: walletAddress (Solana base58 public key)
  * Optional: agentId (Colosseum hackathon agent ID for free tier)
@@ -20,7 +20,7 @@ router.post("/register", async (req: Request, res: Response) => {
       res.status(400).json({
         error: "Missing wallet address",
         message: "Provide 'walletAddress' (Solana base58 public key) to register",
-        hint: "Your wallet is your identity on AgentOS. All services are tied to it.",
+        hint: "Your wallet is your identity on Palmyr. All services are tied to it.",
       });
       return;
     }
@@ -39,7 +39,7 @@ router.post("/register", async (req: Request, res: Response) => {
     if (existing) {
       res.status(409).json({
         error: "Wallet already registered",
-        message: "This wallet is already registered with AgentOS",
+        message: "This wallet is already registered with Palmyr",
         agentId: existing.agent_id,
         hint: "Use your existing API key or contact support",
       });

@@ -1,12 +1,12 @@
 /**
- * Wallet service — powered by AgentOS Wallet Vault.
+ * Wallet service — powered by Palmyr Wallet Vault.
  *
  * Two modes:
  *   - Unmanaged: agent has full control, no limits, session secret in OS cred store
  *   - Managed: policy engine enforces limits, human approves via passkey
  *
- * Key material is stored in the encrypted vault at ~/.agentos/wallet/.
- * AgentOS stores metadata (user→wallet associations, labels, on-chain refs) in SQLite.
+ * Key material is stored in the encrypted vault at ~/.palmyr/wallet/.
+ * Palmyr stores metadata (user→wallet associations, labels, on-chain refs) in SQLite.
  */
 import { db } from "../db";
 import { randomBytes } from "crypto";
@@ -403,7 +403,7 @@ export function getAgentConfig(
     },
     accounts: wallet.accounts,
     mode: wallet.mode,
-    note: "Use the AgentOS API key for signing. The server cannot decrypt this wallet without the API key or session secret.",
+    note: "Use the Palmyr API key for signing. The server cannot decrypt this wallet without the API key or session secret.",
   };
 }
 

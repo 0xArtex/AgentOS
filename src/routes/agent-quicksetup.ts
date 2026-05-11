@@ -35,7 +35,7 @@ router.post("/", (req: Request, res: Response) => {
   // Provision email
   try {
     const local = agentName.toLowerCase().replace(/[^a-z0-9]/g, "");
-    const addr = local + "@agents.agentos.dev";
+    const addr = local + "@agents.palmyr.dev";
     const id = randomUUID();
     db.prepare("INSERT INTO email_inboxes (id, address, local_part, owner, created_at) VALUES (?, ?, ?, ?, ?)").run(id, addr, local, agentName, new Date().toISOString());
     results.email = { id, address: addr, status: "active" };

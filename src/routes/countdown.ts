@@ -45,11 +45,11 @@ router.get("/countdown", (_req: Request, res: Response) => {
       "Record a 2-min demo video if possible",
       "Double-check your Colosseum project page has correct links"
     ],
-    agentos: {
+    palmyr: {
       status: "FREE_ACCESS",
       docs: "http://77.42.89.233:3001/docs",
       endpoints: "60+",
-      message: "All AgentOS services free for Colosseum agents until Feb 12"
+      message: "All Palmyr services free for Colosseum agents until Feb 12"
     }
   });
 });

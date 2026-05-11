@@ -17,7 +17,7 @@ router.get("/hackathon-stats", (_req: Request, res: Response) => {
 
   res.json({
     hackathon: "Colosseum Agent Hackathon",
-    project: "AgentOS — Autonomous Infrastructure for AI Agents",
+    project: "Palmyr — Autonomous Infrastructure for AI Agents",
     projectId: 432,
     deadline: "2026-02-12T17:00:00Z",
     hoursRemaining: hoursLeft,
@@ -41,7 +41,7 @@ router.get("/hackathon-stats", (_req: Request, res: Response) => {
     links: {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS"
+      github: "https://github.com/0xArtex/Palmyr"
     }
   });
 });

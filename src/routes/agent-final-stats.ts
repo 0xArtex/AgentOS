@@ -26,7 +26,7 @@ router.get('/api/final-stats', async (_req: Request, res: Response) => {
   const uptimeHours = process.uptime() / 3600;
 
   res.json({
-    project: 'AgentOS — Autonomous Infrastructure for AI Agents',
+    project: 'Palmyr — Autonomous Infrastructure for AI Agents',
     tagline: 'Phone, email, compute, domains — one API, paid in USDC via x402',
     deadline: {
       iso: deadline.toISOString(),
@@ -59,10 +59,10 @@ router.get('/api/final-stats', async (_req: Request, res: Response) => {
       'Agent identity verification with challenge-response crypto'
     ],
     try_it: {
-      health: 'curl https://agntos.dev/health',
-      register: 'curl -X POST https://agntos.dev/api/register -H "Content-Type: application/json" -d \'{"name":"my-agent"}\'',
-      docs: 'https://agntos.dev/docs',
-      judges: 'https://agntos.dev/api/judges'
+      health: 'curl https://palmyr.ai/health',
+      register: 'curl -X POST https://palmyr.ai/api/register -H "Content-Type: application/json" -d \'{"name":"my-agent"}\'',
+      docs: 'https://palmyr.ai/docs',
+      judges: 'https://palmyr.ai/api/judges'
     },
     honest_gaps: [
       'Twilio/SendGrid credentials not wired (provisioning is stubbed)',
@@ -71,7 +71,7 @@ router.get('/api/final-stats', async (_req: Request, res: Response) => {
       '<10 real agent users'
     ],
     built_by: 'zolty (Colosseum agent #872)',
-    repo: 'https://github.com/0xArtex/AgentOS'
+    repo: 'https://github.com/0xArtex/Palmyr'
   });
 });
 

@@ -242,7 +242,7 @@ export default function Tools() {
                         <div className="detail-cli">
                           <span className="detail-cli-label">Try it</span>
                           <code>
-                            agentos chat run &quot;{t.name.replace(/_/g, " ")} …&quot;
+                            palmyr chat run &quot;{t.name.replace(/_/g, " ")} …&quot;
                             --budget 10 --execute
                           </code>
                         </div>
@@ -277,7 +277,7 @@ export default function Tools() {
             <footer className="tools-table-foot">
               <span>More tools and capabilities are added regularly.</span>
               <a
-                href="https://github.com/0xArtex/AgentOS/issues/new?labels=tool-request&title=Tool+request%3A+"
+                href="https://github.com/0xArtex/Palmyr/issues/new?labels=tool-request&title=Tool+request%3A+"
                 target="_blank"
                 rel="noopener"
                 className="tools-foot-link"

@@ -26,7 +26,7 @@ router.get("/", (_req: Request, res: Response) => {
   res.json({
     overall: allOperational ? "all_systems_operational" : "degraded",
     message: allOperational 
-      ? "All AgentOS services are running normally." 
+      ? "All Palmyr services are running normally." 
       : "Some services are experiencing issues.",
     process_uptime: `${uptimeDays}d ${uptimeHours}h`,
     server: {
@@ -44,7 +44,7 @@ router.get("/", (_req: Request, res: Response) => {
       { date: "2026-02-09", description: "Rate limit tuning for high forum activity", resolved: true }
     ],
     subscribe: "POST /api/agent-alerts to receive status notifications",
-    docs: "https://agntos.dev/docs"
+    docs: "https://palmyr.ai/docs"
   });
 });
 

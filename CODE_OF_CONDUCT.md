@@ -12,7 +12,7 @@ We are committed to making participation in this project a harassment-free exper
 
 ## Enforcement
 
-Instances of abusive behavior may be reported to hello@agntos.dev. All complaints will be reviewed.
+Instances of abusive behavior may be reported to hello@palmyr.ai. All complaints will be reviewed.
 
 ## Attribution
 

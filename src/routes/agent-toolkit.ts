@@ -4,7 +4,7 @@ const router = Router();
 
 router.get("/", (_req: Request, res: Response) => {
   res.json({
-    title: "AgentOS Toolkit — Everything Your Agent Needs",
+    title: "Palmyr Toolkit — Everything Your Agent Needs",
     version: "v1.0",
     description: "Complete infrastructure toolkit for autonomous AI agents on Solana",
     toolkit: {

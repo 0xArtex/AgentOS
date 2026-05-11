@@ -29,7 +29,7 @@ export const config = {
   telnyxVoiceAppId: optional("TELNYX_VOICE_APP_ID", ""),
 
   // Email
-  emailDomain: optional("EMAIL_DOMAIN", "agntos.dev"),
+  emailDomain: optional("EMAIL_DOMAIN", "palmyr.ai"),
 
   // Domain registrar
   domainRegistrar: optional("DOMAIN_REGISTRAR", "namecheap"),

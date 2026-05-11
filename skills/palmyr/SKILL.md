@@ -4,18 +4,18 @@ version: 1.0.0
 description: Infrastructure for AI Agents. Phone, email, X/Twitter accounts, compute, domains, voice calling, and wallets for AI agents. Pay with USDC on Solana or Base via x402.
 ---
 
-# AgentOS — Infrastructure for AI Agents
+# Palmyr — Infrastructure for AI Agents
 
 Everything an agent needs: phone, email, compute, domains, voice calling, wallets, and 3500+ skills. Pay with USDC on Solana or Base via x402.
 
-**CLI:** `npm i -g @agntos/agentos` (or `npx @agntos/agentos`)
-**API:** `https://agntos.dev`
-**Source:** https://github.com/0xArtex/AgentOS
+**CLI:** `npm i -g @palmyr/cli` (or `npx @palmyr/cli`)
+**API:** `https://palmyr.ai`
+**Source:** https://github.com/0xArtex/Palmyr
 
 ## Setup
 
 ```bash
-npm i -g @agntos/agentos
+npm i -g @palmyr/cli
 
 # Configure your Solana wallet (for x402 payments)
 agentos setup --keyfile ~/.config/solana/id.json --chain solana
@@ -27,7 +27,7 @@ agentos setup --keyfile ./base-key.json --chain base
 agentos status
 ```
 
-The CLI creates `~/.agentos/` to store config, credentials, data, logs, and memory. Your keyfile is referenced by path — never copied.
+The CLI creates `~/.palmyr/` to store config, credentials, data, logs, and memory. Your keyfile is referenced by path — never copied.
 
 ## CLI Commands
 
@@ -183,7 +183,7 @@ All paid endpoints use **x402** — make the request, get a 402, pay with USDC, 
 
 ## Agent mode
 
-The CLI auto-detects when stdout isn't a TTY and switches to a machine-parseable contract: clean JSON on stdout, structured `{error, exitCode, hint}` on stderr for failures, no spinners or ANSI decoration. Force it on a TTY with `--json` or `AGENTOS_JSON=1`.
+The CLI auto-detects when stdout isn't a TTY and switches to a machine-parseable contract: clean JSON on stdout, structured `{error, exitCode, hint}` on stderr for failures, no spinners or ANSI decoration. Force it on a TTY with `--json` or `PALMYR_JSON=1`.
 
 Streaming commands (`agentos chat run`) emit **NDJSON** in agent mode — one JSON event per line — so you can `for await` over stdout in a pipeline.
 
@@ -208,7 +208,7 @@ agentos compute exec my-vps -- echo hi --json 2>err.log; [ $? -eq 0 ] || cat err
 ## VPS golden path
 
 `agentos compute deploy --type cx23 --json` is a one-liner that:
-1. Generates an ed25519 keypair locally (`~/.agentos/ssh/<name>/id_ed25519`).
+1. Generates an ed25519 keypair locally (`~/.palmyr/ssh/<name>/id_ed25519`).
 2. Pays $6 USDC via x402, deploys via Hetzner Cloud.
 3. Runs cloud-init (security hardening + the requested install recipe).
 4. Waits until `status=running`, port 22 is open, `ssh -i <key> root@<ip> 'true'` returns 0, and `/etc/agentos/install-status.json` reports `ok`.
@@ -245,7 +245,7 @@ Same wallet to access it later. That's it.
 
 The CLI wraps all API endpoints. If you prefer raw HTTP, use the quick reference table above. All endpoints accept JSON and return JSON.
 
-For voice calls, email threads, attachments, webhooks, and other advanced features — run `agentos --help` or see the full API docs at `agntos.dev/docs`.
+For voice calls, email threads, attachments, webhooks, and other advanced features — run `agentos --help` or see the full API docs at `palmyr.ai/docs`.
 
 ### Payment Flow
 1. Call any paid endpoint → get `402 Payment Required`
@@ -276,4 +276,4 @@ node decrypt-email.mjs --json '{"subject":"w:...","body":"w:..."}' ~/.config/sol
 Set up webhooks to receive events:
 - **SMS inbound:** Messages to your number arrive via Telnyx webhook → stored, readable via API
 - **Voice events:** `call.initiated`, `call.answered`, `call.hangup`, `call.recording.saved`, `call.gather.ended`
-- **Email inbound:** Emails to `*@agntos.dev` processed via Cloudflare worker → stored encrypted
+- **Email inbound:** Emails to `*@palmyr.ai` processed via Cloudflare worker → stored encrypted

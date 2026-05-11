@@ -1,7 +1,7 @@
 /**
  * OS credential store — CLI-side module for protecting wallet session secrets.
  *
- * Windows: DPAPI via PowerShell (encrypted blob at ~/.agentos/secrets/<id>.dpapi)
+ * Windows: DPAPI via PowerShell (encrypted blob at ~/.palmyr/secrets/<id>.dpapi)
  * macOS:   Keychain via `security` CLI
  * Linux:   Secret Service via `secret-tool` CLI
  *
@@ -13,8 +13,8 @@ import { existsSync, mkdirSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
-const SECRETS_DIR = join(homedir(), '.agentos', 'secrets')
-const SERVICE = 'agentos-wallet'
+const SECRETS_DIR = join(homedir(), '.palmyr', 'secrets')
+const SERVICE = 'palmyr-wallet'
 const HEX_RE = /^[0-9a-f]+$/i
 
 function ensureSecretsDir(): void {

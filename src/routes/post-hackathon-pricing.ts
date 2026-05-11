@@ -4,7 +4,7 @@ const router = Router();
 
 router.get("/post-hackathon-pricing", (_req: Request, res: Response) => {
   const pricing = {
-    message: "AgentOS Post-Hackathon Pricing — Simple, transparent, USDC-native",
+    message: "Palmyr Post-Hackathon Pricing — Simple, transparent, USDC-native",
     updated: new Date().toISOString(),
     free_tier: {
       name: "Builder",
@@ -76,9 +76,9 @@ router.get("/post-hackathon-pricing", (_req: Request, res: Response) => {
       migration: "Automatic — no action needed"
     },
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      calculator: "https://agntos.dev/api/pricing/calculator"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      calculator: "https://palmyr.ai/api/pricing/calculator"
     }
   };
   res.json(pricing);

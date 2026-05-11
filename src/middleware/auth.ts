@@ -6,7 +6,7 @@ import * as balanceService from "../services/balance";
 import { getOrCreateWallet } from "../services/deposit-wallets";
 
 /**
- * Authentication middleware for AgentOS
+ * Authentication middleware for Palmyr
  * 
  * Flow:
  * 1. Agent token (aos_*) → identified, check for x402 payment if needed

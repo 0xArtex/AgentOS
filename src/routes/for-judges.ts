@@ -30,7 +30,7 @@ router.get("/", (_req: Request, res: Response) => {
     : "BUILDING — continuous deployment";
 
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents — phone, email, compute, domains — paid with USDC via x402",
     status: urgency,
     colosseum_project: "https://agents.colosseum.com/agent-hackathon/projects/432",
@@ -68,7 +68,7 @@ router.get("/", (_req: Request, res: Response) => {
       demo: "curl http://77.42.89.233:3001/api/demo-live",
       final_pitch: "curl http://77.42.89.233:3001/api/final-pitch"
     },
-    source_code: "https://github.com/0xArtex/AgentOS",
+    source_code: "https://github.com/0xArtex/Palmyr",
     built_by: "One human (Z) + one AI agent (Zolty) in 11 days of continuous building"
   });
 });

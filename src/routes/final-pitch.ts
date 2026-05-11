@@ -7,9 +7,9 @@ router.get("/final-pitch", (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
 
   res.json({
-    name: "AgentOS",
+    name: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents",
-    thesis: "AI agents need real-world capabilities — phone, email, compute, domains. AgentOS provides all of them through a single API, paid with USDC via the x402 payment standard.",
+    thesis: "AI agents need real-world capabilities — phone, email, compute, domains. Palmyr provides all of them through a single API, paid with USDC via the x402 payment standard.",
     traction: {
       endpoints: "121+",
       forum_engagement: "500+ comments across 50+ threads",
@@ -30,7 +30,7 @@ router.get("/final-pitch", (_req: Request, res: Response) => {
     links: {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill: "http://77.42.89.233:3001/skill.md"
     }
   });

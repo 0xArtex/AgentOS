@@ -7,7 +7,7 @@ router.get('/api/community-stats', (_req: Request, res: Response) => {
   const daysLive = Math.floor((now.getTime() - launchDate.getTime()) / (1000 * 60 * 60 * 24));
   
   res.json({
-    platform: 'AgentOS',
+    platform: 'Palmyr',
     daysLive,
     community: {
       forumComments: 1400,
@@ -27,16 +27,16 @@ router.get('/api/community-stats', (_req: Request, res: Response) => {
       { name: 'Moltlets World', category: 'Gaming', status: 'exploring' }
     ],
     milestones: [
-      { date: '2026-01-29', event: 'AgentOS v0.1 launched' },
+      { date: '2026-01-29', event: 'Palmyr v0.1 launched' },
       { date: '2026-02-04', event: 'x402 payments live on Solana + Base' },
       { date: '2026-02-09', event: '100+ endpoints milestone' },
       { date: '2026-02-12', event: 'Hackathon deadline — 220+ endpoints shipped' },
       { date: '2026-02-13', event: 'Post-hackathon community building phase' }
     ],
     links: {
-      api: 'https://agntos.dev',
-      docs: 'https://agntos.dev/docs',
-      github: 'https://github.com/0xArtex/AgentOS'
+      api: 'https://palmyr.ai',
+      docs: 'https://palmyr.ai/docs',
+      github: 'https://github.com/0xArtex/Palmyr'
     }
   });
 });

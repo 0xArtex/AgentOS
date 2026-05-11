@@ -12,14 +12,14 @@ import { loadConfig } from './config.js'
 import { signMessageLocal } from './vault.js'
 
 function resolveAdminWalletId(): string {
-  const fromEnv = process.env.AGENTOS_POOL_ADMIN_WALLET
+  const fromEnv = process.env.PALMYR_POOL_ADMIN_WALLET
   if (fromEnv) return fromEnv
   const cfg = loadConfig()
   const id = (cfg as any).defaultPayWalletId
   if (!id) {
     throw new Error(
-      'No admin wallet configured. Set AGENTOS_POOL_ADMIN_WALLET to a wallet ID, or ' +
-      'run: agentos wallet use <ID> --chain solana'
+      'No admin wallet configured. Set PALMYR_POOL_ADMIN_WALLET to a wallet ID, or ' +
+      'run: palmyr wallet use <ID> --chain solana'
     )
   }
   return id
@@ -27,7 +27,7 @@ function resolveAdminWalletId(): string {
 
 export function buildAdminHeaders(method: string, path: string): Record<string, string> {
   const walletId = resolveAdminWalletId()
-  const vaultDir = process.env.AGENTOS_WALLET_PATH || join(homedir(), '.agentos', 'wallet')
+  const vaultDir = process.env.PALMYR_WALLET_PATH || join(homedir(), '.palmyr', 'wallet')
   const walletsDir = join(vaultDir, 'wallets')
   if (!existsSync(walletsDir)) throw new Error(`Vault directory not found: ${walletsDir}`)
 

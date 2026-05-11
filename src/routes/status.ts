@@ -57,7 +57,7 @@ router.get("/", (_req, res) => {
   } catch {}
 
   res.json({
-    platform: "AgentOS",
+    platform: "Palmyr",
     tagline: "Autonomous infrastructure for AI agents",
     version: version.version,
     health: health.status,

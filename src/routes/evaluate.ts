@@ -23,13 +23,13 @@ router.get("/", (_req: Request, res: Response) => {
   const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
 
   res.json({
-    project: "AgentOS - Autonomous Infrastructure for AI Agents",
+    project: "Palmyr - Autonomous Infrastructure for AI Agents",
     tagline: "Phone, email, compute, domains, identity, payments - one API, pay with USDC",
     
     evaluation: {
       innovation: {
         score_claim: "High",
-        reasoning: "First infrastructure-as-a-service platform purpose-built for AI agents. Agents cannot sign up for Twilio or AWS - AgentOS gives them autonomous access to real-world services via a single API."
+        reasoning: "First infrastructure-as-a-service platform purpose-built for AI agents. Agents cannot sign up for Twilio or AWS - Palmyr gives them autonomous access to real-world services via a single API."
       },
       technical_execution: {
         score_claim: "High", 
@@ -64,7 +64,7 @@ router.get("/", (_req: Request, res: Response) => {
     links: {
       api: "http://77.42.89.233:3001",
       docs: "http://77.42.89.233:3001/docs",
-      github: "https://github.com/0xArtex/AgentOS",
+      github: "https://github.com/0xArtex/Palmyr",
       skill_md: "http://77.42.89.233:3001/skill.md"
     },
 

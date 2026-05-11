@@ -7,7 +7,7 @@ const router = Router();
  * /agent-marketplace:
  *   get:
  *     summary: Agent service marketplace
- *     description: Discover agent services available through the AgentOS ecosystem — find partners, integrations, and composable capabilities
+ *     description: Discover agent services available through the Palmyr ecosystem — find partners, integrations, and composable capabilities
  *     tags: [Ecosystem]
  *     parameters:
  *       - in: query
@@ -25,11 +25,11 @@ router.get("/", (req, res) => {
 
   const listings = [
     {
-      name: "AgentOS Core",
+      name: "Palmyr Core",
       category: "infrastructure",
       services: ["phone-provisioning", "email-inboxes", "compute-containers", "domain-management", "dns-config"],
       pricing: "x402 USDC per-use | Free for builders through March 2026",
-      api: "https://agntos.dev/docs",
+      api: "https://palmyr.ai/docs",
       status: "live",
       description: "Full operational infrastructure stack for autonomous agents"
     },

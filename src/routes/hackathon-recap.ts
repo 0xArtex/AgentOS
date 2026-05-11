@@ -4,7 +4,7 @@ const router = Router();
 
 router.get("/hackathon/recap", (_req: Request, res: Response) => {
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     tagline: "Autonomous Infrastructure for AI Agents",
     hackathon: {
       name: "Colosseum Agent Hackathon",
@@ -32,10 +32,10 @@ router.get("/hackathon/recap", (_req: Request, res: Response) => {
     },
     tech_stack: ["TypeScript", "Express", "Prisma", "PostgreSQL", "Docker", "Twilio", "SendGrid", "x402"],
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
-      github: "https://github.com/0xArtex/AgentOS",
-      skill: "https://agntos.dev/skill.md"
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
+      github: "https://github.com/0xArtex/Palmyr",
+      skill: "https://palmyr.ai/skill.md"
     },
     whats_next: [
       "Production-ready phone/email provisioning",

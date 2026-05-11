@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AgentOS — Command Center</title>
+<title>Palmyr — Command Center</title>
 <link rel="icon" type="image/png" href="/favicon.png">
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
@@ -555,7 +555,7 @@ background-size:40px 40px}
         <div class="activity-item">skill installed <span>bankr</span></div>
         <div class="activity-item">x account linked <span>@zoltyagent</span></div>
         <div class="activity-item">vps provisioned <span>cx23</span></div>
-        <div class="activity-item">domain verified <span>agntos.dev</span></div>
+        <div class="activity-item">domain verified <span>palmyr.ai</span></div>
         <div class="activity-item">phone activated <span>+1 (470) 533-0963</span></div>
       </div>
     </div>
@@ -568,7 +568,7 @@ background-size:40px 40px}
     </div>
     <div class="panel-content" data-panel="inventory" style="display:none"><div class="panel-section"><div class="panel-title">// INVENTORY</div><div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.8">3 VPS instances<br>2 phone numbers<br>3 email inboxes<br>2 domains<br>5 X accounts (pool)</div></div></div>
     <div class="panel-content" data-panel="logs" style="display:none"><div class="panel-section"><div class="panel-title">// API LOGS</div><div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.8">POST /agents/create <span style="color:var(--green)">200</span> 142ms<br>GET /skills/all <span style="color:var(--green)">200</span> 12ms<br>POST /x/accounts <span style="color:var(--green)">200</span> 89ms<br>POST /phone/provision <span style="color:var(--accent)">402</span> 3ms<br>POST /compute/servers <span style="color:var(--green)">200</span> 2.1s</div></div></div>
-    <div class="panel-content" data-panel="settings" style="display:none"><div class="panel-section"><div class="panel-title">// SETTINGS</div><div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.8">API endpoint: agntos.dev<br>Auth: x402 + Bearer<br>Treasury: B1YE...8oX3<br>Chains: Solana, Base<br>Version: 0.4.3</div></div></div>
+    <div class="panel-content" data-panel="settings" style="display:none"><div class="panel-section"><div class="panel-title">// SETTINGS</div><div style="font-size:10px;color:var(--w30);font-family:'JetBrains Mono',monospace;line-height:1.8">API endpoint: palmyr.ai<br>Auth: x402 + Bearer<br>Treasury: B1YE...8oX3<br>Chains: Solana, Base<br>Version: 0.4.3</div></div></div>
   </div>
 
   <!-- CANVAS -->
@@ -624,7 +624,7 @@ background-size:40px 40px}
         <div class="settings-card">
           <div class="settings-card-title">General</div>
           <div class="settings-row"><span class="settings-label">Agent Name</span><span class="settings-value">zolty-main</span></div>
-          <div class="settings-row"><span class="settings-label">API Endpoint</span><span class="settings-value">agntos.dev</span></div>
+          <div class="settings-row"><span class="settings-label">API Endpoint</span><span class="settings-value">palmyr.ai</span></div>
           <div class="settings-row"><span class="settings-label">Version</span><span class="settings-value">0.4.3</span></div>
         </div>
         <div class="settings-card">
@@ -2022,7 +2022,7 @@ function showConfigModal(el,svcType,nodeId){
   if(svcType==='phone'){
     body=`<div class="na-field"><label class="na-label">country</label><select class="na-select" id="cfgVal"><option value="US">US (+1)</option><option value="GB">UK (+44)</option><option value="DE">DE (+49)</option><option value="AE">AE (+971)</option></select></div>`;
   } else if(svcType==='email'){
-    body=`<div class="na-field"><label class="na-label">local part</label><input class="na-input" id="cfgVal" placeholder="myagent"></div><div style="font-size:10px;color:var(--w30);margin-top:-8px;margin-bottom:12px">@agntos.dev</div>`;
+    body=`<div class="na-field"><label class="na-label">local part</label><input class="na-input" id="cfgVal" placeholder="myagent"></div><div style="font-size:10px;color:var(--w30);margin-top:-8px;margin-bottom:12px">@palmyr.ai</div>`;
   } else if(svcType==='domain'){
     body=`<div class="na-field"><label class="na-label">domain</label><input class="na-input" id="cfgVal" placeholder="myagent.dev"></div>`;
   } else if(svcType==='vps'){
@@ -2107,7 +2107,7 @@ function showConfigModal(el,svcType,nodeId){
         if(!val)throw new Error('Enter a local part');
         const r=await fetch('/email/provision',{method:'POST',headers:hdr,body:JSON.stringify({name:val,walletAddress:_balanceData?.deposit_addresses?.solana||'dashboard'})});
         if(!r.ok){const _e=await r.json();throw new Error(_e.error||_e.message||'Failed');}
-        sub=val+'@agntos.dev';
+        sub=val+'@palmyr.ai';
       } else if(svcType==='domain'){
         if(!val)throw new Error('Enter a domain');
         const r=await fetch('/domains',{method:'POST',headers:hdr,body:JSON.stringify({domain:val})});
@@ -3324,7 +3324,7 @@ window.startSshHandoff=async function(ip,serverId){
     const dv=new DataView(buf.buffer);
     dv.setUint32(0,typeBytes.length);buf.set(typeBytes,4);
     dv.setUint32(4+typeBytes.length,pubBytes.length);buf.set(pubBytes,4+typeBytes.length+4);
-    const pubKey='ssh-ed25519 '+btoa(String.fromCharCode(...buf))+' agentos-'+Date.now();
+    const pubKey='ssh-ed25519 '+btoa(String.fromCharCode(...buf))+' palmyr-'+Date.now();
 
     document.getElementById('sshHandoffLog').textContent='Keypair generated — save your private key';
 
@@ -4137,7 +4137,7 @@ setTimeout(()=>{autoFit(false);},100);
         if(!name)throw new Error('Cancelled');
         const r=await fetch('/email/inboxes',{method:'POST',headers:{'Content-Type':'application/json','X-Agent-Id':'dashboard'},body:JSON.stringify({localPart:name,owner:'dashboard'})});
         if(!r.ok){const e=await r.json();throw new Error(e.error||e.message||'Failed to create inbox');}
-        const d=await r.json();return{sub:d.address||name+'@agntos.dev'};
+        const d=await r.json();return{sub:d.address||name+'@palmyr.ai'};
       }
     },
     domain:{

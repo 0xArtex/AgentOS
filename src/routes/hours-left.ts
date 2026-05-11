@@ -17,17 +17,17 @@ router.get("/api/hours-left", (_req: Request, res: Response) => {
   const urgency = hoursLeft <= 0 ? "SUBMITTED" : hoursLeft <= 2 ? "FINAL_MINUTES" : hoursLeft <= 6 ? "CRUNCH_TIME" : hoursLeft <= 12 ? "HEADS_DOWN" : "BUILDING";
   
   res.json({
-    project: "AgentOS",
+    project: "Palmyr",
     hoursRemaining: hoursLeft,
     urgency,
     expired: msLeft <= 0,
     liveStats: { agents, requests, phones, emails },
     message: hoursLeft <= 0 ? "Hackathon complete!" : `${hoursLeft}h until deadline. Ship it.`,
     links: {
-      api: "https://agntos.dev",
-      docs: "https://agntos.dev/docs",
+      api: "https://palmyr.ai",
+      docs: "https://palmyr.ai/docs",
       dashboard: "http://77.42.89.233:3001/dashboard",
-      github: "https://github.com/0xArtex/AgentOS"
+      github: "https://github.com/0xArtex/Palmyr"
     }
   });
 });
