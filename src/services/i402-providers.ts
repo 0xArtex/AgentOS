@@ -3,8 +3,11 @@ import { db } from "../db";
 
 // -------------------- Types --------------------
 
+// Source discriminator for the i402 providers table. Values are stable enum
+// markers, not brand names — 'agentos' is preserved across the Palmyr rebrand
+// to match the existing DB CHECK constraint (src/db.ts) and avoid a migration.
 export type I402ProviderSource =
-  | "palmyr"
+  | "agentos"
   | "agentic_market"
   | "external"
   | "clawhub"
@@ -741,14 +744,14 @@ export function seedPalmyrPrimitives(): void {
   // (different base URL, renamed capability, old cost) would otherwise win via
   // INSERT OR IGNORE. Metrics for Palmyr-owned providers reset at each seed;
   // federated / external providers are untouched.
-  db.prepare(`DELETE FROM i402_providers WHERE source = 'palmyr'`).run();
+  db.prepare(`DELETE FROM i402_providers WHERE source = 'agentos'`).run();
   db.prepare(`DELETE FROM i402_providers WHERE auth_scheme NOT IN ('x402-solana', 'x402-base')`).run();
 
   // (Intentionally unreachable — preserved in case a future iteration wants to
   //  selectively keep rows rather than wholesale wipe.)
   const _keepOnlyListed = `
     DELETE FROM i402_providers
-     WHERE source = 'palmyr'
+     WHERE source = 'agentos'
        AND id NOT IN (
          'palmyr.provision_phone', 'palmyr.release_phone', 'palmyr.send_sms', 'palmyr.read_sms',
          'palmyr.start_voice_call', 'palmyr.list_calls', 'palmyr.get_call_details',
@@ -799,7 +802,7 @@ export function seedPalmyrPrimitives(): void {
     }
   ): RegisterProviderInput => ({
     id,
-    source: "palmyr",
+    source: "agentos",
     capability,
     name: options.name ?? `Palmyr ${capability}`,
     description: options.description,
@@ -1054,7 +1057,7 @@ export function seedPalmyrPrimitives(): void {
     // ── Legacy platform-dispatch providers kept for the existing social_post/social_account_provision capability classes ──
     {
       id: "palmyr.x_post",
-      source: "palmyr",
+      source: "agentos",
       capability: "social_post",
       name: "Palmyr X post (platform-dispatch wrapper)",
       description: "Dispatches to /social/twitter/post under the hood.",
@@ -1071,7 +1074,7 @@ export function seedPalmyrPrimitives(): void {
     },
     {
       id: "palmyr.tiktok_post_legacy",
-      source: "palmyr",
+      source: "agentos",
       capability: "social_post",
       name: "Palmyr TikTok post (platform-dispatch wrapper)",
       description: "Dispatches to /social/tiktok/post under the hood.",
@@ -1088,7 +1091,7 @@ export function seedPalmyrPrimitives(): void {
     },
     {
       id: "palmyr.x_account",
-      source: "palmyr",
+      source: "agentos",
       capability: "social_account_provision",
       name: "Palmyr X account provisioning",
       description: "Buy a warmed X account from the pool. Maps to /social/twitter/buy.",
