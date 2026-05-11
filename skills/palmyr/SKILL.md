@@ -57,7 +57,7 @@ palmyr compute deploy --type cx23 --install hermes,openclaw --json  # Multiple r
 palmyr compute deploy --type cx23 --no-install --json      # Vanilla Ubuntu (password auth on)
 palmyr compute deploy --type cx23 --ssh-key 12345 --json   # Use a pre-uploaded Hetzner key
 palmyr compute deploy --type cx23 --no-wait --json         # Fire-and-forget
-palmyr compute ssh-key add ~/.ssh/id_ed25519.pub           # Upload key to Hetzner ($0.10) — returns numeric id
+palmyr compute ssh-key add <PUBKEY_PATH>                   # Upload key to Hetzner ($0.10) — returns numeric id. Replace <PUBKEY_PATH> with the path to YOUR public key
 palmyr compute ssh-key list                                # List uploaded keys ($0.01)
 palmyr compute wait <name|id> [--install hermes]           # Block until ready (gates: status=running, port 22, SSH, install marker)
 palmyr compute ssh <name|id>                               # SSH in (TTY) or print ssh command (agent mode)
@@ -66,7 +66,7 @@ palmyr compute rename <name|id> <new-name>                 # Rename a deployed V
 palmyr compute reset-password <name|id>                    # Rotate root password ($0.10)
 palmyr compute console <name|id>                           # noVNC URL — break-glass when SSH broken ($0.10)
 palmyr compute reboot|poweroff|poweron|reset|rebuild <name|id>  # Lifecycle actions ($0.10)
-palmyr compute setup-ssh <id> --pubkey-file ~/.ssh/id.pub  # Inject key post-deploy ($0.01)
+palmyr compute setup-ssh <id> --pubkey-file <PUBKEY_PATH>  # Inject key post-deploy ($0.01). Replace <PUBKEY_PATH> with the path to YOUR public key
 palmyr compute list                                        # List servers
 palmyr compute delete <name|id>                            # Delete server ($0.10)
 
