@@ -11,7 +11,7 @@ export default function TopNav() {
     <header className="topnav">
       <div className="container topnav-inner">
         <a href="/" className="brand">
-          <img className="brand-mark" src="/assets/logo.png" alt="Palmyr" />
+          <img className="brand-mark" src="/assets/logo-mark.svg" alt="Palmyr" />
           <span>Palmyr</span>
         </a>
 
@@ -26,7 +26,7 @@ export default function TopNav() {
         <div className="topnav-right">
           <code className="install-cmd">
             <span className="install-prompt">$</span>{" "}
-            <span className="install-cmd-text">npm i -g @palmyr/palmyr</span>
+            <span className="install-cmd-text">npm i -g @palmyr/cli</span>
           </code>
           <a
             href="https://github.com/0xArtex/Palmyr"
