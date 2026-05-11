@@ -57,7 +57,7 @@ function routeFileExists(relativeRoute: string): boolean {
 // -------------------- Tests --------------------
 
 describe("i402 registry coverage", () => {
-  const providers = listProviders({ source: "palmyr", enabledOnly: true });
+  const providers = listProviders({ source: "agentos", enabledOnly: true });
 
   it("has providers registered (non-empty)", () => {
     assert.ok(providers.length >= 50, `expected 50+ Palmyr providers, got ${providers.length}`);
