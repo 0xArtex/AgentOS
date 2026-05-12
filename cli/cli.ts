@@ -2169,6 +2169,47 @@ async function main() {
             })
           }
 
+          case 'manual-login': {
+            // For accounts X anti-bot blocks from automated form login (every
+            // account in 2026, basically): the user logs in manually in any
+            // browser, pastes auth_token + ct0 from DevTools, we save them as
+            // a session. Subsequent `twitter login` takes the cookie path.
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('Usage: palmyr twitter manual-login <username> [--auth-token <hex40>] [--ct0 <hex160>]', EXIT.BAD_INPUT)
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
+
+            let authToken = ((flags['auth-token'] as string) || '').trim()
+            let ct0 = ((flags.ct0 as string) || '').trim()
+
+            if (!authToken || !ct0) {
+              const readline = await import('readline')
+              const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
+              const ask = (q: string) => new Promise<string>(r => rl.question(q, r))
+              process.stderr.write(`Log into X as ${username} in any browser, then open DevTools (F12) → Application → Cookies → https://x.com\n`)
+              if (!authToken) authToken = (await ask('Paste auth_token (40 hex chars): ')).trim()
+              if (!ct0) ct0 = (await ask('Paste ct0 (160 hex chars): ')).trim()
+              rl.close()
+            }
+
+            if (!/^[a-f0-9]{40}$/i.test(authToken)) err(`auth_token must be 40 hex chars (got ${authToken.length})`, EXIT.BAD_INPUT)
+            if (!/^[a-f0-9]{160}$/i.test(ct0)) err(`ct0 must be 160 hex chars (got ${ct0.length})`, EXIT.BAD_INPUT)
+
+            const cookies = [
+              { name: 'auth_token', value: authToken, domain: '.x.com', path: '/', expires: -1, httpOnly: true, secure: true, sameSite: 'Lax' },
+              { name: 'ct0', value: ct0, domain: '.x.com', path: '/', expires: -1, httpOnly: false, secure: true, sameSite: 'Lax' },
+            ]
+            sv.saveSession(acc!.id, platform, cookies)
+            sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+            return print({
+              success: true,
+              platform,
+              username,
+              cookies_saved: cookies.length,
+              hint: `Try: palmyr twitter login ${username}`,
+            })
+          }
+
           case 'session': {
             const username = positional[0] || (flags.username as string)
             if (!username) err('<username> required')
@@ -2802,7 +2843,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, reply, like, retweet, follow, unfollow, delete, list-tweets, bio, name, location, website, pfp, banner, username, buy`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, manual-login, session, post, reply, like, retweet, follow, unfollow, delete, list-tweets, bio, name, location, website, pfp, banner, username, buy`)
         }
         break
       }
