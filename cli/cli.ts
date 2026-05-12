@@ -2122,7 +2122,15 @@ async function main() {
             const creds = sv.unlockCredentials(platform, username)
             if (!creds.login) err('Account has no login field. Re-import with --login <email-or-handle>.', EXIT.BAD_INPUT)
 
-            const cookiePath = !!(creds.auth_token && creds.ct0)
+            // Pool-seeded accounts ship with auth_token+ct0 saved into the
+            // session file (sv.saveSession) rather than the encrypted creds
+            // blob. Fall back to those when creds.auth_token/ct0 are absent.
+            const sess = sv.loadSession(acc!.id)
+            const sessAuthToken = sess?.cookies?.find((c: any) => c.name === 'auth_token')?.value
+            const sessCt0 = sess?.cookies?.find((c: any) => c.name === 'ct0')?.value
+            const authToken = creds.auth_token || sessAuthToken
+            const ct0 = creds.ct0 || sessCt0
+            const cookiePath = !!(authToken && ct0)
             const psid = sv.getProxySessionId(platform, username)
             let data: any
             try {
@@ -2132,7 +2140,7 @@ async function main() {
                 creds.login!,
                 creds.password,
                 creds.totp_seed,
-                cookiePath ? { auth_token: creds.auth_token, ct0: creds.ct0 } : undefined,
+                cookiePath ? { auth_token: authToken, ct0: ct0 } : undefined,
                 psid
               )
             } catch (e: any) {
@@ -2142,7 +2150,9 @@ async function main() {
             if (!data || !data.success) {
               err(
                 `Login failed: ${data?.error || 'unknown error'}` +
-                (data?.error_code ? ` [${data.error_code}]` : ''),
+                (data?.error_code ? ` [${data.error_code}]` : '') +
+                (data?.diagnostics?.page_text_excerpt ? `\nPage text: ${data.diagnostics.page_text_excerpt.slice(0, 300)}` : '') +
+                (data?.diagnostics?.screenshot_path ? `\nScreenshot: ${data.diagnostics.screenshot_path}` : ''),
                 EXIT.GENERAL
               )
             }
