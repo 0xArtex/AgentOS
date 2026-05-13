@@ -441,7 +441,18 @@ Auth fallback for `--wallet trading:N` and the daemon: explicit `passphrase` arg
 | `palmyr wallet sell base <0xToken> --percent N --reason "..." --wallet trading:N` | ParaSwap + Base RPC | Sell N% of remaining tokens. **Auto-handles ERC20 approval** (sends max approval to the ParaSwap router on first sell of a given token; subsequent sells skip the approval step). FIFO realized PnL in ETH = (gross proceeds - sell gas) - proportional (entry cost + entry gas). Auto-closes when 100% sold. The CLI output shows the approval tx hash separately from the swap tx hash when an approval was issued. |
 | `palmyr wallet sync --chain base --wallet trading:N` | Base RPC + ParaSwap | Reconcile open Base positions: ERC20 balance vs book, refresh unrealized ETH via ParaSwap quote token→ETH at 50bps. Read-only — flags drift, never auto-corrects. |
 
-**Still deferred to future phases:** `--protected` on Base (Base's L2 sequencer architecture doesn't have the same public-mempool MEV problem as Ethereum mainnet, so this is lower priority — sequencing is FIFO by submission time). Cross-chain `pnl --by chain` aggregation with USD conversion. Daemon support for Base positions (needs `syncBase` integration into the daemon loop; the trigger evaluation already chain-agnostic, it just needs to be invoked for Base positions on each tick).
+**Phase 5d additions — protected Base, daemon on both chains, cross-chain PnL:**
+
+| Command | Network | Notes |
+|---|---|---|
+| `palmyr wallet buy base <0xToken> --protected [--rpc <url>] [--tip <gwei>]` | ParaSwap + protected RPC | MEV-protected Base buy: routes through `PALMYR_BASE_PROTECTED_RPC` (env var, no public default) and sends an EIP-1559 tx with `maxPriorityFeePerGas` bumped (default 0.001 gwei tip). Falls back to the public Base RPC if the env var isn't set. `--rpc` overrides everything; `--tip <gwei>` overrides the priority fee. Stored as `protectedExec: true` on the position record. |
+| `palmyr wallet sell base ... --protected [--rpc <url>] [--tip <gwei>]` | ParaSwap + protected RPC | Same flags work for sell — protected execution, custom RPC, custom tip. |
+| `palmyr wallet daemon tick \| start --wallet trading:N` | Solana RPC + Base RPC | Daemon now syncs **both chains per tick**: Solana via Jupiter, Base via ParaSwap quote. Trigger types (cut/takeProfit/trailingStop/timeLimit/thesis_falsified) all work on Base positions. With `--auto`, auto-execute calls `sellBase` for Base fires. Base sync errors are non-fatal (logged + reported in `tick.errors[]`). Base sync only runs when `--wallet trading:N` (needs EVM derivation). |
+| `palmyr wallet pnl [--by chain\|wallet] [--no-usd]` | Jupiter price v3 + Coinbase spot | **Cross-chain PnL.** Per-chain breakdown in native units (SOL for Solana, ETH for Base) + a USD total computed from live SOL/USD (Jupiter) and ETH/USD (Coinbase) prices. `--by chain` groups by chain in native units; `--by wallet` groups by wallet address (Solana base58 wallets are distinct from EVM 0x wallets). `--no-usd` skips the price-API calls. Falls back gracefully if any price lookup fails. |
+| `palmyr wallet positions [--chain base\|solana]` | local | Lists positions across both chains by default. CHAIN column shows which chain each position belongs to. |
+| `palmyr wallet position <CA> [--chain base\|solana]` | local | Auto-detects chain when `--chain` is omitted (tries Solana first, then Base). Displays native unit (SOL or ETH) in the PnL section. |
+
+**Still deferred to future phases:** Cohort strategies (split a buy across N derived wallets w/ timing jitter — Phase 4c). Per-wallet position scoping at the storage layer (Phase 4c). Arbitrum / Optimism support (drop-in once a chain-aware RPC config schema lands). `event_based` triggers (LP pull / dev dump / tweet delete via external feeds). YAML strategy templates. Post-entry `exitPlan` editing.
 
 ### Twitter / X
 

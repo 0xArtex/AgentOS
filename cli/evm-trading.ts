@@ -30,6 +30,37 @@ export const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 /** Default Base RPC. Caller can override via cfg or env. */
 export const DEFAULT_BASE_RPC = 'https://mainnet.base.org'
 
+/**
+ * Phase 5d — protected Base RPC. There is no canonical free public MEV-protected
+ * endpoint for Base in the way Jito is for Solana, so we read from env/config.
+ * Resolution order:
+ *   1. opts.rpcUrl (--rpc flag)        — explicit override
+ *   2. PALMYR_BASE_PROTECTED_RPC env   — user-configured private mempool
+ *   3. opts.protected → DEFAULT        — falls back to public Base RPC with
+ *                                        a bumped EIP-1559 priority fee so
+ *                                        the swap gets included quickly
+ * Examples users plug in: Merkle, Blocknative blxr, Flashbots Protect on Base.
+ */
+export function resolveBaseRpcUrl(opts: {
+  rpcUrl?: string
+  protectedExec?: boolean
+}): string {
+  if (opts.rpcUrl) return opts.rpcUrl
+  if (opts.protectedExec) {
+    const envRpc = process.env.PALMYR_BASE_PROTECTED_RPC?.trim()
+    if (envRpc) return envRpc
+  }
+  return DEFAULT_BASE_RPC
+}
+
+/**
+ * Phase 5d — default priority fee tip (EIP-1559 maxPriorityFeePerGas) used
+ * when --protected is set on Base. 0.001 gwei = 1_000_000 wei. Base typically
+ * has near-zero base fee, so even a tiny tip puts you ahead of the queue.
+ */
+export const DEFAULT_BASE_PROTECTED_TIP_GWEI = 0.001
+export const DEFAULT_BASE_PROTECTED_TIP_WEI = 1_000_000n
+
 const ERC20_TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
@@ -132,6 +163,12 @@ export interface EvmSwapParams {
    * token-input swaps.
    */
   onTxBuilt?: (txBlob: { to: string; value: string; data: string; chainId: number }) => Promise<void>
+  /**
+   * Phase 5d — extra priority fee (EIP-1559 maxPriorityFeePerGas) in wei.
+   * When set, overrides ParaSwap's gasPrice with type-2 fields and bumps the
+   * tip so the tx jumps the inclusion queue. Used by `--protected` on Base.
+   */
+  priorityFeeWei?: bigint
 }
 
 export interface EvmSwapResult {
@@ -198,6 +235,28 @@ export async function executeEvmSwap(params: EvmSwapParams): Promise<EvmSwapResu
     value: BigInt(txBlob.value),
     gasLimit,
     chainId: txBlob.chainId,
+  }
+
+  // Phase 5d — protected execution: send as EIP-1559 type-2 tx with an
+  // explicit maxPriorityFeePerGas tip. We pull the current base fee from the
+  // pending block and add the configured tip on top, so the tx is competitive
+  // even under spikes. If the provider can't supply fee data we silently
+  // fall back to legacy gasPrice (the provider's default).
+  if (params.priorityFeeWei && params.priorityFeeWei > 0n) {
+    try {
+      const feeData = await params.provider.getFeeData()
+      const baseFee = feeData.maxFeePerGas != null
+        ? feeData.maxFeePerGas - (feeData.maxPriorityFeePerGas ?? 0n)
+        : (feeData.gasPrice ?? 0n)
+      const maxPriorityFeePerGas = params.priorityFeeWei
+      // maxFee = baseFee * 2 (headroom for base-fee bumps mid-block) + tip
+      const maxFeePerGas = (baseFee * 2n) + maxPriorityFeePerGas
+      txReq.maxPriorityFeePerGas = maxPriorityFeePerGas
+      txReq.maxFeePerGas = maxFeePerGas
+      txReq.type = 2
+    } catch {
+      // ignore — fall through to legacy gasPrice from ParaSwap blob
+    }
   }
 
   // Snapshot native balance to compute realized for ETH-output trades.
@@ -322,4 +381,35 @@ export async function ensureErc20Approval(
     throw new Error(`ERC20 approval failed: ${tx.hash}`)
   }
   return { approved: true, txHash: tx.hash }
+}
+
+/**
+ * Phase 5d — fetch USD spot price for SOL or ETH. Best-effort, returns null
+ * on failure rather than throwing. Caller decides whether to show USD totals
+ * or fall back to native units only.
+ *
+ * SOL: Jupiter price API (same source we use for entryMcap).
+ * ETH: Coinbase public spot API — no key required, sub-second response.
+ */
+export async function fetchUsdPrice(asset: 'SOL' | 'ETH'): Promise<number | null> {
+  try {
+    if (asset === 'SOL') {
+      // Jupiter price v3 (lite-api) — same family we use for the swap API.
+      // v2 was retired by Jupiter in 2025; v3 keeps the {mint: {usdPrice}} shape.
+      const SOL_MINT = 'So11111111111111111111111111111111111111112'
+      const res = await fetch(`https://lite-api.jup.ag/price/v3?ids=${SOL_MINT}`)
+      if (!res.ok) return null
+      const data = (await res.json()) as Record<string, { usdPrice?: number } | null>
+      const price = data[SOL_MINT]?.usdPrice
+      return typeof price === 'number' && isFinite(price) && price > 0 ? price : null
+    }
+    // ETH — Coinbase public spot, no key required.
+    const res = await fetch('https://api.coinbase.com/v2/prices/ETH-USD/spot')
+    if (!res.ok) return null
+    const data = (await res.json()) as { data?: { amount?: string } }
+    const price = data.data?.amount ? Number(data.data.amount) : NaN
+    return isFinite(price) && price > 0 ? price : null
+  } catch {
+    return null
+  }
 }
