@@ -427,6 +427,14 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 
 Auth fallback for `--wallet trading:N` and the daemon: explicit `passphrase` arg → `PALMYR_TRADING_KEYSTORE_PASSPHRASE` env var → cached seed in OS keychain. Once unlocked, the daemon and subsequent CLI commands work without re-entering the passphrase.
 
+**Base / EVM (Phase 5a — foundation).** The keystore derives EVM addresses too, at the standard BIP44 EVM path `m/44'/60'/<index>'/0/0` (same mnemonic as the Solana wallets). Use `palmyr wallet trading-keystore list` to see Solana addresses; EVM addresses are derived on-demand at sign time. The ParaSwap free aggregator handles routing on Base + every other ParaSwap-supported chain — no API key needed.
+
+| Command | Network | Notes |
+|---|---|---|
+| `palmyr wallet evm-quote <SRC> <DST> --amount <raw> [--chain base]` | ParaSwap | Get a swap quote without signing. `<SRC>`/`<DST>` accept `eth` for native or a `0x...` address. `--amount` is the raw integer in src smallest unit (e.g. `10000000000000000` for 0.01 ETH at 18 decimals). |
+
+Phase 5b will wire `--chain base` into `buy` / `sell` / `sync` and update the position file shape to handle u256 wei amounts (current shape uses JS `number` for lamports, which overflows at 1 ETH ≈ 1e18 wei). Until then, Phase 5a delivers the primitives — `cli/evm-trading.ts` for ParaSwap + ethers signing, `getKeystoreEvmWallet` for derivation — so the building blocks are testable.
+
 ### Twitter / X
 
 Buy, manage, and operate X accounts directly from the CLI. Each account is pinned to a sticky residential IP for its lifetime — login, posting, and every subsequent action route through the same exit IP, so X never sees a sudden geography change.
