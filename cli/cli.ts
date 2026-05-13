@@ -80,6 +80,8 @@ const BOOLEAN_FLAGS = new Set([
   'help', 'version', 'managed', 'quiet', 'confirm', 'json', 'no-color',
   // compute deploy/ssh flags
   'wait', 'generate-ssh-key', 'generate', 'progress',
+  // wallet trading flags
+  'dry-run', 'all',
 ])
 
 function parse(argv: string[]) {
@@ -202,6 +204,18 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   use: [
     { flag: '<WALLET_ID>', desc: 'Wallet ID to use for x402 payments (positional or --id)' },
     { flag: '--chain <chain>', desc: 'Which chain to pay on', hint: 'solana (default) | base' },
+  ],
+  buy: [
+    { flag: '<CHAIN>', desc: 'Chain (positional)', hint: 'solana' },
+    { flag: '<CA>', desc: 'Token mint / contract address (positional)' },
+    { flag: '--amount <amt>', desc: 'Amount to spend (required)', hint: 'e.g. 0.5sol' },
+    { flag: '--thesis "..."', desc: 'Plain-string reasoning for the entry (required)' },
+    { flag: '--cut <pct>', desc: 'Exit-plan stop-loss target', hint: 'e.g. -25%' },
+    { flag: '--tp <pct>', desc: 'Exit-plan take-profit target', hint: 'e.g. +40%' },
+    { flag: '--hold-if "..."', desc: 'Exit-plan hold condition' },
+    { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env WALLET_SECRET_KEY)' },
+    { flag: '--slippage <bps>', desc: 'Slippage in basis points', hint: 'default 100 (1%)' },
+    { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
 }
 /**
@@ -1418,6 +1432,7 @@ async function main() {
               { name: 'config', description: 'Get agent config', hint: 'WALLET_ID' },
               { name: 'use', description: 'Set default pay wallet', hint: 'WALLET_ID' },
               { name: 'request-approval', description: 'Request human approval (managed)', hint: 'WALLET_ID --action limits --daily 100' },
+              { name: 'buy', description: 'Open a trading position', hint: 'solana <CA> --amount 0.5sol --thesis "..."' },
             ],
             fromHome,
           })
@@ -1713,7 +1728,57 @@ async function main() {
             }
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval`)
+          case 'buy': {
+            const chain = (positional[0] || 'solana').toLowerCase()
+            if (chain !== 'solana') err(`Unsupported chain: ${chain}. Only 'solana' for now.`, EXIT.BAD_INPUT)
+            const ca = positional[1] || (flags.ca as string)
+            if (!ca) err('CA required: palmyr wallet buy solana <CA> --amount 0.5sol --thesis "..."', EXIT.BAD_INPUT)
+            const amount = flags.amount as string
+            if (!amount) err('--amount required (e.g. --amount 0.5sol)', EXIT.BAD_INPUT)
+            const thesis = flags.thesis as string
+            if (!thesis) err('--thesis required (your reasoning for entering this position)', EXIT.BAD_INPUT)
+            const walletRef = (flags.wallet as string) || undefined
+            const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
+            const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+
+            const { buy } = await import('./wallet-trading.js')
+            let result: Awaited<ReturnType<typeof buy>>
+            try {
+              result = await buy({
+                ca,
+                amount,
+                thesis,
+                cut: flags.cut as string | undefined,
+                takeProfit: ((flags.tp as string) || (flags['take-profit'] as string)) || undefined,
+                holdIf: (flags['hold-if'] as string) || undefined,
+                walletRef,
+                slippageBps,
+                dryRun,
+              })
+            } catch (e: any) {
+              err(e.message || 'buy failed', EXIT.GENERAL)
+            }
+
+            log(`wallet buy: ${ca} (${result!.txSignature})`)
+
+            if (!AGENT_MODE) {
+              const tag = result!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
+              console.log(`\n  ${t.success}${icon.success} ${tag}Position opened${t.reset}`)
+              console.log(`  ${t.muted}position:${t.reset}  ${result!.positionPath}`)
+              console.log(`  ${t.muted}tx:${t.reset}        ${result!.txSignature}`)
+              console.log(`  ${t.muted}wallet:${t.reset}    ${result!.wallet}`)
+              console.log(`  ${t.muted}in:${t.reset}        ${result!.amountIn}`)
+              console.log(`  ${t.muted}out:${t.reset}       ${result!.tokensOut} tokens`)
+              if (result!.entryMcap) {
+                console.log(`  ${t.muted}entryMcap:${t.reset} $${result!.entryMcap.toLocaleString('en-US', { maximumFractionDigits: 0 })}`)
+              }
+              console.log()
+            } else {
+              print(result!)
+            }
+            break
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy`)
         }
         break
       }

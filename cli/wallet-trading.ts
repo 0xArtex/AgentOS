@@ -9,7 +9,14 @@
  *   watchlist.jsonl                 — append-only watch entries
  *   config.json                     — defaults (rpc, slippage, default wallet)
  */
-import { Keypair, PublicKey } from '@solana/web3.js'
+import { Connection, Keypair, PublicKey } from '@solana/web3.js'
+import { getMint } from '@solana/spl-token'
+import {
+  executeSwap,
+  getSplTokenBalance,
+  makeConnection,
+  SOL_MINT,
+} from '@palmyr/solana-trading'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
 import {
@@ -359,11 +366,182 @@ export function formatSolHuman(lamports: number, decimals = 4): string {
   return `${(lamports / 1e9).toFixed(decimals)} SOL`
 }
 
+export function formatTokensHuman(ui: number, maxDecimals = 6): string {
+  return ui.toLocaleString('en-US', { maximumFractionDigits: maxDecimals })
+}
+
 /** Validates a base58 mint/pubkey. Throws on invalid input. */
 export function assertValidMint(mint: string): PublicKey {
   try {
     return new PublicKey(mint)
   } catch {
     throw new Error(`Invalid mint address: ${mint}`)
+  }
+}
+
+/**
+ * Best-effort market cap at entry time: Jupiter /price × on-chain supply.
+ * Returns null if either lookup fails — the position is still valid without it.
+ */
+async function fetchEntryMcapBestEffort(
+  connection: Connection,
+  mintB58: string,
+): Promise<number | null> {
+  try {
+    const res = await fetch(`https://api.jup.ag/price/v2?ids=${mintB58}`)
+    if (!res.ok) return null
+    const data = (await res.json()) as { data?: Record<string, { price: string } | null> }
+    const priceStr = data.data?.[mintB58]?.price
+    const priceUsd = priceStr ? Number(priceStr) : NaN
+    if (!isFinite(priceUsd) || priceUsd <= 0) return null
+
+    const mintInfo = await getMint(connection, new PublicKey(mintB58))
+    const supplyUi = Number(mintInfo.supply) / Math.pow(10, mintInfo.decimals)
+    if (!isFinite(supplyUi) || supplyUi <= 0) return null
+
+    return priceUsd * supplyUi
+  } catch {
+    return null
+  }
+}
+
+// ───────── buy ─────────
+
+export interface BuyOpts {
+  ca: string
+  amount: string                    // e.g. "0.5sol"
+  thesis: string
+  cut?: string
+  takeProfit?: string
+  holdIf?: string
+  riskFlags?: string[]
+  walletRef?: string
+  passphrase?: string
+  slippageBps?: number
+  dryRun?: boolean
+  rpcUrl?: string
+}
+
+export interface BuyResult {
+  positionPath: string
+  txSignature: string
+  amountIn: string
+  amountInRawSol: number
+  tokensOut: string
+  tokensOutRaw: string
+  tokenDecimals: number
+  entryMcap: number | null
+  wallet: string
+  mint: string
+  dryRun: boolean
+}
+
+export async function buy(opts: BuyOpts): Promise<BuyResult> {
+  const mintPk = assertValidMint(opts.ca)
+  if (!opts.thesis?.trim()) throw new Error('Missing --thesis')
+  const amountInRawSol = parseAmountFlag(opts.amount)
+
+  const existing = readPosition('solana', opts.ca)
+  if (existing && existing.status === 'open') {
+    throw new Error(
+      `Position already open for ${opts.ca}. Use \`palmyr wallet sell\` to exit it first.`,
+    )
+  }
+
+  const cfg = loadTradingConfig()
+  const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
+  const rpcUrl = opts.rpcUrl ?? cfg.rpcUrl
+  const quoteMaxAgeMs = cfg.quoteMaxAgeMs
+
+  const signer = await resolveSigner(opts.walletRef, opts.passphrase)
+  const connection: Connection = makeConnection(rpcUrl)
+
+  const swap = await executeSwap({
+    connection,
+    wallet: signer.keypair,
+    inputMint: SOL_MINT.toBase58(),
+    outputMint: mintPk.toBase58(),
+    inputAmountRaw: amountInRawSol,
+    slippageBps,
+    dryRun: opts.dryRun,
+    quoteMaxAgeMs,
+  })
+
+  let tokenDecimals = 0
+  try {
+    const mintInfo = await getMint(connection, mintPk)
+    tokenDecimals = mintInfo.decimals
+  } catch {
+    tokenDecimals = 0
+  }
+  const tokensOutRaw = String(swap.outputAmountRaw)
+  const tokensOutUi = swap.outputAmountRaw / Math.pow(10, tokenDecimals)
+  const tokensOut = formatTokensHuman(tokensOutUi, 6)
+
+  const entryMcap = opts.dryRun
+    ? null
+    : await fetchEntryMcapBestEffort(connection, opts.ca)
+
+  const nowIso = new Date().toISOString()
+  const position: PositionFile = {
+    chain: 'solana',
+    mint: opts.ca,
+    wallet: signer.address,
+    status: 'open',
+    entry: {
+      tx: swap.txSignature,
+      time: nowIso,
+      amountIn: formatSolHuman(amountInRawSol, 4),
+      amountInRawSol: amountInRawSol,
+      tokensOut,
+      tokensOutRaw,
+      tokenDecimals,
+      entryMcap,
+    },
+    thesis: opts.thesis.trim(),
+    exitPlan: {
+      cut: opts.cut,
+      takeProfit: opts.takeProfit,
+      holdIf: opts.holdIf,
+    },
+    riskFlags: opts.riskFlags ?? [],
+    sells: [],
+    pnl: {
+      realizedSol: 0,
+      unrealizedSol: 0,
+      unrealizedPct: 0,
+      lastPricedAt: null,
+    },
+  }
+
+  writePosition(position)
+
+  appendTradeLog({
+    kind: 'buy',
+    ts: nowIso,
+    chain: 'solana',
+    wallet: signer.address,
+    mint: opts.ca,
+    tx: swap.txSignature,
+    solIn: amountInRawSol / 1e9,
+    tokensOut,
+    tokenDecimals,
+    entryMcap,
+    slippageBps,
+    thesis: opts.thesis.trim(),
+  })
+
+  return {
+    positionPath: positionPath('solana', opts.ca),
+    txSignature: swap.txSignature,
+    amountIn: position.entry.amountIn,
+    amountInRawSol,
+    tokensOut,
+    tokensOutRaw,
+    tokenDecimals,
+    entryMcap,
+    wallet: signer.address,
+    mint: opts.ca,
+    dryRun: !!opts.dryRun,
   }
 }
