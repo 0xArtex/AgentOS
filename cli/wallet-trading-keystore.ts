@@ -18,14 +18,22 @@
 import { Keypair } from '@solana/web3.js'
 import * as bip39 from 'bip39'
 import { derivePath } from 'ed25519-hd-key'
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from 'crypto'
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHash,
+  randomBytes,
+  scryptSync,
+} from 'crypto'
 import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 
 import { TRADING_DIR } from './wallet-trading.js'
 import { deleteSecret, retrieveSecret, storeSecret } from './credential-store.js'
 
-const CACHE_ACCOUNT = 'trading-keystore-seed'
+// `cli/credential-store.ts` validates account names as hex (see `assertHex`),
+// so we use the sha256 of a stable label as the cache key.
+const CACHE_ACCOUNT = createHash('sha256').update('palmyr.trading.keystore.seed').digest('hex').slice(0, 32)
 
 const KEYSTORE_FILE = join(TRADING_DIR, 'keystore.json')
 const SCRYPT_KEYLEN = 32

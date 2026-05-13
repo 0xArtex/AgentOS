@@ -271,11 +271,13 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   'trading-keystore': [
     { flag: 'init [--count N] [--mnemonic "..."]', desc: 'Create encrypted keystore (BIP39 + scrypt + AES-256-GCM, default count 5)' },
+    { flag: 'unlock', desc: 'Prompt passphrase, cache decrypted seed in OS keychain for daemon + future commands' },
+    { flag: 'lock', desc: 'Clear the cached seed from OS keychain' },
     { flag: 'list', desc: 'List derived wallet addresses (no unlock needed)' },
-    { flag: 'status', desc: 'Show keystore exists / location / wallet count' },
-    { flag: 'derive --count N', desc: 'Derive N more wallets from the keystore' },
-    { flag: 'export --confirm', desc: 'Print the mnemonic (passphrase required)' },
-    { flag: '(env)', desc: 'Passphrase from PALMYR_TRADING_KEYSTORE_PASSPHRASE for init/derive/export' },
+    { flag: 'status', desc: 'Show keystore exists / wallet count / locked vs unlocked' },
+    { flag: 'derive --count N', desc: 'Derive N more wallets (uses cached seed if unlocked)' },
+    { flag: 'export --confirm', desc: 'Print the mnemonic (always requires passphrase, no cache fallback)' },
+    { flag: '(passphrase)', desc: 'PALMYR_TRADING_KEYSTORE_PASSPHRASE env > interactive prompt > OS keychain cache' },
   ],
   daemon: [
     { flag: 'tick', desc: 'One-shot: sync positions + evaluate triggers + exit' },
@@ -2428,8 +2430,15 @@ async function main() {
             if (!sub) err('trading-keystore subcommand required. Try: init, list, status, derive, export', EXIT.BAD_INPUT)
 
             if (sub === 'init') {
-              const pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
-              if (!pass) err('PALMYR_TRADING_KEYSTORE_PASSPHRASE env var required for `init`.', EXIT.AUTH_FAIL)
+              let pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+              if (!pass) {
+                const { promptNewPassphrase } = await import('./passphrase-prompt.js')
+                try {
+                  pass = await promptNewPassphrase()
+                } catch (e: any) {
+                  err(e.message || 'failed to get passphrase', EXIT.AUTH_FAIL)
+                }
+              }
               const count = flags.count ? Number(flags.count) : 5
               if (!Number.isInteger(count) || count <= 0) err('--count must be a positive integer', EXIT.BAD_INPUT)
               const mnemonic = (flags.mnemonic as string) || undefined
@@ -2437,7 +2446,7 @@ async function main() {
               const { initKeystore } = await import('./wallet-trading-keystore.js')
               let file: Awaited<ReturnType<typeof initKeystore>>
               try {
-                file = initKeystore({ passphrase: pass, count, mnemonic })
+                file = initKeystore({ passphrase: pass!, count, mnemonic })
               } catch (e: any) {
                 err(e.message || 'init failed', EXIT.GENERAL)
               }
@@ -2445,7 +2454,7 @@ async function main() {
               log(`wallet trading-keystore init: ${file!.addresses.length} wallets`)
 
               if (!AGENT_MODE) {
-                console.log(`\n  ${t.success}${icon.success} Trading keystore initialized${t.reset}`)
+                console.log(`\n  ${t.success}${icon.success} Trading keystore initialized + unlocked${t.reset}`)
                 console.log(`  ${t.muted}wallets:${t.reset}`)
                 for (const a of file!.addresses) {
                   console.log(`    ${t.muted}[${a.index}]${t.reset} ${a.address}`)
@@ -2453,7 +2462,57 @@ async function main() {
                 console.log(`\n  ${t.warn}⚠  Back up your passphrase + mnemonic.${t.reset}`)
                 console.log(`  ${t.muted}Recover the mnemonic via: palmyr wallet trading-keystore export --confirm${t.reset}\n`)
               } else {
-                print({ success: true, addresses: file!.addresses, count: file!.addresses.length })
+                print({ success: true, addresses: file!.addresses, count: file!.addresses.length, unlocked: true })
+              }
+              break
+            }
+
+            if (sub === 'unlock') {
+              const { unlockKeystore, cacheSeedHex, isUnlocked } = await import('./wallet-trading-keystore.js')
+              if (isUnlocked()) {
+                if (!AGENT_MODE) console.log(`\n  ${t.muted}Keystore is already unlocked.${t.reset}\n`)
+                else print({ success: true, alreadyUnlocked: true })
+                break
+              }
+              let pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+              if (!pass) {
+                const { promptPassphrase } = await import('./passphrase-prompt.js')
+                try {
+                  pass = await promptPassphrase()
+                } catch (e: any) {
+                  err(e.message || 'failed to get passphrase', EXIT.AUTH_FAIL)
+                }
+              }
+              try {
+                const seedHex = unlockKeystore(pass!)
+                cacheSeedHex(seedHex)
+              } catch (e: any) {
+                err(e.message || 'unlock failed', EXIT.AUTH_FAIL)
+              }
+              log('wallet trading-keystore unlock')
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.success}${icon.success} Keystore unlocked${t.reset}`)
+                console.log(`  ${t.muted}Seed cached in OS keychain. Trading wallets are now usable without re-entering the passphrase.${t.reset}`)
+                console.log(`  ${t.muted}Run \`palmyr wallet trading-keystore lock\` to clear the cache.${t.reset}\n`)
+              } else {
+                print({ success: true, unlocked: true })
+              }
+              break
+            }
+
+            if (sub === 'lock') {
+              const { clearCachedSeed, isUnlocked } = await import('./wallet-trading-keystore.js')
+              const wasUnlocked = isUnlocked()
+              clearCachedSeed()
+              log(`wallet trading-keystore lock: wasUnlocked=${wasUnlocked}`)
+              if (!AGENT_MODE) {
+                if (wasUnlocked) {
+                  console.log(`\n  ${t.success}${icon.success} Cached seed cleared.${t.reset}\n`)
+                } else {
+                  console.log(`\n  ${t.muted}Keystore was already locked.${t.reset}\n`)
+                }
+              } else {
+                print({ success: true, wasUnlocked })
               }
               break
             }
@@ -2476,8 +2535,9 @@ async function main() {
             }
 
             if (sub === 'status') {
-              const { getKeystoreStatus } = await import('./wallet-trading-keystore.js')
+              const { getKeystoreStatus, isUnlocked } = await import('./wallet-trading-keystore.js')
               const status = getKeystoreStatus()
+              const unlocked = isUnlocked()
               if (!AGENT_MODE) {
                 console.log()
                 section('Trading keystore')
@@ -2486,19 +2546,20 @@ async function main() {
                 if (status.exists) {
                   kv('Created', status.createdAt || '—')
                   kv('Wallets', String(status.walletCount))
+                  kv('Unlocked', unlocked ? `${t.success}yes${t.reset}` : `${t.muted}no${t.reset}`)
                 }
                 console.log()
               } else {
-                print(status)
+                print({ ...status, unlocked })
               }
               break
             }
 
             if (sub === 'derive') {
-              const pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
-              if (!pass) err('PALMYR_TRADING_KEYSTORE_PASSPHRASE env var required for `derive`.', EXIT.AUTH_FAIL)
               const count = flags.count ? Number(flags.count) : 1
               if (!Number.isInteger(count) || count <= 0) err('--count must be a positive integer', EXIT.BAD_INPUT)
+              // Pass undefined when no env var → falls back to cached seed inside the module.
+              const pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
 
               const { deriveMoreWallets } = await import('./wallet-trading-keystore.js')
               let file: Awaited<ReturnType<typeof deriveMoreWallets>>
@@ -2533,13 +2594,21 @@ async function main() {
                   EXIT.BAD_INPUT,
                 )
               }
-              const pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
-              if (!pass) err('PALMYR_TRADING_KEYSTORE_PASSPHRASE env var required for `export`.', EXIT.AUTH_FAIL)
+              // Export always requires the passphrase — no cache fallback.
+              let pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+              if (!pass) {
+                const { promptPassphrase } = await import('./passphrase-prompt.js')
+                try {
+                  pass = await promptPassphrase()
+                } catch (e: any) {
+                  err(e.message || 'failed to get passphrase', EXIT.AUTH_FAIL)
+                }
+              }
 
               const { exportMnemonic } = await import('./wallet-trading-keystore.js')
               let mnemonic: string
               try {
-                mnemonic = exportMnemonic(pass)
+                mnemonic = exportMnemonic(pass!)
               } catch (e: any) {
                 err(e.message || 'export failed', EXIT.SECURITY)
               }
@@ -2555,7 +2624,7 @@ async function main() {
               break
             }
 
-            err(`Unknown trading-keystore subcommand: ${sub}. Try: init, list, status, derive, export`, EXIT.BAD_INPUT)
+            err(`Unknown trading-keystore subcommand: ${sub}. Try: init, unlock, lock, list, status, derive, export`, EXIT.BAD_INPUT)
           }
           default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore`)
         }
