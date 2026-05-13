@@ -80,6 +80,8 @@ const BOOLEAN_FLAGS = new Set([
   'help', 'version', 'managed', 'quiet', 'confirm', 'json', 'no-color',
   // compute deploy/ssh flags
   'wait', 'generate-ssh-key', 'generate', 'progress',
+  // wallet trading flags
+  'dry-run', 'all',
 ])
 
 function parse(argv: string[]) {
@@ -202,6 +204,53 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   use: [
     { flag: '<WALLET_ID>', desc: 'Wallet ID to use for x402 payments (positional or --id)' },
     { flag: '--chain <chain>', desc: 'Which chain to pay on', hint: 'solana (default) | base' },
+  ],
+  buy: [
+    { flag: '<CHAIN>', desc: 'Chain (positional)', hint: 'solana' },
+    { flag: '<CA>', desc: 'Token mint / contract address (positional)' },
+    { flag: '--amount <amt>', desc: 'Amount to spend (required)', hint: 'e.g. 0.5sol' },
+    { flag: '--thesis "..."', desc: 'Plain-string reasoning for the entry (required)' },
+    { flag: '--cut <pct>', desc: 'Exit-plan stop-loss target', hint: 'e.g. -25%' },
+    { flag: '--tp <pct>', desc: 'Exit-plan take-profit target', hint: 'e.g. +40%' },
+    { flag: '--hold-if "..."', desc: 'Exit-plan hold condition' },
+    { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env WALLET_SECRET_KEY)' },
+    { flag: '--slippage <bps>', desc: 'Slippage in basis points', hint: 'default 100 (1%)' },
+    { flag: '--dry-run', desc: 'Simulate without sending the swap' },
+  ],
+  positions: [
+    { flag: '--chain <chain>', desc: 'Filter by chain', hint: 'solana' },
+    { flag: '--wallet <id|name>', desc: 'Filter by signing wallet (vault ref)' },
+    { flag: '--all', desc: 'Include closed positions (default: open only)' },
+  ],
+  position: [
+    { flag: '<CA>', desc: 'Token mint / contract address (positional or --ca)' },
+  ],
+  sell: [
+    { flag: '<CHAIN>', desc: 'Chain (positional)', hint: 'solana' },
+    { flag: '<CA>', desc: 'Token mint / contract address (positional)' },
+    { flag: '--percent <n>', desc: 'Percent of remaining tokens to sell (required)', hint: '1-100' },
+    { flag: '--reason "..."', desc: 'Why are you exiting? (required)' },
+    { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env)' },
+    { flag: '--slippage <bps>', desc: 'Slippage in basis points', hint: 'default 100 (1%)' },
+    { flag: '--dry-run', desc: 'Simulate without sending the swap' },
+  ],
+  sync: [
+    { flag: '--wallet <id|name>', desc: 'Vault wallet whose positions to reconcile (else env signer)' },
+  ],
+  pnl: [
+    { flag: '--by <group>', desc: 'Group output', hint: 'wallet | chain' },
+    { flag: '--since <date>', desc: 'Filter by entry date', hint: 'ISO 8601 or YYYY-MM-DD' },
+  ],
+  journal: [
+    { flag: 'add <CA> --note "..."', desc: 'Append a note (omit CA for a general note)' },
+    { flag: 'show [--ca <CA>] [--date <YYYY-MM-DD>]', desc: 'List or read journal entries' },
+  ],
+  watch: [
+    { flag: 'add <CA> --trigger "..."', desc: 'Add a CA to the watchlist with a trigger condition' },
+    { flag: 'list', desc: 'Show the watchlist' },
+  ],
+  brief: [
+    { flag: '<CA>', desc: 'Show a position brief: thesis + PnL + last sync time' },
   ],
 }
 /**
@@ -1418,6 +1467,15 @@ async function main() {
               { name: 'config', description: 'Get agent config', hint: 'WALLET_ID' },
               { name: 'use', description: 'Set default pay wallet', hint: 'WALLET_ID' },
               { name: 'request-approval', description: 'Request human approval (managed)', hint: 'WALLET_ID --action limits --daily 100' },
+              { name: 'buy', description: 'Open a trading position', hint: 'solana <CA> --amount 0.5sol --thesis "..."' },
+              { name: 'positions', description: 'List open (and optionally closed) positions', hint: '[--chain X] [--wallet Y] [--all]' },
+              { name: 'position', description: 'Show details for a single position', hint: '<CA>' },
+              { name: 'sell', description: 'Sell part or all of a position', hint: 'solana <CA> --percent 50 --reason "..."' },
+              { name: 'sync', description: 'Reconcile open positions against chain, refresh unrealized PnL' },
+              { name: 'pnl', description: 'Aggregate realized + unrealized PnL', hint: '[--by wallet|chain] [--since DATE]' },
+              { name: 'journal', description: 'Append or read trade journal entries', hint: 'add <CA> --note "..." | show' },
+              { name: 'watch', description: 'Maintain a watchlist of CAs to monitor', hint: 'add <CA> --trigger "..." | list' },
+              { name: 'brief', description: 'Show thesis + PnL brief for a position', hint: '<CA>' },
             ],
             fromHome,
           })
@@ -1713,7 +1771,418 @@ async function main() {
             }
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval`)
+          case 'buy': {
+            const chain = (positional[0] || 'solana').toLowerCase()
+            if (chain !== 'solana') err(`Unsupported chain: ${chain}. Only 'solana' for now.`, EXIT.BAD_INPUT)
+            const ca = positional[1] || (flags.ca as string)
+            if (!ca) err('CA required: palmyr wallet buy solana <CA> --amount 0.5sol --thesis "..."', EXIT.BAD_INPUT)
+            const amount = flags.amount as string
+            if (!amount) err('--amount required (e.g. --amount 0.5sol)', EXIT.BAD_INPUT)
+            const thesis = flags.thesis as string
+            if (!thesis) err('--thesis required (your reasoning for entering this position)', EXIT.BAD_INPUT)
+            const walletRef = (flags.wallet as string) || undefined
+            const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
+            const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+
+            const { buy } = await import('./wallet-trading.js')
+            let result: Awaited<ReturnType<typeof buy>>
+            try {
+              result = await buy({
+                ca,
+                amount,
+                thesis,
+                cut: flags.cut as string | undefined,
+                takeProfit: ((flags.tp as string) || (flags['take-profit'] as string)) || undefined,
+                holdIf: (flags['hold-if'] as string) || undefined,
+                walletRef,
+                slippageBps,
+                dryRun,
+              })
+            } catch (e: any) {
+              err(e.message || 'buy failed', EXIT.GENERAL)
+            }
+
+            log(`wallet buy: ${ca} (${result!.txSignature})`)
+
+            if (!AGENT_MODE) {
+              const tag = result!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
+              console.log(`\n  ${t.success}${icon.success} ${tag}Position opened${t.reset}`)
+              console.log(`  ${t.muted}position:${t.reset}  ${result!.positionPath}`)
+              console.log(`  ${t.muted}tx:${t.reset}        ${result!.txSignature}`)
+              console.log(`  ${t.muted}wallet:${t.reset}    ${result!.wallet}`)
+              console.log(`  ${t.muted}in:${t.reset}        ${result!.amountIn}`)
+              console.log(`  ${t.muted}out:${t.reset}       ${result!.tokensOut} tokens`)
+              if (result!.entryMcap) {
+                console.log(`  ${t.muted}entryMcap:${t.reset} $${result!.entryMcap.toLocaleString('en-US', { maximumFractionDigits: 0 })}`)
+              }
+              console.log()
+            } else {
+              print(result!)
+            }
+            break
+          }
+          case 'positions': {
+            const chainFlag = ((flags.chain as string) || '').toLowerCase()
+            if (chainFlag && chainFlag !== 'solana') err(`Unsupported chain: ${chainFlag}. Only 'solana' for now.`, EXIT.BAD_INPUT)
+            const walletRef = (flags.wallet as string) || undefined
+            const includeClosed = !!flags.all
+
+            let walletAddress: string | undefined
+            if (walletRef) {
+              const { resolveSigner } = await import('./wallet-trading.js')
+              try {
+                const signer = await resolveSigner(walletRef)
+                walletAddress = signer.address
+              } catch (e: any) {
+                err(`Could not resolve --wallet ${walletRef}: ${e.message}`, EXIT.NOT_FOUND)
+              }
+            }
+
+            const { listPositions } = await import('./wallet-trading.js')
+            const positions = listPositions({
+              chain: (chainFlag || undefined) as 'solana' | undefined,
+              walletAddress,
+              includeClosed,
+            })
+
+            if (!AGENT_MODE) {
+              if (positions.length === 0) {
+                console.log(`\n  ${t.muted}No positions${includeClosed ? '' : ' (use --all to include closed)'}.${t.reset}\n`)
+                break
+              }
+              console.log()
+              table(
+                ['CA', 'STATUS', 'IN', 'OUT', 'UNREAL %', 'THESIS'],
+                positions.map((p) => [
+                  p.mint.length > 12 ? `${p.mint.slice(0, 6)}..${p.mint.slice(-4)}` : p.mint,
+                  p.status,
+                  p.entry.amountIn,
+                  p.entry.tokensOut,
+                  `${p.pnl.unrealizedPct >= 0 ? '+' : ''}${p.pnl.unrealizedPct.toFixed(2)}%`,
+                  p.thesis.length > 50 ? `${p.thesis.slice(0, 47)}...` : p.thesis,
+                ]),
+              )
+              console.log()
+            } else {
+              print({ positions })
+            }
+            break
+          }
+          case 'position': {
+            const ca = positional[0] || (flags.ca as string)
+            if (!ca) err('CA required: palmyr wallet position <CA>', EXIT.BAD_INPUT)
+            const { readPosition } = await import('./wallet-trading.js')
+            const p = readPosition('solana', ca)
+            if (!p) err(`Position not found: ${ca}`, EXIT.NOT_FOUND)
+
+            if (!AGENT_MODE) {
+              console.log()
+              section('Position')
+              kv('CA', p!.mint)
+              kv('Status', p!.status)
+              kv('Wallet', p!.wallet)
+              kv('Entry tx', p!.entry.tx)
+              kv('Entry time', p!.entry.time)
+              kv('Amount in', p!.entry.amountIn)
+              kv('Tokens out', p!.entry.tokensOut)
+              if (p!.entry.entryMcap !== null) {
+                kv('Entry mcap', `$${p!.entry.entryMcap.toLocaleString('en-US', { maximumFractionDigits: 0 })}`)
+              }
+              console.log()
+              section('Thesis')
+              console.log(`  ${p!.thesis}`)
+              console.log()
+              if (p!.exitPlan.cut || p!.exitPlan.takeProfit || p!.exitPlan.holdIf) {
+                section('Exit plan')
+                if (p!.exitPlan.cut) kv('Cut', p!.exitPlan.cut)
+                if (p!.exitPlan.takeProfit) kv('Take profit', p!.exitPlan.takeProfit)
+                if (p!.exitPlan.holdIf) kv('Hold if', p!.exitPlan.holdIf)
+                console.log()
+              }
+              if (p!.riskFlags.length > 0) {
+                section('Risk flags')
+                console.log(`  ${p!.riskFlags.join(', ')}`)
+                console.log()
+              }
+              section('PnL')
+              kv('Realized', `${p!.pnl.realizedSol.toFixed(6)} SOL`)
+              kv('Unrealized', `${p!.pnl.unrealizedSol.toFixed(6)} SOL`)
+              kv('Unrealized %', `${p!.pnl.unrealizedPct.toFixed(2)}%`)
+              kv('Last priced', p!.pnl.lastPricedAt || 'never (run `wallet sync`)')
+              if (p!.sells.length > 0) {
+                console.log()
+                section(`Sells (${p!.sells.length})`)
+                for (const s of p!.sells) {
+                  console.log(`  ${t.muted}${s.time}${t.reset}  ${s.tokensIn} → ${s.solOut} (realized ${s.realizedSol >= 0 ? '+' : ''}${s.realizedSol.toFixed(6)} SOL) — ${s.reason}`)
+                }
+              }
+              console.log()
+            } else {
+              print(p)
+            }
+            break
+          }
+          case 'sell': {
+            const chain = (positional[0] || 'solana').toLowerCase()
+            if (chain !== 'solana') err(`Unsupported chain: ${chain}. Only 'solana' for now.`, EXIT.BAD_INPUT)
+            const ca = positional[1] || (flags.ca as string)
+            if (!ca) err('CA required: palmyr wallet sell solana <CA> --percent 50 --reason "..."', EXIT.BAD_INPUT)
+            const percent = flags.percent !== undefined ? Number(flags.percent) : NaN
+            if (!isFinite(percent) || percent <= 0 || percent > 100) {
+              err('--percent required (0 < p ≤ 100), e.g. --percent 50', EXIT.BAD_INPUT)
+            }
+            const reason = flags.reason as string
+            if (!reason) err('--reason required (why are you exiting?)', EXIT.BAD_INPUT)
+            const walletRef = (flags.wallet as string) || undefined
+            const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
+            const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+
+            const { sell } = await import('./wallet-trading.js')
+            let result: Awaited<ReturnType<typeof sell>>
+            try {
+              result = await sell({
+                ca,
+                percent,
+                reason,
+                walletRef,
+                slippageBps,
+                dryRun,
+              })
+            } catch (e: any) {
+              err(e.message || 'sell failed', EXIT.GENERAL)
+            }
+
+            log(`wallet sell: ${ca} ${percent}% (${result!.txSignature})`)
+
+            if (!AGENT_MODE) {
+              const tag = result!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
+              const pnlColor = result!.realizedSol >= 0 ? t.success : t.error
+              const closedTag = result!.positionStatus === 'closed' ? ` ${t.muted}[closed]${t.reset}` : ''
+              console.log(`\n  ${t.success}${icon.success} ${tag}Sell executed${closedTag}${t.reset}`)
+              console.log(`  ${t.muted}tx:${t.reset}        ${result!.txSignature}`)
+              console.log(`  ${t.muted}sold:${t.reset}      ${result!.tokensIn} tokens (${percent}%)`)
+              console.log(`  ${t.muted}received:${t.reset}  ${result!.solOut}`)
+              console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${result!.realizedSol >= 0 ? '+' : ''}${result!.realizedSol.toFixed(6)} SOL${t.reset}`)
+              console.log(`  ${t.muted}reason:${t.reset}    ${reason}`)
+              console.log()
+            } else {
+              print(result!)
+            }
+            break
+          }
+          case 'sync': {
+            const walletRef = (flags.wallet as string) || undefined
+            const { sync: doSync } = await import('./wallet-trading.js')
+            let report: Awaited<ReturnType<typeof doSync>>
+            try {
+              report = await doSync({ walletRef })
+            } catch (e: any) {
+              err(e.message || 'sync failed', EXIT.GENERAL)
+            }
+
+            log(`wallet sync: ${report!.wallet} (${report!.positions.length} positions)`)
+
+            if (!AGENT_MODE) {
+              console.log()
+              section('Sync')
+              kv('Wallet', report!.wallet)
+              if (report!.positions.length === 0) {
+                console.log(`  ${t.muted}No open positions for this wallet.${t.reset}\n`)
+                break
+              }
+              console.log()
+              table(
+                ['CA', 'BOOK', 'ON-CHAIN', 'DRIFT', 'UNREAL SOL', 'UNREAL %'],
+                report!.positions.map((s) => [
+                  s.mint.length > 12 ? `${s.mint.slice(0, 6)}..${s.mint.slice(-4)}` : s.mint,
+                  s.bookRaw,
+                  s.onchainRaw,
+                  s.drift ? `⚠ ${s.drift}` : 'ok',
+                  `${s.unrealizedSol >= 0 ? '+' : ''}${s.unrealizedSol.toFixed(6)}`,
+                  `${s.unrealizedPct >= 0 ? '+' : ''}${s.unrealizedPct.toFixed(2)}%`,
+                ]),
+              )
+              console.log()
+            } else {
+              print(report!)
+            }
+            break
+          }
+          case 'pnl': {
+            const by = ((flags.by as string) || '').toLowerCase()
+            if (by && by !== 'wallet' && by !== 'chain') err(`--by must be 'wallet' or 'chain', got: ${by}`, EXIT.BAD_INPUT)
+            const sinceIso = flags.since as string | undefined
+            if (sinceIso && isNaN(Date.parse(sinceIso))) {
+              err('--since must be a valid date (ISO 8601 or YYYY-MM-DD)', EXIT.BAD_INPUT)
+            }
+
+            const { computePnl } = await import('./wallet-trading.js')
+            const report = computePnl({
+              by: (by || undefined) as 'wallet' | 'chain' | undefined,
+              sinceIso,
+            })
+
+            if (!AGENT_MODE) {
+              console.log()
+              section('PnL')
+              kv('Positions', String(report.count))
+              kv('Realized', `${report.totalRealizedSol >= 0 ? '+' : ''}${report.totalRealizedSol.toFixed(6)} SOL`)
+              kv('Unrealized', `${report.totalUnrealizedSol >= 0 ? '+' : ''}${report.totalUnrealizedSol.toFixed(6)} SOL`)
+              kv('Total', `${report.totalSol >= 0 ? '+' : ''}${report.totalSol.toFixed(6)} SOL`)
+              if (report.byGroup) {
+                console.log()
+                section(`By ${by}`)
+                table(
+                  [by.toUpperCase(), 'COUNT', 'REALIZED', 'UNREALIZED'],
+                  Object.entries(report.byGroup).map(([k, v]) => [
+                    k.length > 16 ? `${k.slice(0, 6)}..${k.slice(-4)}` : k,
+                    String(v.count),
+                    `${v.realizedSol >= 0 ? '+' : ''}${v.realizedSol.toFixed(6)}`,
+                    `${v.unrealizedSol >= 0 ? '+' : ''}${v.unrealizedSol.toFixed(6)}`,
+                  ]),
+                )
+              }
+              console.log()
+            } else {
+              print(report)
+            }
+            break
+          }
+          case 'journal': {
+            const sub = positional[0]
+            if (sub === 'add') {
+              const ca = positional[1] || (flags.ca as string) || null
+              const note = flags.note as string
+              if (!note) err('--note required: palmyr wallet journal add <CA> --note "..."', EXIT.BAD_INPUT)
+              const { appendJournal } = await import('./wallet-trading.js')
+              const r = appendJournal(ca || null, note)
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.success}${icon.success} Journal entry added${t.reset}`)
+                console.log(`  ${t.muted}file:${t.reset} ${r.file}`)
+                console.log()
+              } else {
+                print({ success: true, ...r })
+              }
+              break
+            }
+            if (sub === 'show' || !sub) {
+              const ca = flags.ca as string | undefined
+              const date = flags.date as string | undefined
+              const { readJournalIndex, readJournalDay } = await import('./wallet-trading.js')
+              const index = readJournalIndex()
+              let filtered = index
+              if (ca) filtered = filtered.filter((e) => e.ca === ca)
+              if (date) filtered = filtered.filter((e) => e.date === date)
+
+              if (!AGENT_MODE) {
+                if (filtered.length === 0) {
+                  console.log(`\n  ${t.muted}No journal entries${ca || date ? ' matching filter' : ''}.${t.reset}\n`)
+                  break
+                }
+                if (date) {
+                  console.log(`\n${readJournalDay(date)}\n`)
+                } else {
+                  console.log()
+                  table(
+                    ['DATE', 'TIME', 'CA', 'NOTE'],
+                    filtered.map((e) => [
+                      e.date,
+                      e.ts.slice(11, 19),
+                      e.ca ? (e.ca.length > 12 ? `${e.ca.slice(0, 6)}..${e.ca.slice(-4)}` : e.ca) : '—',
+                      e.note,
+                    ]),
+                  )
+                  console.log()
+                }
+              } else {
+                print({ entries: filtered })
+              }
+              break
+            }
+            err(`Unknown journal subcommand: ${sub}. Try: add, show`, EXIT.BAD_INPUT)
+          }
+          case 'watch': {
+            const sub = positional[0]
+            if (sub === 'add') {
+              const ca = positional[1] || (flags.ca as string)
+              if (!ca) err('CA required: palmyr wallet watch add <CA> --trigger "..."', EXIT.BAD_INPUT)
+              const trigger = flags.trigger as string
+              if (!trigger) err('--trigger required (what to look for)', EXIT.BAD_INPUT)
+              const { appendWatch } = await import('./wallet-trading.js')
+              const w = appendWatch({ ca, trigger })
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.success}${icon.success} Watching ${ca}${t.reset}`)
+                console.log(`  ${t.muted}trigger:${t.reset} ${trigger}`)
+                console.log()
+              } else {
+                print({ success: true, ...w })
+              }
+              break
+            }
+            if (sub === 'list' || !sub) {
+              const { listWatch } = await import('./wallet-trading.js')
+              const entries = listWatch()
+              if (!AGENT_MODE) {
+                if (entries.length === 0) {
+                  console.log(`\n  ${t.muted}Watchlist is empty.${t.reset}\n`)
+                  break
+                }
+                console.log()
+                table(
+                  ['ADDED', 'CA', 'TRIGGER'],
+                  entries.map((e) => [
+                    e.ts.slice(0, 19).replace('T', ' '),
+                    e.ca.length > 12 ? `${e.ca.slice(0, 6)}..${e.ca.slice(-4)}` : e.ca,
+                    e.trigger,
+                  ]),
+                )
+                console.log()
+              } else {
+                print({ entries })
+              }
+              break
+            }
+            err(`Unknown watch subcommand: ${sub}. Try: add, list`, EXIT.BAD_INPUT)
+          }
+          case 'brief': {
+            const ca = positional[0] || (flags.ca as string)
+            if (!ca) err('CA required: palmyr wallet brief <CA>', EXIT.BAD_INPUT)
+            const { readPosition } = await import('./wallet-trading.js')
+            const p = readPosition('solana', ca)
+            if (!p) err(`Position not found: ${ca}`, EXIT.NOT_FOUND)
+
+            if (!AGENT_MODE) {
+              console.log()
+              section('Brief')
+              kv('CA', p!.mint)
+              kv('Status', p!.status)
+              kv('Entry', `${p!.entry.amountIn} → ${p!.entry.tokensOut} (${p!.entry.time})`)
+              console.log()
+              section('Thesis')
+              console.log(`  ${p!.thesis}`)
+              console.log()
+              section('Current')
+              const pnlColor = p!.pnl.unrealizedPct >= 0 ? t.success : t.error
+              kv('Realized', `${p!.pnl.realizedSol >= 0 ? '+' : ''}${p!.pnl.realizedSol.toFixed(6)} SOL`)
+              console.log(`  ${t.muted}Unrealized:${t.reset}  ${pnlColor}${p!.pnl.unrealizedSol >= 0 ? '+' : ''}${p!.pnl.unrealizedSol.toFixed(6)} SOL (${p!.pnl.unrealizedPct.toFixed(2)}%)${t.reset}`)
+              kv('Last priced', p!.pnl.lastPricedAt || 'never (run `wallet sync`)')
+              console.log()
+              console.log(`  ${t.muted}Phase 3 will add agent-evaluated thesis health here.${t.reset}\n`)
+            } else {
+              print({
+                ca: p!.mint,
+                status: p!.status,
+                entry: p!.entry,
+                thesis: p!.thesis,
+                exitPlan: p!.exitPlan,
+                pnl: p!.pnl,
+                sellsCount: p!.sells.length,
+                note: 'Phase 3 will add agent-evaluated thesis health.',
+              })
+            }
+            break
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief`)
         }
         break
       }
