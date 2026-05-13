@@ -206,6 +206,20 @@ export type TradeLogLine =
       drift: { onchain: string; book: string } | null
       note: string
     }
+  | {
+      kind: 'monitor_fire'
+      ts: string
+      chain: 'solana'
+      wallet: string
+      mint: string
+      trigger: 'cut' | 'takeProfit'
+      thresholdPct: number
+      currentPct: number
+      proposedAction: 'sell-100'
+      autoExecuted: boolean
+      linkedSellTx?: string
+      note?: string
+    }
 
 export interface JournalIndexLine {
   ts: string
