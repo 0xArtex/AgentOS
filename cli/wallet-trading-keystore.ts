@@ -18,6 +18,7 @@
 import { Keypair } from '@solana/web3.js'
 import * as bip39 from 'bip39'
 import { derivePath } from 'ed25519-hd-key'
+import { ethers } from 'ethers'
 import {
   createCipheriv,
   createDecipheriv,
@@ -280,6 +281,27 @@ export function unlockKeystore(passphrase: string): string {
   if (!file) throw new Error('No trading keystore. Run `init` first.')
   const mnemonic = decryptMnemonic(file, passphrase)
   return bip39.mnemonicToSeedSync(mnemonic).toString('hex')
+}
+
+/**
+ * Phase 5a — derive an EVM wallet from the same seed at the standard BIP44
+ * EVM path `m/44'/60'/<index>'/0/0`. Same auth fallback chain as the Solana
+ * helpers. The returned wallet has no provider attached; caller must
+ * `.connect(provider)` before signing.
+ */
+export function getKeystoreEvmWallet(index: number, passphrase?: string): ethers.Wallet {
+  const file = readKeystoreFile()
+  if (!file) {
+    throw new Error('No trading keystore. Run `palmyr wallet trading-keystore init` first.')
+  }
+  if (!Number.isInteger(index) || index < 0) {
+    throw new Error(`Invalid wallet index: ${index}`)
+  }
+  const seedHex = resolveSeedHex(passphrase)
+  const seed = ethers.getBytes('0x' + seedHex)
+  const node = ethers.HDNodeWallet.fromSeed(seed)
+  const derived = node.derivePath(`44'/60'/${index}'/0/0`)
+  return new ethers.Wallet(derived.privateKey)
 }
 
 export function deriveMoreWallets(count: number, passphrase?: string): KeystoreFile {
