@@ -380,18 +380,47 @@ export function listWatch(): WatchEntry[] {
 export interface ResolvedSigner {
   keypair: Keypair
   address: string
-  source: 'vault' | 'env-secret-key' | 'env-keypair-path'
+  source: 'vault' | 'env-secret-key' | 'env-keypair-path' | 'trading-keystore'
+  /** Set when source === 'trading-keystore'. */
+  keystoreIndex?: number
 }
 
 export async function resolveSigner(
   walletRef?: string,
   passphrase?: string,
 ): Promise<ResolvedSigner> {
+  // Phase 4: `trading:N` refers to the Nth wallet derived from the encrypted
+  // trading keystore. The passphrase comes from PALMYR_TRADING_KEYSTORE_PASSPHRASE
+  // (or the explicit `passphrase` argument). Routed before the vault path so
+  // a future vault wallet named `trading:0` couldn't shadow it.
+  if (walletRef?.startsWith('trading:')) {
+    const indexStr = walletRef.slice('trading:'.length)
+    const index = Number(indexStr)
+    if (!Number.isInteger(index) || index < 0) {
+      throw new Error(`Invalid trading wallet index: "${indexStr}". Use trading:0, trading:1, ...`)
+    }
+    const pass = passphrase ?? process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+    if (!pass) {
+      throw new Error(
+        'PALMYR_TRADING_KEYSTORE_PASSPHRASE env var (or explicit --passphrase) required for trading-keystore wallets.',
+      )
+    }
+    const { getKeystoreKeypair } = await import('./wallet-trading-keystore.js')
+    const keypair = getKeystoreKeypair(index, pass)
+    return {
+      keypair,
+      address: keypair.publicKey.toBase58(),
+      source: 'trading-keystore',
+      keystoreIndex: index,
+    }
+  }
+
   if (walletRef) {
     const { getVaultSolanaKeypair } = await import('./vault.js')
     const keypair = getVaultSolanaKeypair(walletRef, passphrase)
     return { keypair, address: keypair.publicKey.toBase58(), source: 'vault' }
   }
+
   const { loadKeypairFromEnv } = await import('@palmyr/solana-trading')
   const keypair = loadKeypairFromEnv()
   const fromSecret = !!process.env.WALLET_SECRET_KEY?.trim()

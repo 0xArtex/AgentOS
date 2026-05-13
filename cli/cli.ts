@@ -269,6 +269,14 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<CA>', desc: 'Show a position brief: thesis + PnL + last sync time' },
     { flag: '--evaluate', desc: 'Ask Claude (Haiku) whether the thesis still holds (requires ANTHROPIC_API_KEY)' },
   ],
+  'trading-keystore': [
+    { flag: 'init [--count N] [--mnemonic "..."]', desc: 'Create encrypted keystore (BIP39 + scrypt + AES-256-GCM, default count 5)' },
+    { flag: 'list', desc: 'List derived wallet addresses (no unlock needed)' },
+    { flag: 'status', desc: 'Show keystore exists / location / wallet count' },
+    { flag: 'derive --count N', desc: 'Derive N more wallets from the keystore' },
+    { flag: 'export --confirm', desc: 'Print the mnemonic (passphrase required)' },
+    { flag: '(env)', desc: 'Passphrase from PALMYR_TRADING_KEYSTORE_PASSPHRASE for init/derive/export' },
+  ],
   daemon: [
     { flag: 'tick', desc: 'One-shot: sync positions + evaluate triggers + exit' },
     { flag: 'start [--interval N] [--auto] [--wallet <id|name>]', desc: 'Spawn detached monitor daemon' },
@@ -1508,6 +1516,7 @@ async function main() {
               { name: 'brief', description: 'Show thesis + PnL brief for a position', hint: '<CA>' },
               { name: 'daemon', description: 'Auto-monitor positions for trigger-based exits', hint: 'tick | start [--auto] | stop | status' },
               { name: 'triggers', description: 'List pending trigger fires from the daemon', hint: '[--ca X] [--since ISO] [--clear]' },
+              { name: 'trading-keystore', description: 'Encrypted BIP39 keystore for HD-derived trading wallets', hint: 'init | list | status | derive | export' },
             ],
             fromHome,
           })
@@ -2414,7 +2423,141 @@ async function main() {
             }
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers`)
+          case 'trading-keystore': {
+            const sub = positional[0]
+            if (!sub) err('trading-keystore subcommand required. Try: init, list, status, derive, export', EXIT.BAD_INPUT)
+
+            if (sub === 'init') {
+              const pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+              if (!pass) err('PALMYR_TRADING_KEYSTORE_PASSPHRASE env var required for `init`.', EXIT.AUTH_FAIL)
+              const count = flags.count ? Number(flags.count) : 5
+              if (!Number.isInteger(count) || count <= 0) err('--count must be a positive integer', EXIT.BAD_INPUT)
+              const mnemonic = (flags.mnemonic as string) || undefined
+
+              const { initKeystore } = await import('./wallet-trading-keystore.js')
+              let file: Awaited<ReturnType<typeof initKeystore>>
+              try {
+                file = initKeystore({ passphrase: pass, count, mnemonic })
+              } catch (e: any) {
+                err(e.message || 'init failed', EXIT.GENERAL)
+              }
+
+              log(`wallet trading-keystore init: ${file!.addresses.length} wallets`)
+
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.success}${icon.success} Trading keystore initialized${t.reset}`)
+                console.log(`  ${t.muted}wallets:${t.reset}`)
+                for (const a of file!.addresses) {
+                  console.log(`    ${t.muted}[${a.index}]${t.reset} ${a.address}`)
+                }
+                console.log(`\n  ${t.warn}⚠  Back up your passphrase + mnemonic.${t.reset}`)
+                console.log(`  ${t.muted}Recover the mnemonic via: palmyr wallet trading-keystore export --confirm${t.reset}\n`)
+              } else {
+                print({ success: true, addresses: file!.addresses, count: file!.addresses.length })
+              }
+              break
+            }
+
+            if (sub === 'list') {
+              const { listKeystoreWallets } = await import('./wallet-trading-keystore.js')
+              const wallets = listKeystoreWallets()
+              if (!AGENT_MODE) {
+                if (wallets.length === 0) {
+                  console.log(`\n  ${t.muted}No trading keystore. Run \`palmyr wallet trading-keystore init\`.${t.reset}\n`)
+                  break
+                }
+                console.log()
+                table(['IDX', 'ADDRESS'], wallets.map(w => [String(w.index), w.address]))
+                console.log()
+              } else {
+                print({ wallets })
+              }
+              break
+            }
+
+            if (sub === 'status') {
+              const { getKeystoreStatus } = await import('./wallet-trading-keystore.js')
+              const status = getKeystoreStatus()
+              if (!AGENT_MODE) {
+                console.log()
+                section('Trading keystore')
+                kv('Exists', status.exists ? 'yes' : 'no')
+                kv('Path', status.path)
+                if (status.exists) {
+                  kv('Created', status.createdAt || '—')
+                  kv('Wallets', String(status.walletCount))
+                }
+                console.log()
+              } else {
+                print(status)
+              }
+              break
+            }
+
+            if (sub === 'derive') {
+              const pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+              if (!pass) err('PALMYR_TRADING_KEYSTORE_PASSPHRASE env var required for `derive`.', EXIT.AUTH_FAIL)
+              const count = flags.count ? Number(flags.count) : 1
+              if (!Number.isInteger(count) || count <= 0) err('--count must be a positive integer', EXIT.BAD_INPUT)
+
+              const { deriveMoreWallets } = await import('./wallet-trading-keystore.js')
+              let file: Awaited<ReturnType<typeof deriveMoreWallets>>
+              try {
+                file = deriveMoreWallets(count, pass)
+              } catch (e: any) {
+                err(e.message || 'derive failed', EXIT.GENERAL)
+              }
+
+              log(`wallet trading-keystore derive: +${count}, total ${file!.addresses.length}`)
+
+              if (!AGENT_MODE) {
+                const newOnes = file!.addresses.slice(-count)
+                console.log(`\n  ${t.success}${icon.success} Derived ${count} additional wallet(s)${t.reset}`)
+                for (const a of newOnes) {
+                  console.log(`    ${t.muted}[${a.index}]${t.reset} ${a.address}`)
+                }
+                console.log(`\n  ${t.muted}Total wallets: ${file!.addresses.length}${t.reset}\n`)
+              } else {
+                print({ success: true, addedCount: count, totalCount: file!.addresses.length, addresses: file!.addresses })
+              }
+              break
+            }
+
+            if (sub === 'export') {
+              if (!flags.confirm) {
+                err(
+                  'This will display your mnemonic in plaintext. ' +
+                  'Anyone who sees it can drain every derived wallet.\n\n' +
+                  '  Re-run with --confirm to proceed:\n' +
+                  '  palmyr wallet trading-keystore export --confirm',
+                  EXIT.BAD_INPUT,
+                )
+              }
+              const pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+              if (!pass) err('PALMYR_TRADING_KEYSTORE_PASSPHRASE env var required for `export`.', EXIT.AUTH_FAIL)
+
+              const { exportMnemonic } = await import('./wallet-trading-keystore.js')
+              let mnemonic: string
+              try {
+                mnemonic = exportMnemonic(pass)
+              } catch (e: any) {
+                err(e.message || 'export failed', EXIT.SECURITY)
+              }
+
+              const warning = 'Anyone with these 24 words can drain every derived wallet. Write it down offline; never share, screenshot, or paste it.'
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.warn}⚠  TRADING KEYSTORE MNEMONIC — KEEP SECRET${t.reset}\n`)
+                console.log(`  ${mnemonic!}\n`)
+                console.log(`  ${t.muted}${warning}${t.reset}\n`)
+              } else {
+                print({ mnemonic: mnemonic!, warning })
+              }
+              break
+            }
+
+            err(`Unknown trading-keystore subcommand: ${sub}. Try: init, list, status, derive, export`, EXIT.BAD_INPUT)
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore`)
         }
         break
       }
