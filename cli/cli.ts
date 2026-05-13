@@ -84,6 +84,8 @@ const BOOLEAN_FLAGS = new Set([
   'dry-run', 'all', 'protected', 'auto-slippage',
   // wallet daemon + triggers flags
   'auto', 'clear',
+  // wallet brief flags
+  'evaluate',
 ])
 
 function parse(argv: string[]) {
@@ -216,9 +218,11 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<CA>', desc: 'Token mint / contract address (positional)' },
     { flag: '--amount <amt>', desc: 'Amount to spend (required)', hint: 'e.g. 0.5sol' },
     { flag: '--thesis "..."', desc: 'Plain-string reasoning for the entry (required)' },
-    { flag: '--cut <pct>', desc: 'Exit-plan stop-loss target', hint: 'e.g. -25%' },
-    { flag: '--tp <pct>', desc: 'Exit-plan take-profit target', hint: 'e.g. +40%' },
-    { flag: '--hold-if "..."', desc: 'Exit-plan hold condition' },
+    { flag: '--cut <pct>', desc: 'Stop-loss target', hint: 'e.g. -25%' },
+    { flag: '--tp <pct>', desc: 'Take-profit target', hint: 'e.g. +40%' },
+    { flag: '--trail <pct>', desc: 'Trailing-stop (drop from peak in pct points)', hint: 'e.g. 20%' },
+    { flag: '--time-limit <dur>', desc: 'Sell after duration regardless of PnL', hint: 'e.g. 24h, 30m, 7d' },
+    { flag: '--hold-if "..."', desc: 'Free-form hold condition (informational)' },
     { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env WALLET_SECRET_KEY)' },
     { flag: '--slippage <bps>', desc: 'Explicit slippage in basis points', hint: 'overrides --auto-slippage' },
     { flag: '--auto-slippage', desc: 'Dynamic slippage from DexScreener 5m volatility', hint: 'implied by --protected' },
@@ -263,6 +267,7 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   brief: [
     { flag: '<CA>', desc: 'Show a position brief: thesis + PnL + last sync time' },
+    { flag: '--evaluate', desc: 'Ask Claude (Haiku) whether the thesis still holds (requires ANTHROPIC_API_KEY)' },
   ],
   daemon: [
     { flag: 'tick', desc: 'One-shot: sync positions + evaluate triggers + exit' },
@@ -1824,6 +1829,8 @@ async function main() {
                 cut: flags.cut as string | undefined,
                 takeProfit: ((flags.tp as string) || (flags['take-profit'] as string)) || undefined,
                 holdIf: (flags['hold-if'] as string) || undefined,
+                trailingStop: (flags.trail as string) || undefined,
+                timeLimit: (flags['time-limit'] as string) || undefined,
                 walletRef,
                 slippageBps,
                 dryRun,
@@ -2204,9 +2211,21 @@ async function main() {
           case 'brief': {
             const ca = positional[0] || (flags.ca as string)
             if (!ca) err('CA required: palmyr wallet brief <CA>', EXIT.BAD_INPUT)
+            const evaluate = !!flags.evaluate
+
             const { readPosition } = await import('./wallet-trading.js')
             const p = readPosition('solana', ca)
             if (!p) err(`Position not found: ${ca}`, EXIT.NOT_FOUND)
+
+            let llm: Awaited<ReturnType<typeof import('./wallet-brief-llm.js').evaluateBriefWithLLM>> | undefined
+            if (evaluate) {
+              const { evaluateBriefWithLLM } = await import('./wallet-brief-llm.js')
+              try {
+                llm = await evaluateBriefWithLLM(p!)
+              } catch (e: any) {
+                err(e.message || 'brief --evaluate failed', EXIT.GENERAL)
+              }
+            }
 
             if (!AGENT_MODE) {
               console.log()
@@ -2223,8 +2242,19 @@ async function main() {
               kv('Realized', `${p!.pnl.realizedSol >= 0 ? '+' : ''}${p!.pnl.realizedSol.toFixed(6)} SOL`)
               console.log(`  ${t.muted}Unrealized:${t.reset}  ${pnlColor}${p!.pnl.unrealizedSol >= 0 ? '+' : ''}${p!.pnl.unrealizedSol.toFixed(6)} SOL (${p!.pnl.unrealizedPct.toFixed(2)}%)${t.reset}`)
               kv('Last priced', p!.pnl.lastPricedAt || 'never (run `wallet sync`)')
+              if (llm) {
+                console.log()
+                section(`LLM Assessment (${llm.model})`)
+                const holdsColor = llm.thesisHolds === 'yes' ? t.success : llm.thesisHolds === 'no' ? t.error : t.warn
+                console.log(`  ${t.muted}Thesis holds:${t.reset}    ${holdsColor}${llm.thesisHolds}${t.reset}`)
+                console.log(`  ${t.muted}Action:${t.reset}          ${llm.recommendedAction}`)
+                console.log(`  ${t.muted}Reasoning:${t.reset}       ${llm.reasoning}`)
+                console.log(`  ${t.muted}Watch for:${t.reset}       ${llm.watchFor}`)
+              } else {
+                console.log()
+                console.log(`  ${t.muted}Add --evaluate for an LLM thesis-health check.${t.reset}`)
+              }
               console.log()
-              console.log(`  ${t.muted}Phase 3 will add agent-evaluated thesis health here.${t.reset}\n`)
             } else {
               print({
                 ca: p!.mint,
@@ -2232,9 +2262,10 @@ async function main() {
                 entry: p!.entry,
                 thesis: p!.thesis,
                 exitPlan: p!.exitPlan,
+                monitorState: p!.monitorState,
                 pnl: p!.pnl,
                 sellsCount: p!.sells.length,
-                note: 'Phase 3 will add agent-evaluated thesis health.',
+                llm,
               })
             }
             break

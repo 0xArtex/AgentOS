@@ -37,6 +37,7 @@ import {
   readPosition,
   sell,
   sync,
+  writePosition,
   type PositionFile,
   type TradeLogLine,
 } from './wallet-trading.js'
@@ -63,9 +64,16 @@ export interface TriggerFire {
   chain: 'solana'
   wallet: string
   mint: string
-  trigger: 'cut' | 'takeProfit'
-  thresholdPct: number
+  trigger: 'cut' | 'takeProfit' | 'trailingStop' | 'timeLimit'
   currentPct: number
+  /** cut / takeProfit / trailingStop: the threshold value in pct points. */
+  thresholdPct?: number
+  /** trailingStop: peak unrealizedPct that the position has reached. */
+  peakPct?: number
+  /** timeLimit: configured duration in milliseconds. */
+  thresholdDurationMs?: number
+  /** timeLimit: actual elapsed milliseconds since entry at fire time. */
+  elapsedMs?: number
   proposedAction: 'sell-100'
   autoExecuted: boolean
   linkedSellTx?: string
@@ -95,49 +103,103 @@ export function parsePctString(s: string | undefined | null): number | null {
 }
 
 /**
- * Decide which triggers (if any) fire for a position right now.
+ * Parse a duration string like "24h", "30m", "7d", "45s", or a bare number
+ * (seconds) into milliseconds. Returns null on malformed input.
+ */
+export function parseDurationToMs(s: string | undefined | null): number | null {
+  if (!s) return null
+  const m = s.trim().match(/^(\d+(?:\.\d+)?)(s|m|h|d)?$/i)
+  if (!m) return null
+  const n = Number(m[1])
+  const unit = (m[2] || 's').toLowerCase()
+  const mult: Record<string, number> = { s: 1000, m: 60_000, h: 3_600_000, d: 86_400_000 }
+  return n * mult[unit]
+}
+
+/**
+ * Decide which triggers (if any) fire for a position right now. All triggers
+ * propose a full exit (`sell-100`).
+ *
  * - `cut`: fire when `unrealizedPct ≤ thresholdPct` (typically negative)
  * - `takeProfit`: fire when `unrealizedPct ≥ thresholdPct` (typically positive)
- * Phase 3 lite: both fire on a *full* exit (sell-100). Partial-fire semantics
- * land in Phase 3.5 alongside the trailing-stop trigger.
+ * - `trailingStop`: fire when `peakUnrealizedPct - currentPct ≥ trailPct` AND
+ *   peak > 0. The peak-gated condition keeps trailing distinct from cut: it
+ *   only arms after the position has been in profit, otherwise a positive
+ *   trail value would be equivalent to a stop loss at `-trailPct`.
+ * - `timeLimit`: fire when `Date.now() - new Date(entry.time).getTime() ≥
+ *   thresholdDurationMs`. Time-only — fires regardless of PnL.
  */
 export function evaluateTriggers(p: PositionFile): TriggerFire[] {
   if (p.status !== 'open') return []
   const out: TriggerFire[] = []
   const ts = new Date().toISOString()
   const currentPct = p.pnl.unrealizedPct
+  const base = {
+    ts,
+    chain: 'solana' as const,
+    wallet: p.wallet,
+    mint: p.mint,
+    currentPct,
+    proposedAction: 'sell-100' as const,
+    autoExecuted: false,
+  }
 
   const cutThreshold = parsePctString(p.exitPlan.cut)
   if (cutThreshold !== null && currentPct <= cutThreshold) {
-    out.push({
-      ts,
-      chain: 'solana',
-      wallet: p.wallet,
-      mint: p.mint,
-      trigger: 'cut',
-      thresholdPct: cutThreshold,
-      currentPct,
-      proposedAction: 'sell-100',
-      autoExecuted: false,
-    })
+    out.push({ ...base, trigger: 'cut', thresholdPct: cutThreshold })
   }
 
   const tpThreshold = parsePctString(p.exitPlan.takeProfit)
   if (tpThreshold !== null && currentPct >= tpThreshold) {
+    out.push({ ...base, trigger: 'takeProfit', thresholdPct: tpThreshold })
+  }
+
+  const trailPct = parsePctString(p.exitPlan.trailingStop)
+  if (
+    trailPct !== null &&
+    p.monitorState &&
+    p.monitorState.peakUnrealizedPct > 0 &&
+    p.monitorState.peakUnrealizedPct - currentPct >= trailPct
+  ) {
     out.push({
-      ts,
-      chain: 'solana',
-      wallet: p.wallet,
-      mint: p.mint,
-      trigger: 'takeProfit',
-      thresholdPct: tpThreshold,
-      currentPct,
-      proposedAction: 'sell-100',
-      autoExecuted: false,
+      ...base,
+      trigger: 'trailingStop',
+      thresholdPct: trailPct,
+      peakPct: p.monitorState.peakUnrealizedPct,
     })
   }
 
+  const limitMs = parseDurationToMs(p.exitPlan.timeLimit)
+  if (limitMs !== null) {
+    const elapsedMs = Date.now() - new Date(p.entry.time).getTime()
+    if (elapsedMs >= limitMs) {
+      out.push({
+        ...base,
+        trigger: 'timeLimit',
+        thresholdDurationMs: limitMs,
+        elapsedMs,
+      })
+    }
+  }
+
   return out
+}
+
+/**
+ * Update the per-position peak watermark used by the trailing-stop trigger.
+ * Called after sync (which refreshed `pnl.unrealizedPct`), before
+ * evaluateTriggers. Initializes monitorState if missing.
+ */
+export function updateMonitorPeak(p: PositionFile): PositionFile {
+  const currentPct = p.pnl.unrealizedPct
+  const nowIso = new Date().toISOString()
+  if (!p.monitorState) {
+    p.monitorState = { peakUnrealizedPct: currentPct, peakAt: nowIso }
+  } else if (currentPct > p.monitorState.peakUnrealizedPct) {
+    p.monitorState.peakUnrealizedPct = currentPct
+    p.monitorState.peakAt = nowIso
+  }
+  return p
 }
 
 // ───────── Pending triggers persistence ─────────
@@ -188,12 +250,14 @@ export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
   //    from chain + Jupiter quote, and writes updated position files atomically.
   const syncReport = await sync({ walletRef: opts.walletRef })
 
-  // 2. Re-read positions (they were just written by sync) and evaluate triggers.
-  //    We use the syncReport's mint list rather than re-scanning the dir.
+  // 2. Re-read positions (they were just written by sync), refresh the peak
+  //    watermark (for trailing-stop), then evaluate triggers.
   const fires: TriggerFire[] = []
   for (const syncEntry of syncReport.positions) {
     const p = readPosition('solana', syncEntry.mint)
     if (!p) continue
+    updateMonitorPeak(p)
+    writePosition(p)
     const positionFires = evaluateTriggers(p)
     for (const fire of positionFires) {
       // Auto-execute first (so the fire record carries the resulting sell tx)
@@ -219,8 +283,11 @@ export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
         wallet: fire.wallet,
         mint: fire.mint,
         trigger: fire.trigger,
-        thresholdPct: fire.thresholdPct,
         currentPct: fire.currentPct,
+        thresholdPct: fire.thresholdPct,
+        peakPct: fire.peakPct,
+        thresholdDurationMs: fire.thresholdDurationMs,
+        elapsedMs: fire.elapsedMs,
         proposedAction: fire.proposedAction,
         autoExecuted: fire.autoExecuted,
         linkedSellTx: fire.linkedSellTx,
