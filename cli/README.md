@@ -385,12 +385,14 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 | `palmyr wallet request-approval <ID> [--action limits] [--daily N] [--per-tx N]` | API | Managed wallets only — generate an approval URL for a human. |
 | `palmyr wallet export <ID> --confirm` | local | Print mnemonic. Requires explicit `--confirm`. |
 
-**Trading (Phase 1).** Thesis-tracked Solana positions persist at `~/.palmyr/trading/` (overridable via `PALMYR_TRADING_PATH`). Swaps route through Jupiter v6 via the shared `@palmyr/solana-trading` package. Positions, sells, journal, and watchlist live as JSON / JSONL.
+**Trading.** Thesis-tracked Solana positions persist at `~/.palmyr/trading/` (overridable via `PALMYR_TRADING_PATH`). Swaps route through Jupiter v6 via the shared `@palmyr/solana-trading` package. Positions, sells, journal, and watchlist live as JSON / JSONL.
+
+**MEV protection (Phase 2).** Pass `--protected` on `buy` / `sell` to route through Jito Block Engine with a tip (default 10000 lamports, override via `--tip <lamports>`). Automatically switches to dynamic slippage from DexScreener 5m volatility (`3× vol`, clamped to [0.5%, 15%]) unless `--slippage <bps>` is explicit. Realized PnL is fee-and-tip-aware. Each fill gets a post-trade forensics flag (`ok` / `suspect-mev`) based on how much of the slippage budget the realized fill consumed.
 
 | Command | Network | Notes |
 |---|---|---|
-| `palmyr wallet buy solana <CA> --amount 0.5sol --thesis "..."` | RPC + Jupiter | Open a position with a plain-string thesis. Optional `--cut`, `--tp`, `--hold-if`, `--wallet <id\|name>`, `--slippage <bps>`, `--dry-run`. |
-| `palmyr wallet sell solana <CA> --percent 50 --reason "..."` | RPC + Jupiter | Sell N% of remaining tokens. FIFO realized PnL. Auto-closes the position when fully exited. |
+| `palmyr wallet buy solana <CA> --amount 0.5sol --thesis "..."` | RPC + Jupiter | Open a position with a plain-string thesis. Optional `--cut`, `--tp`, `--hold-if`, `--wallet <id\|name>`, `--slippage <bps>`, `--auto-slippage`, `--protected`, `--tip <lamports>`, `--dry-run`. |
+| `palmyr wallet sell solana <CA> --percent 50 --reason "..."` | RPC + Jupiter | Sell N% of remaining tokens. FIFO realized PnL (post-fee, post-tip). Auto-closes the position when fully exited. Same `--protected` / `--auto-slippage` / `--tip` flags as `buy`. |
 | `palmyr wallet positions [--chain X] [--wallet Y] [--all]` | local | List positions. `--all` includes closed. |
 | `palmyr wallet position <CA>` | local | Full detail view: thesis verbatim, exit plan, sells, PnL. |
 | `palmyr wallet sync [--wallet Y]` | RPC + Jupiter | Reconcile on-chain balances against book; refresh unrealized PnL. Read-only — flags drift, never auto-corrects. |
