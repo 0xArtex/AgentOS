@@ -434,7 +434,14 @@ Auth fallback for `--wallet trading:N` and the daemon: explicit `passphrase` arg
 | `palmyr wallet evm-quote <SRC> <DST> --amount <raw> [--chain base]` | ParaSwap | Get a swap quote without signing. `<SRC>`/`<DST>` accept `eth` for native or a `0x...` address. `--amount` is the raw integer in src smallest unit. |
 | `palmyr wallet buy base <0xToken> --amount 0.01eth --thesis "..." --wallet trading:N` | ParaSwap + Base RPC | Open a Base position. Amount accepts `Neth` / `Ngwei` / `Nwei`. `--wallet` must be a keystore reference (`trading:N`); env-keypair fallback is Phase 5c. Standard exit-plan flags (`--cut`, `--tp`, `--trail`, `--time-limit`, `--thesis-check`) all work. `--protected` (Flashbots) is Phase 5c. |
 
-**Phase 5b limitations (intentional):** sell + sync on Base are deferred to Phase 5c. To close a Base position today, use Phantom or Coinbase Wallet's swap UI; the local position record will still be queryable via `palmyr wallet position <0xToken>` for thesis review, but won't reflect the on-chain sell. Phase 5c will add `palmyr wallet sell base <0xToken>` with ERC20 approval handling (Permit2) and `palmyr wallet sync` Base support.
+**Phase 5c additions:**
+
+| Command | Network | Notes |
+|---|---|---|
+| `palmyr wallet sell base <0xToken> --percent N --reason "..." --wallet trading:N` | ParaSwap + Base RPC | Sell N% of remaining tokens. **Auto-handles ERC20 approval** (sends max approval to the ParaSwap router on first sell of a given token; subsequent sells skip the approval step). FIFO realized PnL in ETH = (gross proceeds - sell gas) - proportional (entry cost + entry gas). Auto-closes when 100% sold. The CLI output shows the approval tx hash separately from the swap tx hash when an approval was issued. |
+| `palmyr wallet sync --chain base --wallet trading:N` | Base RPC + ParaSwap | Reconcile open Base positions: ERC20 balance vs book, refresh unrealized ETH via ParaSwap quote token→ETH at 50bps. Read-only — flags drift, never auto-corrects. |
+
+**Still deferred to future phases:** `--protected` on Base (Base's L2 sequencer architecture doesn't have the same public-mempool MEV problem as Ethereum mainnet, so this is lower priority — sequencing is FIFO by submission time). Cross-chain `pnl --by chain` aggregation with USD conversion. Daemon support for Base positions (needs `syncBase` integration into the daemon loop; the trigger evaluation already chain-agnostic, it just needs to be invoked for Base positions on each tick).
 
 ### Twitter / X
 

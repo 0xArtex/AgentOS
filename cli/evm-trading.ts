@@ -125,6 +125,13 @@ export interface EvmSwapParams {
   slippageBps: number
   chainId: number
   dryRun?: boolean
+  /**
+   * Phase 5c — optional hook that fires AFTER the swap tx has been built
+   * (so the caller knows the router/spender address from txBlob.to) but
+   * BEFORE the tx is signed and sent. Use this to run ERC20 approvals for
+   * token-input swaps.
+   */
+  onTxBuilt?: (txBlob: { to: string; value: string; data: string; chainId: number }) => Promise<void>
 }
 
 export interface EvmSwapResult {
@@ -167,6 +174,17 @@ export async function executeEvmSwap(params: EvmSwapParams): Promise<EvmSwapResu
 
   const userAddr = await params.wallet.getAddress()
   const txBlob = await buildParaswapTx(priceRoute, userAddr, params.slippageBps, params.chainId)
+
+  // Phase 5c — hook for ERC20 approval (or anything else that depends on knowing
+  // the router address before send). Runs after the swap tx is built.
+  if (params.onTxBuilt) {
+    await params.onTxBuilt({
+      to: txBlob.to,
+      value: txBlob.value,
+      data: txBlob.data,
+      chainId: txBlob.chainId,
+    })
+  }
 
   // 10% buffer on gas to avoid out-of-gas reverts under load.
   const gasLimit = (BigInt(txBlob.gas) * 110n) / 100n
@@ -269,4 +287,39 @@ export async function getErc20Balance(
     provider,
   )
   return (await erc20.balanceOf(owner)) as bigint
+}
+
+/**
+ * Phase 5c — ensure the connected wallet has approved `spender` to pull at least
+ * `needed` units of `token`. Uses max-approval (2^256-1) when an approve tx
+ * is required, which is standard for trading routers: saves gas on every
+ * subsequent sell.
+ *
+ * Caller's responsibility: pass an ethers.Wallet that's `.connect()`ed to a
+ * provider, and the ParaSwap router address as `spender` (the `to` field of
+ * the price-route's transaction blob).
+ */
+const ERC20_ALLOWANCE_ABI = [
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)',
+]
+
+export async function ensureErc20Approval(
+  wallet: ethers.Wallet,
+  token: string,
+  spender: string,
+  needed: bigint,
+): Promise<{ approved: boolean; txHash?: string }> {
+  if (token.toLowerCase() === NATIVE_ETH) return { approved: false } // native ETH doesn't need approval
+  const erc20 = new ethers.Contract(token, ERC20_ALLOWANCE_ABI, wallet)
+  const owner = await wallet.getAddress()
+  const current = (await erc20.allowance(owner, spender)) as bigint
+  if (current >= needed) return { approved: false }
+  const max = (2n ** 256n) - 1n
+  const tx = await erc20.approve(spender, max)
+  const receipt = await tx.wait(1)
+  if (!receipt || receipt.status === 0) {
+    throw new Error(`ERC20 approval failed: ${tx.hash}`)
+  }
+  return { approved: true, txHash: tx.hash }
 }

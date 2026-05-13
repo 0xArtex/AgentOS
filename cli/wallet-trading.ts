@@ -769,6 +769,282 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
   }
 }
 
+// ───────── sellBase ─────────
+
+export interface SellBaseOpts {
+  ca: string
+  percent: number
+  reason: string
+  walletRef?: string
+  passphrase?: string
+  slippageBps?: number
+  dryRun?: boolean
+  rpcUrl?: string
+}
+
+export interface SellBaseResult {
+  positionPath: string
+  txHash: string
+  tokensIn: string
+  tokensInRaw: string
+  ethOut: string
+  ethOutRawWei: string
+  realizedEth: number
+  positionStatus: 'open' | 'closed'
+  wallet: string
+  mint: string
+  dryRun: boolean
+  feeWei: string
+  slippageBpsUsed: number
+  approvalTxHash?: string
+}
+
+export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
+  assertValidEvmAddress(opts.ca)
+  if (!opts.reason?.trim()) throw new Error('Missing --reason')
+  if (!(opts.percent > 0 && opts.percent <= 100)) {
+    throw new Error(`--percent must be in (0, 100], got ${opts.percent}`)
+  }
+
+  const position = readPosition('base', opts.ca)
+  if (!position) throw new Error(`No Base position found for ${opts.ca}`)
+  if (position.status !== 'open') throw new Error(`Position ${opts.ca} is already closed`)
+
+  const cfg = loadTradingConfig()
+  const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
+
+  const {
+    executeEvmSwap,
+    ensureErc20Approval,
+    makeEvmProvider,
+    NATIVE_ETH,
+    BASE_CHAIN_ID,
+    DEFAULT_BASE_RPC,
+  } = await import('./evm-trading.js')
+
+  const signer = await resolveEvmSigner(opts.walletRef, opts.passphrase)
+  if (signer.address.toLowerCase() !== position.wallet.toLowerCase()) {
+    throw new Error(
+      `Wallet mismatch: position was opened from ${position.wallet} but signer is ${signer.address}.`,
+    )
+  }
+
+  const provider = makeEvmProvider(opts.rpcUrl ?? DEFAULT_BASE_RPC)
+  const connectedWallet = signer.wallet.connect(provider) as import('ethers').Wallet
+
+  // BigInt math: remaining = totalEntry - sumOfSells (in u256 raw)
+  const totalRaw = BigInt(position.entry.tokensOutRaw)
+  const soldRaw = position.sells.reduce((acc, s) => acc + BigInt(s.tokensInRaw), 0n)
+  const remainingRaw = totalRaw - soldRaw
+  if (remainingRaw <= 0n) throw new Error('No tokens remaining to sell.')
+
+  const percentScaled = BigInt(Math.round(opts.percent * 100))
+  const tokensToSellRaw = (remainingRaw * percentScaled) / 10000n
+  if (tokensToSellRaw <= 0n) {
+    throw new Error(`Computed sell amount is zero (remaining=${remainingRaw}, percent=${opts.percent}).`)
+  }
+
+  let approvalTxHash: string | undefined
+
+  const swap = await executeEvmSwap({
+    provider,
+    wallet: connectedWallet,
+    srcToken: opts.ca,
+    destToken: NATIVE_ETH,
+    srcAmount: tokensToSellRaw.toString(),
+    srcDecimals: position.entry.tokenDecimals,
+    destDecimals: 18,
+    slippageBps,
+    chainId: BASE_CHAIN_ID,
+    dryRun: opts.dryRun,
+    onTxBuilt: async (txBlob) => {
+      if (opts.dryRun) return // skip approval in dry-run
+      const result = await ensureErc20Approval(
+        connectedWallet,
+        opts.ca,
+        txBlob.to,
+        tokensToSellRaw,
+      )
+      if (result.approved && result.txHash) approvalTxHash = result.txHash
+    },
+  })
+
+  const ethOutRawWei = swap.destAmount
+  const ethOutDisplay = formatEthHuman(ethOutRawWei)
+  const tokensInUi = Number(BigInt(tokensToSellRaw.toString())) / Math.pow(10, position.entry.tokenDecimals)
+  const tokensInDisplay = formatTokensHuman(tokensInUi, 6)
+
+  // Realized PnL: proportional cost basis vs net proceeds.
+  // costWei = (entryAmountInWei + entryFeeWei) * tokensSold / totalTokens
+  const entryAmountWei = BigInt(position.entry.amountInRawWei)
+  const entryFeeWei = BigInt(position.entry.feeWei ?? '0')
+  const totalEntryCostWei = entryAmountWei + entryFeeWei
+  const costWei = (totalEntryCostWei * tokensToSellRaw) / totalRaw
+  const sellFeeWei = BigInt(swap.feeWei)
+  const proceedsNetWei = BigInt(ethOutRawWei) - sellFeeWei
+  const realizedWei = proceedsNetWei - costWei
+  // realizedEth as JS number — for typical positions (<1 ETH), fits comfortably.
+  const realizedEth = Number(realizedWei) / 1e18
+
+  const nowIso = new Date().toISOString()
+  position.sells.push({
+    tx: swap.txHash,
+    time: nowIso,
+    tokensIn: tokensInDisplay,
+    tokensInRaw: tokensToSellRaw.toString(),
+    ethOut: ethOutDisplay,
+    ethOutRawWei,
+    percentRequested: opts.percent,
+    realizedEth,
+    reason: opts.reason.trim(),
+    feeWei: swap.feeWei,
+    slippageBpsUsed: slippageBps,
+    protectedExec: false,
+  })
+
+  position.pnl.realizedEth = position.sells.reduce((a, s) => a + s.realizedEth, 0)
+
+  const newSoldRaw = soldRaw + tokensToSellRaw
+  if (newSoldRaw >= totalRaw) {
+    position.status = 'closed'
+    position.pnl.unrealizedEth = 0
+    position.pnl.unrealizedPct = 0
+  }
+
+  writePosition(position)
+
+  return {
+    positionPath: positionPath('base', opts.ca),
+    txHash: swap.txHash,
+    tokensIn: tokensInDisplay,
+    tokensInRaw: tokensToSellRaw.toString(),
+    ethOut: ethOutDisplay,
+    ethOutRawWei,
+    realizedEth,
+    positionStatus: position.status,
+    wallet: signer.address,
+    mint: opts.ca,
+    dryRun: !!opts.dryRun,
+    feeWei: swap.feeWei,
+    slippageBpsUsed: slippageBps,
+    approvalTxHash,
+  }
+}
+
+// ───────── syncBase ─────────
+
+export interface SyncBaseOpts {
+  walletRef?: string
+  passphrase?: string
+  rpcUrl?: string
+  slippageBpsForQuote?: number
+}
+
+export interface SyncBaseEntry {
+  mint: string
+  status: 'open' | 'closed'
+  bookRaw: string
+  onchainRaw: string
+  drift: string | null
+  unrealizedEth: number
+  unrealizedPct: number
+  note: string
+}
+
+export interface SyncBaseReport {
+  wallet: string
+  positions: SyncBaseEntry[]
+}
+
+export async function syncBase(opts: SyncBaseOpts = {}): Promise<SyncBaseReport> {
+  const cfg = loadTradingConfig()
+  const slippageBpsForQuote = opts.slippageBpsForQuote ?? 50
+
+  const {
+    fetchParaswapPrice,
+    getErc20Balance,
+    makeEvmProvider,
+    NATIVE_ETH,
+    BASE_CHAIN_ID,
+    DEFAULT_BASE_RPC,
+  } = await import('./evm-trading.js')
+
+  const signer = await resolveEvmSigner(opts.walletRef, opts.passphrase)
+  const provider = makeEvmProvider(opts.rpcUrl ?? DEFAULT_BASE_RPC)
+
+  const positions = listPositions({
+    chain: 'base',
+    walletAddress: signer.address,
+  })
+
+  const report: SyncBaseEntry[] = []
+  const nowIso = new Date().toISOString()
+
+  for (const p of positions) {
+    const onchainRaw = await getErc20Balance(provider, p.mint, signer.address)
+    const totalRaw = BigInt(p.entry.tokensOutRaw)
+    const soldRaw = p.sells.reduce((acc, s) => acc + BigInt(s.tokensInRaw), 0n)
+    const bookRaw = totalRaw - soldRaw
+
+    const drift =
+      onchainRaw === bookRaw
+        ? null
+        : onchainRaw === 0n
+          ? 'book-says-open-but-chain-empty'
+          : `book=${bookRaw.toString()} chain=${onchainRaw.toString()}`
+
+    let unrealizedEth = 0
+    let unrealizedPct = 0
+    let priceNote: string | null = null
+
+    if (bookRaw > 0n && p.status === 'open') {
+      try {
+        const route = await fetchParaswapPrice({
+          srcToken: p.mint,
+          destToken: NATIVE_ETH,
+          amount: bookRaw.toString(),
+          srcDecimals: p.entry.tokenDecimals,
+          destDecimals: 18,
+          network: BASE_CHAIN_ID,
+        })
+        const quotedEthOutWei = BigInt(route.destAmount)
+        // Proportional cost basis in wei.
+        const entryCostWei = BigInt(p.entry.amountInRawWei) + BigInt(p.entry.feeWei ?? '0')
+        const remainingCostWei = (entryCostWei * bookRaw) / totalRaw
+        const diffWei = quotedEthOutWei - remainingCostWei
+        unrealizedEth = Number(diffWei) / 1e18
+        unrealizedPct = remainingCostWei > 0n
+          ? (Number(diffWei) / Number(remainingCostWei)) * 100
+          : 0
+        p.pnl.unrealizedEth = unrealizedEth
+        p.pnl.unrealizedPct = unrealizedPct
+        p.pnl.lastPricedAt = nowIso
+      } catch (e: any) {
+        priceNote = `quote failed: ${e?.message ?? String(e)}`
+      }
+    } else {
+      p.pnl.unrealizedEth = 0
+      p.pnl.unrealizedPct = 0
+    }
+
+    writePosition(p)
+
+    const note = priceNote ?? drift ?? 'ok'
+    report.push({
+      mint: p.mint,
+      status: p.status,
+      bookRaw: bookRaw.toString(),
+      onchainRaw: onchainRaw.toString(),
+      drift,
+      unrealizedEth,
+      unrealizedPct,
+      note,
+    })
+  }
+
+  return { wallet: signer.address, positions: report }
+}
+
 /**
  * Best-effort market cap at entry time: Jupiter /price × on-chain supply.
  * Returns null if either lookup fails — the position is still valid without it.
