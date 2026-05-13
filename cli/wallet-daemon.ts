@@ -64,7 +64,7 @@ export interface TriggerFire {
   chain: 'solana'
   wallet: string
   mint: string
-  trigger: 'cut' | 'takeProfit' | 'trailingStop' | 'timeLimit'
+  trigger: 'cut' | 'takeProfit' | 'trailingStop' | 'timeLimit' | 'thesis_falsified'
   currentPct: number
   /** cut / takeProfit / trailingStop: the threshold value in pct points. */
   thresholdPct?: number
@@ -74,6 +74,10 @@ export interface TriggerFire {
   thresholdDurationMs?: number
   /** timeLimit: actual elapsed milliseconds since entry at fire time. */
   elapsedMs?: number
+  /** thesis_falsified: LLM verdict from the most recent check. */
+  llmVerdict?: 'yes' | 'no' | 'unclear'
+  /** thesis_falsified: short LLM reasoning string. */
+  llmReasoning?: string
   proposedAction: 'sell-100'
   autoExecuted: boolean
   linkedSellTx?: string
@@ -182,6 +186,23 @@ export function evaluateTriggers(p: PositionFile): TriggerFire[] {
     }
   }
 
+  // Phase 7: thesis_falsified — fires when the most recent LLM check returned
+  // 'no'. Gated on `lastThesisCheckAt > lastThesisFiredAt` so we only fire once
+  // per check; the daemon stamps `lastThesisFiredAt` after appending the fire.
+  if (p.exitPlan.thesisCheck && p.monitorState?.lastThesisVerdict === 'no') {
+    const checkedAt = p.monitorState.lastThesisCheckAt
+    const firedAt = p.monitorState.lastThesisFiredAt
+    const isNewVerdict = !!checkedAt && (!firedAt || checkedAt > firedAt)
+    if (isNewVerdict) {
+      out.push({
+        ...base,
+        trigger: 'thesis_falsified',
+        llmVerdict: 'no',
+        llmReasoning: p.monitorState.lastThesisReasoning,
+      })
+    }
+  }
+
   return out
 }
 
@@ -200,6 +221,38 @@ export function updateMonitorPeak(p: PositionFile): PositionFile {
     p.monitorState.peakAt = nowIso
   }
   return p
+}
+
+/**
+ * Phase 7 — if `exitPlan.thesisCheck` is set and enough time has passed since
+ * the last LLM check, call `evaluateBriefWithLLM` and stash the verdict in
+ * `monitorState`. Non-fatal on error (logs to daemon.log, returns unchanged).
+ */
+async function maybeRunThesisCheck(p: PositionFile): Promise<void> {
+  const interval = parseDurationToMs(p.exitPlan.thesisCheck)
+  if (interval === null) return
+
+  const last = p.monitorState?.lastThesisCheckAt
+  if (last) {
+    const elapsed = Date.now() - new Date(last).getTime()
+    if (elapsed < interval) return
+  }
+
+  try {
+    const { evaluateBriefWithLLM } = await import('./wallet-brief-llm.js')
+    const llm = await evaluateBriefWithLLM(p)
+    if (!p.monitorState) {
+      p.monitorState = { peakUnrealizedPct: p.pnl.unrealizedPct, peakAt: new Date().toISOString() }
+    }
+    p.monitorState.lastThesisCheckAt = new Date().toISOString()
+    p.monitorState.lastThesisVerdict = llm.thesisHolds
+    p.monitorState.lastThesisReasoning = llm.reasoning
+  } catch (e: any) {
+    appendFileSync(
+      LOG_FILE,
+      `[${new Date().toISOString()}] thesis check failed for ${p.mint}: ${e?.message ?? String(e)}\n`,
+    )
+  }
 }
 
 // ───────── Pending triggers persistence ─────────
@@ -251,12 +304,14 @@ export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
   const syncReport = await sync({ walletRef: opts.walletRef })
 
   // 2. Re-read positions (they were just written by sync), refresh the peak
-  //    watermark (for trailing-stop), then evaluate triggers.
+  //    watermark (for trailing-stop), optionally run an LLM thesis check, then
+  //    evaluate triggers.
   const fires: TriggerFire[] = []
   for (const syncEntry of syncReport.positions) {
     const p = readPosition('solana', syncEntry.mint)
     if (!p) continue
     updateMonitorPeak(p)
+    await maybeRunThesisCheck(p)
     writePosition(p)
     const positionFires = evaluateTriggers(p)
     for (const fire of positionFires) {
@@ -288,12 +343,20 @@ export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
         peakPct: fire.peakPct,
         thresholdDurationMs: fire.thresholdDurationMs,
         elapsedMs: fire.elapsedMs,
+        llmVerdict: fire.llmVerdict,
+        llmReasoning: fire.llmReasoning,
         proposedAction: fire.proposedAction,
         autoExecuted: fire.autoExecuted,
         linkedSellTx: fire.linkedSellTx,
         note: fire.error,
       }
       appendTradeLog(logLine)
+      // Stamp the thesis_falsified fire timestamp so we don't refire until
+      // the next LLM check produces a new (or refreshed) verdict.
+      if (fire.trigger === 'thesis_falsified' && p.monitorState) {
+        p.monitorState.lastThesisFiredAt = fire.ts
+        writePosition(p)
+      }
       fires.push(fire)
     }
   }
