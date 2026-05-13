@@ -134,11 +134,17 @@ export interface PositionFile {
     holdIf?: string
     trailingStop?: string             // Phase 3.5 — e.g., "20%" — drop in pct points from peak
     timeLimit?: string                // Phase 3.5 — e.g., "24h", "30m", "7d"
+    thesisCheck?: string              // Phase 7 — e.g., "6h" — interval between LLM thesis-health checks
   }
   /** Phase 3.5 — peak watermark for trailing-stop evaluation. */
   monitorState?: {
     peakUnrealizedPct: number
     peakAt: string                    // ISO 8601
+    // Phase 7 — LLM thesis-check bookkeeping
+    lastThesisCheckAt?: string        // ISO 8601 of last LLM call
+    lastThesisVerdict?: 'yes' | 'no' | 'unclear'
+    lastThesisReasoning?: string
+    lastThesisFiredAt?: string        // ISO 8601 of last thesis_falsified fire (prevents re-fire until next check)
   }
   riskFlags: string[]
   sells: Array<{
@@ -219,12 +225,14 @@ export type TradeLogLine =
       chain: 'solana'
       wallet: string
       mint: string
-      trigger: 'cut' | 'takeProfit' | 'trailingStop' | 'timeLimit'
+      trigger: 'cut' | 'takeProfit' | 'trailingStop' | 'timeLimit' | 'thesis_falsified'
       currentPct: number
       thresholdPct?: number           // cut/takeProfit/trailingStop
       peakPct?: number                // trailingStop
       thresholdDurationMs?: number    // timeLimit
       elapsedMs?: number              // timeLimit
+      llmVerdict?: 'yes' | 'no' | 'unclear'  // thesis_falsified
+      llmReasoning?: string           // thesis_falsified
       proposedAction: 'sell-100'
       autoExecuted: boolean
       linkedSellTx?: string
@@ -507,6 +515,8 @@ export interface BuyOpts {
   // Phase 3.5 — additional triggers
   trailingStop?: string             // e.g., "20%"
   timeLimit?: string                // e.g., "24h"
+  // Phase 7 — LLM thesis check interval (e.g., "6h"); pairs with daemon
+  thesisCheck?: string
 }
 
 export interface BuyResult {
@@ -629,6 +639,7 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
       holdIf: opts.holdIf,
       trailingStop: opts.trailingStop,
       timeLimit: opts.timeLimit,
+      thesisCheck: opts.thesisCheck,
     },
     monitorState: {
       peakUnrealizedPct: 0,
