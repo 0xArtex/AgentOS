@@ -545,3 +545,146 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     dryRun: !!opts.dryRun,
   }
 }
+
+// ───────── sell ─────────
+
+export interface SellOpts {
+  ca: string
+  percent: number                   // 0 < p ≤ 100
+  reason: string
+  walletRef?: string
+  passphrase?: string
+  slippageBps?: number
+  dryRun?: boolean
+  rpcUrl?: string
+}
+
+export interface SellResult {
+  positionPath: string
+  txSignature: string
+  tokensIn: string
+  tokensInRaw: string
+  solOut: string
+  solOutRaw: number
+  realizedSol: number
+  positionStatus: 'open' | 'closed'
+  wallet: string
+  mint: string
+  dryRun: boolean
+}
+
+export async function sell(opts: SellOpts): Promise<SellResult> {
+  const mintPk = assertValidMint(opts.ca)
+  if (!opts.reason?.trim()) throw new Error('Missing --reason')
+  if (!(opts.percent > 0 && opts.percent <= 100)) {
+    throw new Error(`--percent must be in (0, 100], got ${opts.percent}`)
+  }
+
+  const position = readPosition('solana', opts.ca)
+  if (!position) throw new Error(`No position found for ${opts.ca}`)
+  if (position.status !== 'open') throw new Error(`Position ${opts.ca} is already closed`)
+
+  const cfg = loadTradingConfig()
+  const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
+  const rpcUrl = opts.rpcUrl ?? cfg.rpcUrl
+  const quoteMaxAgeMs = cfg.quoteMaxAgeMs
+
+  const signer = await resolveSigner(opts.walletRef, opts.passphrase)
+  if (signer.address !== position.wallet) {
+    throw new Error(
+      `Wallet mismatch: position was opened from ${position.wallet} but signer is ${signer.address}.`,
+    )
+  }
+  const connection: Connection = makeConnection(rpcUrl)
+
+  // FIFO remaining = totalEntry - sumOfSells (in raw u64)
+  const totalRaw = BigInt(position.entry.tokensOutRaw)
+  const soldRaw = position.sells.reduce(
+    (acc, s) => acc + BigInt(s.tokensInRaw),
+    0n,
+  )
+  const remainingRaw = totalRaw - soldRaw
+  if (remainingRaw <= 0n) throw new Error('No tokens remaining to sell.')
+
+  // BigInt-safe sizing: percent×100 ÷ 10000
+  const percentScaled = BigInt(Math.round(opts.percent * 100))
+  const tokensToSellRaw = (remainingRaw * percentScaled) / 10000n
+  if (tokensToSellRaw <= 0n) {
+    throw new Error(`Computed sell amount is zero (remaining=${remainingRaw}, percent=${opts.percent}).`)
+  }
+
+  const swap = await executeSwap({
+    connection,
+    wallet: signer.keypair,
+    inputMint: mintPk.toBase58(),
+    outputMint: SOL_MINT.toBase58(),
+    inputAmountRaw: Number(tokensToSellRaw),
+    slippageBps,
+    dryRun: opts.dryRun,
+    quoteMaxAgeMs,
+  })
+
+  const solOutRaw = swap.outputAmountRaw
+  const tokensInUi = Number(tokensToSellRaw) / Math.pow(10, position.entry.tokenDecimals)
+  const tokensInDisplay = formatTokensHuman(tokensInUi, 6)
+  const solOutDisplay = formatSolHuman(solOutRaw, 6)
+
+  // FIFO realized: proportion of entry cost basis
+  const entrySol = position.entry.amountInRawSol / 1e9
+  const proportion = Number(tokensToSellRaw) / Number(totalRaw)
+  const costSol = proportion * entrySol
+  const proceedsSol = solOutRaw / 1e9
+  const realizedSol = proceedsSol - costSol
+
+  const nowIso = new Date().toISOString()
+  position.sells.push({
+    tx: swap.txSignature,
+    time: nowIso,
+    tokensIn: tokensInDisplay,
+    tokensInRaw: tokensToSellRaw.toString(),
+    solOut: solOutDisplay,
+    solOutRaw,
+    percentRequested: opts.percent,
+    realizedSol,
+    reason: opts.reason.trim(),
+  })
+
+  position.pnl.realizedSol = position.sells.reduce((a, s) => a + s.realizedSol, 0)
+
+  const newSoldRaw = soldRaw + tokensToSellRaw
+  if (newSoldRaw >= totalRaw) {
+    position.status = 'closed'
+    position.pnl.unrealizedSol = 0
+    position.pnl.unrealizedPct = 0
+  }
+
+  writePosition(position)
+
+  appendTradeLog({
+    kind: 'sell',
+    ts: nowIso,
+    chain: 'solana',
+    wallet: signer.address,
+    mint: opts.ca,
+    tx: swap.txSignature,
+    tokensIn: tokensInDisplay,
+    solOut: proceedsSol,
+    percentRequested: opts.percent,
+    realizedSol,
+    reason: opts.reason.trim(),
+  })
+
+  return {
+    positionPath: positionPath('solana', opts.ca),
+    txSignature: swap.txSignature,
+    tokensIn: tokensInDisplay,
+    tokensInRaw: tokensToSellRaw.toString(),
+    solOut: solOutDisplay,
+    solOutRaw,
+    realizedSol,
+    positionStatus: position.status,
+    wallet: signer.address,
+    mint: opts.ca,
+    dryRun: !!opts.dryRun,
+  }
+}

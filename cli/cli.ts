@@ -225,6 +225,15 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   position: [
     { flag: '<CA>', desc: 'Token mint / contract address (positional or --ca)' },
   ],
+  sell: [
+    { flag: '<CHAIN>', desc: 'Chain (positional)', hint: 'solana' },
+    { flag: '<CA>', desc: 'Token mint / contract address (positional)' },
+    { flag: '--percent <n>', desc: 'Percent of remaining tokens to sell (required)', hint: '1-100' },
+    { flag: '--reason "..."', desc: 'Why are you exiting? (required)' },
+    { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env)' },
+    { flag: '--slippage <bps>', desc: 'Slippage in basis points', hint: 'default 100 (1%)' },
+    { flag: '--dry-run', desc: 'Simulate without sending the swap' },
+  ],
 }
 /**
  * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
@@ -1443,6 +1452,7 @@ async function main() {
               { name: 'buy', description: 'Open a trading position', hint: 'solana <CA> --amount 0.5sol --thesis "..."' },
               { name: 'positions', description: 'List open (and optionally closed) positions', hint: '[--chain X] [--wallet Y] [--all]' },
               { name: 'position', description: 'Show details for a single position', hint: '<CA>' },
+              { name: 'sell', description: 'Sell part or all of a position', hint: 'solana <CA> --percent 50 --reason "..."' },
             ],
             fromHome,
           })
@@ -1889,7 +1899,55 @@ async function main() {
             }
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position`)
+          case 'sell': {
+            const chain = (positional[0] || 'solana').toLowerCase()
+            if (chain !== 'solana') err(`Unsupported chain: ${chain}. Only 'solana' for now.`, EXIT.BAD_INPUT)
+            const ca = positional[1] || (flags.ca as string)
+            if (!ca) err('CA required: palmyr wallet sell solana <CA> --percent 50 --reason "..."', EXIT.BAD_INPUT)
+            const percent = flags.percent !== undefined ? Number(flags.percent) : NaN
+            if (!isFinite(percent) || percent <= 0 || percent > 100) {
+              err('--percent required (0 < p ≤ 100), e.g. --percent 50', EXIT.BAD_INPUT)
+            }
+            const reason = flags.reason as string
+            if (!reason) err('--reason required (why are you exiting?)', EXIT.BAD_INPUT)
+            const walletRef = (flags.wallet as string) || undefined
+            const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
+            const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+
+            const { sell } = await import('./wallet-trading.js')
+            let result: Awaited<ReturnType<typeof sell>>
+            try {
+              result = await sell({
+                ca,
+                percent,
+                reason,
+                walletRef,
+                slippageBps,
+                dryRun,
+              })
+            } catch (e: any) {
+              err(e.message || 'sell failed', EXIT.GENERAL)
+            }
+
+            log(`wallet sell: ${ca} ${percent}% (${result!.txSignature})`)
+
+            if (!AGENT_MODE) {
+              const tag = result!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
+              const pnlColor = result!.realizedSol >= 0 ? t.success : t.error
+              const closedTag = result!.positionStatus === 'closed' ? ` ${t.muted}[closed]${t.reset}` : ''
+              console.log(`\n  ${t.success}${icon.success} ${tag}Sell executed${closedTag}${t.reset}`)
+              console.log(`  ${t.muted}tx:${t.reset}        ${result!.txSignature}`)
+              console.log(`  ${t.muted}sold:${t.reset}      ${result!.tokensIn} tokens (${percent}%)`)
+              console.log(`  ${t.muted}received:${t.reset}  ${result!.solOut}`)
+              console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${result!.realizedSol >= 0 ? '+' : ''}${result!.realizedSol.toFixed(6)} SOL${t.reset}`)
+              console.log(`  ${t.muted}reason:${t.reset}    ${reason}`)
+              console.log()
+            } else {
+              print(result!)
+            }
+            break
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell`)
         }
         break
       }
