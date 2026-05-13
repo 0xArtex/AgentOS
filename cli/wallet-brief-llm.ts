@@ -72,7 +72,11 @@ function buildPrompt(p: PositionFile): string {
     p.exitPlan.holdIf ? `holdIf=${p.exitPlan.holdIf}` : null,
   ].filter(Boolean).join(' | ') || 'none'
 
-  return `You are reviewing a Solana trading position. The trader entered with this plain-string thesis:
+  // Phase 5b — chain-aware realized PnL formatting.
+  const realized =
+    p.chain === 'solana' ? p.pnl.realizedSol : p.pnl.realizedEth
+  const unit = p.chain === 'solana' ? 'SOL' : 'ETH'
+  return `You are reviewing a ${p.chain === 'base' ? 'Base' : 'Solana'} trading position. The trader entered with this plain-string thesis:
 
 THESIS: ${p.thesis}
 
@@ -80,7 +84,7 @@ Current state:
 - Position opened: ${elapsedHours}h ago (${p.entry.time})
 - Entry: ${p.entry.amountIn} → ${p.entry.tokensOut} tokens
 - Unrealized PnL: ${p.pnl.unrealizedPct.toFixed(2)}%
-- Realized PnL: ${p.pnl.realizedSol.toFixed(6)} SOL (${p.sells.length} prior sells)
+- Realized PnL: ${realized.toFixed(6)} ${unit} (${p.sells.length} prior sells)
 - Status: ${p.status}
 - Last priced: ${lastPriced}
 - Risk flags: ${riskFlags}
