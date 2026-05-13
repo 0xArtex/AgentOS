@@ -804,3 +804,50 @@ export async function sync(opts: SyncOpts = {}): Promise<SyncReport> {
 
   return { wallet: signer.address, positions: report }
 }
+
+// ───────── pnl ─────────
+
+export interface PnlOpts {
+  by?: 'wallet' | 'chain'
+  sinceIso?: string
+  includeClosed?: boolean
+}
+
+export interface PnlReport {
+  totalRealizedSol: number
+  totalUnrealizedSol: number
+  totalSol: number
+  count: number
+  byGroup?: Record<string, { realizedSol: number; unrealizedSol: number; count: number }>
+}
+
+export function computePnl(opts: PnlOpts = {}): PnlReport {
+  const positions = listPositions({ includeClosed: opts.includeClosed ?? true })
+  const filtered = opts.sinceIso
+    ? positions.filter((p) => p.entry.time >= opts.sinceIso!)
+    : positions
+
+  let totalRealizedSol = 0
+  let totalUnrealizedSol = 0
+  const byGroup: Record<string, { realizedSol: number; unrealizedSol: number; count: number }> = {}
+
+  for (const p of filtered) {
+    totalRealizedSol += p.pnl.realizedSol
+    totalUnrealizedSol += p.pnl.unrealizedSol
+    if (opts.by) {
+      const key = opts.by === 'wallet' ? p.wallet : p.chain
+      if (!byGroup[key]) byGroup[key] = { realizedSol: 0, unrealizedSol: 0, count: 0 }
+      byGroup[key].realizedSol += p.pnl.realizedSol
+      byGroup[key].unrealizedSol += p.pnl.unrealizedSol
+      byGroup[key].count += 1
+    }
+  }
+
+  return {
+    totalRealizedSol,
+    totalUnrealizedSol,
+    totalSol: totalRealizedSol + totalUnrealizedSol,
+    count: filtered.length,
+    byGroup: opts.by ? byGroup : undefined,
+  }
+}

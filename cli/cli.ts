@@ -237,6 +237,21 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   sync: [
     { flag: '--wallet <id|name>', desc: 'Vault wallet whose positions to reconcile (else env signer)' },
   ],
+  pnl: [
+    { flag: '--by <group>', desc: 'Group output', hint: 'wallet | chain' },
+    { flag: '--since <date>', desc: 'Filter by entry date', hint: 'ISO 8601 or YYYY-MM-DD' },
+  ],
+  journal: [
+    { flag: 'add <CA> --note "..."', desc: 'Append a note (omit CA for a general note)' },
+    { flag: 'show [--ca <CA>] [--date <YYYY-MM-DD>]', desc: 'List or read journal entries' },
+  ],
+  watch: [
+    { flag: 'add <CA> --trigger "..."', desc: 'Add a CA to the watchlist with a trigger condition' },
+    { flag: 'list', desc: 'Show the watchlist' },
+  ],
+  brief: [
+    { flag: '<CA>', desc: 'Show a position brief: thesis + PnL + last sync time' },
+  ],
 }
 /**
  * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
@@ -1457,6 +1472,10 @@ async function main() {
               { name: 'position', description: 'Show details for a single position', hint: '<CA>' },
               { name: 'sell', description: 'Sell part or all of a position', hint: 'solana <CA> --percent 50 --reason "..."' },
               { name: 'sync', description: 'Reconcile open positions against chain, refresh unrealized PnL' },
+              { name: 'pnl', description: 'Aggregate realized + unrealized PnL', hint: '[--by wallet|chain] [--since DATE]' },
+              { name: 'journal', description: 'Append or read trade journal entries', hint: 'add <CA> --note "..." | show' },
+              { name: 'watch', description: 'Maintain a watchlist of CAs to monitor', hint: 'add <CA> --trigger "..." | list' },
+              { name: 'brief', description: 'Show thesis + PnL brief for a position', hint: '<CA>' },
             ],
             fromHome,
           })
@@ -1989,7 +2008,181 @@ async function main() {
             }
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync`)
+          case 'pnl': {
+            const by = ((flags.by as string) || '').toLowerCase()
+            if (by && by !== 'wallet' && by !== 'chain') err(`--by must be 'wallet' or 'chain', got: ${by}`, EXIT.BAD_INPUT)
+            const sinceIso = flags.since as string | undefined
+            if (sinceIso && isNaN(Date.parse(sinceIso))) {
+              err('--since must be a valid date (ISO 8601 or YYYY-MM-DD)', EXIT.BAD_INPUT)
+            }
+
+            const { computePnl } = await import('./wallet-trading.js')
+            const report = computePnl({
+              by: (by || undefined) as 'wallet' | 'chain' | undefined,
+              sinceIso,
+            })
+
+            if (!AGENT_MODE) {
+              console.log()
+              section('PnL')
+              kv('Positions', String(report.count))
+              kv('Realized', `${report.totalRealizedSol >= 0 ? '+' : ''}${report.totalRealizedSol.toFixed(6)} SOL`)
+              kv('Unrealized', `${report.totalUnrealizedSol >= 0 ? '+' : ''}${report.totalUnrealizedSol.toFixed(6)} SOL`)
+              kv('Total', `${report.totalSol >= 0 ? '+' : ''}${report.totalSol.toFixed(6)} SOL`)
+              if (report.byGroup) {
+                console.log()
+                section(`By ${by}`)
+                table(
+                  [by.toUpperCase(), 'COUNT', 'REALIZED', 'UNREALIZED'],
+                  Object.entries(report.byGroup).map(([k, v]) => [
+                    k.length > 16 ? `${k.slice(0, 6)}..${k.slice(-4)}` : k,
+                    String(v.count),
+                    `${v.realizedSol >= 0 ? '+' : ''}${v.realizedSol.toFixed(6)}`,
+                    `${v.unrealizedSol >= 0 ? '+' : ''}${v.unrealizedSol.toFixed(6)}`,
+                  ]),
+                )
+              }
+              console.log()
+            } else {
+              print(report)
+            }
+            break
+          }
+          case 'journal': {
+            const sub = positional[0]
+            if (sub === 'add') {
+              const ca = positional[1] || (flags.ca as string) || null
+              const note = flags.note as string
+              if (!note) err('--note required: palmyr wallet journal add <CA> --note "..."', EXIT.BAD_INPUT)
+              const { appendJournal } = await import('./wallet-trading.js')
+              const r = appendJournal(ca || null, note)
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.success}${icon.success} Journal entry added${t.reset}`)
+                console.log(`  ${t.muted}file:${t.reset} ${r.file}`)
+                console.log()
+              } else {
+                print({ success: true, ...r })
+              }
+              break
+            }
+            if (sub === 'show' || !sub) {
+              const ca = flags.ca as string | undefined
+              const date = flags.date as string | undefined
+              const { readJournalIndex, readJournalDay } = await import('./wallet-trading.js')
+              const index = readJournalIndex()
+              let filtered = index
+              if (ca) filtered = filtered.filter((e) => e.ca === ca)
+              if (date) filtered = filtered.filter((e) => e.date === date)
+
+              if (!AGENT_MODE) {
+                if (filtered.length === 0) {
+                  console.log(`\n  ${t.muted}No journal entries${ca || date ? ' matching filter' : ''}.${t.reset}\n`)
+                  break
+                }
+                if (date) {
+                  console.log(`\n${readJournalDay(date)}\n`)
+                } else {
+                  console.log()
+                  table(
+                    ['DATE', 'TIME', 'CA', 'NOTE'],
+                    filtered.map((e) => [
+                      e.date,
+                      e.ts.slice(11, 19),
+                      e.ca ? (e.ca.length > 12 ? `${e.ca.slice(0, 6)}..${e.ca.slice(-4)}` : e.ca) : '—',
+                      e.note,
+                    ]),
+                  )
+                  console.log()
+                }
+              } else {
+                print({ entries: filtered })
+              }
+              break
+            }
+            err(`Unknown journal subcommand: ${sub}. Try: add, show`, EXIT.BAD_INPUT)
+          }
+          case 'watch': {
+            const sub = positional[0]
+            if (sub === 'add') {
+              const ca = positional[1] || (flags.ca as string)
+              if (!ca) err('CA required: palmyr wallet watch add <CA> --trigger "..."', EXIT.BAD_INPUT)
+              const trigger = flags.trigger as string
+              if (!trigger) err('--trigger required (what to look for)', EXIT.BAD_INPUT)
+              const { appendWatch } = await import('./wallet-trading.js')
+              const w = appendWatch({ ca, trigger })
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.success}${icon.success} Watching ${ca}${t.reset}`)
+                console.log(`  ${t.muted}trigger:${t.reset} ${trigger}`)
+                console.log()
+              } else {
+                print({ success: true, ...w })
+              }
+              break
+            }
+            if (sub === 'list' || !sub) {
+              const { listWatch } = await import('./wallet-trading.js')
+              const entries = listWatch()
+              if (!AGENT_MODE) {
+                if (entries.length === 0) {
+                  console.log(`\n  ${t.muted}Watchlist is empty.${t.reset}\n`)
+                  break
+                }
+                console.log()
+                table(
+                  ['ADDED', 'CA', 'TRIGGER'],
+                  entries.map((e) => [
+                    e.ts.slice(0, 19).replace('T', ' '),
+                    e.ca.length > 12 ? `${e.ca.slice(0, 6)}..${e.ca.slice(-4)}` : e.ca,
+                    e.trigger,
+                  ]),
+                )
+                console.log()
+              } else {
+                print({ entries })
+              }
+              break
+            }
+            err(`Unknown watch subcommand: ${sub}. Try: add, list`, EXIT.BAD_INPUT)
+          }
+          case 'brief': {
+            const ca = positional[0] || (flags.ca as string)
+            if (!ca) err('CA required: palmyr wallet brief <CA>', EXIT.BAD_INPUT)
+            const { readPosition } = await import('./wallet-trading.js')
+            const p = readPosition('solana', ca)
+            if (!p) err(`Position not found: ${ca}`, EXIT.NOT_FOUND)
+
+            if (!AGENT_MODE) {
+              console.log()
+              section('Brief')
+              kv('CA', p!.mint)
+              kv('Status', p!.status)
+              kv('Entry', `${p!.entry.amountIn} → ${p!.entry.tokensOut} (${p!.entry.time})`)
+              console.log()
+              section('Thesis')
+              console.log(`  ${p!.thesis}`)
+              console.log()
+              section('Current')
+              const pnlColor = p!.pnl.unrealizedPct >= 0 ? t.success : t.error
+              kv('Realized', `${p!.pnl.realizedSol >= 0 ? '+' : ''}${p!.pnl.realizedSol.toFixed(6)} SOL`)
+              console.log(`  ${t.muted}Unrealized:${t.reset}  ${pnlColor}${p!.pnl.unrealizedSol >= 0 ? '+' : ''}${p!.pnl.unrealizedSol.toFixed(6)} SOL (${p!.pnl.unrealizedPct.toFixed(2)}%)${t.reset}`)
+              kv('Last priced', p!.pnl.lastPricedAt || 'never (run `wallet sync`)')
+              console.log()
+              console.log(`  ${t.muted}Phase 3 will add agent-evaluated thesis health here.${t.reset}\n`)
+            } else {
+              print({
+                ca: p!.mint,
+                status: p!.status,
+                entry: p!.entry,
+                thesis: p!.thesis,
+                exitPlan: p!.exitPlan,
+                pnl: p!.pnl,
+                sellsCount: p!.sells.length,
+                note: 'Phase 3 will add agent-evaluated thesis health.',
+              })
+            }
+            break
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief`)
         }
         break
       }
