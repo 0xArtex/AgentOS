@@ -2038,9 +2038,9 @@ async function main() {
           }
           case 'sell': {
             const chain = (positional[0] || 'solana').toLowerCase()
-            if (chain !== 'solana') err(`Unsupported chain: ${chain}. Only 'solana' for now.`, EXIT.BAD_INPUT)
+            if (chain !== 'solana' && chain !== 'base') err(`Unsupported chain: ${chain}. Try: solana, base`, EXIT.BAD_INPUT)
             const ca = positional[1] || (flags.ca as string)
-            if (!ca) err('CA required: palmyr wallet sell solana <CA> --percent 50 --reason "..."', EXIT.BAD_INPUT)
+            if (!ca) err('CA required: palmyr wallet sell <chain> <CA> --percent 50 --reason "..."', EXIT.BAD_INPUT)
             const percent = flags.percent !== undefined ? Number(flags.percent) : NaN
             if (!isFinite(percent) || percent <= 0 || percent > 100) {
               err('--percent required (0 < p ≤ 100), e.g. --percent 50', EXIT.BAD_INPUT)
@@ -2050,6 +2050,45 @@ async function main() {
             const walletRef = (flags.wallet as string) || undefined
             const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
             const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+
+            // Phase 5c — Base sell path.
+            if (chain === 'base') {
+              if (!walletRef) err('--wallet required for Base (use trading:N)', EXIT.BAD_INPUT)
+              const { sellBase } = await import('./wallet-trading.js')
+              let baseResult: Awaited<ReturnType<typeof sellBase>>
+              try {
+                baseResult = await sellBase({
+                  ca,
+                  percent,
+                  reason,
+                  walletRef,
+                  slippageBps,
+                  dryRun,
+                })
+              } catch (e: any) {
+                err(e.message || 'sell (base) failed', EXIT.GENERAL)
+              }
+              log(`wallet sell: base ${ca} ${percent}% (${baseResult!.txHash})`)
+              if (!AGENT_MODE) {
+                const tag = baseResult!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
+                const pnlColor = baseResult!.realizedEth >= 0 ? t.success : t.error
+                const closedTag = baseResult!.positionStatus === 'closed' ? ` ${t.muted}[closed]${t.reset}` : ''
+                console.log(`\n  ${t.success}${icon.success} ${tag}Base sell executed${closedTag}${t.reset}`)
+                if (baseResult!.approvalTxHash) {
+                  console.log(`  ${t.muted}approval:${t.reset} ${baseResult!.approvalTxHash}`)
+                }
+                console.log(`  ${t.muted}tx:${t.reset}        ${baseResult!.txHash}`)
+                console.log(`  ${t.muted}sold:${t.reset}      ${baseResult!.tokensIn} tokens (${percent}%)`)
+                console.log(`  ${t.muted}received:${t.reset}  ${baseResult!.ethOut}`)
+                console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${baseResult!.realizedEth >= 0 ? '+' : ''}${baseResult!.realizedEth.toFixed(6)} ETH${t.reset}`)
+                console.log(`  ${t.muted}reason:${t.reset}    ${reason}`)
+                console.log()
+              } else {
+                print(baseResult!)
+              }
+              break
+            }
+
             const protectedExec = !!flags.protected
             const autoSlippage = !!flags['auto-slippage']
             const jitoTipLamports = flags.tip ? Number(flags.tip) : undefined
@@ -2101,6 +2140,49 @@ async function main() {
           }
           case 'sync': {
             const walletRef = (flags.wallet as string) || undefined
+            const chainFlag = ((flags.chain as string) || '').toLowerCase()
+            if (chainFlag && chainFlag !== 'solana' && chainFlag !== 'base') {
+              err(`Unsupported --chain: ${chainFlag}. Try: solana, base`, EXIT.BAD_INPUT)
+            }
+
+            // Phase 5c — Base sync path. Only triggered when --chain=base.
+            if (chainFlag === 'base') {
+              if (!walletRef) err('--wallet required for Base sync (use trading:N)', EXIT.BAD_INPUT)
+              const { syncBase } = await import('./wallet-trading.js')
+              let report: Awaited<ReturnType<typeof syncBase>>
+              try {
+                report = await syncBase({ walletRef })
+              } catch (e: any) {
+                err(e.message || 'sync (base) failed', EXIT.GENERAL)
+              }
+              log(`wallet sync: base ${report!.wallet} (${report!.positions.length} positions)`)
+              if (!AGENT_MODE) {
+                console.log()
+                section('Sync (base)')
+                kv('Wallet', report!.wallet)
+                if (report!.positions.length === 0) {
+                  console.log(`  ${t.muted}No open Base positions for this wallet.${t.reset}\n`)
+                  break
+                }
+                console.log()
+                table(
+                  ['CA', 'BOOK', 'ON-CHAIN', 'DRIFT', 'UNREAL ETH', 'UNREAL %'],
+                  report!.positions.map((s) => [
+                    s.mint.length > 12 ? `${s.mint.slice(0, 6)}..${s.mint.slice(-4)}` : s.mint,
+                    s.bookRaw,
+                    s.onchainRaw,
+                    s.drift ? `⚠ ${s.drift}` : 'ok',
+                    `${s.unrealizedEth >= 0 ? '+' : ''}${s.unrealizedEth.toFixed(6)}`,
+                    `${s.unrealizedPct >= 0 ? '+' : ''}${s.unrealizedPct.toFixed(2)}%`,
+                  ]),
+                )
+                console.log()
+              } else {
+                print(report!)
+              }
+              break
+            }
+
             const { sync: doSync } = await import('./wallet-trading.js')
             let report: Awaited<ReturnType<typeof doSync>>
             try {
