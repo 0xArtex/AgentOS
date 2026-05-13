@@ -319,7 +319,9 @@ export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
   // 1. Solana sync — same path as Phase 3.
   const solanaSync = await sync({ walletRef: opts.walletRef })
   for (const syncEntry of solanaSync.positions) {
-    const p = readPosition('solana', syncEntry.mint)
+    // Phase 4c — read scoped to the synced wallet so cohort positions
+    // (multiple wallets holding the same mint) don't collide.
+    const p = readPosition('solana', syncEntry.mint, solanaSync.wallet)
     if (!p) continue
     updateMonitorPeak(p)
     await maybeRunThesisCheck(p)
@@ -336,7 +338,7 @@ export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
       const baseSync = await syncBase({ walletRef: opts.walletRef })
       syncedBase = baseSync.positions.length
       for (const syncEntry of baseSync.positions) {
-        const p = readPosition('base', syncEntry.mint)
+        const p = readPosition('base', syncEntry.mint, baseSync.wallet)
         if (!p) continue
         updateMonitorPeak(p)
         await maybeRunThesisCheck(p)

@@ -34,6 +34,7 @@ import {
   readFileSync,
   readdirSync,
   renameSync,
+  statSync,
   writeFileSync,
 } from 'fs'
 import { randomBytes } from 'crypto'
@@ -47,16 +48,85 @@ export function ensureTradingDirs() {
   for (const d of [
     TRADING_DIR,
     join(TRADING_DIR, 'positions'),
-    join(TRADING_DIR, 'positions', 'solana'),
-    join(TRADING_DIR, 'positions', 'base'),
     join(TRADING_DIR, 'journal'),
   ]) {
     if (!existsSync(d)) mkdirSync(d, { recursive: true })
   }
+  // Phase 4c — on every invocation, lazy-migrate any legacy chain-level
+  // position files into per-wallet directories. Idempotent: after first run
+  // the legacy directories are empty and the scan returns instantly.
+  migrateLegacyPositions()
 }
 
-export function positionPath(chain: 'solana' | 'base', mint: string) {
+/**
+ * Phase 4c — per-wallet position scoping.
+ *
+ * Solana base58 addresses are case-sensitive, EVM 0x-addresses are visually
+ * mixed-case (checksummed) but case-insensitive at the protocol level. We
+ * lowercase EVM addresses for the directory name so that Windows (which has a
+ * case-insensitive filesystem by default) doesn't collide on the same wallet
+ * with different display casings. Solana addresses are used verbatim — base58
+ * collisions on the same wallet would be cosmic-ray rare.
+ */
+function walletDirName(walletAddr: string): string {
+  if (walletAddr.startsWith('0x')) return walletAddr.toLowerCase()
+  return walletAddr
+}
+
+function walletPositionsDir(walletAddr: string, chain: 'solana' | 'base'): string {
+  return join(TRADING_DIR, 'positions', walletDirName(walletAddr), chain)
+}
+
+export function positionPath(chain: 'solana' | 'base', mint: string, walletAddr: string) {
+  return join(walletPositionsDir(walletAddr, chain), `${mint}.json`)
+}
+
+/**
+ * Phase 4c — back-compat path generator for legacy reads + migration.
+ * `positions/<chain>/<mint>.json` (no wallet dir). Used only during migration.
+ */
+function legacyPositionPath(chain: 'solana' | 'base', mint: string): string {
   return join(TRADING_DIR, 'positions', chain, `${mint}.json`)
+}
+
+/**
+ * Walk legacy `positions/<chain>/*.json` files and move each to its
+ * per-wallet location based on the `wallet` field embedded in the file. Runs
+ * on every `ensureTradingDirs()` invocation but exits in O(1) once the legacy
+ * dirs are empty. Idempotent: if a target path already exists (re-running
+ * after a crashed migration), the legacy file is skipped.
+ */
+function migrateLegacyPositions() {
+  for (const chain of ['solana', 'base'] as const) {
+    const legacyDir = join(TRADING_DIR, 'positions', chain)
+    if (!existsSync(legacyDir)) continue
+    let entries: string[]
+    try {
+      entries = readdirSync(legacyDir)
+    } catch {
+      continue
+    }
+    for (const f of entries) {
+      if (!f.endsWith('.json')) continue
+      const legacyPath = join(legacyDir, f)
+      try {
+        const stat = statSync(legacyPath)
+        if (!stat.isFile()) continue
+        const raw = readFileSync(legacyPath, 'utf8')
+        const p = JSON.parse(raw) as PositionFile
+        if (!p.wallet || !p.chain || !p.mint) continue
+        if (p.chain !== chain) continue
+        const newDir = walletPositionsDir(p.wallet, chain)
+        if (!existsSync(newDir)) mkdirSync(newDir, { recursive: true })
+        const newPath = join(newDir, f)
+        if (existsSync(newPath)) continue // already migrated
+        renameSync(legacyPath, newPath)
+      } catch {
+        // Best-effort migration — if a single file fails (corrupt JSON, etc.),
+        // leave it and move on.
+      }
+    }
+  }
 }
 export function tradesLogPath() {
   return join(TRADING_DIR, 'trades.jsonl')
@@ -141,6 +211,8 @@ export interface SolanaEntry {
   tipLamports?: number
   slippageBpsUsed?: number
   protectedExec?: boolean
+  /** Phase 4c — links this entry to a cohort buy (same string across all the wallets involved). */
+  cohortId?: string
 }
 
 export interface SolanaSell {
@@ -195,6 +267,8 @@ export interface BaseEntry {
   /** Phase 5b lite: protected execution on Base (Flashbots) is deferred to 5c. */
   slippageBpsUsed?: number
   protectedExec?: boolean
+  /** Phase 4c — links this entry to a cohort buy (same string across all the wallets involved). */
+  cohortId?: string
 }
 
 export interface BaseSell {
@@ -331,20 +405,36 @@ function atomicWriteFile(target: string, content: string) {
 
 export function writePosition(p: PositionFile) {
   ensureTradingDirs()
-  atomicWriteFile(positionPath(p.chain, p.mint), JSON.stringify(p, null, 2))
+  atomicWriteFile(positionPath(p.chain, p.mint, p.wallet), JSON.stringify(p, null, 2))
 }
 
-export function readPosition(chain: 'solana', mint: string): SolanaPositionFile | null
-export function readPosition(chain: 'base', mint: string): BasePositionFile | null
-export function readPosition(chain: 'solana' | 'base', mint: string): PositionFile | null
-export function readPosition(chain: 'solana' | 'base', mint: string): PositionFile | null {
-  const p = positionPath(chain, mint)
-  if (!existsSync(p)) return null
-  try {
-    return JSON.parse(readFileSync(p, 'utf8')) as PositionFile
-  } catch {
-    return null
+/**
+ * Phase 4c — `readPosition` has two modes:
+ *   - With `walletAddr`: O(1) direct file lookup, scoped to that wallet.
+ *   - Without `walletAddr`: scans every wallet dir for the first matching
+ *     (chain, mint). Used by `wallet position <CA>` and `wallet brief <CA>`
+ *     where the caller doesn't know which wallet to ask about. If multiple
+ *     wallets hold the same token, the first one found wins — callers that
+ *     need precision should pass the wallet explicitly.
+ */
+export function readPosition(chain: 'solana', mint: string, walletAddr?: string): SolanaPositionFile | null
+export function readPosition(chain: 'base', mint: string, walletAddr?: string): BasePositionFile | null
+export function readPosition(chain: 'solana' | 'base', mint: string, walletAddr?: string): PositionFile | null
+export function readPosition(chain: 'solana' | 'base', mint: string, walletAddr?: string): PositionFile | null {
+  if (walletAddr) {
+    const p = positionPath(chain, mint, walletAddr)
+    if (!existsSync(p)) return null
+    try {
+      return JSON.parse(readFileSync(p, 'utf8')) as PositionFile
+    } catch {
+      return null
+    }
   }
+  // Fallback: scan all wallets for this (chain, mint).
+  for (const p of listPositions({ chain, includeClosed: true })) {
+    if (p.mint === mint) return p
+  }
+  return null
 }
 
 export interface PositionsFilter {
@@ -361,18 +451,50 @@ export function listPositions(filter: PositionsFilter = {}): PositionFile[] {
   const chains: Array<'solana' | 'base'> = filter.chain
     ? [filter.chain]
     : ['solana', 'base']
+  const positionsRoot = join(TRADING_DIR, 'positions')
+  if (!existsSync(positionsRoot)) return []
+
   const out: PositionFile[] = []
-  for (const chain of chains) {
-    const dir = join(TRADING_DIR, 'positions', chain)
-    if (!existsSync(dir)) continue
-    for (const f of readdirSync(dir)) {
-      if (!f.endsWith('.json')) continue
+  // Phase 4c — walk `positions/<wallet>/<chain>/<mint>.json`. Skip legacy
+  // chain-level dirs (`positions/solana`, `positions/base`) — those are
+  // handled by `migrateLegacyPositions()` on `ensureTradingDirs()`.
+  const wantWallet = filter.walletAddress
+    ? walletDirName(filter.walletAddress)
+    : null
+
+  let walletDirs: string[]
+  try {
+    walletDirs = readdirSync(positionsRoot)
+  } catch {
+    return []
+  }
+
+  for (const walletEntry of walletDirs) {
+    if (walletEntry === 'solana' || walletEntry === 'base') continue
+    const walletPath = join(positionsRoot, walletEntry)
+    try {
+      if (!statSync(walletPath).isDirectory()) continue
+    } catch {
+      continue
+    }
+    if (wantWallet !== null && walletEntry !== wantWallet) continue
+    for (const chain of chains) {
+      const chainDir = join(walletPath, chain)
+      if (!existsSync(chainDir)) continue
+      let chainEntries: string[]
       try {
-        const p = JSON.parse(readFileSync(join(dir, f), 'utf8')) as PositionFile
-        if (filter.walletAddress && p.wallet !== filter.walletAddress) continue
-        if (!filter.includeClosed && p.status !== 'open') continue
-        out.push(p)
-      } catch {}
+        chainEntries = readdirSync(chainDir)
+      } catch {
+        continue
+      }
+      for (const f of chainEntries) {
+        if (!f.endsWith('.json')) continue
+        try {
+          const p = JSON.parse(readFileSync(join(chainDir, f), 'utf8')) as PositionFile
+          if (!filter.includeClosed && p.status !== 'open') continue
+          out.push(p)
+        } catch {}
+      }
     }
   }
   return out
@@ -637,6 +759,8 @@ export interface BuyBaseOpts {
   protectedExec?: boolean
   /** EIP-1559 maxPriorityFeePerGas tip in wei. Only used when protectedExec. */
   priorityFeeWei?: bigint
+  // Phase 4c — cohort buy tag (set by cohortBuy() for each per-wallet leg)
+  cohortId?: string
 }
 
 export interface BuyBaseResult {
@@ -661,13 +785,6 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
   if (!opts.thesis?.trim()) throw new Error('Missing --thesis')
   const amountInRawWei = parseEvmAmount(opts.amount)
 
-  const existing = readPosition('base', opts.ca)
-  if (existing && existing.status === 'open') {
-    throw new Error(
-      `Position already open for ${opts.ca}. Sell it (Phase 5c will add CLI sell on Base; for now use Phantom or Coinbase Wallet) before opening a new one.`,
-    )
-  }
-
   const cfg = loadTradingConfig()
   const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
 
@@ -682,6 +799,15 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
   } = await import('./evm-trading.js')
 
   const signer = await resolveEvmSigner(opts.walletRef, opts.passphrase)
+
+  // Phase 4c — duplicate-position check is now per-wallet. Different cohort
+  // wallets can each hold their own position in the same token.
+  const existing = readPosition('base', opts.ca, signer.address)
+  if (existing && existing.status === 'open') {
+    throw new Error(
+      `Position already open for ${opts.ca} on wallet ${signer.address}. Sell it before opening a new one (or use a different cohort wallet).`,
+    )
+  }
   const rpcUrl = resolveBaseRpcUrl({
     rpcUrl: opts.rpcUrl,
     protectedExec: opts.protectedExec,
@@ -745,6 +871,7 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
       feeWei: swap.feeWei,
       slippageBpsUsed: slippageBps,
       protectedExec: !!opts.protectedExec,
+      cohortId: opts.cohortId,
     },
     thesis: opts.thesis.trim(),
     exitPlan: {
@@ -772,7 +899,7 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
   writePosition(position)
 
   return {
-    positionPath: positionPath('base', opts.ca),
+    positionPath: positionPath('base', opts.ca, signer.address),
     txHash: swap.txHash,
     amountIn: position.entry.amountIn,
     amountInRawWei,
@@ -831,10 +958,6 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     throw new Error(`--percent must be in (0, 100], got ${opts.percent}`)
   }
 
-  const position = readPosition('base', opts.ca)
-  if (!position) throw new Error(`No Base position found for ${opts.ca}`)
-  if (position.status !== 'open') throw new Error(`Position ${opts.ca} is already closed`)
-
   const cfg = loadTradingConfig()
   const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
 
@@ -848,12 +971,15 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     DEFAULT_BASE_PROTECTED_TIP_WEI,
   } = await import('./evm-trading.js')
 
+  // Phase 4c — resolve signer first so we can scope the position read.
   const signer = await resolveEvmSigner(opts.walletRef, opts.passphrase)
-  if (signer.address.toLowerCase() !== position.wallet.toLowerCase()) {
+  const position = readPosition('base', opts.ca, signer.address)
+  if (!position) {
     throw new Error(
-      `Wallet mismatch: position was opened from ${position.wallet} but signer is ${signer.address}.`,
+      `No Base position for ${opts.ca} owned by wallet ${signer.address}. Did you mean a different --wallet?`,
     )
   }
+  if (position.status !== 'open') throw new Error(`Position ${opts.ca} is already closed`)
 
   const rpcUrl = resolveBaseRpcUrl({
     rpcUrl: opts.rpcUrl,
@@ -949,7 +1075,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
   writePosition(position)
 
   return {
-    positionPath: positionPath('base', opts.ca),
+    positionPath: positionPath('base', opts.ca, signer.address),
     txHash: swap.txHash,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
@@ -1135,6 +1261,8 @@ export interface BuyOpts {
   thesisCheck?: string
   // Phase 5b — target chain (defaults to 'solana' for back-compat)
   chain?: 'solana' | 'base'
+  // Phase 4c — cohort buy tag (set by cohortBuy() for each per-wallet leg)
+  cohortId?: string
 }
 
 export interface BuyResult {
@@ -1163,13 +1291,6 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
   if (!opts.thesis?.trim()) throw new Error('Missing --thesis')
   const amountInRawSol = parseAmountFlag(opts.amount)
 
-  const existing = readPosition('solana', opts.ca)
-  if (existing && existing.status === 'open') {
-    throw new Error(
-      `Position already open for ${opts.ca}. Use \`palmyr wallet sell\` to exit it first.`,
-    )
-  }
-
   const cfg = loadTradingConfig()
   const rpcUrl = opts.rpcUrl ?? cfg.rpcUrl
   const quoteMaxAgeMs = cfg.quoteMaxAgeMs
@@ -1195,6 +1316,16 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     : undefined
 
   const signer = await resolveSigner(opts.walletRef, opts.passphrase)
+
+  // Phase 4c — duplicate-position check is per-wallet. Different cohort
+  // wallets can open simultaneous positions in the same token.
+  const existing = readPosition('solana', opts.ca, signer.address)
+  if (existing && existing.status === 'open') {
+    throw new Error(
+      `Position already open for ${opts.ca} on wallet ${signer.address}. Use \`palmyr wallet sell solana ${opts.ca} --wallet ${opts.walletRef ?? '<ref>'} --percent ...\` to exit first (or use a different cohort wallet).`,
+    )
+  }
+
   const connection: Connection = makeConnection(rpcUrl)
 
   const swap = await executeSwap({
@@ -1249,6 +1380,7 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
       tipLamports,
       slippageBpsUsed: slippageBps,
       protectedExec: !!opts.protectedExec,
+      cohortId: opts.cohortId,
     },
     thesis: opts.thesis.trim(),
     exitPlan: {
@@ -1295,7 +1427,7 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
   })
 
   return {
-    positionPath: positionPath('solana', opts.ca),
+    positionPath: positionPath('solana', opts.ca, signer.address),
     txSignature: swap.txSignature,
     amountIn: position.entry.amountIn,
     amountInRawSol,
@@ -1360,10 +1492,6 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     throw new Error(`--percent must be in (0, 100], got ${opts.percent}`)
   }
 
-  const position = readPosition('solana', opts.ca)
-  if (!position) throw new Error(`No position found for ${opts.ca}`)
-  if (position.status !== 'open') throw new Error(`Position ${opts.ca} is already closed`)
-
   const cfg = loadTradingConfig()
   const rpcUrl = opts.rpcUrl ?? cfg.rpcUrl
   const quoteMaxAgeMs = cfg.quoteMaxAgeMs
@@ -1387,12 +1515,16 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     ? (opts.jitoTipLamports ?? DEFAULT_JITO_TIP_LAMPORTS)
     : undefined
 
+  // Phase 4c — resolve signer first so we can scope the position read.
   const signer = await resolveSigner(opts.walletRef, opts.passphrase)
-  if (signer.address !== position.wallet) {
+  const position = readPosition('solana', opts.ca, signer.address)
+  if (!position) {
     throw new Error(
-      `Wallet mismatch: position was opened from ${position.wallet} but signer is ${signer.address}.`,
+      `No position for ${opts.ca} owned by wallet ${signer.address}. Did you mean a different --wallet?`,
     )
   }
+  if (position.status !== 'open') throw new Error(`Position ${opts.ca} is already closed`)
+
   const connection: Connection = makeConnection(rpcUrl)
 
   // FIFO remaining = totalEntry - sumOfSells (in raw u64)
@@ -1495,7 +1627,7 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
   })
 
   return {
-    positionPath: positionPath('solana', opts.ca),
+    positionPath: positionPath('solana', opts.ca, signer.address),
     txSignature: swap.txSignature,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
@@ -1628,6 +1760,202 @@ export async function sync(opts: SyncOpts = {}): Promise<SyncReport> {
   }
 
   return { wallet: signer.address, positions: report }
+}
+
+// ───────── cohort buy (Phase 4c) ─────────
+
+/**
+ * Phase 4c — split a single trade decision across N derived wallets with
+ * random jitter between legs. Each per-wallet buy produces its own position
+ * file under that wallet's directory. Failures are captured per-leg; we don't
+ * roll back successes.
+ *
+ * The cohort is sequential by design: parallel would race the same RPC quote
+ * and could trigger pool-impact penalties on the second-into-the-block leg.
+ * Sequential + jitter gives the same effect with predictable failure modes.
+ */
+export interface CohortBuyOpts {
+  chain: 'solana' | 'base'
+  ca: string
+  totalAmount: string                 // e.g. "1.0sol", "0.05eth"
+  walletRefs: string[]                // ['trading:0', 'trading:1', ...]
+  thesis: string
+  /** Random delay in ms between each leg, sampled from [0, jitterMs]. Skipped when dryRun. */
+  jitterMs?: number
+  cut?: string
+  takeProfit?: string
+  holdIf?: string
+  trailingStop?: string
+  timeLimit?: string
+  thesisCheck?: string
+  riskFlags?: string[]
+  passphrase?: string
+  slippageBps?: number
+  dryRun?: boolean
+  rpcUrl?: string
+  // Solana protection flags
+  protectedExec?: boolean
+  autoSlippage?: boolean
+  jitoTipLamports?: number
+  // Base protection flags
+  priorityFeeWei?: bigint
+}
+
+export type CohortLegSuccess =
+  | { walletRef: string; status: 'ok'; chain: 'solana'; result: BuyResult }
+  | { walletRef: string; status: 'ok'; chain: 'base'; result: BuyBaseResult }
+
+export interface CohortLegFailure {
+  walletRef: string
+  status: 'failed'
+  error: string
+  /** ms spent on this leg (incl. jitter). */
+  elapsedMs?: number
+}
+
+export interface CohortBuyResult {
+  cohortId: string
+  chain: 'solana' | 'base'
+  ca: string
+  totalRequested: string
+  perWalletAmount: string
+  successes: CohortLegSuccess[]
+  failures: CohortLegFailure[]
+  startedAt: string
+  finishedAt: string
+}
+
+function randomCohortId(): string {
+  // human-readable but unique enough for one cohort per minute
+  const ts = Date.now().toString(36)
+  const rand = randomBytes(2).toString('hex')
+  return `cohort-${ts}-${rand}`
+}
+
+async function delay(ms: number): Promise<void> {
+  if (ms <= 0) return
+  return new Promise((r) => setTimeout(r, ms))
+}
+
+/**
+ * Solana amount split. `totalAmount` parses to lamports; per-leg amount is
+ * floor(total / n). The remainder is silently dropped — at typical cohort
+ * sizes (3–10 wallets, sub-SOL amounts) it's at most n-1 lamports.
+ */
+function splitSolAmount(totalAmount: string, n: number): string {
+  const totalLamports = parseAmountFlag(totalAmount)
+  const perLeg = Math.floor(totalLamports / n)
+  if (perLeg <= 0) {
+    throw new Error(`Cohort split: per-leg amount is 0 lamports (total=${totalLamports}, n=${n}). Increase --total or reduce wallet count.`)
+  }
+  return `${(perLeg / 1e9).toFixed(9)}sol`
+}
+
+/**
+ * Base amount split. Parses wei (u256-safe BigInt), divides by N, returns the
+ * per-leg amount in a wei suffix so `buyBase` round-trips it back without
+ * floating-point drift.
+ */
+function splitEthAmount(totalAmount: string, n: number): string {
+  const totalWei = BigInt(parseEvmAmount(totalAmount))
+  const perLeg = totalWei / BigInt(n)
+  if (perLeg <= 0n) {
+    throw new Error(`Cohort split: per-leg amount is 0 wei (total=${totalWei}, n=${n}). Increase --total or reduce wallet count.`)
+  }
+  return `${perLeg.toString()}wei`
+}
+
+export async function cohortBuy(opts: CohortBuyOpts): Promise<CohortBuyResult> {
+  if (!opts.thesis?.trim()) throw new Error('Missing --thesis')
+  if (opts.walletRefs.length === 0) throw new Error('Cohort needs at least one wallet (--wallets or --from + --split).')
+  const cohortId = randomCohortId()
+  const startedAt = new Date().toISOString()
+
+  const perWalletAmount = opts.chain === 'solana'
+    ? splitSolAmount(opts.totalAmount, opts.walletRefs.length)
+    : splitEthAmount(opts.totalAmount, opts.walletRefs.length)
+
+  const successes: CohortLegSuccess[] = []
+  const failures: CohortLegFailure[] = []
+  const jitter = Math.max(0, opts.jitterMs ?? 0)
+
+  for (let i = 0; i < opts.walletRefs.length; i++) {
+    const walletRef = opts.walletRefs[i]
+    const legStart = Date.now()
+    try {
+      // Apply jitter for all but the first leg (we want the first to fire
+      // immediately so the cohort feels responsive).
+      if (i > 0 && jitter > 0 && !opts.dryRun) {
+        const wait = Math.floor(Math.random() * jitter)
+        await delay(wait)
+      }
+      if (opts.chain === 'solana') {
+        const result = await buy({
+          ca: opts.ca,
+          amount: perWalletAmount,
+          thesis: opts.thesis,
+          cut: opts.cut,
+          takeProfit: opts.takeProfit,
+          holdIf: opts.holdIf,
+          trailingStop: opts.trailingStop,
+          timeLimit: opts.timeLimit,
+          thesisCheck: opts.thesisCheck,
+          riskFlags: opts.riskFlags,
+          walletRef,
+          passphrase: opts.passphrase,
+          slippageBps: opts.slippageBps,
+          dryRun: opts.dryRun,
+          rpcUrl: opts.rpcUrl,
+          protectedExec: opts.protectedExec,
+          autoSlippage: opts.autoSlippage,
+          jitoTipLamports: opts.jitoTipLamports,
+          cohortId,
+        })
+        successes.push({ walletRef, status: 'ok', chain: 'solana', result })
+      } else {
+        const result = await buyBase({
+          ca: opts.ca,
+          amount: perWalletAmount,
+          thesis: opts.thesis,
+          cut: opts.cut,
+          takeProfit: opts.takeProfit,
+          holdIf: opts.holdIf,
+          trailingStop: opts.trailingStop,
+          timeLimit: opts.timeLimit,
+          thesisCheck: opts.thesisCheck,
+          riskFlags: opts.riskFlags,
+          walletRef,
+          passphrase: opts.passphrase,
+          slippageBps: opts.slippageBps,
+          dryRun: opts.dryRun,
+          rpcUrl: opts.rpcUrl,
+          protectedExec: opts.protectedExec,
+          priorityFeeWei: opts.priorityFeeWei,
+          cohortId,
+        })
+        successes.push({ walletRef, status: 'ok', chain: 'base', result })
+      }
+    } catch (e: any) {
+      failures.push({
+        walletRef,
+        status: 'failed',
+        error: e?.message ?? String(e),
+        elapsedMs: Date.now() - legStart,
+      })
+    }
+  }
+
+  return {
+    cohortId,
+    chain: opts.chain,
+    ca: opts.ca,
+    totalRequested: opts.totalAmount,
+    perWalletAmount,
+    successes,
+    failures,
+    startedAt,
+    finishedAt: new Date().toISOString(),
+  }
 }
 
 // ───────── pnl ─────────

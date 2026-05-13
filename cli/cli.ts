@@ -232,6 +232,15 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--rpc <url>', desc: 'Override RPC endpoint (base: maps to provider URL; bypasses --protected default)' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
+  cohort: [
+    { flag: 'buy <CHAIN> <CA>', desc: 'Split a buy across N derived wallets with timing jitter (Phase 4c)' },
+    { flag: '--total <amt>', desc: 'Total amount across all cohort legs (required)', hint: 'e.g. 1.0sol, 0.05eth' },
+    { flag: '--thesis "..."', desc: 'Plain-string reasoning (shared across all legs) — required' },
+    { flag: '--wallets <list>', desc: 'Explicit comma-separated wallet refs', hint: 'e.g. trading:0,trading:1,trading:2' },
+    { flag: '--from trading:N --split K', desc: 'Derive K consecutive wallets starting at index N (alternative to --wallets)' },
+    { flag: '--jitter <ms>', desc: 'Random delay [0..jitterMs] between legs; first leg fires immediately', hint: 'default 0' },
+    { flag: '(other flags)', desc: 'Same as `buy`: --cut, --tp, --trail, --time-limit, --thesis-check, --slippage, --protected, --tip, --rpc, --dry-run' },
+  ],
   positions: [
     { flag: '--chain <chain>', desc: 'Filter by chain', hint: 'solana' },
     { flag: '--wallet <id|name>', desc: 'Filter by signing wallet (vault ref)' },
@@ -276,7 +285,7 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   'trading-keystore': [
     { flag: 'init [--count N] [--mnemonic "..."]', desc: 'Create encrypted keystore (BIP39 + scrypt + AES-256-GCM, default count 5)' },
-    { flag: 'unlock', desc: 'Prompt passphrase, cache decrypted seed in OS keychain for daemon + future commands' },
+    { flag: 'unlock [--ttl <dur>]', desc: 'Prompt passphrase, cache decrypted seed in OS keychain. --ttl sets cache lifetime (default 24h; examples: 30m, 4h, 7d)' },
     { flag: 'lock', desc: 'Clear the cached seed from OS keychain' },
     { flag: 'list', desc: 'List derived wallet addresses (no unlock needed)' },
     { flag: 'status', desc: 'Show keystore exists / wallet count / locked vs unlocked' },
@@ -1520,6 +1529,7 @@ async function main() {
               { name: 'use', description: 'Set default pay wallet', hint: 'WALLET_ID' },
               { name: 'request-approval', description: 'Request human approval (managed)', hint: 'WALLET_ID --action limits --daily 100' },
               { name: 'buy', description: 'Open a trading position', hint: 'solana <CA> --amount 0.5sol --thesis "..."' },
+              { name: 'cohort', description: 'Split a buy across N derived wallets with jitter (Phase 4c)', hint: 'buy <CHAIN> <CA> --total ... --split N' },
               { name: 'positions', description: 'List open (and optionally closed) positions', hint: '[--chain X] [--wallet Y] [--all]' },
               { name: 'position', description: 'Show details for a single position', hint: '<CA>' },
               { name: 'sell', description: 'Sell part or all of a position', hint: 'solana <CA> --percent 50 --reason "..."' },
@@ -1950,6 +1960,122 @@ async function main() {
             }
             break
           }
+          case 'cohort': {
+            // Phase 4c — `palmyr wallet cohort buy <chain> <CA> --total <amt> ...`
+            const sub = positional[0]
+            if (sub !== 'buy') err('cohort subcommand required. Try: buy', EXIT.BAD_INPUT)
+            const chain = (positional[1] || 'solana').toLowerCase()
+            if (chain !== 'solana' && chain !== 'base') err(`Unsupported chain: ${chain}. Try: solana, base`, EXIT.BAD_INPUT)
+            const ca = positional[2] || (flags.ca as string)
+            if (!ca) err(`CA required: palmyr wallet cohort buy ${chain} <CA> --total <amt> ...`, EXIT.BAD_INPUT)
+            const total = flags.total as string
+            if (!total) err(`--total required (e.g. --total ${chain === 'base' ? '0.05eth' : '1.0sol'})`, EXIT.BAD_INPUT)
+            const thesis = flags.thesis as string
+            if (!thesis) err('--thesis required', EXIT.BAD_INPUT)
+
+            // Resolve wallet list. Two forms:
+            //   1. --wallets trading:0,trading:1,trading:2 (explicit list)
+            //   2. --from trading:N --split K (derive K wallets starting at N)
+            const walletsFlag = flags.wallets as string | undefined
+            const fromFlag = flags.from as string | undefined
+            const splitFlag = flags.split !== undefined ? Number(flags.split) : undefined
+            let walletRefs: string[]
+            if (walletsFlag) {
+              walletRefs = walletsFlag.split(',').map(s => s.trim()).filter(Boolean)
+            } else if (splitFlag !== undefined) {
+              if (!Number.isInteger(splitFlag) || splitFlag <= 0) {
+                err(`--split must be a positive integer, got ${flags.split}`, EXIT.BAD_INPUT)
+              }
+              const fromRef = fromFlag ?? 'trading:0'
+              if (!fromRef.startsWith('trading:')) {
+                err(`--from must be a trading: reference (got ${fromRef})`, EXIT.BAD_INPUT)
+              }
+              const startIdx = Number(fromRef.slice('trading:'.length))
+              if (!Number.isInteger(startIdx) || startIdx < 0) {
+                err(`Invalid --from index: ${fromRef}`, EXIT.BAD_INPUT)
+              }
+              walletRefs = []
+              for (let i = 0; i < splitFlag; i++) walletRefs.push(`trading:${startIdx + i}`)
+            } else {
+              err('cohort needs --wallets <list> or --split <N> [--from trading:M]', EXIT.BAD_INPUT)
+            }
+
+            const jitterMs = flags.jitter !== undefined ? Number(flags.jitter) : 0
+            if (!Number.isFinite(jitterMs) || jitterMs < 0) {
+              err(`--jitter must be a non-negative number (ms), got ${flags.jitter}`, EXIT.BAD_INPUT)
+            }
+
+            const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
+            const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+            const protectedExec = !!flags.protected
+            const autoSlippage = !!flags['auto-slippage']
+            const baseRpc = (flags.rpc as string) || undefined
+            const tipGwei = flags.tip !== undefined && chain === 'base' ? Number(flags.tip) : undefined
+            const priorityFeeWei = tipGwei !== undefined
+              ? BigInt(Math.round(tipGwei * 1e9))
+              : undefined
+            const jitoTip = flags.tip !== undefined && chain === 'solana' ? Number(flags.tip) : undefined
+
+            const { cohortBuy } = await import('./wallet-trading.js')
+            let result: Awaited<ReturnType<typeof cohortBuy>>
+            try {
+              result = await cohortBuy({
+                chain: chain as 'solana' | 'base',
+                ca,
+                totalAmount: total,
+                walletRefs,
+                thesis,
+                jitterMs,
+                cut: flags.cut as string | undefined,
+                takeProfit: ((flags.tp as string) || (flags['take-profit'] as string)) || undefined,
+                holdIf: (flags['hold-if'] as string) || undefined,
+                trailingStop: (flags.trail as string) || undefined,
+                timeLimit: (flags['time-limit'] as string) || undefined,
+                thesisCheck: (flags['thesis-check'] as string) || undefined,
+                slippageBps,
+                dryRun,
+                protectedExec,
+                autoSlippage,
+                jitoTipLamports: jitoTip,
+                priorityFeeWei,
+                rpcUrl: baseRpc,
+              })
+            } catch (e: any) {
+              err(e.message || 'cohort buy failed', EXIT.GENERAL)
+            }
+
+            log(`wallet cohort buy: ${chain} ${ca} ${result!.successes.length}/${walletRefs.length} ok (cohort ${result!.cohortId})`)
+            if (!AGENT_MODE) {
+              const tag = dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
+              console.log(`\n  ${t.success}${icon.success} ${tag}Cohort buy complete${t.reset}`)
+              console.log(`  ${t.muted}cohort:${t.reset}    ${result!.cohortId}`)
+              console.log(`  ${t.muted}chain:${t.reset}     ${result!.chain}`)
+              console.log(`  ${t.muted}token:${t.reset}     ${result!.ca}`)
+              console.log(`  ${t.muted}total:${t.reset}     ${result!.totalRequested} split across ${walletRefs.length} wallets`)
+              console.log(`  ${t.muted}per leg:${t.reset}   ${result!.perWalletAmount}`)
+              console.log(`  ${t.muted}jitter:${t.reset}    ${jitterMs}ms`)
+              console.log(`  ${t.muted}succeeded:${t.reset} ${result!.successes.length}`)
+              console.log(`  ${t.muted}failed:${t.reset}    ${result!.failures.length}`)
+              if (result!.successes.length > 0) {
+                console.log()
+                for (const s of result!.successes) {
+                  const txOrSig = s.chain === 'solana' ? s.result.txSignature : s.result.txHash
+                  const tokensOut = s.result.tokensOut
+                  console.log(`  ${t.success}✓${t.reset} ${s.walletRef} → ${tokensOut} tokens (${txOrSig.slice(0, 10)}...)`)
+                }
+              }
+              if (result!.failures.length > 0) {
+                console.log()
+                for (const f of result!.failures) {
+                  console.log(`  ${t.error}✗${t.reset} ${f.walletRef}: ${f.error}`)
+                }
+              }
+              console.log()
+            } else {
+              print(result!)
+            }
+            break
+          }
           case 'positions': {
             const chainFlag = ((flags.chain as string) || '').toLowerCase()
             if (chainFlag && chainFlag !== 'solana' && chainFlag !== 'base') {
@@ -1997,9 +2123,10 @@ async function main() {
               }
               console.log()
               table(
-                ['CHAIN', 'CA', 'STATUS', 'IN', 'OUT', 'UNREAL %', 'THESIS'],
+                ['CHAIN', 'WALLET', 'CA', 'STATUS', 'IN', 'OUT', 'UNREAL %', 'THESIS'],
                 positions.map((p) => [
                   p.chain,
+                  p.wallet.length > 12 ? `${p.wallet.slice(0, 6)}..${p.wallet.slice(-4)}` : p.wallet,
                   p.mint.length > 12 ? `${p.mint.slice(0, 6)}..${p.mint.slice(-4)}` : p.mint,
                   p.status,
                   p.entry.amountIn,
@@ -2768,11 +2895,22 @@ async function main() {
             }
 
             if (sub === 'unlock') {
-              const { unlockKeystore, cacheSeedHex, isUnlocked } = await import('./wallet-trading-keystore.js')
+              const { unlockAndCache, isUnlocked, DEFAULT_KEYSTORE_CACHE_TTL_MS } = await import('./wallet-trading-keystore.js')
               if (isUnlocked()) {
                 if (!AGENT_MODE) console.log(`\n  ${t.muted}Keystore is already unlocked.${t.reset}\n`)
                 else print({ success: true, alreadyUnlocked: true })
                 break
+              }
+              // Phase 4c — `--ttl <dur>` overrides the default 24h cache TTL.
+              const ttlStr = flags.ttl as string | undefined
+              let ttlMs = DEFAULT_KEYSTORE_CACHE_TTL_MS
+              if (ttlStr) {
+                const { parseDurationToMs } = await import('./wallet-daemon.js')
+                const parsed = parseDurationToMs(ttlStr)
+                if (parsed === null || parsed <= 0) {
+                  err(`Invalid --ttl: "${ttlStr}". Examples: 30m, 4h, 7d.`, EXIT.BAD_INPUT)
+                }
+                ttlMs = parsed!
               }
               let pass = process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
               if (!pass) {
@@ -2783,9 +2921,10 @@ async function main() {
                   err(e.message || 'failed to get passphrase', EXIT.AUTH_FAIL)
                 }
               }
+              let expiresAt: string | undefined
               try {
-                const seedHex = unlockKeystore(pass!)
-                cacheSeedHex(seedHex)
+                const r = unlockAndCache(pass!, ttlMs)
+                expiresAt = r.expiresAt
               } catch (e: any) {
                 err(e.message || 'unlock failed', EXIT.AUTH_FAIL)
               }
@@ -2793,9 +2932,10 @@ async function main() {
               if (!AGENT_MODE) {
                 console.log(`\n  ${t.success}${icon.success} Keystore unlocked${t.reset}`)
                 console.log(`  ${t.muted}Seed cached in OS keychain. Trading wallets are now usable without re-entering the passphrase.${t.reset}`)
+                console.log(`  ${t.muted}Cache expires at:${t.reset} ${expiresAt}`)
                 console.log(`  ${t.muted}Run \`palmyr wallet trading-keystore lock\` to clear the cache.${t.reset}\n`)
               } else {
-                print({ success: true, unlocked: true })
+                print({ success: true, unlocked: true, expiresAt })
               }
               break
             }
@@ -2846,7 +2986,15 @@ async function main() {
                 if (status.exists) {
                   kv('Created', status.createdAt || '—')
                   kv('Wallets', String(status.walletCount))
-                  kv('Unlocked', unlocked ? `${t.success}yes${t.reset}` : `${t.muted}no${t.reset}`)
+                  // Phase 4c — surface TTL state ("expired" is distinct from "never unlocked")
+                  if (status.cache?.hasSecret && status.cache.expired) {
+                    kv('Unlocked', `${t.warn}expired${t.reset} (auto-locked on access)`)
+                  } else {
+                    kv('Unlocked', unlocked ? `${t.success}yes${t.reset}` : `${t.muted}no${t.reset}`)
+                  }
+                  if (status.cache?.expiresAt && !status.cache.expired) {
+                    kv('Expires', status.cache.expiresAt)
+                  }
                 }
                 console.log()
               } else {
@@ -2926,7 +3074,7 @@ async function main() {
 
             err(`Unknown trading-keystore subcommand: ${sub}. Try: init, unlock, lock, list, status, derive, export`, EXIT.BAD_INPUT)
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore, evm-quote`)
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, cohort, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore, evm-quote`)
         }
         break
       }
