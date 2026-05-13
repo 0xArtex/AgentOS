@@ -293,6 +293,13 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--since <iso>', desc: 'Filter to fires after this timestamp' },
     { flag: '--clear', desc: 'Truncate pending.jsonl after listing' },
   ],
+  'evm-quote': [
+    { flag: '<SRC> <DST>', desc: 'Token addresses (0x... or `eth` for native)' },
+    { flag: '--amount <raw>', desc: 'Raw u256 amount in src smallest unit (required)' },
+    { flag: '--chain <c>', desc: 'Chain', hint: 'base (default) | other EVM chains by numeric id' },
+    { flag: '--src-decimals <n>', desc: 'Source token decimals', hint: 'default 18' },
+    { flag: '--dst-decimals <n>', desc: 'Dest token decimals', hint: 'default 6 (USDC-like)' },
+  ],
 }
 /**
  * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
@@ -1520,6 +1527,7 @@ async function main() {
               { name: 'daemon', description: 'Auto-monitor positions for trigger-based exits', hint: 'tick | start [--auto] | stop | status' },
               { name: 'triggers', description: 'List pending trigger fires from the daemon', hint: '[--ca X] [--since ISO] [--clear]' },
               { name: 'trading-keystore', description: 'Encrypted BIP39 keystore for HD-derived trading wallets', hint: 'init | list | status | derive | export' },
+              { name: 'evm-quote', description: 'EVM swap quote via ParaSwap', hint: '<SRC> <DST> --amount <raw> [--chain base]' },
             ],
             fromHome,
           })
@@ -2427,6 +2435,55 @@ async function main() {
             }
             break
           }
+          case 'evm-quote': {
+            const src = positional[0]
+            const dst = positional[1]
+            if (!src || !dst) err('Usage: palmyr wallet evm-quote <SRC> <DST> --amount <raw>', EXIT.BAD_INPUT)
+            const amount = flags.amount as string
+            if (!amount) err('--amount <raw> required (in src smallest unit, e.g. wei)', EXIT.BAD_INPUT)
+            const chainStr = ((flags.chain as string) || 'base').toLowerCase()
+            const chainId = chainStr === 'base' ? 8453 : Number(chainStr)
+            if (!Number.isInteger(chainId) || chainId <= 0) err(`Unsupported --chain: ${chainStr}`, EXIT.BAD_INPUT)
+            const srcDecimals = flags['src-decimals'] ? Number(flags['src-decimals']) : 18
+            const dstDecimals = flags['dst-decimals'] ? Number(flags['dst-decimals']) : 6
+
+            const { fetchParaswapPrice, NATIVE_ETH } = await import('./evm-trading.js')
+            const srcToken = src.toLowerCase() === 'eth' ? NATIVE_ETH : src
+            const dstToken = dst.toLowerCase() === 'eth' ? NATIVE_ETH : dst
+
+            let route
+            try {
+              route = await fetchParaswapPrice({
+                srcToken,
+                destToken: dstToken,
+                amount,
+                srcDecimals,
+                destDecimals: dstDecimals,
+                network: chainId,
+              })
+            } catch (e: any) {
+              err(e.message || 'evm-quote failed', EXIT.NETWORK)
+            }
+
+            log(`wallet evm-quote: ${srcToken.slice(0, 8)}->${dstToken.slice(0, 8)} on chain ${chainId}`)
+
+            if (!AGENT_MODE) {
+              console.log()
+              section('EVM quote (ParaSwap)')
+              kv('Chain', String(chainId))
+              kv('From', `${route!.srcAmount} (${srcToken.slice(0, 10)}..., dec ${route!.srcDecimals})`)
+              kv('To', `${route!.destAmount} (${dstToken.slice(0, 10)}..., dec ${route!.destDecimals})`)
+              const rate = Number(BigInt(route!.destAmount)) / Math.pow(10, route!.destDecimals)
+                          / (Number(BigInt(route!.srcAmount)) / Math.pow(10, route!.srcDecimals))
+              kv('Rate', `1 src → ${rate.toFixed(6)} dst`)
+              kv('Gas est', String(route!.gasCost))
+              kv('Block', String(route!.blockNumber))
+              console.log()
+            } else {
+              print(route!)
+            }
+            break
+          }
           case 'trading-keystore': {
             const sub = positional[0]
             if (!sub) err('trading-keystore subcommand required. Try: init, list, status, derive, export', EXIT.BAD_INPUT)
@@ -2628,7 +2685,7 @@ async function main() {
 
             err(`Unknown trading-keystore subcommand: ${sub}. Try: init, unlock, lock, list, status, derive, export`, EXIT.BAD_INPUT)
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore`)
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore, evm-quote`)
         }
         break
       }
