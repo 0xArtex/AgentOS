@@ -413,6 +413,16 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 | `palmyr wallet daemon status` | local | Liveness check + last tick timestamp + current opts. |
 | `palmyr wallet triggers [--ca <CA>] [--since <iso>] [--clear]` | local | List pending trigger fires; `--clear` truncates `pending.jsonl` after listing. |
 
+**Trading keystore (Phase 4).** Separate from the existing Palmyr vault. Stores a BIP39 mnemonic (24 words, 256-bit entropy) encrypted at rest at `~/.palmyr/trading/keystore.json` with scrypt (N=131072, r=8, p=1) + AES-256-GCM (16-byte random salt + 12-byte random IV + 16-byte auth tag). Derives Solana wallets at `m/44'/501'/<index>'/0'` (Phantom-compatible). Addresses persist in plaintext next to the ciphertext, so `list` / `status` work without unlocking. Pass `--wallet trading:N` to `buy` / `sell` / `sync` to route through the Nth derived wallet — passphrase is read from `PALMYR_TRADING_KEYSTORE_PASSPHRASE`.
+
+| Command | Network | Notes |
+|---|---|---|
+| `palmyr wallet trading-keystore init [--count N] [--mnemonic "..."]` | local | Create the keystore. Default `--count 5`. Pass `--mnemonic` to import an existing seed; otherwise a fresh 24-word mnemonic is generated. Requires `PALMYR_TRADING_KEYSTORE_PASSPHRASE`. |
+| `palmyr wallet trading-keystore list` | local | List `[index]` → derived address. No unlock needed. |
+| `palmyr wallet trading-keystore status` | local | Show exists / path / created-at / wallet count. |
+| `palmyr wallet trading-keystore derive --count N` | local | Append N more HD-derived wallets to the keystore. |
+| `palmyr wallet trading-keystore export --confirm` | local | Print the mnemonic. Passphrase required; `--confirm` guard prevents accidental exposure. |
+
 ### Twitter / X
 
 Buy, manage, and operate X accounts directly from the CLI. Each account is pinned to a sticky residential IP for its lifetime — login, posting, and every subsequent action route through the same exit IP, so X never sees a sudden geography change.
