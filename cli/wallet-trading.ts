@@ -286,7 +286,7 @@ export type TradeLogLine =
   | {
       kind: 'monitor_fire'
       ts: string
-      chain: 'solana'
+      chain: 'solana' | 'base'        // Phase 5d
       wallet: string
       mint: string
       trigger: 'cut' | 'takeProfit' | 'trailingStop' | 'timeLimit' | 'thesis_falsified'
@@ -633,6 +633,10 @@ export interface BuyBaseOpts {
   slippageBps?: number
   dryRun?: boolean
   rpcUrl?: string
+  // Phase 5d — MEV-protected execution.
+  protectedExec?: boolean
+  /** EIP-1559 maxPriorityFeePerGas tip in wei. Only used when protectedExec. */
+  priorityFeeWei?: bigint
 }
 
 export interface BuyBaseResult {
@@ -648,6 +652,8 @@ export interface BuyBaseResult {
   dryRun: boolean
   feeWei: string
   slippageBpsUsed: number
+  protectedExec: boolean
+  rpcUrl: string
 }
 
 export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
@@ -671,11 +677,16 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     makeEvmProvider,
     NATIVE_ETH,
     BASE_CHAIN_ID,
-    DEFAULT_BASE_RPC,
+    resolveBaseRpcUrl,
+    DEFAULT_BASE_PROTECTED_TIP_WEI,
   } = await import('./evm-trading.js')
 
   const signer = await resolveEvmSigner(opts.walletRef, opts.passphrase)
-  const provider = makeEvmProvider(opts.rpcUrl ?? DEFAULT_BASE_RPC)
+  const rpcUrl = resolveBaseRpcUrl({
+    rpcUrl: opts.rpcUrl,
+    protectedExec: opts.protectedExec,
+  })
+  const provider = makeEvmProvider(rpcUrl)
   const connectedWallet = signer.wallet.connect(provider) as import('ethers').Wallet
 
   let tokenDecimals = 18
@@ -686,6 +697,12 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     // happens for non-standard ERC20s). We persist what we have; downstream
     // display will be approximate.
   }
+
+  // Phase 5d — protected execution bumps the EIP-1559 priority fee. Falls
+  // back to the configured default when --protected is set without --tip.
+  const priorityFeeWei = opts.protectedExec
+    ? (opts.priorityFeeWei ?? DEFAULT_BASE_PROTECTED_TIP_WEI)
+    : undefined
 
   const swap = await executeEvmSwap({
     provider,
@@ -698,6 +715,7 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     slippageBps,
     chainId: BASE_CHAIN_ID,
     dryRun: opts.dryRun,
+    priorityFeeWei,
   })
 
   const tokensOutRaw = swap.destAmount
@@ -726,7 +744,7 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
       entryMcap: null,
       feeWei: swap.feeWei,
       slippageBpsUsed: slippageBps,
-      protectedExec: false,
+      protectedExec: !!opts.protectedExec,
     },
     thesis: opts.thesis.trim(),
     exitPlan: {
@@ -766,6 +784,8 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     dryRun: !!opts.dryRun,
     feeWei: swap.feeWei,
     slippageBpsUsed: slippageBps,
+    protectedExec: !!opts.protectedExec,
+    rpcUrl,
   }
 }
 
@@ -780,6 +800,9 @@ export interface SellBaseOpts {
   slippageBps?: number
   dryRun?: boolean
   rpcUrl?: string
+  // Phase 5d
+  protectedExec?: boolean
+  priorityFeeWei?: bigint
 }
 
 export interface SellBaseResult {
@@ -797,6 +820,8 @@ export interface SellBaseResult {
   feeWei: string
   slippageBpsUsed: number
   approvalTxHash?: string
+  protectedExec: boolean
+  rpcUrl: string
 }
 
 export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
@@ -819,7 +844,8 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     makeEvmProvider,
     NATIVE_ETH,
     BASE_CHAIN_ID,
-    DEFAULT_BASE_RPC,
+    resolveBaseRpcUrl,
+    DEFAULT_BASE_PROTECTED_TIP_WEI,
   } = await import('./evm-trading.js')
 
   const signer = await resolveEvmSigner(opts.walletRef, opts.passphrase)
@@ -829,8 +855,16 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     )
   }
 
-  const provider = makeEvmProvider(opts.rpcUrl ?? DEFAULT_BASE_RPC)
+  const rpcUrl = resolveBaseRpcUrl({
+    rpcUrl: opts.rpcUrl,
+    protectedExec: opts.protectedExec,
+  })
+  const provider = makeEvmProvider(rpcUrl)
   const connectedWallet = signer.wallet.connect(provider) as import('ethers').Wallet
+
+  const priorityFeeWei = opts.protectedExec
+    ? (opts.priorityFeeWei ?? DEFAULT_BASE_PROTECTED_TIP_WEI)
+    : undefined
 
   // BigInt math: remaining = totalEntry - sumOfSells (in u256 raw)
   const totalRaw = BigInt(position.entry.tokensOutRaw)
@@ -857,6 +891,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     slippageBps,
     chainId: BASE_CHAIN_ID,
     dryRun: opts.dryRun,
+    priorityFeeWei,
     onTxBuilt: async (txBlob) => {
       if (opts.dryRun) return // skip approval in dry-run
       const result = await ensureErc20Approval(
@@ -899,7 +934,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     reason: opts.reason.trim(),
     feeWei: swap.feeWei,
     slippageBpsUsed: slippageBps,
-    protectedExec: false,
+    protectedExec: !!opts.protectedExec,
   })
 
   position.pnl.realizedEth = position.sells.reduce((a, s) => a + s.realizedEth, 0)
@@ -928,6 +963,8 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     feeWei: swap.feeWei,
     slippageBpsUsed: slippageBps,
     approvalTxHash,
+    protectedExec: !!opts.protectedExec,
+    rpcUrl,
   }
 }
 
@@ -966,11 +1003,12 @@ export async function syncBase(opts: SyncBaseOpts = {}): Promise<SyncBaseReport>
     makeEvmProvider,
     NATIVE_ETH,
     BASE_CHAIN_ID,
-    DEFAULT_BASE_RPC,
+    resolveBaseRpcUrl,
   } = await import('./evm-trading.js')
 
   const signer = await resolveEvmSigner(opts.walletRef, opts.passphrase)
-  const provider = makeEvmProvider(opts.rpcUrl ?? DEFAULT_BASE_RPC)
+  const rpcUrl = resolveBaseRpcUrl({ rpcUrl: opts.rpcUrl })
+  const provider = makeEvmProvider(rpcUrl)
 
   const positions = listPositions({
     chain: 'base',
@@ -1598,49 +1636,164 @@ export interface PnlOpts {
   by?: 'wallet' | 'chain'
   sinceIso?: string
   includeClosed?: boolean
+  /**
+   * Phase 5d — when true (default), fetch SOL/USD + ETH/USD spot prices and
+   * compute cross-chain USD totals. Set to false in tests or to suppress the
+   * extra API calls. Falls back gracefully if the price lookups fail.
+   */
+  usd?: boolean
+}
+
+export interface PnlPerChain {
+  realized: number                    // native unit (SOL or ETH)
+  unrealized: number
+  total: number
+  count: number
+  unit: 'SOL' | 'ETH'
+}
+
+export interface PnlUsdSection {
+  realized: number
+  unrealized: number
+  total: number
+  solPriceUsd: number | null
+  ethPriceUsd: number | null
+}
+
+export interface PnlByGroupEntry {
+  /** Group key (wallet address or chain name). */
+  key: string
+  /** Realized in native unit. */
+  realized: number
+  unrealized: number
+  count: number
+  /** Native unit for this group ('SOL' or 'ETH'). */
+  unit: 'SOL' | 'ETH'
+  /** Chain (always set; for `--by chain` it equals the group key). */
+  chain: 'solana' | 'base'
 }
 
 export interface PnlReport {
+  // Per-chain breakdown in native units
+  solana: PnlPerChain
+  base: PnlPerChain
+  // Cross-chain USD aggregation (null if both price lookups failed)
+  usd: PnlUsdSection | null
+  // Grouping when --by is set
+  byGroup?: PnlByGroupEntry[]
+  // Back-compat (Phase 1-5c consumers depend on these field names)
   totalRealizedSol: number
   totalUnrealizedSol: number
   totalSol: number
   count: number
-  byGroup?: Record<string, { realizedSol: number; unrealizedSol: number; count: number }>
 }
 
-export function computePnl(opts: PnlOpts = {}): PnlReport {
+export async function computePnl(opts: PnlOpts = {}): Promise<PnlReport> {
   const positions = listPositions({ includeClosed: opts.includeClosed ?? true })
-  // Phase 5b: cross-chain aggregation in native units is meaningless (1 SOL ≠ 1 ETH).
-  // For now `pnl` aggregates only Solana positions; Base positions get their own
-  // view in `positions` and `position <CA>`. Cross-chain USD-converted totals are
-  // a Phase 5c concern.
-  const solanaPositions = (
-    opts.sinceIso
-      ? positions.filter((p) => p.entry.time >= opts.sinceIso!)
-      : positions
-  ).filter((p): p is SolanaPositionFile => p.chain === 'solana')
+  const filtered = opts.sinceIso
+    ? positions.filter((p) => p.entry.time >= opts.sinceIso!)
+    : positions
 
-  let totalRealizedSol = 0
-  let totalUnrealizedSol = 0
-  const byGroup: Record<string, { realizedSol: number; unrealizedSol: number; count: number }> = {}
+  const solanaPositions = filtered.filter(
+    (p): p is SolanaPositionFile => p.chain === 'solana',
+  )
+  const basePositions = filtered.filter(
+    (p): p is BasePositionFile => p.chain === 'base',
+  )
 
+  // ── Per-chain native totals ──
+  let solRealized = 0
+  let solUnrealized = 0
   for (const p of solanaPositions) {
-    totalRealizedSol += p.pnl.realizedSol
-    totalUnrealizedSol += p.pnl.unrealizedSol
-    if (opts.by) {
-      const key = opts.by === 'wallet' ? p.wallet : p.chain
-      if (!byGroup[key]) byGroup[key] = { realizedSol: 0, unrealizedSol: 0, count: 0 }
-      byGroup[key].realizedSol += p.pnl.realizedSol
-      byGroup[key].unrealizedSol += p.pnl.unrealizedSol
-      byGroup[key].count += 1
+    solRealized += p.pnl.realizedSol
+    solUnrealized += p.pnl.unrealizedSol
+  }
+  let ethRealized = 0
+  let ethUnrealized = 0
+  for (const p of basePositions) {
+    ethRealized += p.pnl.realizedEth
+    ethUnrealized += p.pnl.unrealizedEth
+  }
+
+  // ── USD conversion (Phase 5d) ──
+  let usdSection: PnlUsdSection | null = null
+  const wantUsd = opts.usd ?? true
+  if (wantUsd) {
+    const { fetchUsdPrice } = await import('./evm-trading.js')
+    const needsSol = solanaPositions.length > 0
+    const needsEth = basePositions.length > 0
+    const [solPrice, ethPrice] = await Promise.all([
+      needsSol ? fetchUsdPrice('SOL') : Promise.resolve(null),
+      needsEth ? fetchUsdPrice('ETH') : Promise.resolve(null),
+    ])
+    if (solPrice !== null || ethPrice !== null) {
+      const solR = solPrice !== null ? solRealized * solPrice : 0
+      const solU = solPrice !== null ? solUnrealized * solPrice : 0
+      const ethR = ethPrice !== null ? ethRealized * ethPrice : 0
+      const ethU = ethPrice !== null ? ethUnrealized * ethPrice : 0
+      usdSection = {
+        realized: solR + ethR,
+        unrealized: solU + ethU,
+        total: solR + solU + ethR + ethU,
+        solPriceUsd: solPrice,
+        ethPriceUsd: ethPrice,
+      }
     }
   }
 
-  return {
-    totalRealizedSol,
-    totalUnrealizedSol,
-    totalSol: totalRealizedSol + totalUnrealizedSol,
+  // ── Grouping ──
+  let byGroup: PnlByGroupEntry[] | undefined
+  if (opts.by) {
+    const map = new Map<string, PnlByGroupEntry>()
+    for (const p of solanaPositions) {
+      const key = opts.by === 'wallet' ? p.wallet : 'solana'
+      let entry = map.get(key)
+      if (!entry) {
+        entry = { key, realized: 0, unrealized: 0, count: 0, unit: 'SOL', chain: 'solana' }
+        map.set(key, entry)
+      }
+      entry.realized += p.pnl.realizedSol
+      entry.unrealized += p.pnl.unrealizedSol
+      entry.count += 1
+    }
+    for (const p of basePositions) {
+      const key = opts.by === 'wallet' ? p.wallet : 'base'
+      let entry = map.get(key)
+      if (!entry) {
+        entry = { key, realized: 0, unrealized: 0, count: 0, unit: 'ETH', chain: 'base' }
+        map.set(key, entry)
+      }
+      entry.realized += p.pnl.realizedEth
+      entry.unrealized += p.pnl.unrealizedEth
+      entry.count += 1
+    }
+    byGroup = Array.from(map.values())
+  }
+
+  const solana: PnlPerChain = {
+    realized: solRealized,
+    unrealized: solUnrealized,
+    total: solRealized + solUnrealized,
     count: solanaPositions.length,
-    byGroup: opts.by ? byGroup : undefined,
+    unit: 'SOL',
+  }
+  const base: PnlPerChain = {
+    realized: ethRealized,
+    unrealized: ethUnrealized,
+    total: ethRealized + ethUnrealized,
+    count: basePositions.length,
+    unit: 'ETH',
+  }
+
+  return {
+    solana,
+    base,
+    usd: usdSection,
+    byGroup,
+    // Back-compat fields — still describe the Solana totals as in Phase 1-5c.
+    totalRealizedSol: solRealized,
+    totalUnrealizedSol: solUnrealized,
+    totalSol: solRealized + solUnrealized,
+    count: solanaPositions.length,
   }
 }

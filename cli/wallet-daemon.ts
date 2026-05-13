@@ -36,7 +36,9 @@ import {
   listPositions,
   readPosition,
   sell,
+  sellBase,
   sync,
+  syncBase,
   writePosition,
   type PositionFile,
   type TradeLogLine,
@@ -61,7 +63,7 @@ function ensureDaemonDirs() {
 
 export interface TriggerFire {
   ts: string
-  chain: 'solana'
+  chain: 'solana' | 'base'
   wallet: string
   mint: string
   trigger: 'cut' | 'takeProfit' | 'trailingStop' | 'timeLimit' | 'thesis_falsified'
@@ -140,7 +142,7 @@ export function evaluateTriggers(p: PositionFile): TriggerFire[] {
   const currentPct = p.pnl.unrealizedPct
   const base = {
     ts,
-    chain: 'solana' as const,
+    chain: p.chain,
     wallet: p.wallet,
     mint: p.mint,
     currentPct,
@@ -290,34 +292,85 @@ export function clearPendingTriggers() {
 
 export interface TickReport {
   syncedPositions: number
+  syncedSolana: number
+  syncedBase: number
   fires: TriggerFire[]
+  /**
+   * Non-fatal sync errors per chain. The daemon doesn't abort on a single
+   * chain failing — it logs to daemon.log and reports here.
+   */
+  errors: { chain: 'solana' | 'base'; message: string }[]
 }
 
 /**
  * One daemon iteration: sync (refreshes unrealized PnL) → evaluate triggers →
  * persist fires → optionally auto-execute. Returns the fires that fired this
  * tick, so the caller (CLI tick or daemon loop) can render them.
+ *
+ * Phase 5d — also syncs Base positions when the walletRef can resolve to an
+ * EVM signer (i.e. `trading:N`). Solana sync runs first and is "default
+ * critical": if Solana fails the whole tick errors. Base sync is best-effort
+ * and adds an error to the report but doesn't abort the tick.
  */
 export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
-  // 1. Sync the wallet's open positions. This refreshes pnl.unrealizedPct
-  //    from chain + Jupiter quote, and writes updated position files atomically.
-  const syncReport = await sync({ walletRef: opts.walletRef })
-
-  // 2. Re-read positions (they were just written by sync), refresh the peak
-  //    watermark (for trailing-stop), optionally run an LLM thesis check, then
-  //    evaluate triggers.
   const fires: TriggerFire[] = []
-  for (const syncEntry of syncReport.positions) {
+  const errors: TickReport['errors'] = []
+
+  // 1. Solana sync — same path as Phase 3.
+  const solanaSync = await sync({ walletRef: opts.walletRef })
+  for (const syncEntry of solanaSync.positions) {
     const p = readPosition('solana', syncEntry.mint)
     if (!p) continue
     updateMonitorPeak(p)
     await maybeRunThesisCheck(p)
     writePosition(p)
-    const positionFires = evaluateTriggers(p)
-    for (const fire of positionFires) {
-      // Auto-execute first (so the fire record carries the resulting sell tx)
-      if (opts.autoExecute) {
-        try {
+    fires.push(...await processPositionFires(p, opts))
+  }
+
+  // 2. Base sync — Phase 5d. Only attempted when walletRef is `trading:N`
+  //    (Base needs EVM derivation). Failures are non-fatal.
+  let syncedBase = 0
+  const isEvmCapableRef = opts.walletRef?.startsWith('trading:')
+  if (isEvmCapableRef) {
+    try {
+      const baseSync = await syncBase({ walletRef: opts.walletRef })
+      syncedBase = baseSync.positions.length
+      for (const syncEntry of baseSync.positions) {
+        const p = readPosition('base', syncEntry.mint)
+        if (!p) continue
+        updateMonitorPeak(p)
+        await maybeRunThesisCheck(p)
+        writePosition(p)
+        fires.push(...await processPositionFires(p, opts))
+      }
+    } catch (e: any) {
+      const msg = e?.message ?? String(e)
+      errors.push({ chain: 'base', message: msg })
+      appendFileSync(LOG_FILE, `[${new Date().toISOString()}] base sync failed: ${msg}\n`)
+    }
+  }
+
+  return {
+    syncedPositions: solanaSync.positions.length + syncedBase,
+    syncedSolana: solanaSync.positions.length,
+    syncedBase,
+    fires,
+    errors,
+  }
+}
+
+/**
+ * Phase 5d — extracted per-position fire processing so we can run it for
+ * both Solana and Base positions without duplicating the logic. Chain-dispatch
+ * happens inside (sell vs sellBase, sync chain stamp on log line).
+ */
+async function processPositionFires(p: PositionFile, opts: DaemonOpts): Promise<TriggerFire[]> {
+  const positionFires = evaluateTriggers(p)
+  const out: TriggerFire[] = []
+  for (const fire of positionFires) {
+    if (opts.autoExecute) {
+      try {
+        if (p.chain === 'solana') {
           const sellResult = await sell({
             ca: fire.mint,
             percent: 100,
@@ -326,42 +379,48 @@ export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
           })
           fire.autoExecuted = true
           fire.linkedSellTx = sellResult.txSignature
-        } catch (e: any) {
-          fire.error = e?.message ?? String(e)
+        } else {
+          const sellResult = await sellBase({
+            ca: fire.mint,
+            percent: 100,
+            reason: `auto: ${fire.trigger} fired at ${fire.currentPct.toFixed(2)}% (threshold ${fire.thresholdPct}%)`,
+            walletRef: opts.walletRef,
+          })
+          fire.autoExecuted = true
+          fire.linkedSellTx = sellResult.txHash
         }
+      } catch (e: any) {
+        fire.error = e?.message ?? String(e)
       }
-      appendPendingTrigger(fire)
-      const logLine: TradeLogLine = {
-        kind: 'monitor_fire',
-        ts: fire.ts,
-        chain: 'solana',
-        wallet: fire.wallet,
-        mint: fire.mint,
-        trigger: fire.trigger,
-        currentPct: fire.currentPct,
-        thresholdPct: fire.thresholdPct,
-        peakPct: fire.peakPct,
-        thresholdDurationMs: fire.thresholdDurationMs,
-        elapsedMs: fire.elapsedMs,
-        llmVerdict: fire.llmVerdict,
-        llmReasoning: fire.llmReasoning,
-        proposedAction: fire.proposedAction,
-        autoExecuted: fire.autoExecuted,
-        linkedSellTx: fire.linkedSellTx,
-        note: fire.error,
-      }
-      appendTradeLog(logLine)
-      // Stamp the thesis_falsified fire timestamp so we don't refire until
-      // the next LLM check produces a new (or refreshed) verdict.
-      if (fire.trigger === 'thesis_falsified' && p.monitorState) {
-        p.monitorState.lastThesisFiredAt = fire.ts
-        writePosition(p)
-      }
-      fires.push(fire)
     }
+    appendPendingTrigger(fire)
+    const logLine: TradeLogLine = {
+      kind: 'monitor_fire',
+      ts: fire.ts,
+      chain: fire.chain,
+      wallet: fire.wallet,
+      mint: fire.mint,
+      trigger: fire.trigger,
+      currentPct: fire.currentPct,
+      thresholdPct: fire.thresholdPct,
+      peakPct: fire.peakPct,
+      thresholdDurationMs: fire.thresholdDurationMs,
+      elapsedMs: fire.elapsedMs,
+      llmVerdict: fire.llmVerdict,
+      llmReasoning: fire.llmReasoning,
+      proposedAction: fire.proposedAction,
+      autoExecuted: fire.autoExecuted,
+      linkedSellTx: fire.linkedSellTx,
+      note: fire.error,
+    }
+    appendTradeLog(logLine)
+    if (fire.trigger === 'thesis_falsified' && p.monitorState) {
+      p.monitorState.lastThesisFiredAt = fire.ts
+      writePosition(p)
+    }
+    out.push(fire)
   }
-
-  return { syncedPositions: syncReport.positions.length, fires }
+  return out
 }
 
 // ───────── Process-level daemon management ─────────

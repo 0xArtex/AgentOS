@@ -226,9 +226,10 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--hold-if "..."', desc: 'Free-form hold condition (informational)' },
     { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env WALLET_SECRET_KEY)' },
     { flag: '--slippage <bps>', desc: 'Explicit slippage in basis points', hint: 'overrides --auto-slippage' },
-    { flag: '--auto-slippage', desc: 'Dynamic slippage from DexScreener 5m volatility', hint: 'implied by --protected' },
-    { flag: '--protected', desc: 'MEV-protected: Jito tip + dynamic slippage' },
-    { flag: '--tip <lamports>', desc: 'Override default Jito tip', hint: 'default 10000' },
+    { flag: '--auto-slippage', desc: 'Dynamic slippage from DexScreener 5m volatility (solana)', hint: 'implied by --protected' },
+    { flag: '--protected', desc: 'MEV-protected execution', hint: 'sol: Jito tip + dyn slippage. base: priority-fee bump + PALMYR_BASE_PROTECTED_RPC' },
+    { flag: '--tip <amount>', desc: 'sol: Jito tip lamports (default 10000). base: priority fee in gwei (default 0.001)' },
+    { flag: '--rpc <url>', desc: 'Override RPC endpoint (base: maps to provider URL; bypasses --protected default)' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
   positions: [
@@ -246,17 +247,20 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--reason "..."', desc: 'Why are you exiting? (required)' },
     { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env)' },
     { flag: '--slippage <bps>', desc: 'Explicit slippage in basis points', hint: 'overrides --auto-slippage' },
-    { flag: '--auto-slippage', desc: 'Dynamic slippage from DexScreener 5m volatility', hint: 'implied by --protected' },
-    { flag: '--protected', desc: 'MEV-protected: Jito tip + dynamic slippage' },
-    { flag: '--tip <lamports>', desc: 'Override default Jito tip', hint: 'default 10000' },
+    { flag: '--auto-slippage', desc: 'Dynamic slippage from DexScreener 5m volatility (solana)', hint: 'implied by --protected' },
+    { flag: '--protected', desc: 'MEV-protected execution', hint: 'sol: Jito tip + dyn slippage. base: priority-fee bump + PALMYR_BASE_PROTECTED_RPC' },
+    { flag: '--tip <amount>', desc: 'sol: Jito tip lamports (default 10000). base: priority fee in gwei (default 0.001)' },
+    { flag: '--rpc <url>', desc: 'Override RPC endpoint (base only currently)' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
   sync: [
     { flag: '--wallet <id|name>', desc: 'Vault wallet whose positions to reconcile (else env signer)' },
+    { flag: '--chain <chain>', desc: 'Chain to sync', hint: 'solana | base (default solana)' },
   ],
   pnl: [
     { flag: '--by <group>', desc: 'Group output', hint: 'wallet | chain' },
     { flag: '--since <date>', desc: 'Filter by entry date', hint: 'ISO 8601 or YYYY-MM-DD' },
+    { flag: '--no-usd', desc: 'Skip USD price lookups (default: include cross-chain USD totals)' },
   ],
   journal: [
     { flag: 'add <CA> --note "..."', desc: 'Append a note (omit CA for a general note)' },
@@ -1836,10 +1840,15 @@ async function main() {
             const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
             const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
 
-            // Phase 5b — Base path runs through a separate code path. No
-            // --protected / --auto-slippage / --tip on Base yet (Phase 5c).
+            // Base path — Phase 5b buy, 5c sell+sync, 5d --protected + private RPC.
             if (chain === 'base') {
               if (!walletRef) err('--wallet required for Base (use trading:N from `trading-keystore list`)', EXIT.BAD_INPUT)
+              const baseProtected = !!flags.protected
+              const baseRpc = (flags.rpc as string) || undefined
+              const tipGwei = flags.tip ? Number(flags.tip) : undefined
+              const priorityFeeWei = tipGwei !== undefined
+                ? BigInt(Math.round(tipGwei * 1e9))
+                : undefined
               const { buyBase } = await import('./wallet-trading.js')
               let baseResult: Awaited<ReturnType<typeof buyBase>>
               try {
@@ -1856,6 +1865,9 @@ async function main() {
                   walletRef,
                   slippageBps,
                   dryRun,
+                  protectedExec: baseProtected,
+                  rpcUrl: baseRpc,
+                  priorityFeeWei,
                 })
               } catch (e: any) {
                 err(e.message || 'buy (base) failed', EXIT.GENERAL)
@@ -1863,7 +1875,8 @@ async function main() {
               log(`wallet buy: base ${ca} (${baseResult!.txHash})`)
               if (!AGENT_MODE) {
                 const tag = baseResult!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
-                console.log(`\n  ${t.success}${icon.success} ${tag}Base position opened${t.reset}`)
+                const protTag = baseResult!.protectedExec ? ` ${t.accent}[protected]${t.reset}` : ''
+                console.log(`\n  ${t.success}${icon.success} ${tag}Base position opened${protTag}${t.reset}`)
                 console.log(`  ${t.muted}position:${t.reset}  ${baseResult!.positionPath}`)
                 console.log(`  ${t.muted}tx:${t.reset}        ${baseResult!.txHash}`)
                 console.log(`  ${t.muted}wallet:${t.reset}    ${baseResult!.wallet}`)
@@ -1871,8 +1884,10 @@ async function main() {
                 console.log(`  ${t.muted}out:${t.reset}       ${baseResult!.tokensOut} tokens`)
                 console.log(`  ${t.muted}slippage:${t.reset}  ${baseResult!.slippageBpsUsed}bps`)
                 console.log(`  ${t.muted}fee:${t.reset}       ${baseResult!.feeWei} wei`)
+                if (baseResult!.protectedExec) {
+                  console.log(`  ${t.muted}rpc:${t.reset}       ${baseResult!.rpcUrl}`)
+                }
                 console.log()
-                console.log(`  ${t.muted}Note: Phase 5b is buy-only on Base; close via wallet UI (Phantom / Coinbase) until Phase 5c lands.${t.reset}\n`)
               } else {
                 print(baseResult!)
               }
@@ -1937,24 +1952,40 @@ async function main() {
           }
           case 'positions': {
             const chainFlag = ((flags.chain as string) || '').toLowerCase()
-            if (chainFlag && chainFlag !== 'solana') err(`Unsupported chain: ${chainFlag}. Only 'solana' for now.`, EXIT.BAD_INPUT)
+            if (chainFlag && chainFlag !== 'solana' && chainFlag !== 'base') {
+              err(`Unsupported chain: ${chainFlag}. Try: solana, base`, EXIT.BAD_INPUT)
+            }
             const walletRef = (flags.wallet as string) || undefined
             const includeClosed = !!flags.all
 
+            // Phase 5d — when a --wallet ref is given, resolve to its
+            // chain-specific address. For `trading:N`, we resolve EVM when
+            // chain=base, Solana otherwise (or when no chain filter, we
+            // intersect against Solana address — back-compat with Phase 1).
             let walletAddress: string | undefined
             if (walletRef) {
-              const { resolveSigner } = await import('./wallet-trading.js')
-              try {
-                const signer = await resolveSigner(walletRef)
-                walletAddress = signer.address
-              } catch (e: any) {
-                err(`Could not resolve --wallet ${walletRef}: ${e.message}`, EXIT.NOT_FOUND)
+              if (chainFlag === 'base') {
+                const { resolveEvmSigner } = await import('./wallet-trading.js')
+                try {
+                  const signer = await resolveEvmSigner(walletRef)
+                  walletAddress = signer.address
+                } catch (e: any) {
+                  err(`Could not resolve --wallet ${walletRef} for base: ${e.message}`, EXIT.NOT_FOUND)
+                }
+              } else {
+                const { resolveSigner } = await import('./wallet-trading.js')
+                try {
+                  const signer = await resolveSigner(walletRef)
+                  walletAddress = signer.address
+                } catch (e: any) {
+                  err(`Could not resolve --wallet ${walletRef}: ${e.message}`, EXIT.NOT_FOUND)
+                }
               }
             }
 
             const { listPositions } = await import('./wallet-trading.js')
             const positions = listPositions({
-              chain: (chainFlag || undefined) as 'solana' | undefined,
+              chain: (chainFlag || undefined) as 'solana' | 'base' | undefined,
               walletAddress,
               includeClosed,
             })
@@ -1966,8 +1997,9 @@ async function main() {
               }
               console.log()
               table(
-                ['CA', 'STATUS', 'IN', 'OUT', 'UNREAL %', 'THESIS'],
+                ['CHAIN', 'CA', 'STATUS', 'IN', 'OUT', 'UNREAL %', 'THESIS'],
                 positions.map((p) => [
+                  p.chain,
                   p.mint.length > 12 ? `${p.mint.slice(0, 6)}..${p.mint.slice(-4)}` : p.mint,
                   p.status,
                   p.entry.amountIn,
@@ -1985,13 +2017,25 @@ async function main() {
           case 'position': {
             const ca = positional[0] || (flags.ca as string)
             if (!ca) err('CA required: palmyr wallet position <CA>', EXIT.BAD_INPUT)
+            // Phase 5d — look up by chain if --chain is set, else try both.
+            const chainFlag = ((flags.chain as string) || '').toLowerCase()
+            if (chainFlag && chainFlag !== 'solana' && chainFlag !== 'base') {
+              err(`Unsupported chain: ${chainFlag}. Try: solana, base`, EXIT.BAD_INPUT)
+            }
             const { readPosition } = await import('./wallet-trading.js')
-            const p = readPosition('solana', ca)
+            let p = chainFlag
+              ? readPosition(chainFlag as 'solana' | 'base', ca)
+              : (readPosition('solana', ca) ?? readPosition('base', ca))
             if (!p) err(`Position not found: ${ca}`, EXIT.NOT_FOUND)
+
+            const unit = p!.chain === 'solana' ? 'SOL' : 'ETH'
+            const realized = p!.chain === 'solana' ? p!.pnl.realizedSol : p!.pnl.realizedEth
+            const unrealized = p!.chain === 'solana' ? p!.pnl.unrealizedSol : p!.pnl.unrealizedEth
 
             if (!AGENT_MODE) {
               console.log()
               section('Position')
+              kv('Chain', p!.chain)
               kv('CA', p!.mint)
               kv('Status', p!.status)
               kv('Wallet', p!.wallet)
@@ -1999,8 +2043,11 @@ async function main() {
               kv('Entry time', p!.entry.time)
               kv('Amount in', p!.entry.amountIn)
               kv('Tokens out', p!.entry.tokensOut)
-              if (p!.entry.entryMcap !== null) {
+              if (p!.entry.entryMcap !== null && p!.entry.entryMcap !== undefined) {
                 kv('Entry mcap', `$${p!.entry.entryMcap.toLocaleString('en-US', { maximumFractionDigits: 0 })}`)
+              }
+              if (p!.entry.protectedExec) {
+                kv('Protected', 'yes')
               }
               console.log()
               section('Thesis')
@@ -2019,15 +2066,21 @@ async function main() {
                 console.log()
               }
               section('PnL')
-              kv('Realized', `${p!.pnl.realizedSol.toFixed(6)} SOL`)
-              kv('Unrealized', `${p!.pnl.unrealizedSol.toFixed(6)} SOL`)
+              kv('Realized', `${realized.toFixed(6)} ${unit}`)
+              kv('Unrealized', `${unrealized.toFixed(6)} ${unit}`)
               kv('Unrealized %', `${p!.pnl.unrealizedPct.toFixed(2)}%`)
               kv('Last priced', p!.pnl.lastPricedAt || 'never (run `wallet sync`)')
               if (p!.sells.length > 0) {
                 console.log()
                 section(`Sells (${p!.sells.length})`)
-                for (const s of p!.sells) {
-                  console.log(`  ${t.muted}${s.time}${t.reset}  ${s.tokensIn} → ${s.solOut} (realized ${s.realizedSol >= 0 ? '+' : ''}${s.realizedSol.toFixed(6)} SOL) — ${s.reason}`)
+                if (p!.chain === 'solana') {
+                  for (const s of p!.sells) {
+                    console.log(`  ${t.muted}${s.time}${t.reset}  ${s.tokensIn} → ${s.solOut} (realized ${s.realizedSol >= 0 ? '+' : ''}${s.realizedSol.toFixed(6)} SOL) — ${s.reason}`)
+                  }
+                } else {
+                  for (const s of p!.sells) {
+                    console.log(`  ${t.muted}${s.time}${t.reset}  ${s.tokensIn} → ${s.ethOut} (realized ${s.realizedEth >= 0 ? '+' : ''}${s.realizedEth.toFixed(6)} ETH) — ${s.reason}`)
+                  }
                 }
               }
               console.log()
@@ -2051,9 +2104,15 @@ async function main() {
             const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
             const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
 
-            // Phase 5c — Base sell path.
+            // Base sell path — Phase 5c, plus 5d --protected + private RPC.
             if (chain === 'base') {
               if (!walletRef) err('--wallet required for Base (use trading:N)', EXIT.BAD_INPUT)
+              const baseProtected = !!flags.protected
+              const baseRpc = (flags.rpc as string) || undefined
+              const tipGwei = flags.tip ? Number(flags.tip) : undefined
+              const priorityFeeWei = tipGwei !== undefined
+                ? BigInt(Math.round(tipGwei * 1e9))
+                : undefined
               const { sellBase } = await import('./wallet-trading.js')
               let baseResult: Awaited<ReturnType<typeof sellBase>>
               try {
@@ -2064,6 +2123,9 @@ async function main() {
                   walletRef,
                   slippageBps,
                   dryRun,
+                  protectedExec: baseProtected,
+                  rpcUrl: baseRpc,
+                  priorityFeeWei,
                 })
               } catch (e: any) {
                 err(e.message || 'sell (base) failed', EXIT.GENERAL)
@@ -2071,9 +2133,10 @@ async function main() {
               log(`wallet sell: base ${ca} ${percent}% (${baseResult!.txHash})`)
               if (!AGENT_MODE) {
                 const tag = baseResult!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
+                const protTag = baseResult!.protectedExec ? ` ${t.accent}[protected]${t.reset}` : ''
                 const pnlColor = baseResult!.realizedEth >= 0 ? t.success : t.error
                 const closedTag = baseResult!.positionStatus === 'closed' ? ` ${t.muted}[closed]${t.reset}` : ''
-                console.log(`\n  ${t.success}${icon.success} ${tag}Base sell executed${closedTag}${t.reset}`)
+                console.log(`\n  ${t.success}${icon.success} ${tag}Base sell executed${protTag}${closedTag}${t.reset}`)
                 if (baseResult!.approvalTxHash) {
                   console.log(`  ${t.muted}approval:${t.reset} ${baseResult!.approvalTxHash}`)
                 }
@@ -2082,6 +2145,9 @@ async function main() {
                 console.log(`  ${t.muted}received:${t.reset}  ${baseResult!.ethOut}`)
                 console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${baseResult!.realizedEth >= 0 ? '+' : ''}${baseResult!.realizedEth.toFixed(6)} ETH${t.reset}`)
                 console.log(`  ${t.muted}reason:${t.reset}    ${reason}`)
+                if (baseResult!.protectedExec) {
+                  console.log(`  ${t.muted}rpc:${t.reset}       ${baseResult!.rpcUrl}`)
+                }
                 console.log()
               } else {
                 print(baseResult!)
@@ -2226,30 +2292,73 @@ async function main() {
             if (sinceIso && isNaN(Date.parse(sinceIso))) {
               err('--since must be a valid date (ISO 8601 or YYYY-MM-DD)', EXIT.BAD_INPUT)
             }
+            // Parser maps `--no-usd` → `flags.usd = false`. Default to USD on.
+            const wantUsd = flags.usd === false ? false : true
 
             const { computePnl } = await import('./wallet-trading.js')
-            const report = computePnl({
+            const report = await computePnl({
               by: (by || undefined) as 'wallet' | 'chain' | undefined,
               sinceIso,
+              usd: wantUsd,
             })
 
             if (!AGENT_MODE) {
               console.log()
               section('PnL')
-              kv('Positions', String(report.count))
-              kv('Realized', `${report.totalRealizedSol >= 0 ? '+' : ''}${report.totalRealizedSol.toFixed(6)} SOL`)
-              kv('Unrealized', `${report.totalUnrealizedSol >= 0 ? '+' : ''}${report.totalUnrealizedSol.toFixed(6)} SOL`)
-              kv('Total', `${report.totalSol >= 0 ? '+' : ''}${report.totalSol.toFixed(6)} SOL`)
-              if (report.byGroup) {
+              const totalPositions = report.solana.count + report.base.count
+              kv('Positions', `${totalPositions} (solana: ${report.solana.count}, base: ${report.base.count})`)
+
+              // Per-chain native breakdown
+              if (report.solana.count > 0) {
+                console.log()
+                section('Solana')
+                const realColor = report.solana.realized >= 0 ? t.success : t.error
+                const unrealColor = report.solana.unrealized >= 0 ? t.success : t.error
+                console.log(`  ${t.muted}Realized:${t.reset}    ${realColor}${report.solana.realized >= 0 ? '+' : ''}${report.solana.realized.toFixed(6)} SOL${t.reset}`)
+                console.log(`  ${t.muted}Unrealized:${t.reset}  ${unrealColor}${report.solana.unrealized >= 0 ? '+' : ''}${report.solana.unrealized.toFixed(6)} SOL${t.reset}`)
+                console.log(`  ${t.muted}Total:${t.reset}       ${report.solana.total >= 0 ? '+' : ''}${report.solana.total.toFixed(6)} SOL`)
+              }
+              if (report.base.count > 0) {
+                console.log()
+                section('Base')
+                const realColor = report.base.realized >= 0 ? t.success : t.error
+                const unrealColor = report.base.unrealized >= 0 ? t.success : t.error
+                console.log(`  ${t.muted}Realized:${t.reset}    ${realColor}${report.base.realized >= 0 ? '+' : ''}${report.base.realized.toFixed(6)} ETH${t.reset}`)
+                console.log(`  ${t.muted}Unrealized:${t.reset}  ${unrealColor}${report.base.unrealized >= 0 ? '+' : ''}${report.base.unrealized.toFixed(6)} ETH${t.reset}`)
+                console.log(`  ${t.muted}Total:${t.reset}       ${report.base.total >= 0 ? '+' : ''}${report.base.total.toFixed(6)} ETH`)
+              }
+
+              // Cross-chain USD totals
+              if (report.usd) {
+                console.log()
+                section('USD (cross-chain)')
+                const realColor = report.usd.realized >= 0 ? t.success : t.error
+                const unrealColor = report.usd.unrealized >= 0 ? t.success : t.error
+                console.log(`  ${t.muted}Realized:${t.reset}    ${realColor}${report.usd.realized >= 0 ? '+' : ''}$${report.usd.realized.toFixed(2)}${t.reset}`)
+                console.log(`  ${t.muted}Unrealized:${t.reset}  ${unrealColor}${report.usd.unrealized >= 0 ? '+' : ''}$${report.usd.unrealized.toFixed(2)}${t.reset}`)
+                console.log(`  ${t.muted}Total:${t.reset}       ${report.usd.total >= 0 ? '+' : ''}$${report.usd.total.toFixed(2)}`)
+                const priceParts: string[] = []
+                if (report.usd.solPriceUsd !== null) priceParts.push(`SOL=$${report.usd.solPriceUsd.toFixed(2)}`)
+                if (report.usd.ethPriceUsd !== null) priceParts.push(`ETH=$${report.usd.ethPriceUsd.toFixed(2)}`)
+                if (priceParts.length > 0) {
+                  console.log(`  ${t.muted}Prices:${t.reset}      ${priceParts.join('  ')}`)
+                }
+              } else if (wantUsd && totalPositions > 0) {
+                console.log()
+                console.log(`  ${t.muted}(USD totals unavailable — price lookups failed; use --no-usd to suppress)${t.reset}`)
+              }
+
+              if (report.byGroup && report.byGroup.length > 0) {
                 console.log()
                 section(`By ${by}`)
                 table(
-                  [by.toUpperCase(), 'COUNT', 'REALIZED', 'UNREALIZED'],
-                  Object.entries(report.byGroup).map(([k, v]) => [
-                    k.length > 16 ? `${k.slice(0, 6)}..${k.slice(-4)}` : k,
-                    String(v.count),
-                    `${v.realizedSol >= 0 ? '+' : ''}${v.realizedSol.toFixed(6)}`,
-                    `${v.unrealizedSol >= 0 ? '+' : ''}${v.unrealizedSol.toFixed(6)}`,
+                  [by.toUpperCase(), 'COUNT', 'REALIZED', 'UNREALIZED', 'UNIT'],
+                  report.byGroup.map((g) => [
+                    g.key.length > 16 ? `${g.key.slice(0, 6)}..${g.key.slice(-4)}` : g.key,
+                    String(g.count),
+                    `${g.realized >= 0 ? '+' : ''}${g.realized.toFixed(6)}`,
+                    `${g.unrealized >= 0 ? '+' : ''}${g.unrealized.toFixed(6)}`,
+                    g.unit,
                   ]),
                 )
               }
@@ -2432,18 +2541,24 @@ async function main() {
               } catch (e: any) {
                 err(e.message || 'tick failed', EXIT.GENERAL)
               }
-              log(`wallet daemon tick: synced ${report!.syncedPositions}, fired ${report!.fires.length}`)
+              log(`wallet daemon tick: synced ${report!.syncedPositions} (sol=${report!.syncedSolana} base=${report!.syncedBase}), fired ${report!.fires.length}`)
               if (!AGENT_MODE) {
                 console.log(`\n  ${t.success}${icon.success} Tick complete${t.reset}`)
-                console.log(`  ${t.muted}synced:${t.reset}  ${report!.syncedPositions} position(s)`)
+                console.log(`  ${t.muted}synced:${t.reset}  ${report!.syncedPositions} position(s) (solana: ${report!.syncedSolana}, base: ${report!.syncedBase})`)
                 console.log(`  ${t.muted}fired:${t.reset}   ${report!.fires.length} trigger(s)`)
+                if (report!.errors.length > 0) {
+                  console.log()
+                  for (const e of report!.errors) {
+                    console.log(`  ${t.warn}⚠ ${e.chain} sync error: ${e.message}${t.reset}`)
+                  }
+                }
                 if (report!.fires.length > 0) {
                   console.log()
                   for (const f of report!.fires) {
                     const tag = f.autoExecuted ? `${t.success}[executed]${t.reset}` : `${t.warn}[pending]${t.reset}`
                     const errTag = f.error ? ` ${t.error}error: ${f.error}${t.reset}` : ''
                     const caShort = f.mint.length > 12 ? `${f.mint.slice(0,6)}..${f.mint.slice(-4)}` : f.mint
-                    console.log(`  ${tag} ${f.trigger} on ${caShort}: current ${f.currentPct.toFixed(2)}% vs threshold ${f.thresholdPct}%${errTag}`)
+                    console.log(`  ${tag} ${f.chain}/${f.trigger} on ${caShort}: current ${f.currentPct.toFixed(2)}% vs threshold ${f.thresholdPct}%${errTag}`)
                   }
                 }
                 console.log()
