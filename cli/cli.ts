@@ -217,6 +217,14 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--slippage <bps>', desc: 'Slippage in basis points', hint: 'default 100 (1%)' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
+  positions: [
+    { flag: '--chain <chain>', desc: 'Filter by chain', hint: 'solana' },
+    { flag: '--wallet <id|name>', desc: 'Filter by signing wallet (vault ref)' },
+    { flag: '--all', desc: 'Include closed positions (default: open only)' },
+  ],
+  position: [
+    { flag: '<CA>', desc: 'Token mint / contract address (positional or --ca)' },
+  ],
 }
 /**
  * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
@@ -1433,6 +1441,8 @@ async function main() {
               { name: 'use', description: 'Set default pay wallet', hint: 'WALLET_ID' },
               { name: 'request-approval', description: 'Request human approval (managed)', hint: 'WALLET_ID --action limits --daily 100' },
               { name: 'buy', description: 'Open a trading position', hint: 'solana <CA> --amount 0.5sol --thesis "..."' },
+              { name: 'positions', description: 'List open (and optionally closed) positions', hint: '[--chain X] [--wallet Y] [--all]' },
+              { name: 'position', description: 'Show details for a single position', hint: '<CA>' },
             ],
             fromHome,
           })
@@ -1778,7 +1788,108 @@ async function main() {
             }
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy`)
+          case 'positions': {
+            const chainFlag = ((flags.chain as string) || '').toLowerCase()
+            if (chainFlag && chainFlag !== 'solana') err(`Unsupported chain: ${chainFlag}. Only 'solana' for now.`, EXIT.BAD_INPUT)
+            const walletRef = (flags.wallet as string) || undefined
+            const includeClosed = !!flags.all
+
+            let walletAddress: string | undefined
+            if (walletRef) {
+              const { resolveSigner } = await import('./wallet-trading.js')
+              try {
+                const signer = await resolveSigner(walletRef)
+                walletAddress = signer.address
+              } catch (e: any) {
+                err(`Could not resolve --wallet ${walletRef}: ${e.message}`, EXIT.NOT_FOUND)
+              }
+            }
+
+            const { listPositions } = await import('./wallet-trading.js')
+            const positions = listPositions({
+              chain: (chainFlag || undefined) as 'solana' | undefined,
+              walletAddress,
+              includeClosed,
+            })
+
+            if (!AGENT_MODE) {
+              if (positions.length === 0) {
+                console.log(`\n  ${t.muted}No positions${includeClosed ? '' : ' (use --all to include closed)'}.${t.reset}\n`)
+                break
+              }
+              console.log()
+              table(
+                ['CA', 'STATUS', 'IN', 'OUT', 'UNREAL %', 'THESIS'],
+                positions.map((p) => [
+                  p.mint.length > 12 ? `${p.mint.slice(0, 6)}..${p.mint.slice(-4)}` : p.mint,
+                  p.status,
+                  p.entry.amountIn,
+                  p.entry.tokensOut,
+                  `${p.pnl.unrealizedPct >= 0 ? '+' : ''}${p.pnl.unrealizedPct.toFixed(2)}%`,
+                  p.thesis.length > 50 ? `${p.thesis.slice(0, 47)}...` : p.thesis,
+                ]),
+              )
+              console.log()
+            } else {
+              print({ positions })
+            }
+            break
+          }
+          case 'position': {
+            const ca = positional[0] || (flags.ca as string)
+            if (!ca) err('CA required: palmyr wallet position <CA>', EXIT.BAD_INPUT)
+            const { readPosition } = await import('./wallet-trading.js')
+            const p = readPosition('solana', ca)
+            if (!p) err(`Position not found: ${ca}`, EXIT.NOT_FOUND)
+
+            if (!AGENT_MODE) {
+              console.log()
+              section('Position')
+              kv('CA', p!.mint)
+              kv('Status', p!.status)
+              kv('Wallet', p!.wallet)
+              kv('Entry tx', p!.entry.tx)
+              kv('Entry time', p!.entry.time)
+              kv('Amount in', p!.entry.amountIn)
+              kv('Tokens out', p!.entry.tokensOut)
+              if (p!.entry.entryMcap !== null) {
+                kv('Entry mcap', `$${p!.entry.entryMcap.toLocaleString('en-US', { maximumFractionDigits: 0 })}`)
+              }
+              console.log()
+              section('Thesis')
+              console.log(`  ${p!.thesis}`)
+              console.log()
+              if (p!.exitPlan.cut || p!.exitPlan.takeProfit || p!.exitPlan.holdIf) {
+                section('Exit plan')
+                if (p!.exitPlan.cut) kv('Cut', p!.exitPlan.cut)
+                if (p!.exitPlan.takeProfit) kv('Take profit', p!.exitPlan.takeProfit)
+                if (p!.exitPlan.holdIf) kv('Hold if', p!.exitPlan.holdIf)
+                console.log()
+              }
+              if (p!.riskFlags.length > 0) {
+                section('Risk flags')
+                console.log(`  ${p!.riskFlags.join(', ')}`)
+                console.log()
+              }
+              section('PnL')
+              kv('Realized', `${p!.pnl.realizedSol.toFixed(6)} SOL`)
+              kv('Unrealized', `${p!.pnl.unrealizedSol.toFixed(6)} SOL`)
+              kv('Unrealized %', `${p!.pnl.unrealizedPct.toFixed(2)}%`)
+              kv('Last priced', p!.pnl.lastPricedAt || 'never (run `wallet sync`)')
+              if (p!.sells.length > 0) {
+                console.log()
+                section(`Sells (${p!.sells.length})`)
+                for (const s of p!.sells) {
+                  console.log(`  ${t.muted}${s.time}${t.reset}  ${s.tokensIn} → ${s.solOut} (realized ${s.realizedSol >= 0 ? '+' : ''}${s.realizedSol.toFixed(6)} SOL) — ${s.reason}`)
+                }
+              }
+              console.log()
+            } else {
+              print(p)
+            }
+            break
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position`)
         }
         break
       }
