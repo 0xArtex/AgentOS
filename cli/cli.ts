@@ -1825,16 +1825,60 @@ async function main() {
           }
           case 'buy': {
             const chain = (positional[0] || 'solana').toLowerCase()
-            if (chain !== 'solana') err(`Unsupported chain: ${chain}. Only 'solana' for now.`, EXIT.BAD_INPUT)
+            if (chain !== 'solana' && chain !== 'base') err(`Unsupported chain: ${chain}. Try: solana, base`, EXIT.BAD_INPUT)
             const ca = positional[1] || (flags.ca as string)
-            if (!ca) err('CA required: palmyr wallet buy solana <CA> --amount 0.5sol --thesis "..."', EXIT.BAD_INPUT)
+            if (!ca) err('CA required: palmyr wallet buy <chain> <CA> --amount <amt> --thesis "..."', EXIT.BAD_INPUT)
             const amount = flags.amount as string
-            if (!amount) err('--amount required (e.g. --amount 0.5sol)', EXIT.BAD_INPUT)
+            if (!amount) err(`--amount required (e.g. --amount ${chain === 'base' ? '0.01eth' : '0.5sol'})`, EXIT.BAD_INPUT)
             const thesis = flags.thesis as string
             if (!thesis) err('--thesis required (your reasoning for entering this position)', EXIT.BAD_INPUT)
             const walletRef = (flags.wallet as string) || undefined
             const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
             const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+
+            // Phase 5b — Base path runs through a separate code path. No
+            // --protected / --auto-slippage / --tip on Base yet (Phase 5c).
+            if (chain === 'base') {
+              if (!walletRef) err('--wallet required for Base (use trading:N from `trading-keystore list`)', EXIT.BAD_INPUT)
+              const { buyBase } = await import('./wallet-trading.js')
+              let baseResult: Awaited<ReturnType<typeof buyBase>>
+              try {
+                baseResult = await buyBase({
+                  ca,
+                  amount,
+                  thesis,
+                  cut: flags.cut as string | undefined,
+                  takeProfit: ((flags.tp as string) || (flags['take-profit'] as string)) || undefined,
+                  holdIf: (flags['hold-if'] as string) || undefined,
+                  trailingStop: (flags.trail as string) || undefined,
+                  timeLimit: (flags['time-limit'] as string) || undefined,
+                  thesisCheck: (flags['thesis-check'] as string) || undefined,
+                  walletRef,
+                  slippageBps,
+                  dryRun,
+                })
+              } catch (e: any) {
+                err(e.message || 'buy (base) failed', EXIT.GENERAL)
+              }
+              log(`wallet buy: base ${ca} (${baseResult!.txHash})`)
+              if (!AGENT_MODE) {
+                const tag = baseResult!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
+                console.log(`\n  ${t.success}${icon.success} ${tag}Base position opened${t.reset}`)
+                console.log(`  ${t.muted}position:${t.reset}  ${baseResult!.positionPath}`)
+                console.log(`  ${t.muted}tx:${t.reset}        ${baseResult!.txHash}`)
+                console.log(`  ${t.muted}wallet:${t.reset}    ${baseResult!.wallet}`)
+                console.log(`  ${t.muted}in:${t.reset}        ${baseResult!.amountIn}`)
+                console.log(`  ${t.muted}out:${t.reset}       ${baseResult!.tokensOut} tokens`)
+                console.log(`  ${t.muted}slippage:${t.reset}  ${baseResult!.slippageBpsUsed}bps`)
+                console.log(`  ${t.muted}fee:${t.reset}       ${baseResult!.feeWei} wei`)
+                console.log()
+                console.log(`  ${t.muted}Note: Phase 5b is buy-only on Base; close via wallet UI (Phantom / Coinbase) until Phase 5c lands.${t.reset}\n`)
+              } else {
+                print(baseResult!)
+              }
+              break
+            }
+
             const protectedExec = !!flags.protected
             const autoSlippage = !!flags['auto-slippage']
             const jitoTipLamports = flags.tip ? Number(flags.tip) : undefined

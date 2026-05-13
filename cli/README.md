@@ -427,13 +427,14 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 
 Auth fallback for `--wallet trading:N` and the daemon: explicit `passphrase` arg → `PALMYR_TRADING_KEYSTORE_PASSPHRASE` env var → cached seed in OS keychain. Once unlocked, the daemon and subsequent CLI commands work without re-entering the passphrase.
 
-**Base / EVM (Phase 5a — foundation).** The keystore derives EVM addresses too, at the standard BIP44 EVM path `m/44'/60'/<index>'/0/0` (same mnemonic as the Solana wallets). Use `palmyr wallet trading-keystore list` to see Solana addresses; EVM addresses are derived on-demand at sign time. The ParaSwap free aggregator handles routing on Base + every other ParaSwap-supported chain — no API key needed.
+**Base / EVM (Phases 5a + 5b).** The keystore derives EVM addresses too, at the standard BIP44 EVM path `m/44'/60'/<index>'/0/0` (same mnemonic as the Solana wallets). The ParaSwap free aggregator handles routing on Base — no API key needed. Position files for Base live at `~/.palmyr/trading/positions/base/<token-address>.json` with a chain-specific shape (`amountInRawWei: string` for u256 safety, vs Solana's `amountInRawSol: number`). The `PositionFile` TypeScript type is now a discriminated union of `SolanaPositionFile | BasePositionFile`.
 
 | Command | Network | Notes |
 |---|---|---|
-| `palmyr wallet evm-quote <SRC> <DST> --amount <raw> [--chain base]` | ParaSwap | Get a swap quote without signing. `<SRC>`/`<DST>` accept `eth` for native or a `0x...` address. `--amount` is the raw integer in src smallest unit (e.g. `10000000000000000` for 0.01 ETH at 18 decimals). |
+| `palmyr wallet evm-quote <SRC> <DST> --amount <raw> [--chain base]` | ParaSwap | Get a swap quote without signing. `<SRC>`/`<DST>` accept `eth` for native or a `0x...` address. `--amount` is the raw integer in src smallest unit. |
+| `palmyr wallet buy base <0xToken> --amount 0.01eth --thesis "..." --wallet trading:N` | ParaSwap + Base RPC | Open a Base position. Amount accepts `Neth` / `Ngwei` / `Nwei`. `--wallet` must be a keystore reference (`trading:N`); env-keypair fallback is Phase 5c. Standard exit-plan flags (`--cut`, `--tp`, `--trail`, `--time-limit`, `--thesis-check`) all work. `--protected` (Flashbots) is Phase 5c. |
 
-Phase 5b will wire `--chain base` into `buy` / `sell` / `sync` and update the position file shape to handle u256 wei amounts (current shape uses JS `number` for lamports, which overflows at 1 ETH ≈ 1e18 wei). Until then, Phase 5a delivers the primitives — `cli/evm-trading.ts` for ParaSwap + ethers signing, `getKeystoreEvmWallet` for derivation — so the building blocks are testable.
+**Phase 5b limitations (intentional):** sell + sync on Base are deferred to Phase 5c. To close a Base position today, use Phantom or Coinbase Wallet's swap UI; the local position record will still be queryable via `palmyr wallet position <0xToken>` for thesis review, but won't reflect the on-chain sell. Phase 5c will add `palmyr wallet sell base <0xToken>` with ERC20 approval handling (Permit2) and `palmyr wallet sync` Base support.
 
 ### Twitter / X
 

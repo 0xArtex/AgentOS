@@ -48,13 +48,14 @@ export function ensureTradingDirs() {
     TRADING_DIR,
     join(TRADING_DIR, 'positions'),
     join(TRADING_DIR, 'positions', 'solana'),
+    join(TRADING_DIR, 'positions', 'base'),
     join(TRADING_DIR, 'journal'),
   ]) {
     if (!existsSync(d)) mkdirSync(d, { recursive: true })
   }
 }
 
-export function positionPath(chain: 'solana', mint: string) {
+export function positionPath(chain: 'solana' | 'base', mint: string) {
   return join(TRADING_DIR, 'positions', chain, `${mint}.json`)
 }
 export function tradesLogPath() {
@@ -107,70 +108,133 @@ export function saveTradingConfig(cfg: TradingConfig) {
 
 // ───────── Types ─────────
 
-export interface PositionFile {
+/** Phase 5b — exit plan is identical across chains (just string thresholds). */
+export interface ExitPlan {
+  cut?: string
+  takeProfit?: string
+  holdIf?: string
+  trailingStop?: string
+  timeLimit?: string
+  thesisCheck?: string
+}
+
+/** Phase 5b — monitor state is identical across chains. */
+export interface MonitorState {
+  peakUnrealizedPct: number
+  peakAt: string
+  lastThesisCheckAt?: string
+  lastThesisVerdict?: 'yes' | 'no' | 'unclear'
+  lastThesisReasoning?: string
+  lastThesisFiredAt?: string
+}
+
+export interface SolanaEntry {
+  tx: string
+  time: string
+  amountIn: string                    // e.g. "0.5 SOL"
+  amountInRawSol: number              // lamports (number — fits in JS Number for SOL)
+  tokensOut: string
+  tokensOutRaw: string                // raw u64 as decimal string
+  tokenDecimals: number
+  entryMcap: number | null
+  feeLamports?: number
+  tipLamports?: number
+  slippageBpsUsed?: number
+  protectedExec?: boolean
+}
+
+export interface SolanaSell {
+  tx: string
+  time: string
+  tokensIn: string
+  tokensInRaw: string
+  solOut: string
+  solOutRaw: number                   // lamports
+  percentRequested: number
+  realizedSol: number
+  reason: string
+  feeLamports?: number
+  tipLamports?: number
+  slippageBpsUsed?: number
+  protectedExec?: boolean
+  forensics?: FillForensics
+}
+
+export interface SolanaPnl {
+  realizedSol: number
+  unrealizedSol: number
+  unrealizedPct: number
+  lastPricedAt: string | null
+}
+
+export interface SolanaPositionFile {
   chain: 'solana'
   mint: string
   wallet: string
   status: 'open' | 'closed'
-  entry: {
-    tx: string
-    time: string
-    amountIn: string
-    amountInRawSol: number
-    tokensOut: string
-    tokensOutRaw: string
-    tokenDecimals: number
-    entryMcap: number | null
-    // Phase 2 — optional for backward compat with Phase 1 positions
-    feeLamports?: number
-    tipLamports?: number
-    slippageBpsUsed?: number
-    protectedExec?: boolean
-  }
+  entry: SolanaEntry
   thesis: string
-  exitPlan: {
-    cut?: string
-    takeProfit?: string
-    holdIf?: string
-    trailingStop?: string             // Phase 3.5 — e.g., "20%" — drop in pct points from peak
-    timeLimit?: string                // Phase 3.5 — e.g., "24h", "30m", "7d"
-    thesisCheck?: string              // Phase 7 — e.g., "6h" — interval between LLM thesis-health checks
-  }
-  /** Phase 3.5 — peak watermark for trailing-stop evaluation. */
-  monitorState?: {
-    peakUnrealizedPct: number
-    peakAt: string                    // ISO 8601
-    // Phase 7 — LLM thesis-check bookkeeping
-    lastThesisCheckAt?: string        // ISO 8601 of last LLM call
-    lastThesisVerdict?: 'yes' | 'no' | 'unclear'
-    lastThesisReasoning?: string
-    lastThesisFiredAt?: string        // ISO 8601 of last thesis_falsified fire (prevents re-fire until next check)
-  }
+  exitPlan: ExitPlan
+  monitorState?: MonitorState
   riskFlags: string[]
-  sells: Array<{
-    tx: string
-    time: string
-    tokensIn: string
-    tokensInRaw: string
-    solOut: string
-    solOutRaw: number
-    percentRequested: number
-    realizedSol: number
-    reason: string
-    // Phase 2 — optional for backward compat
-    feeLamports?: number
-    tipLamports?: number
-    slippageBpsUsed?: number
-    protectedExec?: boolean
-    forensics?: FillForensics
-  }>
-  pnl: {
-    realizedSol: number
-    unrealizedSol: number
-    unrealizedPct: number
-    lastPricedAt: string | null
-  }
+  sells: SolanaSell[]
+  pnl: SolanaPnl
 }
+
+/** Phase 5b — Base/EVM position file. Raw amounts are u256 strings for safety. */
+export interface BaseEntry {
+  tx: string                          // 0x... tx hash
+  time: string
+  amountIn: string                    // e.g. "0.01 ETH"
+  amountInRawWei: string              // u256 wei (string)
+  tokensOut: string
+  tokensOutRaw: string                // u256 raw token units
+  tokenDecimals: number
+  entryMcap: number | null
+  feeWei?: string                     // u256 gas fee paid
+  /** Phase 5b lite: protected execution on Base (Flashbots) is deferred to 5c. */
+  slippageBpsUsed?: number
+  protectedExec?: boolean
+}
+
+export interface BaseSell {
+  tx: string
+  time: string
+  tokensIn: string
+  tokensInRaw: string                 // u256 raw token units
+  ethOut: string                      // display, e.g. "0.005 ETH"
+  ethOutRawWei: string                // u256 wei received
+  percentRequested: number
+  realizedEth: number                 // small enough to fit in number for typical positions
+  reason: string
+  feeWei?: string
+  slippageBpsUsed?: number
+  protectedExec?: boolean
+  forensics?: FillForensics
+}
+
+export interface BasePnl {
+  realizedEth: number
+  unrealizedEth: number
+  unrealizedPct: number
+  lastPricedAt: string | null
+}
+
+export interface BasePositionFile {
+  chain: 'base'
+  mint: string                        // 0x... token contract address
+  wallet: string                      // 0x... EOA address
+  status: 'open' | 'closed'
+  entry: BaseEntry
+  thesis: string
+  exitPlan: ExitPlan
+  monitorState?: MonitorState
+  riskFlags: string[]
+  sells: BaseSell[]
+  pnl: BasePnl
+}
+
+export type PositionFile = SolanaPositionFile | BasePositionFile
 
 export type TradeLogLine =
   | {
@@ -270,7 +334,10 @@ export function writePosition(p: PositionFile) {
   atomicWriteFile(positionPath(p.chain, p.mint), JSON.stringify(p, null, 2))
 }
 
-export function readPosition(chain: 'solana', mint: string): PositionFile | null {
+export function readPosition(chain: 'solana', mint: string): SolanaPositionFile | null
+export function readPosition(chain: 'base', mint: string): BasePositionFile | null
+export function readPosition(chain: 'solana' | 'base', mint: string): PositionFile | null
+export function readPosition(chain: 'solana' | 'base', mint: string): PositionFile | null {
   const p = positionPath(chain, mint)
   if (!existsSync(p)) return null
   try {
@@ -281,14 +348,19 @@ export function readPosition(chain: 'solana', mint: string): PositionFile | null
 }
 
 export interface PositionsFilter {
-  chain?: 'solana'
+  chain?: 'solana' | 'base'
   walletAddress?: string
   includeClosed?: boolean
 }
 
+export function listPositions(filter: { chain: 'solana'; walletAddress?: string; includeClosed?: boolean }): SolanaPositionFile[]
+export function listPositions(filter: { chain: 'base'; walletAddress?: string; includeClosed?: boolean }): BasePositionFile[]
+export function listPositions(filter?: PositionsFilter): PositionFile[]
 export function listPositions(filter: PositionsFilter = {}): PositionFile[] {
   ensureTradingDirs()
-  const chains: Array<'solana'> = filter.chain ? [filter.chain] : ['solana']
+  const chains: Array<'solana' | 'base'> = filter.chain
+    ? [filter.chain]
+    : ['solana', 'base']
   const out: PositionFile[] = []
   for (const chain of chains) {
     const dir = join(TRADING_DIR, 'positions', chain)
@@ -467,6 +539,236 @@ export function assertValidMint(mint: string): PublicKey {
   }
 }
 
+/** Phase 5b — validates a 0x-prefixed EVM address. Returns the original string. */
+export function assertValidEvmAddress(addr: string): string {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+    throw new Error(`Invalid EVM address: ${addr}`)
+  }
+  return addr
+}
+
+/**
+ * Phase 5b — parse `--amount` for Base: accepts `Neth`, `Ngwei`, `Nwei`.
+ * Returns a u256-safe wei string. Unrecognized formats throw.
+ */
+export function parseEvmAmount(input: string): string {
+  const m = input.trim().match(/^(\d+(?:\.\d+)?)\s*(eth|gwei|wei)?$/i)
+  if (!m) throw new Error(`Invalid --amount: "${input}". Expected e.g. "0.01eth" or "10000000000000000wei".`)
+  const n = m[1]
+  const unit = (m[2] || 'eth').toLowerCase()
+  if (unit === 'wei') {
+    // bare integer string already represents wei
+    return n.includes('.') ? BigInt(Math.floor(Number(n))).toString() : n
+  }
+  if (unit === 'gwei') {
+    // gwei = 1e9 wei
+    return (BigInt(Math.floor(Number(n) * 1e9))).toString()
+  }
+  // eth = 1e18 wei
+  const [intPart, fracPart = ''] = n.split('.')
+  const padded = (fracPart + '0'.repeat(18)).slice(0, 18)
+  return (BigInt(intPart) * 10n ** 18n + BigInt(padded || '0')).toString()
+}
+
+export function formatEthHuman(weiStr: string, decimals = 6): string {
+  const wei = BigInt(weiStr)
+  const whole = wei / 10n ** 18n
+  const frac = wei % 10n ** 18n
+  const fracStr = frac.toString().padStart(18, '0').slice(0, decimals)
+  return `${whole}.${fracStr} ETH`
+}
+
+// ───────── EVM signer resolver ─────────
+
+export interface ResolvedEvmSigner {
+  /** ethers.Wallet without a provider attached. Caller does `.connect(provider)`. */
+  wallet: import('ethers').Wallet
+  address: string
+  source: 'trading-keystore'
+  keystoreIndex: number
+}
+
+/**
+ * Phase 5b — resolve `--wallet trading:N` to an EVM wallet. No env keypair
+ * fallback for EVM (yet) — Phase 5c can add one if needed.
+ */
+export async function resolveEvmSigner(
+  walletRef?: string,
+  passphrase?: string,
+): Promise<ResolvedEvmSigner> {
+  if (!walletRef?.startsWith('trading:')) {
+    throw new Error('For Base, --wallet must be a keystore reference like `trading:0`.')
+  }
+  const indexStr = walletRef.slice('trading:'.length)
+  const index = Number(indexStr)
+  if (!Number.isInteger(index) || index < 0) {
+    throw new Error(`Invalid trading wallet index: "${indexStr}". Use trading:0, trading:1, ...`)
+  }
+  const pass = passphrase ?? process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+  const { getKeystoreEvmWallet } = await import('./wallet-trading-keystore.js')
+  const wallet = getKeystoreEvmWallet(index, pass)
+  return {
+    wallet,
+    address: wallet.address,
+    source: 'trading-keystore',
+    keystoreIndex: index,
+  }
+}
+
+// ───────── buyBase ─────────
+
+export interface BuyBaseOpts {
+  ca: string                                // 0x... ERC20 contract address
+  amount: string                            // e.g. "0.01eth", "1000gwei", "10000000000000000wei"
+  thesis: string
+  cut?: string
+  takeProfit?: string
+  holdIf?: string
+  trailingStop?: string
+  timeLimit?: string
+  thesisCheck?: string
+  riskFlags?: string[]
+  walletRef?: string                        // `trading:N` only for Phase 5b
+  passphrase?: string
+  slippageBps?: number
+  dryRun?: boolean
+  rpcUrl?: string
+}
+
+export interface BuyBaseResult {
+  positionPath: string
+  txHash: string
+  amountIn: string
+  amountInRawWei: string
+  tokensOut: string
+  tokensOutRaw: string
+  tokenDecimals: number
+  wallet: string
+  mint: string
+  dryRun: boolean
+  feeWei: string
+  slippageBpsUsed: number
+}
+
+export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
+  assertValidEvmAddress(opts.ca)
+  if (!opts.thesis?.trim()) throw new Error('Missing --thesis')
+  const amountInRawWei = parseEvmAmount(opts.amount)
+
+  const existing = readPosition('base', opts.ca)
+  if (existing && existing.status === 'open') {
+    throw new Error(
+      `Position already open for ${opts.ca}. Sell it (Phase 5c will add CLI sell on Base; for now use Phantom or Coinbase Wallet) before opening a new one.`,
+    )
+  }
+
+  const cfg = loadTradingConfig()
+  const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
+
+  const {
+    executeEvmSwap,
+    getErc20Decimals,
+    makeEvmProvider,
+    NATIVE_ETH,
+    BASE_CHAIN_ID,
+    DEFAULT_BASE_RPC,
+  } = await import('./evm-trading.js')
+
+  const signer = await resolveEvmSigner(opts.walletRef, opts.passphrase)
+  const provider = makeEvmProvider(opts.rpcUrl ?? DEFAULT_BASE_RPC)
+  const connectedWallet = signer.wallet.connect(provider) as import('ethers').Wallet
+
+  let tokenDecimals = 18
+  try {
+    tokenDecimals = await getErc20Decimals(provider, opts.ca)
+  } catch {
+    // Fall back to 18 if the contract doesn't expose `decimals()` (rare, but
+    // happens for non-standard ERC20s). We persist what we have; downstream
+    // display will be approximate.
+  }
+
+  const swap = await executeEvmSwap({
+    provider,
+    wallet: connectedWallet,
+    srcToken: NATIVE_ETH,
+    destToken: opts.ca,
+    srcAmount: amountInRawWei,
+    srcDecimals: 18,
+    destDecimals: tokenDecimals,
+    slippageBps,
+    chainId: BASE_CHAIN_ID,
+    dryRun: opts.dryRun,
+  })
+
+  const tokensOutRaw = swap.destAmount
+  let tokensOutUi = 0
+  try {
+    tokensOutUi = Number(BigInt(tokensOutRaw)) / Math.pow(10, tokenDecimals)
+  } catch {
+    tokensOutUi = 0
+  }
+  const tokensOut = formatTokensHuman(tokensOutUi, 6)
+
+  const nowIso = new Date().toISOString()
+  const position: BasePositionFile = {
+    chain: 'base',
+    mint: opts.ca,
+    wallet: signer.address,
+    status: 'open',
+    entry: {
+      tx: swap.txHash,
+      time: nowIso,
+      amountIn: formatEthHuman(amountInRawWei),
+      amountInRawWei,
+      tokensOut,
+      tokensOutRaw,
+      tokenDecimals,
+      entryMcap: null,
+      feeWei: swap.feeWei,
+      slippageBpsUsed: slippageBps,
+      protectedExec: false,
+    },
+    thesis: opts.thesis.trim(),
+    exitPlan: {
+      cut: opts.cut,
+      takeProfit: opts.takeProfit,
+      holdIf: opts.holdIf,
+      trailingStop: opts.trailingStop,
+      timeLimit: opts.timeLimit,
+      thesisCheck: opts.thesisCheck,
+    },
+    monitorState: {
+      peakUnrealizedPct: 0,
+      peakAt: nowIso,
+    },
+    riskFlags: opts.riskFlags ?? [],
+    sells: [],
+    pnl: {
+      realizedEth: 0,
+      unrealizedEth: 0,
+      unrealizedPct: 0,
+      lastPricedAt: null,
+    },
+  }
+
+  writePosition(position)
+
+  return {
+    positionPath: positionPath('base', opts.ca),
+    txHash: swap.txHash,
+    amountIn: position.entry.amountIn,
+    amountInRawWei,
+    tokensOut,
+    tokensOutRaw,
+    tokenDecimals,
+    wallet: signer.address,
+    mint: opts.ca,
+    dryRun: !!opts.dryRun,
+    feeWei: swap.feeWei,
+    slippageBpsUsed: slippageBps,
+  }
+}
+
 /**
  * Best-effort market cap at entry time: Jupiter /price × on-chain supply.
  * Returns null if either lookup fails — the position is still valid without it.
@@ -517,6 +819,8 @@ export interface BuyOpts {
   timeLimit?: string                // e.g., "24h"
   // Phase 7 — LLM thesis check interval (e.g., "6h"); pairs with daemon
   thesisCheck?: string
+  // Phase 5b — target chain (defaults to 'solana' for back-compat)
+  chain?: 'solana' | 'base'
 }
 
 export interface BuyResult {
@@ -1030,15 +1334,21 @@ export interface PnlReport {
 
 export function computePnl(opts: PnlOpts = {}): PnlReport {
   const positions = listPositions({ includeClosed: opts.includeClosed ?? true })
-  const filtered = opts.sinceIso
-    ? positions.filter((p) => p.entry.time >= opts.sinceIso!)
-    : positions
+  // Phase 5b: cross-chain aggregation in native units is meaningless (1 SOL ≠ 1 ETH).
+  // For now `pnl` aggregates only Solana positions; Base positions get their own
+  // view in `positions` and `position <CA>`. Cross-chain USD-converted totals are
+  // a Phase 5c concern.
+  const solanaPositions = (
+    opts.sinceIso
+      ? positions.filter((p) => p.entry.time >= opts.sinceIso!)
+      : positions
+  ).filter((p): p is SolanaPositionFile => p.chain === 'solana')
 
   let totalRealizedSol = 0
   let totalUnrealizedSol = 0
   const byGroup: Record<string, { realizedSol: number; unrealizedSol: number; count: number }> = {}
 
-  for (const p of filtered) {
+  for (const p of solanaPositions) {
     totalRealizedSol += p.pnl.realizedSol
     totalUnrealizedSol += p.pnl.unrealizedSol
     if (opts.by) {
@@ -1054,7 +1364,7 @@ export function computePnl(opts: PnlOpts = {}): PnlReport {
     totalRealizedSol,
     totalUnrealizedSol,
     totalSol: totalRealizedSol + totalUnrealizedSol,
-    count: filtered.length,
+    count: solanaPositions.length,
     byGroup: opts.by ? byGroup : undefined,
   }
 }
