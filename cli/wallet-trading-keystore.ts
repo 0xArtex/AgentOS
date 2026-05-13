@@ -23,6 +23,9 @@ import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
 import { dirname, join } from 'path'
 
 import { TRADING_DIR } from './wallet-trading.js'
+import { deleteSecret, retrieveSecret, storeSecret } from './credential-store.js'
+
+const CACHE_ACCOUNT = 'trading-keystore-seed'
 
 const KEYSTORE_FILE = join(TRADING_DIR, 'keystore.json')
 const SCRYPT_KEYLEN = 32
@@ -90,6 +93,34 @@ function keypairFromSeed(seedHex: string, index: number): Keypair {
   return Keypair.fromSeed(key)
 }
 
+// ───────── OS-keychain seed caching ─────────
+
+/**
+ * Stash the post-KDF seed hex in the OS credential store under a fixed account
+ * name. Subsequent CLI invocations (and the daemon) can use the keystore
+ * without re-entering the passphrase.
+ *
+ * Trade-off: the cached seed grants full keystore access. Anyone with
+ * OS-level access to the user's keychain can drain every derived wallet — same
+ * threat model as ssh-agent / password managers. Run `trading-keystore lock`
+ * to clear the cache when stepping away.
+ */
+export function cacheSeedHex(seedHex: string) {
+  storeSecret(CACHE_ACCOUNT, seedHex)
+}
+
+export function getCachedSeedHex(): string | null {
+  return retrieveSecret(CACHE_ACCOUNT)
+}
+
+export function clearCachedSeed() {
+  deleteSecret(CACHE_ACCOUNT)
+}
+
+export function isUnlocked(): boolean {
+  return !!getCachedSeedHex()
+}
+
 function ensureKeystoreDir() {
   const dir = dirname(KEYSTORE_FILE)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -151,6 +182,9 @@ export function initKeystore(opts: InitKeystoreOpts): KeystoreFile {
 
   ensureKeystoreDir()
   writeFileSync(KEYSTORE_FILE, JSON.stringify(file, null, 2))
+  // Auto-cache the seed — user just authenticated, no point making them
+  // unlock again on the next command in the same session.
+  cacheSeedHex(seedHex)
   return file
 }
 
@@ -185,7 +219,30 @@ export function getKeystoreStatus(): KeystoreStatus {
   }
 }
 
-export function getKeystoreKeypair(index: number, passphrase: string): Keypair {
+/**
+ * Resolve a seed hex for derivation. Tries (in order):
+ *   1. Explicit `passphrase` arg → decrypt mnemonic → seed
+ *   2. Cached seed in OS credential store
+ *   3. Throw — caller's responsibility to prompt or surface the error
+ *
+ * Used by every derivation path (getKeystoreKeypair, deriveMoreWallets, etc.)
+ * so all routes share one auth flow.
+ */
+function resolveSeedHex(passphrase?: string): string {
+  if (passphrase) {
+    const file = readKeystoreFile()
+    if (!file) throw new Error('No trading keystore.')
+    const mnemonic = decryptMnemonic(file, passphrase)
+    return bip39.mnemonicToSeedSync(mnemonic).toString('hex')
+  }
+  const cached = getCachedSeedHex()
+  if (cached) return cached
+  throw new Error(
+    'Trading keystore locked. Run `palmyr wallet trading-keystore unlock`, or set PALMYR_TRADING_KEYSTORE_PASSPHRASE.',
+  )
+}
+
+export function getKeystoreKeypair(index: number, passphrase?: string): Keypair {
   const file = readKeystoreFile()
   if (!file) {
     throw new Error('No trading keystore. Run `palmyr wallet trading-keystore init` first.')
@@ -196,10 +253,8 @@ export function getKeystoreKeypair(index: number, passphrase: string): Keypair {
       `No derived wallet at index ${index}. Run \`palmyr wallet trading-keystore derive --count N\` to extend.`,
     )
   }
-  const mnemonic = decryptMnemonic(file, passphrase)
-  const seedHex = bip39.mnemonicToSeedSync(mnemonic).toString('hex')
+  const seedHex = resolveSeedHex(passphrase)
   const kp = keypairFromSeed(seedHex, index)
-  // Sanity: derived pubkey should match the address we stored at init.
   if (kp.publicKey.toBase58() !== entry.address) {
     throw new Error(
       `Keystore address mismatch at index ${index}: derived ${kp.publicKey.toBase58()} but stored ${entry.address}. Keystore may be corrupted.`,
@@ -208,13 +263,23 @@ export function getKeystoreKeypair(index: number, passphrase: string): Keypair {
   return kp
 }
 
-export function deriveMoreWallets(count: number, passphrase: string): KeystoreFile {
+/**
+ * Verify a passphrase by decrypting the mnemonic and return the seed hex.
+ * Doesn't cache — that's the caller's choice.
+ */
+export function unlockKeystore(passphrase: string): string {
+  const file = readKeystoreFile()
+  if (!file) throw new Error('No trading keystore. Run `init` first.')
+  const mnemonic = decryptMnemonic(file, passphrase)
+  return bip39.mnemonicToSeedSync(mnemonic).toString('hex')
+}
+
+export function deriveMoreWallets(count: number, passphrase?: string): KeystoreFile {
   const file = readKeystoreFile()
   if (!file) throw new Error('No trading keystore. Run `init` first.')
   if (count <= 0) throw new Error('--count must be > 0')
 
-  const mnemonic = decryptMnemonic(file, passphrase) // validates passphrase
-  const seedHex = bip39.mnemonicToSeedSync(mnemonic).toString('hex')
+  const seedHex = resolveSeedHex(passphrase)
 
   const existing = file.addresses.length
   for (let i = existing; i < existing + count; i++) {
@@ -226,6 +291,11 @@ export function deriveMoreWallets(count: number, passphrase: string): KeystoreFi
   return file
 }
 
+/**
+ * Export the mnemonic — REQUIRES the passphrase (no cache fallback).
+ * Exporting the mnemonic is a destructive-disclosure action; we never let it
+ * happen from cached state alone.
+ */
 export function exportMnemonic(passphrase: string): string {
   const file = readKeystoreFile()
   if (!file) throw new Error('No trading keystore.')

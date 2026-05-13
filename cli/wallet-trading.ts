@@ -390,9 +390,12 @@ export async function resolveSigner(
   passphrase?: string,
 ): Promise<ResolvedSigner> {
   // Phase 4: `trading:N` refers to the Nth wallet derived from the encrypted
-  // trading keystore. The passphrase comes from PALMYR_TRADING_KEYSTORE_PASSPHRASE
-  // (or the explicit `passphrase` argument). Routed before the vault path so
-  // a future vault wallet named `trading:0` couldn't shadow it.
+  // trading keystore. Auth fallback chain inside getKeystoreKeypair:
+  //   1. explicit passphrase arg (if provided)
+  //   2. PALMYR_TRADING_KEYSTORE_PASSPHRASE env var
+  //   3. cached seed in OS keychain (after `trading-keystore unlock`)
+  // Routed before the vault path so a future vault wallet named `trading:0`
+  // couldn't shadow it.
   if (walletRef?.startsWith('trading:')) {
     const indexStr = walletRef.slice('trading:'.length)
     const index = Number(indexStr)
@@ -400,11 +403,6 @@ export async function resolveSigner(
       throw new Error(`Invalid trading wallet index: "${indexStr}". Use trading:0, trading:1, ...`)
     }
     const pass = passphrase ?? process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
-    if (!pass) {
-      throw new Error(
-        'PALMYR_TRADING_KEYSTORE_PASSPHRASE env var (or explicit --passphrase) required for trading-keystore wallets.',
-      )
-    }
     const { getKeystoreKeypair } = await import('./wallet-trading-keystore.js')
     const keypair = getKeystoreKeypair(index, pass)
     return {
