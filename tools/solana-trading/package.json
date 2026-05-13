@@ -1,0 +1,32 @@
+{
+  "name": "@palmyr/solana-trading",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared Solana swap + wallet primitives for Palmyr CLI and agnt-trader.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": { "import": "./dist/index.js", "types": "./dist/index.d.ts" },
+    "./jupiter": { "import": "./dist/jupiter.js", "types": "./dist/jupiter.d.ts" },
+    "./wallet": { "import": "./dist/wallet.js", "types": "./dist/wallet.d.ts" },
+    "./types": { "import": "./dist/types.js", "types": "./dist/types.d.ts" }
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "dependencies": {
+    "@solana/web3.js": "^1.98.4",
+    "@solana/spl-token": "^0.4.14",
+    "bs58": "^6.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3"
+  }
+}
