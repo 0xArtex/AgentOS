@@ -385,6 +385,22 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 | `palmyr wallet request-approval <ID> [--action limits] [--daily N] [--per-tx N]` | API | Managed wallets only — generate an approval URL for a human. |
 | `palmyr wallet export <ID> --confirm` | local | Print mnemonic. Requires explicit `--confirm`. |
 
+**Trading (Phase 1).** Thesis-tracked Solana positions persist at `~/.palmyr/trading/` (overridable via `PALMYR_TRADING_PATH`). Swaps route through Jupiter v6 via the shared `@palmyr/solana-trading` package. Positions, sells, journal, and watchlist live as JSON / JSONL.
+
+| Command | Network | Notes |
+|---|---|---|
+| `palmyr wallet buy solana <CA> --amount 0.5sol --thesis "..."` | RPC + Jupiter | Open a position with a plain-string thesis. Optional `--cut`, `--tp`, `--hold-if`, `--wallet <id\|name>`, `--slippage <bps>`, `--dry-run`. |
+| `palmyr wallet sell solana <CA> --percent 50 --reason "..."` | RPC + Jupiter | Sell N% of remaining tokens. FIFO realized PnL. Auto-closes the position when fully exited. |
+| `palmyr wallet positions [--chain X] [--wallet Y] [--all]` | local | List positions. `--all` includes closed. |
+| `palmyr wallet position <CA>` | local | Full detail view: thesis verbatim, exit plan, sells, PnL. |
+| `palmyr wallet sync [--wallet Y]` | RPC + Jupiter | Reconcile on-chain balances against book; refresh unrealized PnL. Read-only — flags drift, never auto-corrects. |
+| `palmyr wallet pnl [--by wallet\|chain] [--since DATE]` | local | Aggregate realized + unrealized across positions. |
+| `palmyr wallet journal add <CA> --note "..."` | local | Append a note (omit CA for general). |
+| `palmyr wallet journal show [--ca <CA>] [--date YYYY-MM-DD]` | local | List entries or read a day's full markdown. |
+| `palmyr wallet watch add <CA> --trigger "..."` | local | Append a watch entry to the watchlist. |
+| `palmyr wallet watch list` | local | Show the watchlist. |
+| `palmyr wallet brief <CA>` | local | Position brief: thesis + PnL + last sync time. Phase 3 will add agent-evaluated thesis health. |
+
 ### Twitter / X
 
 Buy, manage, and operate X accounts directly from the CLI. Each account is pinned to a sticky residential IP for its lifetime — login, posting, and every subsequent action route through the same exit IP, so X never sees a sudden geography change.
@@ -667,6 +683,7 @@ If the server doesn't offer the chosen chain for an endpoint, the CLI errors lou
 ├── data/                    # Local cache of phones, inboxes, servers, domains
 ├── logs/                    # Daily logs, pruned after 30 days
 ├── drafts/                  # Long-form draft storage
+├── trading/                 # Phase 1 trading state (positions, trades.jsonl, journal/, watchlist.jsonl, config.json)
 └── memory/notes.md          # `palmyr note` output
 ```
 
