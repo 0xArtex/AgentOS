@@ -12,12 +12,19 @@
 import { Connection, Keypair, PublicKey } from '@solana/web3.js'
 import { getMint } from '@solana/spl-token'
 import {
+  analyzeFill,
   executeSwap,
   fetchQuote,
   getSplTokenBalance,
   makeConnection,
+  recommendSlippageBps,
   SOL_MINT,
+  type FillForensics,
 } from '@palmyr/solana-trading'
+
+// Sensible Jito tip default: 10,000 lamports = 0.00001 SOL (~$0.002 at $200/SOL).
+// Enough to get prioritized on uncongested blocks. Bump via --tip for hot launches.
+const DEFAULT_JITO_TIP_LAMPORTS = 10_000
 import { homedir } from 'os'
 import { dirname, join } from 'path'
 import {
@@ -114,6 +121,11 @@ export interface PositionFile {
     tokensOutRaw: string
     tokenDecimals: number
     entryMcap: number | null
+    // Phase 2 — optional for backward compat with Phase 1 positions
+    feeLamports?: number
+    tipLamports?: number
+    slippageBpsUsed?: number
+    protectedExec?: boolean
   }
   thesis: string
   exitPlan: {
@@ -132,6 +144,12 @@ export interface PositionFile {
     percentRequested: number
     realizedSol: number
     reason: string
+    // Phase 2 — optional for backward compat
+    feeLamports?: number
+    tipLamports?: number
+    slippageBpsUsed?: number
+    protectedExec?: boolean
+    forensics?: FillForensics
   }>
   pnl: {
     realizedSol: number
@@ -155,6 +173,11 @@ export type TradeLogLine =
       entryMcap: number | null
       slippageBps: number
       thesis: string
+      // Phase 2 additions
+      protectedExec?: boolean
+      feeLamports?: number
+      tipLamports?: number
+      forensics?: FillForensics
     }
   | {
       kind: 'sell'
@@ -168,6 +191,11 @@ export type TradeLogLine =
       percentRequested: number
       realizedSol: number
       reason: string
+      // Phase 2 additions
+      protectedExec?: boolean
+      feeLamports?: number
+      tipLamports?: number
+      forensics?: FillForensics
     }
   | {
       kind: 'sync'
@@ -421,6 +449,10 @@ export interface BuyOpts {
   slippageBps?: number
   dryRun?: boolean
   rpcUrl?: string
+  // Phase 2 — MEV protection
+  protectedExec?: boolean           // route via Jito + use dynamic slippage if --slippage not set
+  autoSlippage?: boolean            // use DexScreener 5m volatility for slippage (implied by protectedExec)
+  jitoTipLamports?: number          // override default tip when protectedExec is set
 }
 
 export interface BuyResult {
@@ -435,6 +467,13 @@ export interface BuyResult {
   wallet: string
   mint: string
   dryRun: boolean
+  // Phase 2 additions
+  feeLamports: number
+  tipLamports: number
+  slippageBpsUsed: number
+  slippageSource: 'user' | 'dexscreener' | 'fallback'
+  protectedExec: boolean
+  forensics?: FillForensics
 }
 
 export async function buy(opts: BuyOpts): Promise<BuyResult> {
@@ -450,9 +489,28 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
   }
 
   const cfg = loadTradingConfig()
-  const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
   const rpcUrl = opts.rpcUrl ?? cfg.rpcUrl
   const quoteMaxAgeMs = cfg.quoteMaxAgeMs
+
+  // Slippage: explicit --slippage > --auto-slippage / --protected > config default
+  let slippageBps: number
+  let slippageSource: 'user' | 'dexscreener' | 'fallback'
+  if (opts.slippageBps !== undefined) {
+    slippageBps = opts.slippageBps
+    slippageSource = 'user'
+  } else if (opts.autoSlippage || opts.protectedExec) {
+    const rec = await recommendSlippageBps(opts.ca, cfg.defaultSlippageBps ?? 100)
+    slippageBps = rec.bps
+    slippageSource = rec.source
+  } else {
+    slippageBps = cfg.defaultSlippageBps ?? 100
+    slippageSource = 'fallback'
+  }
+
+  // Jito tip is only set when --protected is on. Caller can override the default.
+  const jitoTipLamports = opts.protectedExec
+    ? (opts.jitoTipLamports ?? DEFAULT_JITO_TIP_LAMPORTS)
+    : undefined
 
   const signer = await resolveSigner(opts.walletRef, opts.passphrase)
   const connection: Connection = makeConnection(rpcUrl)
@@ -466,7 +524,14 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     slippageBps,
     dryRun: opts.dryRun,
     quoteMaxAgeMs,
+    jitoTipLamports,
   })
+
+  const feeLamports = swap.feeLamports ?? 0
+  const tipLamports = swap.tipLamports ?? 0
+  const forensics: FillForensics | undefined = opts.dryRun
+    ? undefined
+    : analyzeFill(swap.quotedOutRaw, swap.outputAmountRaw, slippageBps)
 
   let tokenDecimals = 0
   try {
@@ -498,6 +563,10 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
       tokensOutRaw,
       tokenDecimals,
       entryMcap,
+      feeLamports,
+      tipLamports,
+      slippageBpsUsed: slippageBps,
+      protectedExec: !!opts.protectedExec,
     },
     thesis: opts.thesis.trim(),
     exitPlan: {
@@ -530,6 +599,10 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     entryMcap,
     slippageBps,
     thesis: opts.thesis.trim(),
+    protectedExec: !!opts.protectedExec,
+    feeLamports,
+    tipLamports,
+    forensics,
   })
 
   return {
@@ -544,6 +617,12 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     wallet: signer.address,
     mint: opts.ca,
     dryRun: !!opts.dryRun,
+    feeLamports,
+    tipLamports,
+    slippageBpsUsed: slippageBps,
+    slippageSource,
+    protectedExec: !!opts.protectedExec,
+    forensics,
   }
 }
 
@@ -558,6 +637,10 @@ export interface SellOpts {
   slippageBps?: number
   dryRun?: boolean
   rpcUrl?: string
+  // Phase 2
+  protectedExec?: boolean
+  autoSlippage?: boolean
+  jitoTipLamports?: number
 }
 
 export interface SellResult {
@@ -572,6 +655,13 @@ export interface SellResult {
   wallet: string
   mint: string
   dryRun: boolean
+  // Phase 2
+  feeLamports: number
+  tipLamports: number
+  slippageBpsUsed: number
+  slippageSource: 'user' | 'dexscreener' | 'fallback'
+  protectedExec: boolean
+  forensics?: FillForensics
 }
 
 export async function sell(opts: SellOpts): Promise<SellResult> {
@@ -586,9 +676,27 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
   if (position.status !== 'open') throw new Error(`Position ${opts.ca} is already closed`)
 
   const cfg = loadTradingConfig()
-  const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
   const rpcUrl = opts.rpcUrl ?? cfg.rpcUrl
   const quoteMaxAgeMs = cfg.quoteMaxAgeMs
+
+  // Slippage: explicit --slippage > --auto-slippage / --protected > config default
+  let slippageBps: number
+  let slippageSource: 'user' | 'dexscreener' | 'fallback'
+  if (opts.slippageBps !== undefined) {
+    slippageBps = opts.slippageBps
+    slippageSource = 'user'
+  } else if (opts.autoSlippage || opts.protectedExec) {
+    const rec = await recommendSlippageBps(opts.ca, cfg.defaultSlippageBps ?? 100)
+    slippageBps = rec.bps
+    slippageSource = rec.source
+  } else {
+    slippageBps = cfg.defaultSlippageBps ?? 100
+    slippageSource = 'fallback'
+  }
+
+  const jitoTipLamports = opts.protectedExec
+    ? (opts.jitoTipLamports ?? DEFAULT_JITO_TIP_LAMPORTS)
+    : undefined
 
   const signer = await resolveSigner(opts.walletRef, opts.passphrase)
   if (signer.address !== position.wallet) {
@@ -623,19 +731,32 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     slippageBps,
     dryRun: opts.dryRun,
     quoteMaxAgeMs,
+    jitoTipLamports,
   })
 
-  const solOutRaw = swap.outputAmountRaw
+  const solOutRaw = swap.outputAmountRaw          // gross SOL out (fee + tip already added back)
+  const feeLamports = swap.feeLamports ?? 0
+  const tipLamports = swap.tipLamports ?? 0
   const tokensInUi = Number(tokensToSellRaw) / Math.pow(10, position.entry.tokenDecimals)
   const tokensInDisplay = formatTokensHuman(tokensInUi, 6)
   const solOutDisplay = formatSolHuman(solOutRaw, 6)
 
-  // FIFO realized: proportion of entry cost basis
-  const entrySol = position.entry.amountInRawSol / 1e9
+  // FIFO realized PnL, fee-aware on both sides.
+  //   entryCost includes entry fee + tip — Phase 2 positions store these; Phase 1
+  //   positions had only amountInRawSol (fee/tip default to 0 via ??).
+  //   sellNetProceeds = grossSolOut - sellFee - sellTip.
+  const entryFee = position.entry.feeLamports ?? 0
+  const entryTip = position.entry.tipLamports ?? 0
+  const entryCostLamports = position.entry.amountInRawSol + entryFee + entryTip
+  const entryCostSol = entryCostLamports / 1e9
   const proportion = Number(tokensToSellRaw) / Number(totalRaw)
-  const costSol = proportion * entrySol
-  const proceedsSol = solOutRaw / 1e9
-  const realizedSol = proceedsSol - costSol
+  const costSol = proportion * entryCostSol
+  const netProceedsSol = (solOutRaw - feeLamports - tipLamports) / 1e9
+  const realizedSol = netProceedsSol - costSol
+
+  const forensics: FillForensics | undefined = opts.dryRun
+    ? undefined
+    : analyzeFill(swap.quotedOutRaw, swap.outputAmountRaw, slippageBps)
 
   const nowIso = new Date().toISOString()
   position.sells.push({
@@ -648,6 +769,11 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     percentRequested: opts.percent,
     realizedSol,
     reason: opts.reason.trim(),
+    feeLamports,
+    tipLamports,
+    slippageBpsUsed: slippageBps,
+    protectedExec: !!opts.protectedExec,
+    forensics,
   })
 
   position.pnl.realizedSol = position.sells.reduce((a, s) => a + s.realizedSol, 0)
@@ -669,10 +795,14 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     mint: opts.ca,
     tx: swap.txSignature,
     tokensIn: tokensInDisplay,
-    solOut: proceedsSol,
+    solOut: netProceedsSol,
     percentRequested: opts.percent,
     realizedSol,
     reason: opts.reason.trim(),
+    protectedExec: !!opts.protectedExec,
+    feeLamports,
+    tipLamports,
+    forensics,
   })
 
   return {
@@ -687,6 +817,12 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     wallet: signer.address,
     mint: opts.ca,
     dryRun: !!opts.dryRun,
+    feeLamports,
+    tipLamports,
+    slippageBpsUsed: slippageBps,
+    slippageSource,
+    protectedExec: !!opts.protectedExec,
+    forensics,
   }
 }
 

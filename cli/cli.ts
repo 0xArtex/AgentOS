@@ -81,7 +81,7 @@ const BOOLEAN_FLAGS = new Set([
   // compute deploy/ssh flags
   'wait', 'generate-ssh-key', 'generate', 'progress',
   // wallet trading flags
-  'dry-run', 'all',
+  'dry-run', 'all', 'protected', 'auto-slippage',
 ])
 
 function parse(argv: string[]) {
@@ -218,7 +218,10 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--tp <pct>', desc: 'Exit-plan take-profit target', hint: 'e.g. +40%' },
     { flag: '--hold-if "..."', desc: 'Exit-plan hold condition' },
     { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env WALLET_SECRET_KEY)' },
-    { flag: '--slippage <bps>', desc: 'Slippage in basis points', hint: 'default 100 (1%)' },
+    { flag: '--slippage <bps>', desc: 'Explicit slippage in basis points', hint: 'overrides --auto-slippage' },
+    { flag: '--auto-slippage', desc: 'Dynamic slippage from DexScreener 5m volatility', hint: 'implied by --protected' },
+    { flag: '--protected', desc: 'MEV-protected: Jito tip + dynamic slippage' },
+    { flag: '--tip <lamports>', desc: 'Override default Jito tip', hint: 'default 10000' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
   positions: [
@@ -235,7 +238,10 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--percent <n>', desc: 'Percent of remaining tokens to sell (required)', hint: '1-100' },
     { flag: '--reason "..."', desc: 'Why are you exiting? (required)' },
     { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env)' },
-    { flag: '--slippage <bps>', desc: 'Slippage in basis points', hint: 'default 100 (1%)' },
+    { flag: '--slippage <bps>', desc: 'Explicit slippage in basis points', hint: 'overrides --auto-slippage' },
+    { flag: '--auto-slippage', desc: 'Dynamic slippage from DexScreener 5m volatility', hint: 'implied by --protected' },
+    { flag: '--protected', desc: 'MEV-protected: Jito tip + dynamic slippage' },
+    { flag: '--tip <lamports>', desc: 'Override default Jito tip', hint: 'default 10000' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
   sync: [
@@ -1787,6 +1793,9 @@ async function main() {
             const walletRef = (flags.wallet as string) || undefined
             const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
             const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+            const protectedExec = !!flags.protected
+            const autoSlippage = !!flags['auto-slippage']
+            const jitoTipLamports = flags.tip ? Number(flags.tip) : undefined
 
             const { buy } = await import('./wallet-trading.js')
             let result: Awaited<ReturnType<typeof buy>>
@@ -1801,6 +1810,9 @@ async function main() {
                 walletRef,
                 slippageBps,
                 dryRun,
+                protectedExec,
+                autoSlippage,
+                jitoTipLamports,
               })
             } catch (e: any) {
               err(e.message || 'buy failed', EXIT.GENERAL)
@@ -1810,14 +1822,23 @@ async function main() {
 
             if (!AGENT_MODE) {
               const tag = result!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
-              console.log(`\n  ${t.success}${icon.success} ${tag}Position opened${t.reset}`)
+              const protTag = result!.protectedExec ? ` ${t.accent}[protected]${t.reset}` : ''
+              console.log(`\n  ${t.success}${icon.success} ${tag}Position opened${protTag}${t.reset}`)
               console.log(`  ${t.muted}position:${t.reset}  ${result!.positionPath}`)
               console.log(`  ${t.muted}tx:${t.reset}        ${result!.txSignature}`)
               console.log(`  ${t.muted}wallet:${t.reset}    ${result!.wallet}`)
               console.log(`  ${t.muted}in:${t.reset}        ${result!.amountIn}`)
               console.log(`  ${t.muted}out:${t.reset}       ${result!.tokensOut} tokens`)
+              console.log(`  ${t.muted}slippage:${t.reset}  ${result!.slippageBpsUsed}bps (${result!.slippageSource})`)
+              if (result!.protectedExec) {
+                console.log(`  ${t.muted}tip:${t.reset}       ${result!.tipLamports} lamports (Jito)`)
+              }
+              console.log(`  ${t.muted}fee:${t.reset}       ${result!.feeLamports} lamports`)
               if (result!.entryMcap) {
                 console.log(`  ${t.muted}entryMcap:${t.reset} $${result!.entryMcap.toLocaleString('en-US', { maximumFractionDigits: 0 })}`)
+              }
+              if (result!.forensics && result!.forensics.flag === 'suspect-mev') {
+                console.log(`  ${t.warn}⚠ forensics: realized ${result!.forensics.realizedSlippageBps.toFixed(0)}bps slippage (${(result!.forensics.budgetUsed * 100).toFixed(0)}% of budget) — suspect MEV${t.reset}`)
               }
               console.log()
             } else {
@@ -1940,6 +1961,9 @@ async function main() {
             const walletRef = (flags.wallet as string) || undefined
             const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
             const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+            const protectedExec = !!flags.protected
+            const autoSlippage = !!flags['auto-slippage']
+            const jitoTipLamports = flags.tip ? Number(flags.tip) : undefined
 
             const { sell } = await import('./wallet-trading.js')
             let result: Awaited<ReturnType<typeof sell>>
@@ -1951,6 +1975,9 @@ async function main() {
                 walletRef,
                 slippageBps,
                 dryRun,
+                protectedExec,
+                autoSlippage,
+                jitoTipLamports,
               })
             } catch (e: any) {
               err(e.message || 'sell failed', EXIT.GENERAL)
@@ -1960,14 +1987,23 @@ async function main() {
 
             if (!AGENT_MODE) {
               const tag = result!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
+              const protTag = result!.protectedExec ? ` ${t.accent}[protected]${t.reset}` : ''
               const pnlColor = result!.realizedSol >= 0 ? t.success : t.error
               const closedTag = result!.positionStatus === 'closed' ? ` ${t.muted}[closed]${t.reset}` : ''
-              console.log(`\n  ${t.success}${icon.success} ${tag}Sell executed${closedTag}${t.reset}`)
+              console.log(`\n  ${t.success}${icon.success} ${tag}Sell executed${protTag}${closedTag}${t.reset}`)
               console.log(`  ${t.muted}tx:${t.reset}        ${result!.txSignature}`)
               console.log(`  ${t.muted}sold:${t.reset}      ${result!.tokensIn} tokens (${percent}%)`)
               console.log(`  ${t.muted}received:${t.reset}  ${result!.solOut}`)
+              console.log(`  ${t.muted}slippage:${t.reset}  ${result!.slippageBpsUsed}bps (${result!.slippageSource})`)
+              if (result!.protectedExec) {
+                console.log(`  ${t.muted}tip:${t.reset}       ${result!.tipLamports} lamports (Jito)`)
+              }
+              console.log(`  ${t.muted}fee:${t.reset}       ${result!.feeLamports} lamports`)
               console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${result!.realizedSol >= 0 ? '+' : ''}${result!.realizedSol.toFixed(6)} SOL${t.reset}`)
               console.log(`  ${t.muted}reason:${t.reset}    ${reason}`)
+              if (result!.forensics && result!.forensics.flag === 'suspect-mev') {
+                console.log(`  ${t.warn}⚠ forensics: realized ${result!.forensics.realizedSlippageBps.toFixed(0)}bps slippage (${(result!.forensics.budgetUsed * 100).toFixed(0)}% of budget) — suspect MEV${t.reset}`)
+              }
               console.log()
             } else {
               print(result!)

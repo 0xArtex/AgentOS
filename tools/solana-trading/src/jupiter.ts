@@ -133,6 +133,7 @@ export async function executeSwap(params: SwapParams): Promise<SwapResult> {
         wallet,
         outputMint,
         quotedOutRaw,
+        useJito ? jitoTipLamports : 0,
       );
 
       return {
@@ -204,6 +205,7 @@ async function fetchTxOutcome(
   wallet: Keypair,
   outputMint: string,
   quotedOutRaw: number,
+  tipLamports: number,
 ): Promise<{ feeLamports: number; realizedOutRaw: number }> {
   try {
     const tx = await connection.getTransaction(sig, {
@@ -216,11 +218,12 @@ async function fetchTxOutcome(
     const owner = wallet.publicKey.toBase58();
 
     if (outputMint === SOL_MINT.toBase58()) {
-      // SOL output: balance change is net of fee. Add fee back to get the
-      // gross swap proceeds.
+      // SOL output: balance change is net of fee AND tip. Add both back to
+      // recover the gross swap proceeds. Tip is not counted in tx.meta.fee —
+      // it's a separate SystemProgram.transfer that Jupiter built into the tx.
       const pre = tx.meta.preBalances?.[0] ?? 0;
       const post = tx.meta.postBalances?.[0] ?? 0;
-      const realized = post - pre + feeLamports;
+      const realized = post - pre + feeLamports + tipLamports;
       return {
         feeLamports,
         realizedOutRaw: realized > 0 ? realized : quotedOutRaw,
