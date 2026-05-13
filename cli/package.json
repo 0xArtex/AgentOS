@@ -72,7 +72,8 @@
     "ink-spinner": "^4.0.3",
     "ink-text-input": "^4.0.3",
     "react": "^17.0.2",
-    "string-width": "^7.2.0"
+    "string-width": "^7.2.0",
+    "yaml": "^2.9.0"
   },
   "bugs": {
     "url": "https://github.com/0xArtex/Palmyr/issues"

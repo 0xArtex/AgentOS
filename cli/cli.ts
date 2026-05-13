@@ -230,16 +230,24 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--protected', desc: 'MEV-protected execution', hint: 'sol: Jito tip + dyn slippage. base: priority-fee bump + PALMYR_BASE_PROTECTED_RPC' },
     { flag: '--tip <amount>', desc: 'sol: Jito tip lamports (default 10000). base: priority fee in gwei (default 0.001)' },
     { flag: '--rpc <url>', desc: 'Override RPC endpoint (base: maps to provider URL; bypasses --protected default)' },
+    { flag: '--template <name>', desc: 'YAML strategy template (see `wallet template list`). CLI flags win on conflict.' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
   cohort: [
     { flag: 'buy <CHAIN> <CA>', desc: 'Split a buy across N derived wallets with timing jitter (Phase 4c)' },
-    { flag: '--total <amt>', desc: 'Total amount across all cohort legs (required)', hint: 'e.g. 1.0sol, 0.05eth' },
+    { flag: '--total <amt>', desc: 'Total amount across all cohort legs (required unless template supplies it)', hint: 'e.g. 1.0sol, 0.05eth' },
     { flag: '--thesis "..."', desc: 'Plain-string reasoning (shared across all legs) — required' },
     { flag: '--wallets <list>', desc: 'Explicit comma-separated wallet refs', hint: 'e.g. trading:0,trading:1,trading:2' },
     { flag: '--from trading:N --split K', desc: 'Derive K consecutive wallets starting at index N (alternative to --wallets)' },
     { flag: '--jitter <ms>', desc: 'Random delay [0..jitterMs] between legs; first leg fires immediately', hint: 'default 0' },
+    { flag: '--template <name>', desc: 'YAML strategy template. Can supply chain, total, exit plan, and cohort {split,from,jitterMs}.' },
     { flag: '(other flags)', desc: 'Same as `buy`: --cut, --tp, --trail, --time-limit, --thesis-check, --slippage, --protected, --tip, --rpc, --dry-run' },
+  ],
+  template: [
+    { flag: 'list', desc: 'List installed templates; auto-installs bundled examples on first run' },
+    { flag: 'show <name>', desc: 'Print template YAML body + metadata' },
+    { flag: 'path <name>', desc: 'Print the absolute file path so you can pipe it to your editor' },
+    { flag: 'delete <name>', desc: 'Remove a template file' },
   ],
   positions: [
     { flag: '--chain <chain>', desc: 'Filter by chain', hint: 'solana' },
@@ -1530,6 +1538,7 @@ async function main() {
               { name: 'request-approval', description: 'Request human approval (managed)', hint: 'WALLET_ID --action limits --daily 100' },
               { name: 'buy', description: 'Open a trading position', hint: 'solana <CA> --amount 0.5sol --thesis "..."' },
               { name: 'cohort', description: 'Split a buy across N derived wallets with jitter (Phase 4c)', hint: 'buy <CHAIN> <CA> --total ... --split N' },
+              { name: 'template', description: 'Manage YAML strategy templates', hint: 'list | show <name> | path <name> | delete <name>' },
               { name: 'positions', description: 'List open (and optionally closed) positions', hint: '[--chain X] [--wallet Y] [--all]' },
               { name: 'position', description: 'Show details for a single position', hint: '<CA>' },
               { name: 'sell', description: 'Sell part or all of a position', hint: 'solana <CA> --percent 50 --reason "..."' },
@@ -1842,43 +1851,64 @@ async function main() {
             if (chain !== 'solana' && chain !== 'base') err(`Unsupported chain: ${chain}. Try: solana, base`, EXIT.BAD_INPUT)
             const ca = positional[1] || (flags.ca as string)
             if (!ca) err('CA required: palmyr wallet buy <chain> <CA> --amount <amt> --thesis "..."', EXIT.BAD_INPUT)
-            const amount = flags.amount as string
-            if (!amount) err(`--amount required (e.g. --amount ${chain === 'base' ? '0.01eth' : '0.5sol'})`, EXIT.BAD_INPUT)
             const thesis = flags.thesis as string
             if (!thesis) err('--thesis required (your reasoning for entering this position)', EXIT.BAD_INPUT)
             const walletRef = (flags.wallet as string) || undefined
-            const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
             const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
+
+            // Templates phase — load --template if provided; CLI flags win on merge.
+            const templateName = flags.template as string | undefined
+            let template: import('./wallet-strategy-templates.js').StrategyTemplate | null = null
+            if (templateName) {
+              const { loadTemplate } = await import('./wallet-strategy-templates.js')
+              try {
+                template = loadTemplate(templateName)
+              } catch (e: any) {
+                err(e.message || 'failed to load template', EXIT.NOT_FOUND)
+              }
+            }
+
+            // CLI flag values — undefined means "use template default if any"
+            const cliAmount = flags.amount as string | undefined
+            const cliSlippage = flags.slippage !== undefined ? Number(flags.slippage) : undefined
+            const cliCut = flags.cut as string | undefined
+            const cliTp = ((flags.tp as string) || (flags['take-profit'] as string)) || undefined
+            const cliHoldIf = (flags['hold-if'] as string) || undefined
+            const cliTrail = (flags.trail as string) || undefined
+            const cliTimeLimit = (flags['time-limit'] as string) || undefined
+            const cliThesisCheck = (flags['thesis-check'] as string) || undefined
 
             // Base path — Phase 5b buy, 5c sell+sync, 5d --protected + private RPC.
             if (chain === 'base') {
               if (!walletRef) err('--wallet required for Base (use trading:N from `trading-keystore list`)', EXIT.BAD_INPUT)
-              const baseProtected = !!flags.protected
-              const baseRpc = (flags.rpc as string) || undefined
-              const tipGwei = flags.tip ? Number(flags.tip) : undefined
-              const priorityFeeWei = tipGwei !== undefined
-                ? BigInt(Math.round(tipGwei * 1e9))
-                : undefined
+              const tipGwei = flags.tip !== undefined ? Number(flags.tip) : undefined
+              const cliPriorityFeeWei = tipGwei !== undefined ? BigInt(Math.round(tipGwei * 1e9)) : undefined
+              let opts: any = {
+                ca,
+                thesis,
+                walletRef,
+                dryRun,
+                amount: cliAmount,
+                cut: cliCut,
+                takeProfit: cliTp,
+                holdIf: cliHoldIf,
+                trailingStop: cliTrail,
+                timeLimit: cliTimeLimit,
+                thesisCheck: cliThesisCheck,
+                slippageBps: cliSlippage,
+                protectedExec: flags.protected === true ? true : undefined,
+                rpcUrl: (flags.rpc as string) || undefined,
+                priorityFeeWei: cliPriorityFeeWei,
+              }
+              if (template) {
+                const { applyTemplateToBuyOpts } = await import('./wallet-strategy-templates.js')
+                opts = applyTemplateToBuyOpts(template, opts)
+              }
+              if (!opts.amount) err(`--amount required (e.g. --amount 0.01eth) — not in template or CLI`, EXIT.BAD_INPUT)
               const { buyBase } = await import('./wallet-trading.js')
               let baseResult: Awaited<ReturnType<typeof buyBase>>
               try {
-                baseResult = await buyBase({
-                  ca,
-                  amount,
-                  thesis,
-                  cut: flags.cut as string | undefined,
-                  takeProfit: ((flags.tp as string) || (flags['take-profit'] as string)) || undefined,
-                  holdIf: (flags['hold-if'] as string) || undefined,
-                  trailingStop: (flags.trail as string) || undefined,
-                  timeLimit: (flags['time-limit'] as string) || undefined,
-                  thesisCheck: (flags['thesis-check'] as string) || undefined,
-                  walletRef,
-                  slippageBps,
-                  dryRun,
-                  protectedExec: baseProtected,
-                  rpcUrl: baseRpc,
-                  priorityFeeWei,
-                })
+                baseResult = await buyBase(opts)
               } catch (e: any) {
                 err(e.message || 'buy (base) failed', EXIT.GENERAL)
               }
@@ -1904,30 +1934,37 @@ async function main() {
               break
             }
 
-            const protectedExec = !!flags.protected
-            const autoSlippage = !!flags['auto-slippage']
-            const jitoTipLamports = flags.tip ? Number(flags.tip) : undefined
+            // Solana path. Same template-merge pattern as Base above.
+            let solOpts: any = {
+              ca,
+              thesis,
+              walletRef,
+              dryRun,
+              amount: cliAmount,
+              cut: cliCut,
+              takeProfit: cliTp,
+              holdIf: cliHoldIf,
+              trailingStop: cliTrail,
+              timeLimit: cliTimeLimit,
+              thesisCheck: cliThesisCheck,
+              slippageBps: cliSlippage,
+              protectedExec: flags.protected === true ? true : undefined,
+              autoSlippage: flags['auto-slippage'] === true ? true : undefined,
+              jitoTipLamports: flags.tip !== undefined ? Number(flags.tip) : undefined,
+            }
+            if (template) {
+              const { applyTemplateToBuyOpts } = await import('./wallet-strategy-templates.js')
+              solOpts = applyTemplateToBuyOpts(template, solOpts)
+            }
+            if (!solOpts.amount) err(`--amount required (e.g. --amount 0.5sol) — not in template or CLI`, EXIT.BAD_INPUT)
+            // Normalize booleans for downstream call (undefined → false)
+            solOpts.protectedExec = !!solOpts.protectedExec
+            solOpts.autoSlippage = !!solOpts.autoSlippage
 
             const { buy } = await import('./wallet-trading.js')
             let result: Awaited<ReturnType<typeof buy>>
             try {
-              result = await buy({
-                ca,
-                amount,
-                thesis,
-                cut: flags.cut as string | undefined,
-                takeProfit: ((flags.tp as string) || (flags['take-profit'] as string)) || undefined,
-                holdIf: (flags['hold-if'] as string) || undefined,
-                trailingStop: (flags.trail as string) || undefined,
-                timeLimit: (flags['time-limit'] as string) || undefined,
-                thesisCheck: (flags['thesis-check'] as string) || undefined,
-                walletRef,
-                slippageBps,
-                dryRun,
-                protectedExec,
-                autoSlippage,
-                jitoTipLamports,
-              })
+              result = await buy(solOpts)
             } catch (e: any) {
               err(e.message || 'buy failed', EXIT.GENERAL)
             }
@@ -1964,96 +2001,138 @@ async function main() {
             // Phase 4c — `palmyr wallet cohort buy <chain> <CA> --total <amt> ...`
             const sub = positional[0]
             if (sub !== 'buy') err('cohort subcommand required. Try: buy', EXIT.BAD_INPUT)
-            const chain = (positional[1] || 'solana').toLowerCase()
-            if (chain !== 'solana' && chain !== 'base') err(`Unsupported chain: ${chain}. Try: solana, base`, EXIT.BAD_INPUT)
-            const ca = positional[2] || (flags.ca as string)
-            if (!ca) err(`CA required: palmyr wallet cohort buy ${chain} <CA> --total <amt> ...`, EXIT.BAD_INPUT)
-            const total = flags.total as string
-            if (!total) err(`--total required (e.g. --total ${chain === 'base' ? '0.05eth' : '1.0sol'})`, EXIT.BAD_INPUT)
             const thesis = flags.thesis as string
             if (!thesis) err('--thesis required', EXIT.BAD_INPUT)
 
-            // Resolve wallet list. Two forms:
+            // Templates phase — load --template if provided. Template can supply
+            // chain, total amount, exit plan, cohort defaults (split/jitter/from).
+            const cohortTemplateName = flags.template as string | undefined
+            let cohortTemplate: import('./wallet-strategy-templates.js').StrategyTemplate | null = null
+            if (cohortTemplateName) {
+              const { loadTemplate } = await import('./wallet-strategy-templates.js')
+              try {
+                cohortTemplate = loadTemplate(cohortTemplateName)
+              } catch (e: any) {
+                err(e.message || 'failed to load template', EXIT.NOT_FOUND)
+              }
+            }
+
+            const chain = (positional[1] || cohortTemplate?.chain || 'solana').toLowerCase()
+            if (chain !== 'solana' && chain !== 'base') err(`Unsupported chain: ${chain}. Try: solana, base`, EXIT.BAD_INPUT)
+            const ca = positional[2] || (flags.ca as string)
+            if (!ca) err(`CA required: palmyr wallet cohort buy ${chain} <CA> --total <amt> ...`, EXIT.BAD_INPUT)
+            const total = (flags.total as string) || cohortTemplate?.amount
+            if (!total) err(`--total required (e.g. --total ${chain === 'base' ? '0.05eth' : '1.0sol'}) — not in template or CLI`, EXIT.BAD_INPUT)
+
+            // Resolve wallet list. Three forms (highest to lowest priority):
             //   1. --wallets trading:0,trading:1,trading:2 (explicit list)
             //   2. --from trading:N --split K (derive K wallets starting at N)
+            //   3. Template `cohort: { split: N, from: trading:M, jitterMs: ... }`
             const walletsFlag = flags.wallets as string | undefined
             const fromFlag = flags.from as string | undefined
             const splitFlag = flags.split !== undefined ? Number(flags.split) : undefined
-            let walletRefs: string[]
-            if (walletsFlag) {
-              walletRefs = walletsFlag.split(',').map(s => s.trim()).filter(Boolean)
-            } else if (splitFlag !== undefined) {
-              if (!Number.isInteger(splitFlag) || splitFlag <= 0) {
-                err(`--split must be a positive integer, got ${flags.split}`, EXIT.BAD_INPUT)
-              }
-              const fromRef = fromFlag ?? 'trading:0'
-              if (!fromRef.startsWith('trading:')) {
-                err(`--from must be a trading: reference (got ${fromRef})`, EXIT.BAD_INPUT)
-              }
-              const startIdx = Number(fromRef.slice('trading:'.length))
-              if (!Number.isInteger(startIdx) || startIdx < 0) {
-                err(`Invalid --from index: ${fromRef}`, EXIT.BAD_INPUT)
-              }
-              walletRefs = []
-              for (let i = 0; i < splitFlag; i++) walletRefs.push(`trading:${startIdx + i}`)
-            } else {
-              err('cohort needs --wallets <list> or --split <N> [--from trading:M]', EXIT.BAD_INPUT)
-            }
-
-            const jitterMs = flags.jitter !== undefined ? Number(flags.jitter) : 0
-            if (!Number.isFinite(jitterMs) || jitterMs < 0) {
+            const cliJitter = flags.jitter !== undefined ? Number(flags.jitter) : undefined
+            if (cliJitter !== undefined && (!Number.isFinite(cliJitter) || cliJitter < 0)) {
               err(`--jitter must be a non-negative number (ms), got ${flags.jitter}`, EXIT.BAD_INPUT)
             }
 
-            const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
+            const { resolveCohortFromTemplate, applyTemplateToBuyOpts } = await import('./wallet-strategy-templates.js')
+            let walletRefs: string[]
+            let jitterMs: number
+            try {
+              const explicitList = walletsFlag
+                ? walletsFlag.split(',').map(s => s.trim()).filter(Boolean)
+                : undefined
+              const resolved = cohortTemplate
+                ? resolveCohortFromTemplate(cohortTemplate, explicitList, fromFlag, splitFlag, cliJitter)
+                : (() => {
+                    if (explicitList && explicitList.length > 0) {
+                      return { walletRefs: explicitList, jitterMs: cliJitter ?? 0 }
+                    }
+                    if (splitFlag !== undefined) {
+                      if (!Number.isInteger(splitFlag) || splitFlag <= 0) {
+                        throw new Error(`--split must be a positive integer, got ${flags.split}`)
+                      }
+                      const fromRef = fromFlag ?? 'trading:0'
+                      if (!fromRef.startsWith('trading:')) {
+                        throw new Error(`--from must be a trading: reference (got ${fromRef})`)
+                      }
+                      const startIdx = Number(fromRef.slice('trading:'.length))
+                      if (!Number.isInteger(startIdx) || startIdx < 0) {
+                        throw new Error(`Invalid --from index: ${fromRef}`)
+                      }
+                      const refs: string[] = []
+                      for (let i = 0; i < splitFlag; i++) refs.push(`trading:${startIdx + i}`)
+                      return { walletRefs: refs, jitterMs: cliJitter ?? 0 }
+                    }
+                    throw new Error('cohort needs --wallets <list>, --split <N> [--from trading:M], or a template with cohort.split')
+                  })()
+              walletRefs = resolved.walletRefs
+              jitterMs = resolved.jitterMs
+            } catch (e: any) {
+              err(e.message || 'cohort wallet resolution failed', EXIT.BAD_INPUT)
+            }
+
             const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
-            const protectedExec = !!flags.protected
-            const autoSlippage = !!flags['auto-slippage']
-            const baseRpc = (flags.rpc as string) || undefined
-            const tipGwei = flags.tip !== undefined && chain === 'base' ? Number(flags.tip) : undefined
-            const priorityFeeWei = tipGwei !== undefined
-              ? BigInt(Math.round(tipGwei * 1e9))
-              : undefined
-            const jitoTip = flags.tip !== undefined && chain === 'solana' ? Number(flags.tip) : undefined
+            const cliTipGwei = flags.tip !== undefined && chain === 'base' ? Number(flags.tip) : undefined
+            const cliPriorityFeeWei = cliTipGwei !== undefined ? BigInt(Math.round(cliTipGwei * 1e9)) : undefined
+
+            // Build opts with CLI values; merge template defaults for the rest.
+            let cohortOpts: any = {
+              chain: chain as 'solana' | 'base',
+              ca,
+              totalAmount: total,
+              walletRefs: walletRefs!,
+              thesis,
+              jitterMs: jitterMs!,
+              dryRun,
+              cut: (flags.cut as string | undefined),
+              takeProfit: ((flags.tp as string) || (flags['take-profit'] as string)) || undefined,
+              holdIf: (flags['hold-if'] as string) || undefined,
+              trailingStop: (flags.trail as string) || undefined,
+              timeLimit: (flags['time-limit'] as string) || undefined,
+              thesisCheck: (flags['thesis-check'] as string) || undefined,
+              slippageBps: flags.slippage !== undefined ? Number(flags.slippage) : undefined,
+              protectedExec: flags.protected === true ? true : undefined,
+              autoSlippage: flags['auto-slippage'] === true ? true : undefined,
+              jitoTipLamports: flags.tip !== undefined && chain === 'solana' ? Number(flags.tip) : undefined,
+              priorityFeeWei: cliPriorityFeeWei,
+              rpcUrl: (flags.rpc as string) || undefined,
+            }
+            if (cohortTemplate) {
+              cohortOpts = applyTemplateToBuyOpts(cohortTemplate, cohortOpts)
+              // Restore cohort-specific fields that applyTemplate doesn't touch
+              cohortOpts.chain = chain as 'solana' | 'base'
+              cohortOpts.ca = ca
+              cohortOpts.totalAmount = total
+              cohortOpts.walletRefs = walletRefs!
+              cohortOpts.thesis = thesis
+              cohortOpts.jitterMs = jitterMs!
+              cohortOpts.dryRun = dryRun
+            }
+            // Normalize booleans (template may leave them undefined)
+            cohortOpts.protectedExec = !!cohortOpts.protectedExec
+            cohortOpts.autoSlippage = !!cohortOpts.autoSlippage
 
             const { cohortBuy } = await import('./wallet-trading.js')
             let result: Awaited<ReturnType<typeof cohortBuy>>
             try {
-              result = await cohortBuy({
-                chain: chain as 'solana' | 'base',
-                ca,
-                totalAmount: total,
-                walletRefs,
-                thesis,
-                jitterMs,
-                cut: flags.cut as string | undefined,
-                takeProfit: ((flags.tp as string) || (flags['take-profit'] as string)) || undefined,
-                holdIf: (flags['hold-if'] as string) || undefined,
-                trailingStop: (flags.trail as string) || undefined,
-                timeLimit: (flags['time-limit'] as string) || undefined,
-                thesisCheck: (flags['thesis-check'] as string) || undefined,
-                slippageBps,
-                dryRun,
-                protectedExec,
-                autoSlippage,
-                jitoTipLamports: jitoTip,
-                priorityFeeWei,
-                rpcUrl: baseRpc,
-              })
+              result = await cohortBuy(cohortOpts)
             } catch (e: any) {
               err(e.message || 'cohort buy failed', EXIT.GENERAL)
             }
 
-            log(`wallet cohort buy: ${chain} ${ca} ${result!.successes.length}/${walletRefs.length} ok (cohort ${result!.cohortId})`)
+            log(`wallet cohort buy: ${chain} ${ca} ${result!.successes.length}/${walletRefs!.length} ok (cohort ${result!.cohortId})`)
             if (!AGENT_MODE) {
               const tag = dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
-              console.log(`\n  ${t.success}${icon.success} ${tag}Cohort buy complete${t.reset}`)
+              const tplTag = cohortTemplate ? ` ${t.accent}[${cohortTemplate.name}]${t.reset}` : ''
+              console.log(`\n  ${t.success}${icon.success} ${tag}Cohort buy complete${tplTag}${t.reset}`)
               console.log(`  ${t.muted}cohort:${t.reset}    ${result!.cohortId}`)
               console.log(`  ${t.muted}chain:${t.reset}     ${result!.chain}`)
               console.log(`  ${t.muted}token:${t.reset}     ${result!.ca}`)
-              console.log(`  ${t.muted}total:${t.reset}     ${result!.totalRequested} split across ${walletRefs.length} wallets`)
+              console.log(`  ${t.muted}total:${t.reset}     ${result!.totalRequested} split across ${walletRefs!.length} wallets`)
               console.log(`  ${t.muted}per leg:${t.reset}   ${result!.perWalletAmount}`)
-              console.log(`  ${t.muted}jitter:${t.reset}    ${jitterMs}ms`)
+              console.log(`  ${t.muted}jitter:${t.reset}    ${jitterMs!}ms`)
               console.log(`  ${t.muted}succeeded:${t.reset} ${result!.successes.length}`)
               console.log(`  ${t.muted}failed:${t.reset}    ${result!.failures.length}`)
               if (result!.successes.length > 0) {
@@ -2075,6 +2154,105 @@ async function main() {
               print(result!)
             }
             break
+          }
+          case 'template': {
+            // YAML strategy templates: list | show <name> | path <name> | delete <name>
+            const sub = positional[0]
+            if (!sub) err('template subcommand required. Try: list, show, path, delete', EXIT.BAD_INPUT)
+            const {
+              listTemplates,
+              loadTemplate,
+              deleteTemplate,
+              templatePath,
+              installExamplesIfMissing,
+            } = await import('./wallet-strategy-templates.js')
+
+            if (sub === 'list') {
+              const examples = installExamplesIfMissing()
+              const all = listTemplates()
+              if (!AGENT_MODE) {
+                if (all.length === 0) {
+                  console.log(`\n  ${t.muted}No templates. Examples are installed on next list — try again.${t.reset}\n`)
+                  break
+                }
+                console.log()
+                section('Strategy templates')
+                if (examples.installed.length > 0) {
+                  console.log(`  ${t.muted}Installed examples: ${examples.installed.join(', ')}${t.reset}`)
+                  console.log()
+                }
+                table(
+                  ['NAME', 'CHAIN', 'DESCRIPTION'],
+                  all.map((tpl) => [
+                    tpl.name,
+                    tpl.chain ?? '—',
+                    tpl.description ?? `${t.muted}(no description)${t.reset}`,
+                  ]),
+                )
+                console.log()
+                console.log(`  ${t.muted}Use: palmyr wallet buy <chain> <CA> --template <name> --thesis "..."${t.reset}`)
+                console.log(`  ${t.muted}Edit: ${t.reset}\`palmyr wallet template path <name>\``)
+                console.log()
+              } else {
+                print({ templates: all, examplesInstalled: examples.installed })
+              }
+              break
+            }
+
+            if (sub === 'show') {
+              const name = positional[1]
+              if (!name) err('Template name required: palmyr wallet template show <name>', EXIT.BAD_INPUT)
+              installExamplesIfMissing()
+              let tpl: import('./wallet-strategy-templates.js').StrategyTemplate
+              let raw: string
+              try {
+                tpl = loadTemplate(name)
+                raw = readFileSync(templatePath(name), 'utf8')
+              } catch (e: any) {
+                err(e.message || `template ${name} not found`, EXIT.NOT_FOUND)
+              }
+              if (!AGENT_MODE) {
+                console.log()
+                section(`Template: ${tpl!.name}`)
+                kv('Path', templatePath(name))
+                if (tpl!.description) kv('Description', tpl!.description)
+                console.log()
+                console.log(raw!)
+              } else {
+                print({ name: tpl!.name, path: templatePath(name), template: tpl!, raw: raw! })
+              }
+              break
+            }
+
+            if (sub === 'path') {
+              const name = positional[1]
+              if (!name) err('Template name required: palmyr wallet template path <name>', EXIT.BAD_INPUT)
+              const p = templatePath(name)
+              if (!AGENT_MODE) {
+                console.log(p)
+              } else {
+                print({ name, path: p })
+              }
+              break
+            }
+
+            if (sub === 'delete') {
+              const name = positional[1]
+              if (!name) err('Template name required: palmyr wallet template delete <name>', EXIT.BAD_INPUT)
+              const removed = deleteTemplate(name)
+              if (!AGENT_MODE) {
+                if (removed) {
+                  console.log(`\n  ${t.success}${icon.success} Deleted template '${name}'${t.reset}\n`)
+                } else {
+                  console.log(`\n  ${t.muted}Template '${name}' did not exist.${t.reset}\n`)
+                }
+              } else {
+                print({ success: true, deleted: removed, name })
+              }
+              break
+            }
+
+            err(`Unknown template subcommand: ${sub}. Try: list, show, path, delete`, EXIT.BAD_INPUT)
           }
           case 'positions': {
             const chainFlag = ((flags.chain as string) || '').toLowerCase()
@@ -3074,7 +3252,7 @@ async function main() {
 
             err(`Unknown trading-keystore subcommand: ${sub}. Try: init, unlock, lock, list, status, derive, export`, EXIT.BAD_INPUT)
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, cohort, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore, evm-quote`)
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, cohort, template, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore, evm-quote`)
         }
         break
       }

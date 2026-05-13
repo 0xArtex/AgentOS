@@ -463,7 +463,20 @@ Auth fallback for `--wallet trading:N` and the daemon: explicit `passphrase` arg
 | `palmyr wallet positions` shows a `WALLET` column | New column makes cohort positions visually distinct in the table. |
 | `palmyr wallet trading-keystore unlock [--ttl <dur>]` | **Hard TTL on the OS-keychain seed cache.** Default 24h. `--ttl 30m / --ttl 4h / --ttl 7d` for shorter/longer sessions. After expiry, the first command that touches the keystore auto-wipes the keychain entry. `trading-keystore status` shows the `expiresAt` ISO timestamp and an `expired` flag distinct from `never unlocked`. Phase 4b caches without a meta file are adopted with the default TTL on first read (back-compat). |
 
-**Still deferred to future phases:** Arbitrum / Optimism support (drop-in once a chain-aware RPC config schema lands). `event_based` triggers (LP pull / dev dump / tweet delete via external feeds). YAML strategy templates. Post-entry `exitPlan` editing. Funding orchestration (Phase 6 — needs threat-model conversation first).
+**YAML strategy templates:**
+
+| Command | Notes |
+|---|---|
+| `palmyr wallet template list` | Lists installed templates; auto-installs 3 bundled examples (`sol-pumpfun-quick`, `sol-scout-cohort`, `base-eth-swing`) on first call. Stored at `~/.palmyr/trading/templates/<name>.yml`. |
+| `palmyr wallet template show <name>` | Prints metadata + raw YAML body. |
+| `palmyr wallet template path <name>` | Prints absolute path — `$(palmyr wallet template path X) | xargs -o $EDITOR` to edit. |
+| `palmyr wallet template delete <name>` | Removes the file (idempotent — no-op if missing). |
+| `palmyr wallet buy <chain> <CA> --template <name> --thesis "..."` | Loads template's defaults for `amount` / `exitPlan` (cut, tp, trail, time-limit, thesis-check) / slippage / `protectedExec` / `riskFlags`. **CLI flags win on conflict.** Each layer is opt-in: template can supply just an exit plan, or be a complete trade-plan with amount. |
+| `palmyr wallet cohort buy [<CHAIN> <CA>] --template <name> --thesis "..."` | Template can also supply `cohort.split` / `cohort.from` / `cohort.jitterMs` so a single template captures a complete cohort strategy. `chain` / `total` / wallet list all default from the template; CLI flags override. The thesis and the CA are always required at trade time — templates are about HOW, the thesis + CA are WHY + WHAT. |
+
+Schema is strictly validated — unknown keys are rejected at load time to surface typos like `cutt: -25%`. The validator catches `chain != 'solana'|'base'`, malformed `slippageBps`, non-array `riskFlags`, and any unknown top-level / `exitPlan` / `cohort` keys. Cohort wallet resolution priority for `cohort buy --template ...`: `--wallets` > `--from + --split` > template's `cohort.split` > error.
+
+**Still deferred to future phases:** `event_based` triggers (LP pull / dev dump / tweet delete via external feeds). Post-entry `exitPlan` editing. Funding orchestration (Phase 6 — needs threat-model conversation first). Chain scope is final at Solana + Base.
 
 ### Twitter / X
 
