@@ -391,7 +391,7 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 
 | Command | Network | Notes |
 |---|---|---|
-| `palmyr wallet buy solana <CA> --amount 0.5sol --thesis "..."` | RPC + Jupiter | Open a position with a plain-string thesis. Optional `--cut`, `--tp`, `--hold-if`, `--wallet <id\|name>`, `--slippage <bps>`, `--auto-slippage`, `--protected`, `--tip <lamports>`, `--dry-run`. |
+| `palmyr wallet buy solana <CA> --amount 0.5sol --thesis "..."` | RPC + Jupiter | Open a position with a plain-string thesis. Optional `--cut`, `--tp`, `--trail <pct>`, `--time-limit <dur>`, `--hold-if`, `--wallet <id\|name>`, `--slippage <bps>`, `--auto-slippage`, `--protected`, `--tip <lamports>`, `--dry-run`. |
 | `palmyr wallet sell solana <CA> --percent 50 --reason "..."` | RPC + Jupiter | Sell N% of remaining tokens. FIFO realized PnL (post-fee, post-tip). Auto-closes the position when fully exited. Same `--protected` / `--auto-slippage` / `--tip` flags as `buy`. |
 | `palmyr wallet positions [--chain X] [--wallet Y] [--all]` | local | List positions. `--all` includes closed. |
 | `palmyr wallet position <CA>` | local | Full detail view: thesis verbatim, exit plan, sells, PnL. |
@@ -401,9 +401,9 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 | `palmyr wallet journal show [--ca <CA>] [--date YYYY-MM-DD]` | local | List entries or read a day's full markdown. |
 | `palmyr wallet watch add <CA> --trigger "..."` | local | Append a watch entry to the watchlist. |
 | `palmyr wallet watch list` | local | Show the watchlist. |
-| `palmyr wallet brief <CA>` | local | Position brief: thesis + PnL + last sync time. Phase 3.5 will add agent-evaluated thesis health. |
+| `palmyr wallet brief <CA> [--evaluate]` | local *(plus Anthropic API when `--evaluate`)* | Position brief: thesis + PnL + last sync time. With `--evaluate`, asks Claude Haiku whether the thesis still holds (requires `ANTHROPIC_API_KEY`). |
 
-**Auto-monitor daemon (Phase 3).** Long-running background process (or one-shot `tick`) that periodically syncs all open positions and evaluates `exitPlan.cut` / `exitPlan.takeProfit` against the refreshed `pnl.unrealizedPct`. Fires append to `~/.palmyr/trading/triggers/pending.jsonl` and to `trades.jsonl` (kind `monitor_fire`). With `--auto`, the daemon sells 100% on each fire and links the resulting tx back to the fire record.
+**Auto-monitor daemon (Phase 3 + 3.5).** Long-running background process (or one-shot `tick`) that periodically syncs all open positions and evaluates four trigger types from `exitPlan`: `cut` (stop-loss), `takeProfit` (target), `trailingStop` (drop from peak in pct points; armed only after position has been in profit), `timeLimit` (sell after N hours/days regardless of PnL). The daemon maintains a per-position `monitorState.peakUnrealizedPct` watermark, updated after each sync. Fires append to `~/.palmyr/trading/triggers/pending.jsonl` and to `trades.jsonl` (kind `monitor_fire`). With `--auto`, the daemon sells 100% on each fire and links the resulting tx back to the fire record.
 
 | Command | Network | Notes |
 |---|---|---|
