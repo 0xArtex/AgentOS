@@ -123,9 +123,13 @@ function parse(argv: string[]) {
         continue
       }
 
-      // Otherwise: next arg is the value (if it exists and isn't a flag)
+      // Otherwise: next arg is the value (if it exists and isn't a real flag).
+      // A "real flag" starts with `--` or `-<letter>`. Things like `-25%` or
+      // `-0.5` are NOT flags — they're negative numeric values for things like
+      // `--cut -25%` or `--offset -0.5`. Treat those as the value.
       const next = argv[i + 1]
-      if (next && !next.startsWith('-')) { flags[key] = next; i++ }
+      const nextIsFlag = next !== undefined && next.length > 1 && (next.startsWith('--') || /^-[a-zA-Z]/.test(next))
+      if (next !== undefined && !nextIsFlag) { flags[key] = next; i++ }
       else flags[key] = true
     } else {
       positional.push(arg)

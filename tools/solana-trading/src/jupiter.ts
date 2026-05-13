@@ -6,8 +6,11 @@ import type {
   SwapResult,
 } from "./types.js";
 
-const JUP_QUOTE = "https://quote-api.jup.ag/v6/quote";
-const JUP_SWAP = "https://quote-api.jup.ag/v6/swap";
+// Jupiter migrated the free public endpoint from `quote-api.jup.ag/v6/*` to
+// `lite-api.jup.ag/swap/v1/*`. The old host no longer resolves in many
+// regions. Paid tier moved to `api.jup.ag` with an API key.
+const JUP_QUOTE = "https://lite-api.jup.ag/swap/v1/quote";
+const JUP_SWAP = "https://lite-api.jup.ag/swap/v1/swap";
 const DEFAULT_QUOTE_MAX_AGE_MS = 5000;
 
 export async function fetchQuote(p: JupiterQuoteParams): Promise<QuoteResponse> {
