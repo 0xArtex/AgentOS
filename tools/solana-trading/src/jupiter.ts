@@ -1,10 +1,11 @@
-import { Connection, VersionedTransaction } from "@solana/web3.js";
+import { Connection, Keypair, VersionedTransaction } from "@solana/web3.js";
 import type {
   JupiterQuoteParams,
   QuoteResponse,
   SwapParams,
   SwapResult,
 } from "./types.js";
+import { SOL_MINT } from "./wallet.js";
 
 // Jupiter migrated the free public endpoint from `quote-api.jup.ag/v6/*` to
 // `lite-api.jup.ag/swap/v1/*`. The old host no longer resolves in many
@@ -56,10 +57,12 @@ export async function executeSwap(params: SwapParams): Promise<SwapResult> {
   let fetchedAt = Date.now();
 
   if (dryRun) {
+    const quotedOutRaw = Number(quote.outAmount);
     return {
       txSignature: `dryrun_${Date.now()}`,
       inputAmountRaw: Number(quote.inAmount),
-      outputAmountRaw: Number(quote.outAmount),
+      outputAmountRaw: quotedOutRaw, // no realized in dry-run; quoted stands in
+      quotedOutRaw,
       priceImpactPct: Number(quote.priceImpactPct),
       feeLamports: 5000, // sig fee estimate
       tipLamports: useJito ? jitoTipLamports : 0,
@@ -121,14 +124,22 @@ export async function executeSwap(params: SwapParams): Promise<SwapResult> {
         "confirmed",
       );
 
-      // Fetch the confirmed tx for the actual network fee. One extra RPC call,
-      // but it makes the cost-basis post-fee real instead of estimated.
-      const feeLamports = await fetchActualFee(connection, sig);
+      // Fetch the confirmed tx once for both actual fee AND realized out.
+      // Makes cost-basis post-fee real and lets forensics see actual slippage.
+      const quotedOutRaw = Number(quote.outAmount);
+      const { feeLamports, realizedOutRaw } = await fetchTxOutcome(
+        connection,
+        sig,
+        wallet,
+        outputMint,
+        quotedOutRaw,
+      );
 
       return {
         txSignature: sig,
         inputAmountRaw: Number(quote.inAmount),
-        outputAmountRaw: Number(quote.outAmount),
+        outputAmountRaw: realizedOutRaw,
+        quotedOutRaw,
         priceImpactPct: Number(quote.priceImpactPct),
         feeLamports,
         tipLamports: useJito ? jitoTipLamports : 0,
@@ -175,14 +186,62 @@ async function sendViaJito(rawTx: Uint8Array): Promise<string> {
   return data.result;
 }
 
-async function fetchActualFee(connection: Connection, sig: string): Promise<number> {
+/**
+ * Single getTransaction call that extracts both the actual fee and the
+ * realized OUT amount from the confirmed tx's pre/post balance deltas.
+ *
+ * - For SOL output (output mint is wSOL): the owner's SOL balance gains the
+ *   swap output but loses the fee. Realized = (post - pre) + fee.
+ * - For SPL output: the owner's token account for the output mint gains the
+ *   tokens. Realized = postTokenBalance - preTokenBalance.
+ *
+ * Both fall back to the quote on any parse failure — better to record a
+ * promised number than crash the swap pipeline.
+ */
+async function fetchTxOutcome(
+  connection: Connection,
+  sig: string,
+  wallet: Keypair,
+  outputMint: string,
+  quotedOutRaw: number,
+): Promise<{ feeLamports: number; realizedOutRaw: number }> {
   try {
     const tx = await connection.getTransaction(sig, {
       commitment: "confirmed",
       maxSupportedTransactionVersion: 0,
     });
-    return tx?.meta?.fee ?? 5000;
+    if (!tx?.meta) return { feeLamports: 5000, realizedOutRaw: quotedOutRaw };
+
+    const feeLamports = tx.meta.fee ?? 5000;
+    const owner = wallet.publicKey.toBase58();
+
+    if (outputMint === SOL_MINT.toBase58()) {
+      // SOL output: balance change is net of fee. Add fee back to get the
+      // gross swap proceeds.
+      const pre = tx.meta.preBalances?.[0] ?? 0;
+      const post = tx.meta.postBalances?.[0] ?? 0;
+      const realized = post - pre + feeLamports;
+      return {
+        feeLamports,
+        realizedOutRaw: realized > 0 ? realized : quotedOutRaw,
+      };
+    }
+
+    // SPL output: diff the owner's token balance for the output mint.
+    const preList = tx.meta.preTokenBalances ?? [];
+    const postList = tx.meta.postTokenBalances ?? [];
+    const preBal =
+      preList.find((b) => b.owner === owner && b.mint === outputMint)
+        ?.uiTokenAmount.amount ?? "0";
+    const postBal =
+      postList.find((b) => b.owner === owner && b.mint === outputMint)
+        ?.uiTokenAmount.amount ?? "0";
+    const realized = Number(BigInt(postBal) - BigInt(preBal));
+    return {
+      feeLamports,
+      realizedOutRaw: realized > 0 ? realized : quotedOutRaw,
+    };
   } catch {
-    return 5000; // signature fee estimate
+    return { feeLamports: 5000, realizedOutRaw: quotedOutRaw };
   }
 }
