@@ -19,9 +19,14 @@
     "README.md"
   ],
   "scripts": {
+    "build:shared": "cd ../tools/solana-trading && npm install && npm run build",
+    "prebuild": "npm run build:shared",
     "build": "tsc",
     "prepublishOnly": "npm run build"
   },
+  "bundleDependencies": [
+    "@palmyr/solana-trading"
+  ],
   "keywords": [
     "ai",
     "agent",
