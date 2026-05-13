@@ -132,6 +132,13 @@ export interface PositionFile {
     cut?: string
     takeProfit?: string
     holdIf?: string
+    trailingStop?: string             // Phase 3.5 — e.g., "20%" — drop in pct points from peak
+    timeLimit?: string                // Phase 3.5 — e.g., "24h", "30m", "7d"
+  }
+  /** Phase 3.5 — peak watermark for trailing-stop evaluation. */
+  monitorState?: {
+    peakUnrealizedPct: number
+    peakAt: string                    // ISO 8601
   }
   riskFlags: string[]
   sells: Array<{
@@ -212,9 +219,12 @@ export type TradeLogLine =
       chain: 'solana'
       wallet: string
       mint: string
-      trigger: 'cut' | 'takeProfit'
-      thresholdPct: number
+      trigger: 'cut' | 'takeProfit' | 'trailingStop' | 'timeLimit'
       currentPct: number
+      thresholdPct?: number           // cut/takeProfit/trailingStop
+      peakPct?: number                // trailingStop
+      thresholdDurationMs?: number    // timeLimit
+      elapsedMs?: number              // timeLimit
       proposedAction: 'sell-100'
       autoExecuted: boolean
       linkedSellTx?: string
@@ -464,9 +474,12 @@ export interface BuyOpts {
   dryRun?: boolean
   rpcUrl?: string
   // Phase 2 — MEV protection
-  protectedExec?: boolean           // route via Jito + use dynamic slippage if --slippage not set
-  autoSlippage?: boolean            // use DexScreener 5m volatility for slippage (implied by protectedExec)
-  jitoTipLamports?: number          // override default tip when protectedExec is set
+  protectedExec?: boolean
+  autoSlippage?: boolean
+  jitoTipLamports?: number
+  // Phase 3.5 — additional triggers
+  trailingStop?: string             // e.g., "20%"
+  timeLimit?: string                // e.g., "24h"
 }
 
 export interface BuyResult {
@@ -587,6 +600,12 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
       cut: opts.cut,
       takeProfit: opts.takeProfit,
       holdIf: opts.holdIf,
+      trailingStop: opts.trailingStop,
+      timeLimit: opts.timeLimit,
+    },
+    monitorState: {
+      peakUnrealizedPct: 0,
+      peakAt: nowIso,
     },
     riskFlags: opts.riskFlags ?? [],
     sells: [],
