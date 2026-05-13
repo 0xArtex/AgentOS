@@ -13,6 +13,7 @@ import { Connection, Keypair, PublicKey } from '@solana/web3.js'
 import { getMint } from '@solana/spl-token'
 import {
   executeSwap,
+  fetchQuote,
   getSplTokenBalance,
   makeConnection,
   SOL_MINT,
@@ -687,4 +688,119 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     mint: opts.ca,
     dryRun: !!opts.dryRun,
   }
+}
+
+// ───────── sync ─────────
+
+export interface SyncOpts {
+  walletRef?: string
+  passphrase?: string
+  rpcUrl?: string
+  slippageBpsForQuote?: number      // default 50 bps for price reads
+}
+
+export interface SyncEntry {
+  mint: string
+  status: 'open' | 'closed'
+  bookRaw: string
+  onchainRaw: string
+  drift: string | null              // null when book == chain
+  unrealizedSol: number
+  unrealizedPct: number
+  note: string
+}
+
+export interface SyncReport {
+  wallet: string
+  positions: SyncEntry[]
+}
+
+export async function sync(opts: SyncOpts = {}): Promise<SyncReport> {
+  const cfg = loadTradingConfig()
+  const rpcUrl = opts.rpcUrl ?? cfg.rpcUrl
+  const slippageBpsForQuote = opts.slippageBpsForQuote ?? 50
+
+  const signer = await resolveSigner(opts.walletRef, opts.passphrase)
+  const owner = signer.keypair.publicKey
+  const connection: Connection = makeConnection(rpcUrl)
+
+  const positions = listPositions({
+    chain: 'solana',
+    walletAddress: signer.address,
+  })
+
+  const report: SyncEntry[] = []
+  const nowIso = new Date().toISOString()
+
+  for (const p of positions) {
+    const onchain = await getSplTokenBalance(connection, owner, new PublicKey(p.mint))
+    const totalRaw = BigInt(p.entry.tokensOutRaw)
+    const soldRaw = p.sells.reduce((acc, s) => acc + BigInt(s.tokensInRaw), 0n)
+    const bookRaw = totalRaw - soldRaw
+    const onchainRaw = onchain.raw
+
+    const drift =
+      onchainRaw === bookRaw
+        ? null
+        : onchainRaw === 0n
+          ? 'book-says-open-but-chain-empty'
+          : `book=${bookRaw.toString()} chain=${onchainRaw.toString()}`
+
+    let unrealizedSol = 0
+    let unrealizedPct = 0
+    let priceNote: string | null = null
+
+    if (bookRaw > 0n && p.status === 'open') {
+      try {
+        const q = await fetchQuote({
+          inputMint: p.mint,
+          outputMint: SOL_MINT.toBase58(),
+          amount: Number(bookRaw),
+          slippageBps: slippageBpsForQuote,
+        })
+        const solOut = Number(q.outAmount) / 1e9
+        const entrySol = p.entry.amountInRawSol / 1e9
+        const proportion = Number(bookRaw) / Number(totalRaw)
+        const remCost = proportion * entrySol
+        unrealizedSol = solOut - remCost
+        unrealizedPct = remCost > 0 ? (unrealizedSol / remCost) * 100 : 0
+        p.pnl.unrealizedSol = unrealizedSol
+        p.pnl.unrealizedPct = unrealizedPct
+        p.pnl.lastPricedAt = nowIso
+      } catch (e: any) {
+        priceNote = `quote failed: ${e.message}`
+      }
+    } else {
+      p.pnl.unrealizedSol = 0
+      p.pnl.unrealizedPct = 0
+    }
+
+    writePosition(p)
+
+    const note = priceNote ?? drift ?? 'ok'
+    appendTradeLog({
+      kind: 'sync',
+      ts: nowIso,
+      chain: 'solana',
+      wallet: signer.address,
+      mint: p.mint,
+      drift: drift
+        ? { onchain: onchainRaw.toString(), book: bookRaw.toString() }
+        : null,
+      note,
+    })
+
+    report.push({
+      mint: p.mint,
+      status: p.status,
+      bookRaw: bookRaw.toString(),
+      onchainRaw: onchainRaw.toString(),
+      drift,
+      unrealizedSol,
+      unrealizedPct,
+      note,
+    })
+  }
+
+  return { wallet: signer.address, positions: report }
 }

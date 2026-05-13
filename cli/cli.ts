@@ -234,6 +234,9 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--slippage <bps>', desc: 'Slippage in basis points', hint: 'default 100 (1%)' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
+  sync: [
+    { flag: '--wallet <id|name>', desc: 'Vault wallet whose positions to reconcile (else env signer)' },
+  ],
 }
 /**
  * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
@@ -1453,6 +1456,7 @@ async function main() {
               { name: 'positions', description: 'List open (and optionally closed) positions', hint: '[--chain X] [--wallet Y] [--all]' },
               { name: 'position', description: 'Show details for a single position', hint: '<CA>' },
               { name: 'sell', description: 'Sell part or all of a position', hint: 'solana <CA> --percent 50 --reason "..."' },
+              { name: 'sync', description: 'Reconcile open positions against chain, refresh unrealized PnL' },
             ],
             fromHome,
           })
@@ -1947,7 +1951,45 @@ async function main() {
             }
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell`)
+          case 'sync': {
+            const walletRef = (flags.wallet as string) || undefined
+            const { sync: doSync } = await import('./wallet-trading.js')
+            let report: Awaited<ReturnType<typeof doSync>>
+            try {
+              report = await doSync({ walletRef })
+            } catch (e: any) {
+              err(e.message || 'sync failed', EXIT.GENERAL)
+            }
+
+            log(`wallet sync: ${report!.wallet} (${report!.positions.length} positions)`)
+
+            if (!AGENT_MODE) {
+              console.log()
+              section('Sync')
+              kv('Wallet', report!.wallet)
+              if (report!.positions.length === 0) {
+                console.log(`  ${t.muted}No open positions for this wallet.${t.reset}\n`)
+                break
+              }
+              console.log()
+              table(
+                ['CA', 'BOOK', 'ON-CHAIN', 'DRIFT', 'UNREAL SOL', 'UNREAL %'],
+                report!.positions.map((s) => [
+                  s.mint.length > 12 ? `${s.mint.slice(0, 6)}..${s.mint.slice(-4)}` : s.mint,
+                  s.bookRaw,
+                  s.onchainRaw,
+                  s.drift ? `⚠ ${s.drift}` : 'ok',
+                  `${s.unrealizedSol >= 0 ? '+' : ''}${s.unrealizedSol.toFixed(6)}`,
+                  `${s.unrealizedPct >= 0 ? '+' : ''}${s.unrealizedPct.toFixed(2)}%`,
+                ]),
+              )
+              console.log()
+            } else {
+              print(report!)
+            }
+            break
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync`)
         }
         break
       }
