@@ -539,6 +539,236 @@ export function assertValidMint(mint: string): PublicKey {
   }
 }
 
+/** Phase 5b — validates a 0x-prefixed EVM address. Returns the original string. */
+export function assertValidEvmAddress(addr: string): string {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(addr)) {
+    throw new Error(`Invalid EVM address: ${addr}`)
+  }
+  return addr
+}
+
+/**
+ * Phase 5b — parse `--amount` for Base: accepts `Neth`, `Ngwei`, `Nwei`.
+ * Returns a u256-safe wei string. Unrecognized formats throw.
+ */
+export function parseEvmAmount(input: string): string {
+  const m = input.trim().match(/^(\d+(?:\.\d+)?)\s*(eth|gwei|wei)?$/i)
+  if (!m) throw new Error(`Invalid --amount: "${input}". Expected e.g. "0.01eth" or "10000000000000000wei".`)
+  const n = m[1]
+  const unit = (m[2] || 'eth').toLowerCase()
+  if (unit === 'wei') {
+    // bare integer string already represents wei
+    return n.includes('.') ? BigInt(Math.floor(Number(n))).toString() : n
+  }
+  if (unit === 'gwei') {
+    // gwei = 1e9 wei
+    return (BigInt(Math.floor(Number(n) * 1e9))).toString()
+  }
+  // eth = 1e18 wei
+  const [intPart, fracPart = ''] = n.split('.')
+  const padded = (fracPart + '0'.repeat(18)).slice(0, 18)
+  return (BigInt(intPart) * 10n ** 18n + BigInt(padded || '0')).toString()
+}
+
+export function formatEthHuman(weiStr: string, decimals = 6): string {
+  const wei = BigInt(weiStr)
+  const whole = wei / 10n ** 18n
+  const frac = wei % 10n ** 18n
+  const fracStr = frac.toString().padStart(18, '0').slice(0, decimals)
+  return `${whole}.${fracStr} ETH`
+}
+
+// ───────── EVM signer resolver ─────────
+
+export interface ResolvedEvmSigner {
+  /** ethers.Wallet without a provider attached. Caller does `.connect(provider)`. */
+  wallet: import('ethers').Wallet
+  address: string
+  source: 'trading-keystore'
+  keystoreIndex: number
+}
+
+/**
+ * Phase 5b — resolve `--wallet trading:N` to an EVM wallet. No env keypair
+ * fallback for EVM (yet) — Phase 5c can add one if needed.
+ */
+export async function resolveEvmSigner(
+  walletRef?: string,
+  passphrase?: string,
+): Promise<ResolvedEvmSigner> {
+  if (!walletRef?.startsWith('trading:')) {
+    throw new Error('For Base, --wallet must be a keystore reference like `trading:0`.')
+  }
+  const indexStr = walletRef.slice('trading:'.length)
+  const index = Number(indexStr)
+  if (!Number.isInteger(index) || index < 0) {
+    throw new Error(`Invalid trading wallet index: "${indexStr}". Use trading:0, trading:1, ...`)
+  }
+  const pass = passphrase ?? process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+  const { getKeystoreEvmWallet } = await import('./wallet-trading-keystore.js')
+  const wallet = getKeystoreEvmWallet(index, pass)
+  return {
+    wallet,
+    address: wallet.address,
+    source: 'trading-keystore',
+    keystoreIndex: index,
+  }
+}
+
+// ───────── buyBase ─────────
+
+export interface BuyBaseOpts {
+  ca: string                                // 0x... ERC20 contract address
+  amount: string                            // e.g. "0.01eth", "1000gwei", "10000000000000000wei"
+  thesis: string
+  cut?: string
+  takeProfit?: string
+  holdIf?: string
+  trailingStop?: string
+  timeLimit?: string
+  thesisCheck?: string
+  riskFlags?: string[]
+  walletRef?: string                        // `trading:N` only for Phase 5b
+  passphrase?: string
+  slippageBps?: number
+  dryRun?: boolean
+  rpcUrl?: string
+}
+
+export interface BuyBaseResult {
+  positionPath: string
+  txHash: string
+  amountIn: string
+  amountInRawWei: string
+  tokensOut: string
+  tokensOutRaw: string
+  tokenDecimals: number
+  wallet: string
+  mint: string
+  dryRun: boolean
+  feeWei: string
+  slippageBpsUsed: number
+}
+
+export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
+  assertValidEvmAddress(opts.ca)
+  if (!opts.thesis?.trim()) throw new Error('Missing --thesis')
+  const amountInRawWei = parseEvmAmount(opts.amount)
+
+  const existing = readPosition('base', opts.ca)
+  if (existing && existing.status === 'open') {
+    throw new Error(
+      `Position already open for ${opts.ca}. Sell it (Phase 5c will add CLI sell on Base; for now use Phantom or Coinbase Wallet) before opening a new one.`,
+    )
+  }
+
+  const cfg = loadTradingConfig()
+  const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
+
+  const {
+    executeEvmSwap,
+    getErc20Decimals,
+    makeEvmProvider,
+    NATIVE_ETH,
+    BASE_CHAIN_ID,
+    DEFAULT_BASE_RPC,
+  } = await import('./evm-trading.js')
+
+  const signer = await resolveEvmSigner(opts.walletRef, opts.passphrase)
+  const provider = makeEvmProvider(opts.rpcUrl ?? DEFAULT_BASE_RPC)
+  const connectedWallet = signer.wallet.connect(provider) as import('ethers').Wallet
+
+  let tokenDecimals = 18
+  try {
+    tokenDecimals = await getErc20Decimals(provider, opts.ca)
+  } catch {
+    // Fall back to 18 if the contract doesn't expose `decimals()` (rare, but
+    // happens for non-standard ERC20s). We persist what we have; downstream
+    // display will be approximate.
+  }
+
+  const swap = await executeEvmSwap({
+    provider,
+    wallet: connectedWallet,
+    srcToken: NATIVE_ETH,
+    destToken: opts.ca,
+    srcAmount: amountInRawWei,
+    srcDecimals: 18,
+    destDecimals: tokenDecimals,
+    slippageBps,
+    chainId: BASE_CHAIN_ID,
+    dryRun: opts.dryRun,
+  })
+
+  const tokensOutRaw = swap.destAmount
+  let tokensOutUi = 0
+  try {
+    tokensOutUi = Number(BigInt(tokensOutRaw)) / Math.pow(10, tokenDecimals)
+  } catch {
+    tokensOutUi = 0
+  }
+  const tokensOut = formatTokensHuman(tokensOutUi, 6)
+
+  const nowIso = new Date().toISOString()
+  const position: BasePositionFile = {
+    chain: 'base',
+    mint: opts.ca,
+    wallet: signer.address,
+    status: 'open',
+    entry: {
+      tx: swap.txHash,
+      time: nowIso,
+      amountIn: formatEthHuman(amountInRawWei),
+      amountInRawWei,
+      tokensOut,
+      tokensOutRaw,
+      tokenDecimals,
+      entryMcap: null,
+      feeWei: swap.feeWei,
+      slippageBpsUsed: slippageBps,
+      protectedExec: false,
+    },
+    thesis: opts.thesis.trim(),
+    exitPlan: {
+      cut: opts.cut,
+      takeProfit: opts.takeProfit,
+      holdIf: opts.holdIf,
+      trailingStop: opts.trailingStop,
+      timeLimit: opts.timeLimit,
+      thesisCheck: opts.thesisCheck,
+    },
+    monitorState: {
+      peakUnrealizedPct: 0,
+      peakAt: nowIso,
+    },
+    riskFlags: opts.riskFlags ?? [],
+    sells: [],
+    pnl: {
+      realizedEth: 0,
+      unrealizedEth: 0,
+      unrealizedPct: 0,
+      lastPricedAt: null,
+    },
+  }
+
+  writePosition(position)
+
+  return {
+    positionPath: positionPath('base', opts.ca),
+    txHash: swap.txHash,
+    amountIn: position.entry.amountIn,
+    amountInRawWei,
+    tokensOut,
+    tokensOutRaw,
+    tokenDecimals,
+    wallet: signer.address,
+    mint: opts.ca,
+    dryRun: !!opts.dryRun,
+    feeWei: swap.feeWei,
+    slippageBpsUsed: slippageBps,
+  }
+}
+
 /**
  * Best-effort market cap at entry time: Jupiter /price × on-chain supply.
  * Returns null if either lookup fails — the position is still valid without it.
