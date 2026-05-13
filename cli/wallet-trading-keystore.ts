@@ -26,7 +26,7 @@ import {
   randomBytes,
   scryptSync,
 } from 'crypto'
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
 import { dirname, join } from 'path'
 
 import { TRADING_DIR } from './wallet-trading.js'
@@ -37,6 +37,13 @@ import { deleteSecret, retrieveSecret, storeSecret } from './credential-store.js
 const CACHE_ACCOUNT = createHash('sha256').update('palmyr.trading.keystore.seed').digest('hex').slice(0, 32)
 
 const KEYSTORE_FILE = join(TRADING_DIR, 'keystore.json')
+const CACHE_META_FILE = join(TRADING_DIR, 'keystore-cache-meta.json')
+
+// Phase 4c — cache TTL defaults. 24h is the sweet spot for "trading session
+// length" while still forcing daily re-auth. Users can override per-unlock
+// with --ttl, or set the cli config's `keystoreCacheTtlMs` for a project-wide
+// default.
+export const DEFAULT_KEYSTORE_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const SCRYPT_KEYLEN = 32
 const SCRYPT_N = 131_072         // 2^17 — Phantom-grade
 const SCRYPT_R = 8
@@ -113,17 +120,111 @@ function keypairFromSeed(seedHex: string, index: number): Keypair {
  * OS-level access to the user's keychain can drain every derived wallet — same
  * threat model as ssh-agent / password managers. Run `trading-keystore lock`
  * to clear the cache when stepping away.
+ *
+ * Phase 4c — pairs the cached secret with a plaintext metadata file recording
+ * `cachedAt` + `ttlMs`. `getCachedSeedHex()` enforces the TTL on every read:
+ * if expired, the seed is wiped from the keychain and the function returns
+ * null. Default TTL is 24h (`DEFAULT_KEYSTORE_CACHE_TTL_MS`); user can
+ * override per-unlock via `--ttl <dur>` or globally via `keystoreCacheTtlMs`
+ * in trading config.
  */
-export function cacheSeedHex(seedHex: string) {
-  storeSecret(CACHE_ACCOUNT, seedHex)
+interface CacheMeta {
+  cachedAt: string         // ISO 8601
+  ttlMs: number            // hard deadline from cachedAt
 }
 
+function readCacheMeta(): CacheMeta | null {
+  if (!existsSync(CACHE_META_FILE)) return null
+  try {
+    const data = JSON.parse(readFileSync(CACHE_META_FILE, 'utf8')) as Partial<CacheMeta>
+    if (typeof data.cachedAt !== 'string' || typeof data.ttlMs !== 'number') return null
+    return { cachedAt: data.cachedAt, ttlMs: data.ttlMs }
+  } catch {
+    return null
+  }
+}
+
+function writeCacheMeta(meta: CacheMeta) {
+  if (!existsSync(dirname(CACHE_META_FILE))) {
+    mkdirSync(dirname(CACHE_META_FILE), { recursive: true })
+  }
+  writeFileSync(CACHE_META_FILE, JSON.stringify(meta, null, 2))
+}
+
+function deleteCacheMeta() {
+  if (existsSync(CACHE_META_FILE)) {
+    try { unlinkSync(CACHE_META_FILE) } catch {}
+  }
+}
+
+export function cacheSeedHex(seedHex: string, ttlMs: number = DEFAULT_KEYSTORE_CACHE_TTL_MS) {
+  storeSecret(CACHE_ACCOUNT, seedHex)
+  writeCacheMeta({
+    cachedAt: new Date().toISOString(),
+    ttlMs: Math.max(0, Math.floor(ttlMs)),
+  })
+}
+
+/**
+ * Returns the cached seed iff (a) keychain has it, AND (b) the TTL has not
+ * elapsed since cachedAt. Expired caches are wiped on access — so a single
+ * stale read is enough to auto-lock the keystore on the next command.
+ *
+ * Back-compat: caches written by Phase 4b (pre-TTL) have no meta file. We
+ * treat "seed in keychain + no meta" as "trust on first use" and write a
+ * default-TTL meta. That keeps existing daemons running through the upgrade
+ * — they'll auto-lock 24h after the first post-upgrade invocation.
+ */
 export function getCachedSeedHex(): string | null {
-  return retrieveSecret(CACHE_ACCOUNT)
+  const seed = retrieveSecret(CACHE_ACCOUNT)
+  if (!seed) return null
+  const meta = readCacheMeta()
+  if (!meta) {
+    // Phase 4b cache — adopt with default TTL.
+    writeCacheMeta({
+      cachedAt: new Date().toISOString(),
+      ttlMs: DEFAULT_KEYSTORE_CACHE_TTL_MS,
+    })
+    return seed
+  }
+  const deadline = new Date(meta.cachedAt).getTime() + meta.ttlMs
+  if (Date.now() >= deadline) {
+    // expired — wipe and signal locked
+    clearCachedSeed()
+    return null
+  }
+  return seed
 }
 
 export function clearCachedSeed() {
   deleteSecret(CACHE_ACCOUNT)
+  deleteCacheMeta()
+}
+
+/**
+ * Phase 4c — surface raw cache state (without TTL enforcement) so `status`
+ * can show "expired" distinctly from "never unlocked".
+ */
+export interface CacheLockState {
+  hasSecret: boolean
+  meta: CacheMeta | null
+  expired: boolean
+  expiresAt: string | null
+}
+
+export function getCacheLockState(): CacheLockState {
+  const hasSecret = retrieveSecret(CACHE_ACCOUNT) !== null
+  const meta = readCacheMeta()
+  if (!hasSecret || !meta) {
+    return { hasSecret, meta, expired: !hasSecret, expiresAt: null }
+  }
+  const deadline = new Date(meta.cachedAt).getTime() + meta.ttlMs
+  return {
+    hasSecret,
+    meta,
+    expired: Date.now() >= deadline,
+    expiresAt: new Date(deadline).toISOString(),
+  }
 }
 
 export function isUnlocked(): boolean {
@@ -141,6 +242,8 @@ export interface InitKeystoreOpts {
   passphrase: string
   mnemonic?: string              // import an existing mnemonic; otherwise generate fresh
   count?: number                 // initial number of derived wallets, default 5
+  /** Phase 4c — override default cache TTL on the auto-cache that runs after init. */
+  cacheTtlMs?: number
 }
 
 export function keystoreExists(): boolean {
@@ -193,7 +296,7 @@ export function initKeystore(opts: InitKeystoreOpts): KeystoreFile {
   writeFileSync(KEYSTORE_FILE, JSON.stringify(file, null, 2))
   // Auto-cache the seed — user just authenticated, no point making them
   // unlock again on the next command in the same session.
-  cacheSeedHex(seedHex)
+  cacheSeedHex(seedHex, opts.cacheTtlMs ?? DEFAULT_KEYSTORE_CACHE_TTL_MS)
   return file
 }
 
@@ -216,6 +319,8 @@ export interface KeystoreStatus {
   path: string
   createdAt: string | null
   walletCount: number
+  /** Phase 4c — cache TTL state. */
+  cache?: CacheLockState
 }
 
 export function getKeystoreStatus(): KeystoreStatus {
@@ -225,6 +330,7 @@ export function getKeystoreStatus(): KeystoreStatus {
     path: KEYSTORE_FILE,
     createdAt: file?.createdAt ?? null,
     walletCount: file?.addresses.length ?? 0,
+    cache: getCacheLockState(),
   }
 }
 
@@ -281,6 +387,18 @@ export function unlockKeystore(passphrase: string): string {
   if (!file) throw new Error('No trading keystore. Run `init` first.')
   const mnemonic = decryptMnemonic(file, passphrase)
   return bip39.mnemonicToSeedSync(mnemonic).toString('hex')
+}
+
+/**
+ * Phase 4c — unlock + cache with an explicit TTL. Convenience wrapper used by
+ * the CLI's `trading-keystore unlock` command. Returns the cache deadline so
+ * the caller can print "expires in N minutes".
+ */
+export function unlockAndCache(passphrase: string, ttlMs: number = DEFAULT_KEYSTORE_CACHE_TTL_MS): { seedHex: string; expiresAt: string } {
+  const seedHex = unlockKeystore(passphrase)
+  cacheSeedHex(seedHex, ttlMs)
+  const expiresAt = new Date(Date.now() + ttlMs).toISOString()
+  return { seedHex, expiresAt }
 }
 
 /**

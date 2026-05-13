@@ -452,7 +452,18 @@ Auth fallback for `--wallet trading:N` and the daemon: explicit `passphrase` arg
 | `palmyr wallet positions [--chain base\|solana]` | local | Lists positions across both chains by default. CHAIN column shows which chain each position belongs to. |
 | `palmyr wallet position <CA> [--chain base\|solana]` | local | Auto-detects chain when `--chain` is omitted (tries Solana first, then Base). Displays native unit (SOL or ETH) in the PnL section. |
 
-**Still deferred to future phases:** Cohort strategies (split a buy across N derived wallets w/ timing jitter — Phase 4c). Per-wallet position scoping at the storage layer (Phase 4c). Arbitrum / Optimism support (drop-in once a chain-aware RPC config schema lands). `event_based` triggers (LP pull / dev dump / tweet delete via external feeds). YAML strategy templates. Post-entry `exitPlan` editing.
+**Phase 4c additions — cohort strategies, per-wallet position scoping, cache TTL:**
+
+| Command | Notes |
+|---|---|
+| `palmyr wallet cohort buy <CHAIN> <CA> --total <amt> --wallets trading:0,trading:1,...` | Split a single trade decision across N derived wallets. Each leg becomes its own position file under that wallet's directory. Sequential by design (parallel risks pool-impact penalties on the second-into-the-block leg); `--jitter <ms>` adds a random delay between legs sampled from `[0, jitterMs]`. Partial-success report: successes and failures are captured per-leg, never rolled back. Each position carries a shared `cohortId` field. All `buy` flags (`--protected`, `--tip`, `--rpc`, `--slippage`, `--cut`, `--tp`, `--trail`, etc.) pass through. |
+| `palmyr wallet cohort buy <CHAIN> <CA> --total <amt> --from trading:N --split K` | Alternative form: derive `K` consecutive trading wallets starting at index `N`. EVM derivations are on-the-fly (any non-negative index works); Solana indices must be pre-derived via `trading-keystore init/derive`. |
+| **Per-wallet position scoping** | Position files moved from `positions/<chain>/<mint>.json` to `positions/<wallet-addr>/<chain>/<mint>.json`. EVM wallet directory names are lowercased (Windows case-insensitive FS protection). Legacy positions migrate lazily on the next `ensureTradingDirs()` call (idempotent — first invocation moves them, subsequent calls scan-and-skip). `readPosition(chain, mint, walletAddr)` is O(1); the no-wallet form (used by `wallet position <CA>` and `brief`) scans the tree. |
+| **Duplicate-position check is per-wallet** | Different cohort wallets can each open simultaneous positions in the same token. The "Position already open" error now mentions the specific wallet address. |
+| `palmyr wallet positions` shows a `WALLET` column | New column makes cohort positions visually distinct in the table. |
+| `palmyr wallet trading-keystore unlock [--ttl <dur>]` | **Hard TTL on the OS-keychain seed cache.** Default 24h. `--ttl 30m / --ttl 4h / --ttl 7d` for shorter/longer sessions. After expiry, the first command that touches the keystore auto-wipes the keychain entry. `trading-keystore status` shows the `expiresAt` ISO timestamp and an `expired` flag distinct from `never unlocked`. Phase 4b caches without a meta file are adopted with the default TTL on first read (back-compat). |
+
+**Still deferred to future phases:** Arbitrum / Optimism support (drop-in once a chain-aware RPC config schema lands). `event_based` triggers (LP pull / dev dump / tweet delete via external feeds). YAML strategy templates. Post-entry `exitPlan` editing. Funding orchestration (Phase 6 — needs threat-model conversation first).
 
 ### Twitter / X
 
