@@ -401,7 +401,17 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 | `palmyr wallet journal show [--ca <CA>] [--date YYYY-MM-DD]` | local | List entries or read a day's full markdown. |
 | `palmyr wallet watch add <CA> --trigger "..."` | local | Append a watch entry to the watchlist. |
 | `palmyr wallet watch list` | local | Show the watchlist. |
-| `palmyr wallet brief <CA>` | local | Position brief: thesis + PnL + last sync time. Phase 3 will add agent-evaluated thesis health. |
+| `palmyr wallet brief <CA>` | local | Position brief: thesis + PnL + last sync time. Phase 3.5 will add agent-evaluated thesis health. |
+
+**Auto-monitor daemon (Phase 3).** Long-running background process (or one-shot `tick`) that periodically syncs all open positions and evaluates `exitPlan.cut` / `exitPlan.takeProfit` against the refreshed `pnl.unrealizedPct`. Fires append to `~/.palmyr/trading/triggers/pending.jsonl` and to `trades.jsonl` (kind `monitor_fire`). With `--auto`, the daemon sells 100% on each fire and links the resulting tx back to the fire record.
+
+| Command | Network | Notes |
+|---|---|---|
+| `palmyr wallet daemon tick [--auto]` | RPC + Jupiter | One-shot: sync + evaluate triggers + exit. Useful for cron-driven setups. |
+| `palmyr wallet daemon start [--interval N] [--auto] [--wallet <id\|name>]` | local | Spawn detached daemon. Default interval 30s. PID lives at `~/.palmyr/trading/daemon/daemon.pid`. |
+| `palmyr wallet daemon stop` | local | SIGTERM the running daemon, clean up PID + status files. |
+| `palmyr wallet daemon status` | local | Liveness check + last tick timestamp + current opts. |
+| `palmyr wallet triggers [--ca <CA>] [--since <iso>] [--clear]` | local | List pending trigger fires; `--clear` truncates `pending.jsonl` after listing. |
 
 ### Twitter / X
 
