@@ -82,6 +82,8 @@ const BOOLEAN_FLAGS = new Set([
   'wait', 'generate-ssh-key', 'generate', 'progress',
   // wallet trading flags
   'dry-run', 'all', 'protected', 'auto-slippage',
+  // wallet daemon + triggers flags
+  'auto', 'clear',
 ])
 
 function parse(argv: string[]) {
@@ -261,6 +263,19 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   brief: [
     { flag: '<CA>', desc: 'Show a position brief: thesis + PnL + last sync time' },
+  ],
+  daemon: [
+    { flag: 'tick', desc: 'One-shot: sync positions + evaluate triggers + exit' },
+    { flag: 'start [--interval N] [--auto] [--wallet <id|name>]', desc: 'Spawn detached monitor daemon' },
+    { flag: 'stop', desc: 'Stop the running daemon (SIGTERM + cleanup)' },
+    { flag: 'status', desc: 'Show daemon liveness + last tick time' },
+    { flag: '--interval <s>', desc: 'Tick interval in seconds', hint: 'default 30' },
+    { flag: '--auto', desc: 'Auto-execute sell(100%) when a trigger fires' },
+  ],
+  triggers: [
+    { flag: '--ca <CA>', desc: 'Filter by mint address' },
+    { flag: '--since <iso>', desc: 'Filter to fires after this timestamp' },
+    { flag: '--clear', desc: 'Truncate pending.jsonl after listing' },
   ],
 }
 /**
@@ -1486,6 +1501,8 @@ async function main() {
               { name: 'journal', description: 'Append or read trade journal entries', hint: 'add <CA> --note "..." | show' },
               { name: 'watch', description: 'Maintain a watchlist of CAs to monitor', hint: 'add <CA> --trigger "..." | list' },
               { name: 'brief', description: 'Show thesis + PnL brief for a position', hint: '<CA>' },
+              { name: 'daemon', description: 'Auto-monitor positions for trigger-based exits', hint: 'tick | start [--auto] | stop | status' },
+              { name: 'triggers', description: 'List pending trigger fires from the daemon', hint: '[--ca X] [--since ISO] [--clear]' },
             ],
             fromHome,
           })
@@ -2222,7 +2239,151 @@ async function main() {
             }
             break
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief`)
+          case 'daemon': {
+            const sub = positional[0]
+            if (!sub) err('daemon subcommand required. Try: tick, start, stop, status', EXIT.BAD_INPUT)
+            const intervalSeconds = flags.interval ? Number(flags.interval) : 30
+            const autoExecute = !!flags.auto
+            const walletRef = (flags.wallet as string) || undefined
+
+            if (sub === 'tick') {
+              const { daemonTick } = await import('./wallet-daemon.js')
+              let report: Awaited<ReturnType<typeof daemonTick>>
+              try {
+                report = await daemonTick({ intervalSeconds, autoExecute, walletRef })
+              } catch (e: any) {
+                err(e.message || 'tick failed', EXIT.GENERAL)
+              }
+              log(`wallet daemon tick: synced ${report!.syncedPositions}, fired ${report!.fires.length}`)
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.success}${icon.success} Tick complete${t.reset}`)
+                console.log(`  ${t.muted}synced:${t.reset}  ${report!.syncedPositions} position(s)`)
+                console.log(`  ${t.muted}fired:${t.reset}   ${report!.fires.length} trigger(s)`)
+                if (report!.fires.length > 0) {
+                  console.log()
+                  for (const f of report!.fires) {
+                    const tag = f.autoExecuted ? `${t.success}[executed]${t.reset}` : `${t.warn}[pending]${t.reset}`
+                    const errTag = f.error ? ` ${t.error}error: ${f.error}${t.reset}` : ''
+                    const caShort = f.mint.length > 12 ? `${f.mint.slice(0,6)}..${f.mint.slice(-4)}` : f.mint
+                    console.log(`  ${tag} ${f.trigger} on ${caShort}: current ${f.currentPct.toFixed(2)}% vs threshold ${f.thresholdPct}%${errTag}`)
+                  }
+                }
+                console.log()
+              } else {
+                print(report!)
+              }
+              break
+            }
+
+            if (sub === 'start') {
+              const { startDaemon } = await import('./wallet-daemon.js')
+              let r: Awaited<ReturnType<typeof startDaemon>>
+              try {
+                r = await startDaemon({ intervalSeconds, autoExecute, walletRef })
+              } catch (e: any) {
+                err(e.message || 'daemon start failed', EXIT.GENERAL)
+              }
+              log(`wallet daemon start: pid=${r!.pid}`)
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.success}${icon.success} Daemon started${t.reset}`)
+                console.log(`  ${t.muted}pid:${t.reset}       ${r!.pid}`)
+                console.log(`  ${t.muted}interval:${t.reset}  ${intervalSeconds}s`)
+                console.log(`  ${t.muted}auto:${t.reset}      ${autoExecute ? 'yes' : 'no'}`)
+                console.log(`  ${t.muted}wallet:${t.reset}    ${walletRef || 'env'}`)
+                console.log(`\n  Stop with: ${t.info}palmyr wallet daemon stop${t.reset}\n`)
+              } else {
+                print({ success: true, pid: r!.pid, intervalSeconds, autoExecute, walletRef })
+              }
+              break
+            }
+
+            if (sub === 'stop') {
+              const { stopDaemon } = await import('./wallet-daemon.js')
+              const r = await stopDaemon()
+              log(`wallet daemon stop: wasRunning=${r.wasRunning}`)
+              if (!AGENT_MODE) {
+                if (r.wasRunning) {
+                  console.log(`\n  ${t.success}${icon.success} Daemon stopped${t.reset} (was PID ${r.pid})\n`)
+                } else {
+                  console.log(`\n  ${t.muted}No daemon running.${t.reset}\n`)
+                }
+              } else {
+                print({ success: true, ...r })
+              }
+              break
+            }
+
+            if (sub === 'status') {
+              const { getDaemonStatus } = await import('./wallet-daemon.js')
+              const r = getDaemonStatus()
+              if (!AGENT_MODE) {
+                console.log()
+                section('Daemon')
+                kv('Running', r.running ? 'yes' : 'no')
+                kv('PID', r.pid ? String(r.pid) : '—')
+                kv('Last tick', r.lastTick || '—')
+                if (r.opts) {
+                  kv('Interval', `${r.opts.intervalSeconds}s`)
+                  kv('Auto-execute', r.opts.autoExecute ? 'yes' : 'no')
+                  kv('Wallet', r.opts.walletRef || 'env')
+                }
+                console.log()
+              } else {
+                print(r)
+              }
+              break
+            }
+
+            if (sub === '_run') {
+              // Hidden: invoked by the detached daemon child. Never returns
+              // unless SIGTERM/SIGINT is received.
+              const { runDaemonLoop } = await import('./wallet-daemon.js')
+              await runDaemonLoop({ intervalSeconds, autoExecute, walletRef })
+              break
+            }
+
+            err(`Unknown daemon subcommand: ${sub}. Try: tick, start, stop, status`, EXIT.BAD_INPUT)
+          }
+          case 'triggers': {
+            const caFilter = flags.ca as string | undefined
+            const sinceIso = flags.since as string | undefined
+            const clearFlag = !!flags.clear
+
+            const { listPendingTriggers, clearPendingTriggers } = await import('./wallet-daemon.js')
+            const fires = listPendingTriggers({ ca: caFilter, sinceIso })
+
+            if (!AGENT_MODE) {
+              if (fires.length === 0) {
+                console.log(`\n  ${t.muted}No pending trigger fires.${t.reset}\n`)
+                if (clearFlag) clearPendingTriggers()
+                break
+              }
+              console.log()
+              table(
+                ['TIME', 'CA', 'TRIGGER', 'THRESHOLD', 'CURRENT', 'STATUS'],
+                fires.map((f) => [
+                  f.ts.slice(0, 19).replace('T', ' '),
+                  f.mint.length > 12 ? `${f.mint.slice(0, 6)}..${f.mint.slice(-4)}` : f.mint,
+                  f.trigger,
+                  `${f.thresholdPct}%`,
+                  `${f.currentPct.toFixed(2)}%`,
+                  f.autoExecuted
+                    ? (f.error ? `error: ${f.error}` : `executed (${f.linkedSellTx?.slice(0, 6)}..)`)
+                    : 'pending',
+                ]),
+              )
+              console.log()
+              if (clearFlag) {
+                clearPendingTriggers()
+                console.log(`  ${t.muted}${fires.length} fire(s) cleared.${t.reset}\n`)
+              }
+            } else {
+              if (clearFlag) clearPendingTriggers()
+              print({ fires })
+            }
+            break
+          }
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers`)
         }
         break
       }
