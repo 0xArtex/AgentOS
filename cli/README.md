@@ -417,11 +417,15 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 
 | Command | Network | Notes |
 |---|---|---|
-| `palmyr wallet trading-keystore init [--count N] [--mnemonic "..."]` | local | Create the keystore. Default `--count 5`. Pass `--mnemonic` to import an existing seed; otherwise a fresh 24-word mnemonic is generated. Requires `PALMYR_TRADING_KEYSTORE_PASSPHRASE`. |
+| `palmyr wallet trading-keystore init [--count N] [--mnemonic "..."]` | local | Create the keystore. Default `--count 5`. Pass `--mnemonic` to import an existing seed; otherwise a fresh 24-word mnemonic is generated. Passphrase via env or interactive prompt. Auto-caches the seed in OS keychain on success. |
+| `palmyr wallet trading-keystore unlock` | local | Prompt for passphrase (or use env), decrypt seed, cache it in OS keychain. Required before the daemon or any non-env CLI call can use `--wallet trading:N`. |
+| `palmyr wallet trading-keystore lock` | local | Clear the cached seed from OS keychain. |
 | `palmyr wallet trading-keystore list` | local | List `[index]` → derived address. No unlock needed. |
-| `palmyr wallet trading-keystore status` | local | Show exists / path / created-at / wallet count. |
-| `palmyr wallet trading-keystore derive --count N` | local | Append N more HD-derived wallets to the keystore. |
-| `palmyr wallet trading-keystore export --confirm` | local | Print the mnemonic. Passphrase required; `--confirm` guard prevents accidental exposure. |
+| `palmyr wallet trading-keystore status` | local | Show exists / path / wallet count / locked vs unlocked. |
+| `palmyr wallet trading-keystore derive --count N` | local | Append N more HD-derived wallets. Uses cached seed if unlocked. |
+| `palmyr wallet trading-keystore export --confirm` | local | Print the mnemonic. Always requires the passphrase (never falls back to cache); `--confirm` guard prevents accidental exposure. |
+
+Auth fallback for `--wallet trading:N` and the daemon: explicit `passphrase` arg → `PALMYR_TRADING_KEYSTORE_PASSPHRASE` env var → cached seed in OS keychain. Once unlocked, the daemon and subsequent CLI commands work without re-entering the passphrase.
 
 ### Twitter / X
 
