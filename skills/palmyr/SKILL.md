@@ -84,14 +84,18 @@ palmyr wallet create --managed           # Same, with passkey-gated spending lim
 # Funding asset = the suffix on --amount: `0.5sol`/`0.01eth` for native, `10usdc` for USDC.
 # Sells exit back to the entry asset. MEV protection + dynamic slippage are ON by default;
 # pass --degen to opt out for fast/raw execution.
-# Positions persist at ~/.palmyr/trading/positions/<wallet-addr>/<chain>/<mint>.json
+# --dry-run is strictly read-only — never mutates position files.
+# Positions persist at ~/.palmyr/trading/positions/<wallet-addr>/<chain>/<mint>.json.
+# Re-entries on a closed mint archive the prior cycle to .../history/<mint>-<entryTs>.json.
 palmyr wallet buy <chain> <CA> --amount <N{sol|eth|usdc}> --thesis "..." --wallet <name> \
    [--cut -25% --tp +60% --trail 20% --time-limit 6h --thesis-check 90m --dry-run --degen]
 palmyr wallet sell <chain> <CA> --percent N --reason "..." --wallet <name>   # exits to entry asset
-palmyr wallet positions [--all] [--wallet <name>]                            # cross-chain by default
-palmyr wallet sync [--chain solana|base] [--wallet <name>]                   # reconcile + refresh unrealized
+palmyr wallet positions [--all] [--history] [--wallet <name>] [--chain X]    # cross-chain by default
+palmyr wallet sync [--chain solana|base] [--wallet <name>]                   # both chains by default
 palmyr wallet pnl [--by chain|wallet] [--no-usd]                             # SOL/ETH/USDC buckets + USD total
-palmyr wallet brief <CA> [--evaluate]                                        # thesis + PnL; --evaluate runs Claude
+palmyr wallet brief <CA> [--wallet <name>] [--chain X] [--evaluate]          # chain inferred from CA format
+palmyr wallet doctor [--wallet <name>]                                        # deps + RPC + derivation health check
+palmyr wallet smoke-test --wallet <name> [--chain solana|base|all]            # end-to-end dry-run validation
 
 # Autonomous monitor daemon — syncs both chains, fires exitPlan triggers
 # (cut, takeProfit, trailingStop, timeLimit, thesisCheck via LLM):
