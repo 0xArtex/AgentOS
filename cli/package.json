@@ -73,6 +73,7 @@
     "ink-text-input": "^4.0.3",
     "react": "^17.0.2",
     "string-width": "^7.2.0",
+    "ws": "^8.17.1",
     "yaml": "^2.9.0"
   },
   "bugs": {
