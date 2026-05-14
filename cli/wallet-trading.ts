@@ -20,7 +20,7 @@ import {
   recommendSlippageBps,
   SOL_MINT,
   type FillForensics,
-} from '@palmyr/solana-trading'
+} from './solana/index.js'
 
 // Sensible Jito tip default: 10,000 lamports = 0.00001 SOL (~$0.002 at $200/SOL).
 // Enough to get prioritized on uncongested blocks. Bump via --tip for hot launches.
@@ -917,7 +917,7 @@ export async function resolveSigner(
     return { keypair, address: keypair.publicKey.toBase58(), source: 'vault' }
   }
 
-  const { loadKeypairFromEnv } = await import('@palmyr/solana-trading')
+  const { loadKeypairFromEnv } = await import('./solana/index.js')
   const keypair = loadKeypairFromEnv()
   const fromSecret = !!process.env.WALLET_SECRET_KEY?.trim()
   return {

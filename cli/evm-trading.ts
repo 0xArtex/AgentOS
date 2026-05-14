@@ -11,7 +11,7 @@
  *
  * Output amount comes from parsing the ERC20 `Transfer` event in the receipt
  * (or the balance delta for native ETH output) — same idea as the Solana
- * tx-balance parsing in @palmyr/solana-trading/jupiter.ts.
+ * tx-balance parsing in cli/solana/jupiter.ts.
  */
 import { ethers } from 'ethers'
 
