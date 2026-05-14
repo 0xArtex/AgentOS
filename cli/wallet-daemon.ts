@@ -101,6 +101,42 @@ export interface DaemonStatus {
 
 // ───────── Trigger parsing + evaluation ─────────
 
+/**
+ * Build a human-readable reason string for an auto-executed sell. Picks
+ * trigger-appropriate detail rather than always rendering `thresholdPct%` —
+ * a `timeLimit` trigger has no PnL threshold, so the old format produced
+ * `threshold undefined%`. Falls back gracefully for any unknown trigger kind.
+ */
+export function formatTriggerReason(fire: TriggerFire): string {
+  const pct = `${fire.currentPct.toFixed(2)}%`
+  switch (fire.trigger) {
+    case 'timeLimit': {
+      const elapsedM = fire.elapsedMs !== undefined ? Math.round(fire.elapsedMs / 60_000) : null
+      const thresholdM = fire.thresholdDurationMs !== undefined ? Math.round(fire.thresholdDurationMs / 60_000) : null
+      if (elapsedM !== null && thresholdM !== null) {
+        return `auto: timeLimit fired after ${elapsedM}m > ${thresholdM}m; selling 100%`
+      }
+      return `auto: timeLimit fired; selling 100%`
+    }
+    case 'trailingStop': {
+      const peak = fire.peakPct !== undefined ? `peak ${fire.peakPct.toFixed(2)}%` : 'peak ?'
+      const drop = fire.thresholdPct !== undefined ? `${fire.thresholdPct.toFixed(2)}%` : '?%'
+      return `auto: trailingStop fired at ${pct} (${peak} - drop ≥ ${drop}); selling 100%`
+    }
+    case 'thesis_falsified': {
+      const verdict = fire.llmVerdict ?? 'no'
+      return `auto: thesis_falsified (LLM verdict=${verdict}); selling 100%`
+    }
+    case 'cut':
+    case 'takeProfit': {
+      const threshold = fire.thresholdPct !== undefined ? `${fire.thresholdPct.toFixed(2)}%` : '?%'
+      return `auto: ${fire.trigger} fired at ${pct} (threshold ${threshold}); selling 100%`
+    }
+    default:
+      return `auto: ${fire.trigger} fired at ${pct}; selling 100%`
+  }
+}
+
 /** Parse "-25%", "+40%", "25", "-25.5%" → number. Returns null on malformed input. */
 export function parsePctString(s: string | undefined | null): number | null {
   if (!s) return null
@@ -373,11 +409,12 @@ async function processPositionFires(p: PositionFile, opts: DaemonOpts): Promise<
   for (const fire of positionFires) {
     if (opts.autoExecute) {
       try {
+        const sellReason = formatTriggerReason(fire)
         if (p.chain === 'solana') {
           const sellResult = await sell({
             ca: fire.mint,
             percent: 100,
-            reason: `auto: ${fire.trigger} fired at ${fire.currentPct.toFixed(2)}% (threshold ${fire.thresholdPct}%)`,
+            reason: sellReason,
             walletRef: opts.walletRef,
           })
           fire.autoExecuted = true
@@ -386,7 +423,7 @@ async function processPositionFires(p: PositionFile, opts: DaemonOpts): Promise<
           const sellResult = await sellBase({
             ca: fire.mint,
             percent: 100,
-            reason: `auto: ${fire.trigger} fired at ${fire.currentPct.toFixed(2)}% (threshold ${fire.thresholdPct}%)`,
+            reason: sellReason,
             walletRef: opts.walletRef,
           })
           fire.autoExecuted = true
