@@ -1030,10 +1030,12 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     onTxBuilt: inputAsset === 'USDC'
       ? async (txBlob) => {
           if (opts.dryRun) return
+          // Approve the ParaSwap tokenTransferProxy (`spender`), not the
+          // Augustus router (`to`). See note on EvmSwapParams.onTxBuilt.
           await ensureErc20Approval(
             connectedWallet,
             srcToken,
-            txBlob.to,
+            txBlob.spender,
             BigInt(amountInRaw),
           )
         }
@@ -1155,6 +1157,14 @@ export interface SellBaseResult {
   rpcUrl: string
   /** The asset this sell exited to (mirrors entry.inputAsset). */
   outputAsset: BaseInputAsset
+  /**
+   * Difference between book remaining (entry tokensOut − sold) and the actual
+   * on-chain balance at sell time, in raw token units. Undefined when book and
+   * chain agreed (normal case). When set, the sell amount was capped at the
+   * on-chain balance, which avoids "SafeERC20: low-level call failed" reverts
+   * on partial sells of a drifted position.
+   */
+  reconcileDriftRaw?: string
 }
 
 export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
@@ -1170,6 +1180,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
   const {
     executeEvmSwap,
     ensureErc20Approval,
+    getErc20Balance,
     makeEvmProvider,
     NATIVE_ETH,
     BASE_USDC,
@@ -1207,9 +1218,38 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
   // BigInt math: remaining = totalEntry - sumOfSells (in u256 raw)
   const totalRaw = BigInt(position.entry.tokensOutRaw)
   const soldRaw = position.sells.reduce((acc, s) => acc + BigInt(s.tokensInRaw), 0n)
-  const remainingRaw = totalRaw - soldRaw
-  if (remainingRaw <= 0n) throw new Error('No tokens remaining to sell.')
+  const remainingRawBook = totalRaw - soldRaw
+  if (remainingRawBook <= 0n) throw new Error('No tokens remaining to sell.')
 
+  // Reconcile book vs. on-chain balance. ParaSwap's safeTransferFrom will revert
+  // ("SafeERC20: low-level call failed") if we ask for more than the wallet
+  // actually holds. This can happen when:
+  //   - the buy receipt parser missed a token-fee deduction
+  //   - manual transfers happened off-platform
+  //   - rounding drift on a fee-on-transfer token
+  // Capping at `min(book, onchain)` makes partial sells robust and turns a
+  // confusing low-level revert into "sell what we actually have".
+  let onchainBalance: bigint
+  if (opts.dryRun) {
+    onchainBalance = remainingRawBook // skip RPC call in dry-run; trust book
+  } else {
+    try {
+      onchainBalance = await getErc20Balance(provider, opts.ca, signer.address)
+    } catch {
+      onchainBalance = remainingRawBook // fall back to book if RPC fails
+    }
+  }
+  const remainingRaw = onchainBalance < remainingRawBook ? onchainBalance : remainingRawBook
+  const reconcileDriftRaw = remainingRawBook - remainingRaw // 0 when book ≤ chain
+  if (remainingRaw <= 0n) {
+    throw new Error(
+      `No on-chain balance for ${opts.ca} on ${signer.address} (book says ${remainingRawBook.toString()} but chain says 0). ` +
+      `Re-sync with \`palmyr wallet sync --chain base --wallet <ref>\` and inspect the position.`,
+    )
+  }
+
+  // For 100% sells: take the entire on-chain balance directly (BigInt(100*100)/10000 = 1 is exact).
+  // For partial sells: use percent of remainingRaw with BigInt math; truncation drops at most one wei.
   const percentScaled = BigInt(Math.round(opts.percent * 100))
   const tokensToSellRaw = (remainingRaw * percentScaled) / 10000n
   if (tokensToSellRaw <= 0n) {
@@ -1232,10 +1272,14 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     priorityFeeWei,
     onTxBuilt: async (txBlob) => {
       if (opts.dryRun) return // skip approval in dry-run
+      // Approve the tokenTransferProxy reported by the price route. This is
+      // the root cause of "SafeERC20: low-level call failed" on partial sells:
+      // ParaSwap v6 pulls tokens through a separate proxy contract, not the
+      // Augustus router at `to`.
       const result = await ensureErc20Approval(
         connectedWallet,
         opts.ca,
-        txBlob.to,
+        txBlob.spender,
         tokensToSellRaw,
       )
       if (result.approved && result.txHash) approvalTxHash = result.txHash
@@ -1294,8 +1338,16 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
 
   position.pnl.realizedEth = position.sells.reduce((a, s) => a + s.realizedEth, 0)
 
+  // Position closes when (a) the user explicitly sold 100% — even if the
+  // on-chain balance was less than the book amount due to drift — or (b) the
+  // sum of recorded sells exceeds the book entry amount. Both paths land at
+  // status='closed', and we account for any drift between book and chain so
+  // partial sells of a drifted balance still close correctly when fully exited.
   const newSoldRaw = soldRaw + tokensToSellRaw
-  if (newSoldRaw >= totalRaw) {
+  const fullyExited =
+    opts.percent >= 100 ||
+    newSoldRaw + reconcileDriftRaw >= totalRaw
+  if (fullyExited) {
     position.status = 'closed'
     position.pnl.unrealizedEth = 0
     position.pnl.unrealizedPct = 0
@@ -1325,6 +1377,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     protectedExec: !!opts.protectedExec,
     rpcUrl,
     outputAsset,
+    reconcileDriftRaw: reconcileDriftRaw === 0n ? undefined : reconcileDriftRaw.toString(),
   }
 }
 

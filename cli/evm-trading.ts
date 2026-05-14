@@ -64,6 +64,13 @@ export const DEFAULT_BASE_PROTECTED_TIP_WEI = 1_000_000n
 const ERC20_TRANSFER_TOPIC =
   '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
+// WETH9 Withdrawal(address indexed src, uint wad) — emitted when wrapped ETH is
+// unwrapped back to native ETH. We cross-check this against the native balance
+// delta when destToken is native ETH to catch under-counting from missing
+// `receipt.gasPrice` data.
+const WETH_WITHDRAWAL_TOPIC =
+  '0x7fcf532c15f0a6db0bd6d0e038bea71d30d808c7d98cb3bf7268a95bf5081b65'
+
 export interface ParaswapPriceRoute {
   blockNumber: number
   network: number
@@ -161,8 +168,14 @@ export interface EvmSwapParams {
    * (so the caller knows the router/spender address from txBlob.to) but
    * BEFORE the tx is signed and sent. Use this to run ERC20 approvals for
    * token-input swaps.
+   *
+   * `spender` is the ACTUAL ERC20 spender (ParaSwap's tokenTransferProxy when
+   * the route reports one, otherwise the Augustus router at `to`). Approving
+   * the wrong one causes the underlying `transferFrom` to revert with
+   * "SafeERC20: low-level call failed" on partial sells. Always approve
+   * `spender`, not `to`.
    */
-  onTxBuilt?: (txBlob: { to: string; value: string; data: string; chainId: number }) => Promise<void>
+  onTxBuilt?: (txBlob: { to: string; spender: string; value: string; data: string; chainId: number }) => Promise<void>
   /**
    * Phase 5d — extra priority fee (EIP-1559 maxPriorityFeePerGas) in wei.
    * When set, overrides ParaSwap's gasPrice with type-2 fields and bumps the
@@ -212,19 +225,49 @@ export async function executeEvmSwap(params: EvmSwapParams): Promise<EvmSwapResu
   const userAddr = await params.wallet.getAddress()
   const txBlob = await buildParaswapTx(priceRoute, userAddr, params.slippageBps, params.chainId)
 
+  // ParaSwap v6 splits the call target (Augustus, `txBlob.to`) from the ERC20
+  // spender that actually pulls user tokens via transferFrom. The spender lives
+  // on `priceRoute.tokenTransferProxy`; for native-ETH input there's no
+  // approval needed so we fall back to `to` (the value is unused). Approving
+  // the wrong contract was the cause of "SafeERC20: low-level call failed"
+  // reverts on partial sells.
+  const tokenTransferProxy = typeof (priceRoute as Record<string, unknown>).tokenTransferProxy === 'string'
+    ? ((priceRoute as Record<string, unknown>).tokenTransferProxy as string)
+    : txBlob.to
+
   // Phase 5c — hook for ERC20 approval (or anything else that depends on knowing
   // the router address before send). Runs after the swap tx is built.
   if (params.onTxBuilt) {
     await params.onTxBuilt({
       to: txBlob.to,
+      spender: tokenTransferProxy,
       value: txBlob.value,
       data: txBlob.data,
       chainId: txBlob.chainId,
     })
   }
 
-  // 10% buffer on gas to avoid out-of-gas reverts under load.
-  const gasLimit = (BigInt(txBlob.gas) * 110n) / 100n
+  // ParaSwap occasionally returns a tx blob without a `gas` field. Fall back
+  // to a local estimate so we don't throw on `BigInt(undefined)`. 10% buffer
+  // either way to avoid out-of-gas reverts under load.
+  let gasLimit: bigint
+  if (txBlob.gas) {
+    gasLimit = (BigInt(txBlob.gas) * 110n) / 100n
+  } else {
+    try {
+      const estimated = await params.provider.estimateGas({
+        from: userAddr,
+        to: txBlob.to,
+        data: txBlob.data,
+        value: BigInt(txBlob.value),
+      })
+      gasLimit = (estimated * 110n) / 100n
+    } catch (e: any) {
+      throw new Error(
+        `ParaSwap returned no gas estimate and local estimation reverted: ${e?.message ?? String(e)}`,
+      )
+    }
+  }
 
   // For native ETH input: include `value`. For ERC20 input: ParaSwap returns
   // value="0" and the contract pulls via transferFrom (assumes prior approval).
@@ -273,10 +316,29 @@ export async function executeEvmSwap(params: EvmSwapParams): Promise<EvmSwapResu
   try {
     const destTokenLower = params.destToken.toLowerCase()
     if (destTokenLower === NATIVE_ETH) {
-      // Native ETH output: balance change + gas fee = swap proceeds.
+      // Native ETH output: balance change + gas fee = swap proceeds. Cross-check
+      // against any WETH Withdrawal events targeting the user — those are the
+      // authoritative source if the receipt's gasPrice is missing/zero, which
+      // would otherwise under-count the swap output.
       const nativeBalancePost = await params.provider.getBalance(userAddr)
       const gasFee = receipt.gasUsed * (receipt.gasPrice ?? 0n)
-      const change = nativeBalancePost - nativeBalancePre + gasFee
+      const balanceDelta = nativeBalancePost - nativeBalancePre + gasFee
+      const userLower = userAddr.toLowerCase()
+      let withdrawalAmount = 0n
+      for (const log of receipt.logs) {
+        if (log.topics[0] !== WETH_WITHDRAWAL_TOPIC) continue
+        if (log.topics.length < 2) continue
+        const srcAddr = ('0x' + log.topics[1].slice(26)).toLowerCase()
+        // WETH Withdrawal's indexed `src` is the WETH holder being unwrapped.
+        // ParaSwap typically unwraps on Augustus's behalf, so the src is the
+        // router, not the user. In that case we accept the largest withdrawal
+        // amount as a lower bound on the ETH delivered to the user.
+        if (srcAddr === userLower || withdrawalAmount === 0n) {
+          const wad = BigInt(log.data)
+          if (wad > withdrawalAmount) withdrawalAmount = wad
+        }
+      }
+      const change = balanceDelta > withdrawalAmount ? balanceDelta : withdrawalAmount
       if (change > 0n) destAmount = change.toString()
     } else {
       const userLower = userAddr.toLowerCase()
