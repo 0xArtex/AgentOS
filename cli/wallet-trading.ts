@@ -608,9 +608,7 @@ export function listHistoricalPositions(filter: PositionsFilter = {}): PositionF
     : ['solana', 'base']
   const positionsRoot = join(TRADING_DIR, 'positions')
   if (!existsSync(positionsRoot)) return []
-  const wantWallet = filter.walletAddress
-    ? walletDirName(filter.walletAddress)
-    : null
+  const wantWallets = walletFilterSet(filter)
 
   let walletDirs: string[]
   try {
@@ -628,7 +626,7 @@ export function listHistoricalPositions(filter: PositionsFilter = {}): PositionF
     } catch {
       continue
     }
-    if (wantWallet !== null && walletEntry !== wantWallet) continue
+    if (wantWallets !== null && !wantWallets.has(walletEntry)) continue
     for (const chain of chains) {
       const historyDir = join(walletPath, chain, 'history')
       if (!existsSync(historyDir)) continue
@@ -681,12 +679,26 @@ export function readPosition(chain: 'solana' | 'base', mint: string, walletAddr?
 
 export interface PositionsFilter {
   chain?: 'solana' | 'base'
-  walletAddress?: string
+  /**
+   * Either a single address, or a list of addresses — useful for the cross-chain
+   * case where a named vault wallet maps to both a Solana base58 address and an
+   * EVM 0x address. Matched as a set: a position passes if its `wallet` matches
+   * any entry.
+   */
+  walletAddress?: string | string[]
   includeClosed?: boolean
 }
 
-export function listPositions(filter: { chain: 'solana'; walletAddress?: string; includeClosed?: boolean }): SolanaPositionFile[]
-export function listPositions(filter: { chain: 'base'; walletAddress?: string; includeClosed?: boolean }): BasePositionFile[]
+/** Normalize a single-or-array address filter to a Set of normalized dir names. */
+function walletFilterSet(filter: PositionsFilter): Set<string> | null {
+  if (!filter.walletAddress) return null
+  const list = Array.isArray(filter.walletAddress) ? filter.walletAddress : [filter.walletAddress]
+  if (list.length === 0) return null
+  return new Set(list.map(walletDirName))
+}
+
+export function listPositions(filter: { chain: 'solana'; walletAddress?: string | string[]; includeClosed?: boolean }): SolanaPositionFile[]
+export function listPositions(filter: { chain: 'base'; walletAddress?: string | string[]; includeClosed?: boolean }): BasePositionFile[]
 export function listPositions(filter?: PositionsFilter): PositionFile[]
 export function listPositions(filter: PositionsFilter = {}): PositionFile[] {
   ensureTradingDirs()
@@ -700,9 +712,7 @@ export function listPositions(filter: PositionsFilter = {}): PositionFile[] {
   // Phase 4c — walk `positions/<wallet>/<chain>/<mint>.json`. Skip legacy
   // chain-level dirs (`positions/solana`, `positions/base`) — those are
   // handled by `migrateLegacyPositions()` on `ensureTradingDirs()`.
-  const wantWallet = filter.walletAddress
-    ? walletDirName(filter.walletAddress)
-    : null
+  const wantWallets = walletFilterSet(filter)
 
   let walletDirs: string[]
   try {
@@ -719,7 +729,7 @@ export function listPositions(filter: PositionsFilter = {}): PositionFile[] {
     } catch {
       continue
     }
-    if (wantWallet !== null && walletEntry !== wantWallet) continue
+    if (wantWallets !== null && !wantWallets.has(walletEntry)) continue
     for (const chain of chains) {
       const chainDir = join(walletPath, chain)
       if (!existsSync(chainDir)) continue
@@ -817,6 +827,50 @@ export function listWatch(): WatchEntry[] {
       }
     })
     .filter((x): x is WatchEntry => x !== null)
+}
+
+// ───────── Cross-chain wallet resolution ─────────
+
+/**
+ * Resolved set of on-chain addresses a single wallet ref covers. Vault wallets
+ * derive both Solana and EVM addresses from the same mnemonic; trading-keystore
+ * refs (`trading:N`) likewise derive both. Either side can be null if the ref
+ * can't be coerced into that chain's signer (e.g. raw-key wallets).
+ *
+ * Used by `wallet positions`, `wallet brief`, `wallet sync`, and the daemon to
+ * filter positions across BOTH chains for a named wallet — without this, a
+ * Base position on the same wallet was invisible when filtering by name.
+ */
+export interface WalletAddresses {
+  ref: string
+  solanaAddress: string | null
+  evmAddress: string | null
+}
+
+/**
+ * Resolve a wallet ref (vault name/id or `trading:N`) to its Solana + EVM
+ * addresses. Best-effort on both sides — a failure on one chain doesn't
+ * abort the other. Used to flatten cross-chain filtering.
+ */
+export async function resolveWalletAddresses(
+  walletRef: string,
+  passphrase?: string,
+): Promise<WalletAddresses> {
+  let solanaAddress: string | null = null
+  let evmAddress: string | null = null
+  try {
+    const sol = await resolveSigner(walletRef, passphrase)
+    solanaAddress = sol.address
+  } catch {
+    // raw-key wallets and other Solana-incompatible refs are non-fatal
+  }
+  try {
+    const evm = await resolveEvmSigner(walletRef, passphrase)
+    evmAddress = evm.address
+  } catch {
+    // raw-key wallets and other EVM-incompatible refs are non-fatal
+  }
+  return { ref: walletRef, solanaAddress, evmAddress }
 }
 
 // ───────── Resolve signer ─────────
