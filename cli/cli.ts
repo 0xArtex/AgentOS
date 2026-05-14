@@ -2305,29 +2305,28 @@ async function main() {
             // same mint after the previous close). Implies --all.
             const includeHistory = !!flags.history
 
-            // Phase 5d — when a --wallet ref is given, resolve to its
-            // chain-specific address. For `trading:N`, we resolve EVM when
-            // chain=base, Solana otherwise (or when no chain filter, we
-            // intersect against Solana address — back-compat with Phase 1).
-            let walletAddress: string | undefined
+            // Cross-chain wallet filter: a named vault/trading wallet maps to
+            // BOTH a Solana base58 address and an EVM 0x address. If the user
+            // gave --wallet, build the relevant address set so positions on
+            // either chain pass the filter. Restrict to the chain-specific
+            // address when --chain is set.
+            let walletAddress: string | string[] | undefined
             if (walletRef) {
-              if (chainFlag === 'base') {
-                const { resolveEvmSigner } = await import('./wallet-trading.js')
-                try {
-                  const signer = await resolveEvmSigner(walletRef)
-                  walletAddress = signer.address
-                } catch (e: any) {
-                  err(`Could not resolve --wallet ${walletRef} for base: ${e.message}`, EXIT.NOT_FOUND)
-                }
+              const { resolveWalletAddresses } = await import('./wallet-trading.js')
+              const resolved = await resolveWalletAddresses(walletRef)
+              const addrs: string[] = []
+              if (chainFlag === 'solana') {
+                if (resolved.solanaAddress) addrs.push(resolved.solanaAddress)
+              } else if (chainFlag === 'base') {
+                if (resolved.evmAddress) addrs.push(resolved.evmAddress)
               } else {
-                const { resolveSigner } = await import('./wallet-trading.js')
-                try {
-                  const signer = await resolveSigner(walletRef)
-                  walletAddress = signer.address
-                } catch (e: any) {
-                  err(`Could not resolve --wallet ${walletRef}: ${e.message}`, EXIT.NOT_FOUND)
-                }
+                if (resolved.solanaAddress) addrs.push(resolved.solanaAddress)
+                if (resolved.evmAddress) addrs.push(resolved.evmAddress)
               }
+              if (addrs.length === 0) {
+                err(`Could not resolve --wallet ${walletRef}${chainFlag ? ` for chain ${chainFlag}` : ''}.`, EXIT.NOT_FOUND)
+              }
+              walletAddress = addrs.length === 1 ? addrs[0] : addrs
             }
 
             const { listPositions, listHistoricalPositions } = await import('./wallet-trading.js')
@@ -2579,77 +2578,98 @@ async function main() {
               err(`Unsupported --chain: ${chainFlag}. Try: solana, base`, EXIT.BAD_INPUT)
             }
 
-            // Phase 5c — Base sync path. Only triggered when --chain=base.
-            if (chainFlag === 'base') {
-              if (!walletRef) err('--wallet required for Base sync. Use a vault wallet name/id or `trading:N`.', EXIT.BAD_INPUT)
-              const { syncBase } = await import('./wallet-trading.js')
-              let report: Awaited<ReturnType<typeof syncBase>>
+            const wantSolana = !chainFlag || chainFlag === 'solana'
+            const wantBase = !chainFlag || chainFlag === 'base'
+
+            const { sync: doSync, syncBase } = await import('./wallet-trading.js')
+            let solReport: Awaited<ReturnType<typeof doSync>> | null = null
+            let baseReport: Awaited<ReturnType<typeof syncBase>> | null = null
+            let solError: string | null = null
+            let baseError: string | null = null
+
+            // Sync both chains by default. A failure on one chain doesn't
+            // block the other — we surface per-chain errors in the output.
+            // Solana sync supports env-keypair fallback; Base requires walletRef.
+            if (wantSolana) {
               try {
-                report = await syncBase({ walletRef })
+                solReport = await doSync({ walletRef })
               } catch (e: any) {
-                err(e.message || 'sync (base) failed', EXIT.GENERAL)
+                solError = e?.message ?? String(e)
               }
-              log(`wallet sync: base ${report!.wallet} (${report!.positions.length} positions)`)
-              if (!AGENT_MODE) {
-                console.log()
-                section('Sync (base)')
-                kv('Wallet', report!.wallet)
-                if (report!.positions.length === 0) {
-                  console.log(`  ${t.muted}No open Base positions for this wallet.${t.reset}\n`)
-                  break
+            }
+            if (wantBase) {
+              if (!walletRef) {
+                if (chainFlag === 'base') {
+                  err('--wallet required for Base sync. Use a vault wallet name/id or `trading:N`.', EXIT.BAD_INPUT)
                 }
-                console.log()
-                table(
-                  ['CA', 'BOOK', 'ON-CHAIN', 'DRIFT', 'UNREAL ETH', 'UNREAL %'],
-                  report!.positions.map((s) => [
-                    s.mint.length > 12 ? `${s.mint.slice(0, 6)}..${s.mint.slice(-4)}` : s.mint,
-                    s.bookRaw,
-                    s.onchainRaw,
-                    s.drift ? `⚠ ${s.drift}` : 'ok',
-                    `${s.unrealizedEth >= 0 ? '+' : ''}${s.unrealizedEth.toFixed(6)}`,
-                    `${s.unrealizedPct >= 0 ? '+' : ''}${s.unrealizedPct.toFixed(2)}%`,
-                  ]),
-                )
-                console.log()
+                // Cross-chain default without walletRef: skip Base silently (no derivable EVM address).
               } else {
-                print(report!)
+                try {
+                  baseReport = await syncBase({ walletRef })
+                } catch (e: any) {
+                  baseError = e?.message ?? String(e)
+                }
               }
-              break
             }
 
-            const { sync: doSync } = await import('./wallet-trading.js')
-            let report: Awaited<ReturnType<typeof doSync>>
-            try {
-              report = await doSync({ walletRef })
-            } catch (e: any) {
-              err(e.message || 'sync failed', EXIT.GENERAL)
-            }
-
-            log(`wallet sync: ${report!.wallet} (${report!.positions.length} positions)`)
+            const totalPositions = (solReport?.positions.length ?? 0) + (baseReport?.positions.length ?? 0)
+            log(`wallet sync: synced ${totalPositions} positions (sol=${solReport?.positions.length ?? 0} base=${baseReport?.positions.length ?? 0})`)
 
             if (!AGENT_MODE) {
               console.log()
-              section('Sync')
-              kv('Wallet', report!.wallet)
-              if (report!.positions.length === 0) {
-                console.log(`  ${t.muted}No open positions for this wallet.${t.reset}\n`)
-                break
+              if (solReport) {
+                section(wantBase ? 'Sync (solana)' : 'Sync')
+                kv('Wallet', solReport.wallet)
+                if (solReport.positions.length === 0) {
+                  console.log(`  ${t.muted}No open Solana positions for this wallet.${t.reset}\n`)
+                } else {
+                  console.log()
+                  table(
+                    ['CA', 'BOOK', 'ON-CHAIN', 'DRIFT', 'UNREAL SOL', 'UNREAL %'],
+                    solReport.positions.map((s) => [
+                      s.mint.length > 12 ? `${s.mint.slice(0, 6)}..${s.mint.slice(-4)}` : s.mint,
+                      s.bookRaw,
+                      s.onchainRaw,
+                      s.drift ? `⚠ ${s.drift}` : 'ok',
+                      `${s.unrealizedSol >= 0 ? '+' : ''}${s.unrealizedSol.toFixed(6)}`,
+                      `${s.unrealizedPct >= 0 ? '+' : ''}${s.unrealizedPct.toFixed(2)}%`,
+                    ]),
+                  )
+                  console.log()
+                }
               }
-              console.log()
-              table(
-                ['CA', 'BOOK', 'ON-CHAIN', 'DRIFT', 'UNREAL SOL', 'UNREAL %'],
-                report!.positions.map((s) => [
-                  s.mint.length > 12 ? `${s.mint.slice(0, 6)}..${s.mint.slice(-4)}` : s.mint,
-                  s.bookRaw,
-                  s.onchainRaw,
-                  s.drift ? `⚠ ${s.drift}` : 'ok',
-                  `${s.unrealizedSol >= 0 ? '+' : ''}${s.unrealizedSol.toFixed(6)}`,
-                  `${s.unrealizedPct >= 0 ? '+' : ''}${s.unrealizedPct.toFixed(2)}%`,
-                ]),
-              )
-              console.log()
+              if (solError) console.log(`  ${t.error}Solana sync error: ${solError}${t.reset}\n`)
+              if (baseReport) {
+                section('Sync (base)')
+                kv('Wallet', baseReport.wallet)
+                if (baseReport.positions.length === 0) {
+                  console.log(`  ${t.muted}No open Base positions for this wallet.${t.reset}\n`)
+                } else {
+                  console.log()
+                  table(
+                    ['CA', 'BOOK', 'ON-CHAIN', 'DRIFT', 'UNREAL ETH', 'UNREAL %'],
+                    baseReport.positions.map((s) => [
+                      s.mint.length > 12 ? `${s.mint.slice(0, 6)}..${s.mint.slice(-4)}` : s.mint,
+                      s.bookRaw,
+                      s.onchainRaw,
+                      s.drift ? `⚠ ${s.drift}` : 'ok',
+                      `${s.unrealizedEth >= 0 ? '+' : ''}${s.unrealizedEth.toFixed(6)}`,
+                      `${s.unrealizedPct >= 0 ? '+' : ''}${s.unrealizedPct.toFixed(2)}%`,
+                    ]),
+                  )
+                  console.log()
+                }
+              }
+              if (baseError) console.log(`  ${t.error}Base sync error: ${baseError}${t.reset}\n`)
             } else {
-              print(report!)
+              print({
+                solana: solReport,
+                base: baseReport,
+                errors: {
+                  solana: solError,
+                  base: baseError,
+                },
+              })
             }
             break
           }
@@ -2848,9 +2868,32 @@ async function main() {
             const ca = positional[0] || (flags.ca as string)
             if (!ca) err('CA required: palmyr wallet brief <CA>', EXIT.BAD_INPUT)
             const evaluate = !!flags.evaluate
+            const briefChainFlag = ((flags.chain as string) || '').toLowerCase()
+            if (briefChainFlag && briefChainFlag !== 'solana' && briefChainFlag !== 'base') {
+              err(`Unsupported chain: ${briefChainFlag}. Try: solana, base`, EXIT.BAD_INPUT)
+            }
+            const briefWalletRef = (flags.wallet as string) || undefined
 
-            const { readPosition } = await import('./wallet-trading.js')
-            const p = readPosition('solana', ca)
+            // Pick a chain to search in. Priority:
+            //   1. explicit --chain
+            //   2. inferred from the CA format (0x-prefix → base, otherwise solana)
+            //   3. fall back to scanning both (legacy behaviour)
+            const inferredChain: 'solana' | 'base' | undefined = briefChainFlag
+              ? (briefChainFlag as 'solana' | 'base')
+              : ca.startsWith('0x')
+                ? 'base'
+                : 'solana'
+
+            // When --wallet is given, scope the read to that wallet's chain-
+            // appropriate address. Vault wallets have both Solana and EVM
+            // addresses; we pick whichever matches the inferred chain.
+            const { readPosition, resolveWalletAddresses } = await import('./wallet-trading.js')
+            let scopedAddr: string | undefined
+            if (briefWalletRef) {
+              const resolved = await resolveWalletAddresses(briefWalletRef)
+              scopedAddr = inferredChain === 'base' ? (resolved.evmAddress ?? undefined) : (resolved.solanaAddress ?? undefined)
+            }
+            const p = readPosition(inferredChain, ca, scopedAddr)
             if (!p) err(`Position not found: ${ca}`, EXIT.NOT_FOUND)
 
             let llm: Awaited<ReturnType<typeof import('./wallet-brief-llm.js').evaluateBriefWithLLM>> | undefined
@@ -2875,8 +2918,14 @@ async function main() {
               console.log()
               section('Current')
               const pnlColor = p!.pnl.unrealizedPct >= 0 ? t.success : t.error
-              kv('Realized', `${p!.pnl.realizedSol >= 0 ? '+' : ''}${p!.pnl.realizedSol.toFixed(6)} SOL`)
-              console.log(`  ${t.muted}Unrealized:${t.reset}  ${pnlColor}${p!.pnl.unrealizedSol >= 0 ? '+' : ''}${p!.pnl.unrealizedSol.toFixed(6)} SOL (${p!.pnl.unrealizedPct.toFixed(2)}%)${t.reset}`)
+              // Brief is now chain-aware — read canonical asset-tagged pnl
+              // fields rather than the Solana-specific `realizedSol` / `unrealizedSol`.
+              const realizedAmt = p!.pnl.realized?.amount ?? (p!.chain === 'solana' ? p!.pnl.realizedSol : p!.pnl.realizedEth)
+              const realizedAsset = p!.pnl.realized?.asset ?? (p!.chain === 'solana' ? 'SOL' : 'ETH')
+              const unrealizedAmt = p!.pnl.unrealized?.amount ?? (p!.chain === 'solana' ? p!.pnl.unrealizedSol : p!.pnl.unrealizedEth)
+              const unrealizedAsset = p!.pnl.unrealized?.asset ?? realizedAsset
+              kv('Realized', `${realizedAmt >= 0 ? '+' : ''}${realizedAmt.toFixed(6)} ${realizedAsset}`)
+              console.log(`  ${t.muted}Unrealized:${t.reset}  ${pnlColor}${unrealizedAmt >= 0 ? '+' : ''}${unrealizedAmt.toFixed(6)} ${unrealizedAsset} (${p!.pnl.unrealizedPct.toFixed(2)}%)${t.reset}`)
               kv('Last priced', p!.pnl.lastPricedAt || 'never (run `wallet sync`)')
               if (llm) {
                 console.log()
