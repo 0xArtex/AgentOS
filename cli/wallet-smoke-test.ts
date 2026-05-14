@@ -88,7 +88,7 @@ export async function runWalletSmokeTest(opts: SmokeTestOpts): Promise<SmokeRepo
   if (wantSolana && solanaAddress) {
     // Native SOL → USDC quote
     const solBuyQuote = await timed(async () => {
-      const { fetchQuote, SOL_MINT } = await import('@palmyr/solana-trading')
+      const { fetchQuote, SOL_MINT } = await import('./solana/index.js')
       const { USDC_MINT_SOLANA } = await import('./wallet-trading.js')
       await fetchQuote({
         inputMint: SOL_MINT.toBase58(),
@@ -108,7 +108,7 @@ export async function runWalletSmokeTest(opts: SmokeTestOpts): Promise<SmokeRepo
     // Wallet RPC reachability via balance check
     const solBalance = await timed(async () => {
       const { PublicKey } = await import('@solana/web3.js')
-      const { makeConnection } = await import('@palmyr/solana-trading')
+      const { makeConnection } = await import('./solana/index.js')
       const conn: Connection = makeConnection()
       const bal = await conn.getBalance(new PublicKey(solanaAddress!))
       if (typeof bal !== 'number') throw new Error('balance call returned non-number')

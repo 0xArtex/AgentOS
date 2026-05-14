@@ -2,10 +2,9 @@
  * `palmyr wallet doctor` — health check for the wallet-trading subsystem.
  *
  * Verifies the things QA found were silent killers in the field: ws version
- * incompatibility with ethers v6 ESM, the bundled @palmyr/solana-trading
- * disappearing after a stray `npm install`, RPC/aggregator reachability,
- * wallet address resolution. Each check is independent — one failing doesn't
- * abort the rest.
+ * incompatibility with ethers v6 ESM, the inlined Solana module not loading,
+ * RPC/aggregator reachability, wallet address resolution. Each check is
+ * independent — one failing doesn't abort the rest.
  *
  * Output is `{status, wallet, solanaAddress, evmAddress, checks[]}` —
  * agents read `status` for the overall verdict and `checks` for granular
@@ -86,16 +85,19 @@ function checkEthersVersion(): DoctorCheck {
   return { name: 'ethersVersion', status: 'pass', value: v }
 }
 
-function checkBundledSolanaTrading(): DoctorCheck {
-  const v = readDepVersion('@palmyr/solana-trading')
-  if (!v) {
-    return {
-      name: 'bundledSolanaTrading',
-      status: 'fail',
-      message: '@palmyr/solana-trading missing — likely removed by a stray `npm install` inside the CLI dir. Reinstall the CLI from npm.',
+async function checkSolanaModuleLoads(): Promise<DoctorCheck> {
+  // The solana swap primitives live alongside the CLI now (inlined into
+  // `cli/solana/`), so a successful dynamic import is the real signal — no
+  // separate npm package to version-check.
+  try {
+    const mod = await import('./solana/index.js')
+    if (typeof mod.fetchQuote !== 'function' || typeof mod.executeSwap !== 'function') {
+      return { name: 'solanaModule', status: 'fail', message: 'inlined solana module is missing expected exports' }
     }
+    return { name: 'solanaModule', status: 'pass' }
+  } catch (e: any) {
+    return { name: 'solanaModule', status: 'fail', message: e?.message ?? 'failed to import' }
   }
-  return { name: 'bundledSolanaTrading', status: 'pass', value: v }
 }
 
 async function checkSolanaRpc(rpcUrl?: string): Promise<DoctorCheck> {
@@ -186,7 +188,7 @@ export async function runWalletDoctor(opts: DoctorOpts): Promise<DoctorReport> {
   const checks: DoctorCheck[] = []
   checks.push(checkWsVersion())
   checks.push(checkEthersVersion())
-  checks.push(checkBundledSolanaTrading())
+  checks.push(await checkSolanaModuleLoads())
   checks.push(await checkTradingDirWritable())
 
   let solanaAddress: string | null = null
