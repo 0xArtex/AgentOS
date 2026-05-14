@@ -706,34 +706,63 @@ export interface ResolvedEvmSigner {
   /** ethers.Wallet without a provider attached. Caller does `.connect(provider)`. */
   wallet: import('ethers').Wallet
   address: string
-  source: 'trading-keystore'
-  keystoreIndex: number
+  source: 'trading-keystore' | 'vault'
+  /** Set when source === 'trading-keystore'. */
+  keystoreIndex?: number
 }
 
 /**
- * Phase 5b — resolve `--wallet trading:N` to an EVM wallet. No env keypair
- * fallback for EVM (yet) — Phase 5c can add one if needed.
+ * Resolve `--wallet <ref>` to an EVM wallet. Two paths:
+ *   1. `trading:N` — HD-derived from the dedicated trading keystore (power user,
+ *      one mnemonic → many wallets at consecutive indices).
+ *   2. Any other ref → looked up in the regular Palmyr vault. Vault wallets
+ *      are BIP39 + Solana + EVM out of the box (`vault.ts:getVaultEvmWallet`),
+ *      and use the same OS-keychain session-secret cache as everywhere else
+ *      in the CLI — so unattended daemon use works without a separate cache.
+ *
+ * Vault is the default UX: `palmyr wallet create` → use that wallet for both
+ * Solana and Base trading. Trading-keystore stays available for cohort-heavy
+ * power users who want N HD-derived wallets from a single seed.
  */
 export async function resolveEvmSigner(
   walletRef?: string,
   passphrase?: string,
 ): Promise<ResolvedEvmSigner> {
-  if (!walletRef?.startsWith('trading:')) {
-    throw new Error('For Base, --wallet must be a keystore reference like `trading:0`.')
+  if (!walletRef) {
+    throw new Error('For Base, --wallet is required (vault wallet name/id, or `trading:N`).')
   }
-  const indexStr = walletRef.slice('trading:'.length)
-  const index = Number(indexStr)
-  if (!Number.isInteger(index) || index < 0) {
-    throw new Error(`Invalid trading wallet index: "${indexStr}". Use trading:0, trading:1, ...`)
+  if (walletRef.startsWith('trading:')) {
+    const indexStr = walletRef.slice('trading:'.length)
+    const index = Number(indexStr)
+    if (!Number.isInteger(index) || index < 0) {
+      throw new Error(`Invalid trading wallet index: "${indexStr}". Use trading:0, trading:1, ...`)
+    }
+    const pass = passphrase ?? process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
+    const { getKeystoreEvmWallet } = await import('./wallet-trading-keystore.js')
+    const wallet = getKeystoreEvmWallet(index, pass)
+    return {
+      wallet,
+      address: wallet.address,
+      source: 'trading-keystore',
+      keystoreIndex: index,
+    }
   }
-  const pass = passphrase ?? process.env.PALMYR_TRADING_KEYSTORE_PASSPHRASE
-  const { getKeystoreEvmWallet } = await import('./wallet-trading-keystore.js')
-  const wallet = getKeystoreEvmWallet(index, pass)
+
+  // Default path: regular vault wallet by id or name.
+  const { getVaultEvmWallet } = await import('./vault.js')
+  let wallet: import('ethers').Wallet
+  try {
+    wallet = getVaultEvmWallet(walletRef, passphrase) as import('ethers').Wallet
+  } catch (e: any) {
+    throw new Error(
+      `Could not resolve --wallet '${walletRef}' from the vault: ${e?.message ?? String(e)}. ` +
+      `Create one with \`palmyr wallet create\` or use a keystore ref like \`trading:0\`.`,
+    )
+  }
   return {
     wallet,
     address: wallet.address,
-    source: 'trading-keystore',
-    keystoreIndex: index,
+    source: 'vault',
   }
 }
 

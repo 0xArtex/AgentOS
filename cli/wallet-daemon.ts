@@ -329,11 +329,12 @@ export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
     fires.push(...await processPositionFires(p, opts))
   }
 
-  // 2. Base sync — Phase 5d. Only attempted when walletRef is `trading:N`
-  //    (Base needs EVM derivation). Failures are non-fatal.
+  // 2. Base sync — best-effort. Any wallet ref with EVM derivation works:
+  //    vault wallets (default — BIP39 mnemonic with both Solana + EVM paths)
+  //    or `trading:N` keystore refs. Skipped only when no walletRef is set
+  //    (env-keypair fallback has no EVM derivation). Failures are non-fatal.
   let syncedBase = 0
-  const isEvmCapableRef = opts.walletRef?.startsWith('trading:')
-  if (isEvmCapableRef) {
+  if (opts.walletRef) {
     try {
       const baseSync = await syncBase({ walletRef: opts.walletRef })
       syncedBase = baseSync.positions.length
