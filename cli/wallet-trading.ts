@@ -1095,10 +1095,13 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     },
   }
 
-  writePosition(position)
+  // Dry-run must be strictly read-only: simulated trades never touch live state.
+  if (!opts.dryRun) writePosition(position)
 
   return {
-    positionPath: positionPath('base', opts.ca, signer.address),
+    positionPath: opts.dryRun
+      ? `simulated:${opts.ca}`
+      : positionPath('base', opts.ca, signer.address),
     txHash: swap.txHash,
     amountIn: position.entry.amountIn,
     // Legacy field — kept for back-compat in consumers; only meaningful for ETH-funded entries.
@@ -1298,10 +1301,14 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     position.pnl.unrealizedPct = 0
   }
 
-  writePosition(position)
+  // Dry-run must be strictly read-only: simulated sells never touch the live
+  // position file (otherwise a simulation can "close" a real position).
+  if (!opts.dryRun) writePosition(position)
 
   return {
-    positionPath: positionPath('base', opts.ca, signer.address),
+    positionPath: opts.dryRun
+      ? `simulated:${opts.ca}`
+      : positionPath('base', opts.ca, signer.address),
     txHash: swap.txHash,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
@@ -1651,30 +1658,35 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     },
   }
 
-  writePosition(position)
-
-  appendTradeLog({
-    kind: 'buy',
-    ts: nowIso,
-    chain: 'solana',
-    wallet: signer.address,
-    mint: opts.ca,
-    tx: swap.txSignature,
-    // For SOL-funded: actual SOL in. For USDC-funded: 0 (legacy log shape; keep semantics consistent).
-    solIn: inputAsset === 'SOL' ? amountInRaw / 1e9 : 0,
-    tokensOut,
-    tokenDecimals,
-    entryMcap,
-    slippageBps,
-    thesis: opts.thesis.trim(),
-    protectedExec: !!opts.protectedExec,
-    feeLamports,
-    tipLamports,
-    forensics,
-  })
+  // Dry-run is strictly read-only — never mutate live position state or the
+  // append-only trade log. The simulated result is still returned to the caller.
+  if (!opts.dryRun) {
+    writePosition(position)
+    appendTradeLog({
+      kind: 'buy',
+      ts: nowIso,
+      chain: 'solana',
+      wallet: signer.address,
+      mint: opts.ca,
+      tx: swap.txSignature,
+      // For SOL-funded: actual SOL in. For USDC-funded: 0 (legacy log shape; keep semantics consistent).
+      solIn: inputAsset === 'SOL' ? amountInRaw / 1e9 : 0,
+      tokensOut,
+      tokenDecimals,
+      entryMcap,
+      slippageBps,
+      thesis: opts.thesis.trim(),
+      protectedExec: !!opts.protectedExec,
+      feeLamports,
+      tipLamports,
+      forensics,
+    })
+  }
 
   return {
-    positionPath: positionPath('solana', opts.ca, signer.address),
+    positionPath: opts.dryRun
+      ? `simulated:${opts.ca}`
+      : positionPath('solana', opts.ca, signer.address),
     txSignature: swap.txSignature,
     amountIn: position.entry.amountIn,
     amountInRawSol: inputAsset === 'SOL' ? amountInRaw : 0,
@@ -1879,28 +1891,33 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     position.pnl.unrealizedPct = 0
   }
 
-  writePosition(position)
-
-  appendTradeLog({
-    kind: 'sell',
-    ts: nowIso,
-    chain: 'solana',
-    wallet: signer.address,
-    mint: opts.ca,
-    tx: swap.txSignature,
-    tokensIn: tokensInDisplay,
-    solOut: netProceedsForLog,
-    percentRequested: opts.percent,
-    realizedSol,
-    reason: opts.reason.trim(),
-    protectedExec: !!opts.protectedExec,
-    feeLamports,
-    tipLamports,
-    forensics,
-  })
+  // Dry-run is strictly read-only — never mutate live position state or the
+  // append-only trade log. The simulated result is still returned to the caller.
+  if (!opts.dryRun) {
+    writePosition(position)
+    appendTradeLog({
+      kind: 'sell',
+      ts: nowIso,
+      chain: 'solana',
+      wallet: signer.address,
+      mint: opts.ca,
+      tx: swap.txSignature,
+      tokensIn: tokensInDisplay,
+      solOut: netProceedsForLog,
+      percentRequested: opts.percent,
+      realizedSol,
+      reason: opts.reason.trim(),
+      protectedExec: !!opts.protectedExec,
+      feeLamports,
+      tipLamports,
+      forensics,
+    })
+  }
 
   return {
-    positionPath: positionPath('solana', opts.ca, signer.address),
+    positionPath: opts.dryRun
+      ? `simulated:${opts.ca}`
+      : positionPath('solana', opts.ca, signer.address),
     txSignature: swap.txSignature,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
