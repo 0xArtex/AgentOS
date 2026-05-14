@@ -80,62 +80,31 @@ palmyr wallet keygen                     # Generate keypair (free)
 palmyr wallet create                     # Create local HD wallet (free)
 palmyr wallet create --managed           # Same, with passkey-gated spending limits
 
-# Trading — any wallet you `create` can trade on Solana + Base, autonomously.
-# Funding asset = the suffix on --amount. `0.5sol` / `0.01eth` spend native;
-# `10usdc` spends USDC. Sells exit back to whatever the position was opened in.
-# Positions live at ~/.palmyr/trading/positions/<wallet-addr>/<chain>/<mint>.json
-palmyr wallet buy solana <MINT>  --amount 0.5sol  --thesis "..." --wallet alice [--cut -25% --tp +60% --trail 20% --time-limit 6h --thesis-check 90m --protected --slippage 100 --dry-run]
-palmyr wallet buy solana <MINT>  --amount 10usdc  --thesis "..." --wallet alice    # USDC-funded
-palmyr wallet buy base   <0xCA>  --amount 0.01eth --thesis "..." --wallet alice    # native ETH on Base
-palmyr wallet buy base   <0xCA>  --amount 10usdc  --thesis "..." --wallet alice    # USDC on Base (ERC20 approval auto-handled)
-palmyr wallet sell solana <MINT> --percent 50  --reason "..." --wallet alice       # exits to entry asset (SOL or USDC)
-palmyr wallet sell base   <0xCA> --percent 100 --reason "..." --wallet alice       # ERC20 approval auto-handled
-palmyr wallet positions [--all] [--chain solana|base] [--wallet alice]             # cross-chain by default; CHAIN + WALLET columns
-palmyr wallet position <CA> [--chain solana|base]                                  # full detail; auto-detects chain if omitted
-palmyr wallet sync [--chain solana|base] [--wallet alice]                          # reconcile chain balances + refresh unrealized PnL (read-only)
-palmyr wallet pnl [--by chain|wallet] [--since 2026-01-01] [--no-usd]              # 3 buckets (SOL/ETH/USDC) + cross-asset USD total
-palmyr wallet brief <CA> [--evaluate]                                              # thesis + PnL summary; --evaluate runs Claude Haiku thesis-health check
-palmyr wallet journal add <CA> --note "..."                                        # freeform notes
-palmyr wallet journal show [--ca <CA>] [--date YYYY-MM-DD]
-palmyr wallet watch add <CA> --trigger "..."                                       # watchlist (no position opened)
-palmyr wallet watch list
+# Trading — any wallet you `create` trades on Solana + Base, autonomously.
+# Funding asset = the suffix on --amount: `0.5sol`/`0.01eth` for native, `10usdc` for USDC.
+# Sells exit back to the entry asset. MEV protection + dynamic slippage are ON by default;
+# pass --degen to opt out for fast/raw execution.
+# Positions persist at ~/.palmyr/trading/positions/<wallet-addr>/<chain>/<mint>.json
+palmyr wallet buy <chain> <CA> --amount <N{sol|eth|usdc}> --thesis "..." --wallet <name> \
+   [--cut -25% --tp +60% --trail 20% --time-limit 6h --thesis-check 90m --dry-run --degen]
+palmyr wallet sell <chain> <CA> --percent N --reason "..." --wallet <name>   # exits to entry asset
+palmyr wallet positions [--all] [--wallet <name>]                            # cross-chain by default
+palmyr wallet sync [--chain solana|base] [--wallet <name>]                   # reconcile + refresh unrealized
+palmyr wallet pnl [--by chain|wallet] [--no-usd]                             # SOL/ETH/USDC buckets + USD total
+palmyr wallet brief <CA> [--evaluate]                                        # thesis + PnL; --evaluate runs Claude
 
-# Cohort buy — split one trade decision across N wallets with timing jitter.
-# Each leg becomes its own position file with a shared cohortId.
-palmyr wallet cohort buy solana <MINT> --total 1.0sol  --wallets alice,bob,carol --jitter 5000 --thesis "..."
-palmyr wallet cohort buy base   <0xCA> --total 30usdc  --wallets alice,bob,carol --jitter 8000 --thesis "..."
-palmyr wallet cohort buy <chain> <CA>  --total <amt>   --from trading:0 --split 5 --thesis "..."   # alternate: derive via trading-keystore
+# Autonomous monitor daemon — syncs both chains, fires exitPlan triggers
+# (cut, takeProfit, trailingStop, timeLimit, thesisCheck via LLM):
+palmyr wallet daemon start --auto --wallet <name>                            # detached; auto-sells on fire
+palmyr wallet daemon tick --wallet <name>                                    # one-shot
+palmyr wallet daemon status | stop
 
-# YAML strategy templates — reusable trade-plan defaults (exit plan, slippage,
-# protection, cohort layout). CLI flags always override template values.
-palmyr wallet template list                          # auto-installs bundled examples on first run
-palmyr wallet template show <name>                   # print metadata + raw YAML
-palmyr wallet template path <name>                   # absolute path so you can edit it
-palmyr wallet template delete <name>
-palmyr wallet buy solana <MINT> --template sol-pumpfun-quick --thesis "..." --wallet alice
-palmyr wallet cohort buy solana <MINT> --template sol-scout-cohort --thesis "..." --wallet alice  # template can supply chain, total, split, jitter
+# Cohort buy — split one decision across N wallets with timing jitter:
+palmyr wallet cohort buy <chain> <CA> --total <amt> --wallets a,b,c --jitter 5000 --thesis "..."
 
-# Autonomous monitor daemon — periodically syncs both chains and evaluates 5
-# trigger types from each position's exitPlan: cut (stop-loss), takeProfit,
-# trailingStop, timeLimit, thesisCheck (LLM thesis-health, needs ANTHROPIC_API_KEY).
-palmyr wallet daemon tick  [--auto] [--wallet alice]            # one-shot: sync + evaluate + exit
-palmyr wallet daemon start [--interval 30] [--auto] --wallet alice   # spawn detached daemon
-palmyr wallet daemon stop                                       # SIGTERM the running daemon
-palmyr wallet daemon status                                     # liveness + last tick
-palmyr wallet triggers [--ca <CA>] [--since <iso>] [--clear]    # list pending trigger fires
-
-# MEV protection
-#   Solana: --protected = Jito tip + dynamic slippage. --tip <lamports> overrides (default 10000).
-#   Base:   --protected = EIP-1559 priority fee bump + optional private RPC via PALMYR_BASE_PROTECTED_RPC env or --rpc <url>.
-#           --tip <gwei> overrides priority fee (default 0.001 gwei).
-
-# Optional trading-keystore (power user) — one mnemonic that HD-derives many wallets at consecutive indices.
-# Default flow uses regular `wallet create` vault wallets; only reach for this if you need 10+ cohort wallets backed by a single seed.
-palmyr wallet trading-keystore init [--count 5] [--mnemonic "..."]   # default count 5; auto-caches seed
-palmyr wallet trading-keystore unlock [--ttl 24h]                    # cache decrypted seed; TTL examples: 30m | 4h | 7d
-palmyr wallet trading-keystore lock                                  # clear OS-keychain seed cache
-palmyr wallet trading-keystore list | status | derive --count N | export --confirm
-# Then use --wallet trading:N (e.g. --wallet trading:0) on any buy/sell/sync/cohort.
+# YAML templates — reusable trade-plan defaults (amount, exit plan, cohort layout):
+palmyr wallet template list | show <name> | path <name>
+palmyr wallet buy <chain> <CA> --template <name> --thesis "..." --wallet <name>
 
 # Twitter / X
 palmyr twitter buy                                       # Buy a ready X account ($5)
