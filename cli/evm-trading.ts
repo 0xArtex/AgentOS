@@ -130,16 +130,26 @@ export async function buildParaswapTx(
   network: number,
 ): Promise<ParaswapTxBlob> {
   const url = `${PARASWAP_API}/transactions/${network}?ignoreChecks=true`
-  const body = {
+  // ParaSwap v6.2 rejects the build when both `destAmount` and `slippage` are
+  // supplied ("Cannot specify both slippage and destAmount"). On SELL routes
+  // we send `slippage` and omit `destAmount` so the executor applies the bps
+  // tolerance to the route's destAmount internally. On BUY routes (which we
+  // don't currently use, but the contract handles), `srcAmount` is the floor
+  // and `destAmount` is exact — there `slippage` would be the one to omit.
+  const isBuySide = priceRoute.side === 'BUY'
+  const body: Record<string, unknown> = {
     priceRoute,
     userAddress,
     srcToken: priceRoute.srcToken,
     destToken: priceRoute.destToken,
     srcAmount: priceRoute.srcAmount,
-    destAmount: priceRoute.destAmount,
     srcDecimals: priceRoute.srcDecimals,
     destDecimals: priceRoute.destDecimals,
-    slippage: slippageBps,
+  }
+  if (isBuySide) {
+    body.destAmount = priceRoute.destAmount
+  } else {
+    body.slippage = slippageBps
   }
   const res = await fetch(url, {
     method: 'POST',
