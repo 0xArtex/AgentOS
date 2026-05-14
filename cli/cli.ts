@@ -81,7 +81,7 @@ const BOOLEAN_FLAGS = new Set([
   // compute deploy/ssh flags
   'wait', 'generate-ssh-key', 'generate', 'progress',
   // wallet trading flags
-  'dry-run', 'all', 'protected', 'auto-slippage', 'degen',
+  'dry-run', 'all', 'protected', 'auto-slippage', 'degen', 'history',
   // wallet daemon + triggers flags
   'auto', 'clear',
   // wallet brief flags
@@ -1541,7 +1541,7 @@ async function main() {
               { name: 'buy', description: 'Open a trading position', hint: 'solana <CA> --amount 0.5sol --thesis "..."' },
               { name: 'cohort', description: 'Split a buy across N derived wallets with jitter (Phase 4c)', hint: 'buy <CHAIN> <CA> --total ... --split N' },
               { name: 'template', description: 'Manage YAML strategy templates', hint: 'list | show <name> | path <name> | delete <name>' },
-              { name: 'positions', description: 'List open (and optionally closed) positions', hint: '[--chain X] [--wallet Y] [--all]' },
+              { name: 'positions', description: 'List open (and optionally closed) positions', hint: '[--chain X] [--wallet Y] [--all] [--history]' },
               { name: 'position', description: 'Show details for a single position', hint: '<CA>' },
               { name: 'sell', description: 'Sell part or all of a position', hint: 'solana <CA> --percent 50 --reason "..."' },
               { name: 'sync', description: 'Reconcile open positions against chain, refresh unrealized PnL' },
@@ -2301,6 +2301,9 @@ async function main() {
             }
             const walletRef = (flags.wallet as string) || undefined
             const includeClosed = !!flags.all
+            // --history surfaces archived closed positions (re-entries on the
+            // same mint after the previous close). Implies --all.
+            const includeHistory = !!flags.history
 
             // Phase 5d — when a --wallet ref is given, resolve to its
             // chain-specific address. For `trading:N`, we resolve EVM when
@@ -2327,16 +2330,22 @@ async function main() {
               }
             }
 
-            const { listPositions } = await import('./wallet-trading.js')
+            const { listPositions, listHistoricalPositions } = await import('./wallet-trading.js')
             const positions = listPositions({
               chain: (chainFlag || undefined) as 'solana' | 'base' | undefined,
               walletAddress,
-              includeClosed,
+              includeClosed: includeClosed || includeHistory,
             })
+            if (includeHistory) {
+              positions.push(...listHistoricalPositions({
+                chain: (chainFlag || undefined) as 'solana' | 'base' | undefined,
+                walletAddress,
+              }))
+            }
 
             if (!AGENT_MODE) {
               if (positions.length === 0) {
-                console.log(`\n  ${t.muted}No positions${includeClosed ? '' : ' (use --all to include closed)'}.${t.reset}\n`)
+                console.log(`\n  ${t.muted}No positions${includeClosed ? '' : ' (use --all to include closed, --history to include archived re-entries)'}.${t.reset}\n`)
                 break
               }
               console.log()

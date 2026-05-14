@@ -82,6 +82,25 @@ export function positionPath(chain: 'solana' | 'base', mint: string, walletAddr:
 }
 
 /**
+ * Path to the history directory holding archived closed positions for a
+ * (wallet, chain). Re-entries on the same mint move the previous closed file
+ * here so historical PnL and re-entry strategies aren't lost.
+ */
+function walletHistoryDir(walletAddr: string, chain: 'solana' | 'base'): string {
+  return join(walletPositionsDir(walletAddr, chain), 'history')
+}
+
+/**
+ * Build a unique archive filename for a closed position based on its entry
+ * timestamp. Two positions on the same mint with distinct entries get distinct
+ * filenames. Falls back to a random suffix if `entryTime` is malformed.
+ */
+function archivedPositionPath(p: PositionFile): string {
+  const safeTs = p.entry.time?.replace(/[:.]/g, '-') ?? `unknown-${randomBytes(4).toString('hex')}`
+  return join(walletHistoryDir(p.wallet, p.chain), `${p.mint}-${safeTs}.json`)
+}
+
+/**
  * Phase 4c — back-compat path generator for legacy reads + migration.
  * `positions/<chain>/<mint>.json` (no wallet dir). Used only during migration.
  */
@@ -550,6 +569,85 @@ export function writePosition(p: PositionFile) {
   // the position is native (so external readers / pre-USDC tooling still work).
   normalizePosition(p)
   atomicWriteFile(positionPath(p.chain, p.mint, p.wallet), JSON.stringify(p, null, 2))
+}
+
+/**
+ * Archive a closed position to the per-wallet/per-chain history directory.
+ * Called when a re-entry on the same `(wallet, chain, mint)` is about to write
+ * a fresh position file. Without this, the second buy would overwrite the
+ * first closed cycle and historical PnL would lose the trade.
+ *
+ * No-op if the position is still open, or if the archive already exists (so
+ * a crashed write doesn't lose data on retry — the live file is left in place
+ * for the caller to handle).
+ */
+function archiveClosedPosition(p: PositionFile): { archived: boolean; path: string | null } {
+  if (p.status !== 'closed') return { archived: false, path: null }
+  const livePath = positionPath(p.chain, p.mint, p.wallet)
+  const archivePath = archivedPositionPath(p)
+  if (existsSync(archivePath)) return { archived: false, path: archivePath }
+  const archiveDir = dirname(archivePath)
+  if (!existsSync(archiveDir)) mkdirSync(archiveDir, { recursive: true })
+  try {
+    renameSync(livePath, archivePath)
+    return { archived: true, path: archivePath }
+  } catch {
+    return { archived: false, path: null }
+  }
+}
+
+/**
+ * List historical (archived) closed positions for the given filter. Returns
+ * empty when no archive directory exists. Used by PnL / journal reconciliation
+ * to count re-entries that would otherwise be invisible in `listPositions`.
+ */
+export function listHistoricalPositions(filter: PositionsFilter = {}): PositionFile[] {
+  ensureTradingDirs()
+  const chains: Array<'solana' | 'base'> = filter.chain
+    ? [filter.chain]
+    : ['solana', 'base']
+  const positionsRoot = join(TRADING_DIR, 'positions')
+  if (!existsSync(positionsRoot)) return []
+  const wantWallet = filter.walletAddress
+    ? walletDirName(filter.walletAddress)
+    : null
+
+  let walletDirs: string[]
+  try {
+    walletDirs = readdirSync(positionsRoot)
+  } catch {
+    return []
+  }
+
+  const out: PositionFile[] = []
+  for (const walletEntry of walletDirs) {
+    if (walletEntry === 'solana' || walletEntry === 'base') continue
+    const walletPath = join(positionsRoot, walletEntry)
+    try {
+      if (!statSync(walletPath).isDirectory()) continue
+    } catch {
+      continue
+    }
+    if (wantWallet !== null && walletEntry !== wantWallet) continue
+    for (const chain of chains) {
+      const historyDir = join(walletPath, chain, 'history')
+      if (!existsSync(historyDir)) continue
+      let entries: string[]
+      try {
+        entries = readdirSync(historyDir)
+      } catch {
+        continue
+      }
+      for (const f of entries) {
+        if (!f.endsWith('.json')) continue
+        try {
+          const p = normalizePosition(JSON.parse(readFileSync(join(historyDir, f), 'utf8')) as PositionFile)
+          out.push(p)
+        } catch {}
+      }
+    }
+  }
+  return out
 }
 
 /**
@@ -1070,6 +1168,12 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     throw new Error(
       `Position already open for ${opts.ca} on wallet ${signer.address}. Sell it before opening a new one (or use a different cohort wallet).`,
     )
+  }
+  // Re-entry on a previously closed position: archive the old file to
+  // history/ before we write the new entry, so the prior trade's PnL and
+  // sells aren't lost. Skipped on dry-run (read-only invariant).
+  if (existing && existing.status === 'closed' && !opts.dryRun) {
+    archiveClosedPosition(existing)
   }
   const rpcUrl = resolveBaseRpcUrl({
     rpcUrl: opts.rpcUrl,
@@ -1725,6 +1829,12 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     throw new Error(
       `Position already open for ${opts.ca} on wallet ${signer.address}. Use \`palmyr wallet sell solana ${opts.ca} --wallet ${opts.walletRef ?? '<ref>'} --percent ...\` to exit first (or use a different cohort wallet).`,
     )
+  }
+  // Re-entry on a previously closed position: archive the old file to
+  // history/ before we write the new entry, so the prior trade's PnL and
+  // sells aren't lost. Skipped on dry-run (read-only invariant).
+  if (existing && existing.status === 'closed' && !opts.dryRun) {
+    archiveClosedPosition(existing)
   }
 
   const connection: Connection = makeConnection(rpcUrl)
@@ -2507,7 +2617,13 @@ export interface PnlReport {
 }
 
 export async function computePnl(opts: PnlOpts = {}): Promise<PnlReport> {
-  const positions = listPositions({ includeClosed: opts.includeClosed ?? true })
+  const includeClosed = opts.includeClosed ?? true
+  const livePositions = listPositions({ includeClosed })
+  // Archived closed positions (re-entries on the same mint after close) need
+  // to be counted toward historical PnL — without this, repeated buys of the
+  // same token would lose every closed cycle except the most recent.
+  const historicalPositions = includeClosed ? listHistoricalPositions() : []
+  const positions = [...livePositions, ...historicalPositions]
   const filtered = opts.sinceIso
     ? positions.filter((p) => p.entry.time >= opts.sinceIso!)
     : positions
