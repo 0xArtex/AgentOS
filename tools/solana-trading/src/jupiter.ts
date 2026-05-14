@@ -81,7 +81,14 @@ export async function executeSwap(params: SwapParams): Promise<SwapResult> {
     swapBody.computeUnitPriceMicroLamports = "auto";
   }
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  // Manual CU bump used when Jupiter's dynamic CU estimate is too low. Some
+  // protected/Jito sells with complex routes simulate as
+  // `ComputationalBudgetExceeded`; bumping to 1.4M CU clears the typical case
+  // while staying well under Solana's 1.4M per-tx cap (which is exactly the
+  // ceiling, so we'd not bump beyond that).
+  const RETRY_CU_LIMIT = 1_400_000;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
     if (Date.now() - fetchedAt >= quoteMaxAgeMs) {
       quote = await fetchQuote(quoteParams);
       fetchedAt = Date.now();
@@ -102,7 +109,20 @@ export async function executeSwap(params: SwapParams): Promise<SwapResult> {
 
     const sim = await connection.simulateTransaction(tx, { commitment: "confirmed" });
     if (sim.value.err) {
-      throw new Error(`Simulation failed before send: ${JSON.stringify(sim.value.err)}`);
+      const errStr = JSON.stringify(sim.value.err);
+      // ComputationalBudgetExceeded — Jupiter's auto-estimate didn't allow
+      // enough compute units for the chosen route. Retry once with a manual
+      // hard CU cap before giving up; this is the failure mode QA hit on
+      // protected Solana sells.
+      const isCuExceeded =
+        /ComputationalBudgetExceeded/i.test(errStr) ||
+        /computational budget exceeded/i.test(errStr);
+      if (isCuExceeded && attempt < 3 && !swapBody.computeUnitLimit) {
+        swapBody.dynamicComputeUnitLimit = false;
+        swapBody.computeUnitLimit = RETRY_CU_LIMIT;
+        continue;
+      }
+      throw new Error(`Simulation failed before send: ${errStr}`);
     }
 
     try {
@@ -147,7 +167,7 @@ export async function executeSwap(params: SwapParams): Promise<SwapResult> {
       };
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      if (/blockhash not found/i.test(msg) && attempt < 2) {
+      if (/blockhash not found/i.test(msg) && attempt < 3) {
         fetchedAt = 0;
         continue;
       }
