@@ -510,8 +510,19 @@ async function main() {
   setUiAgentMode(AGENT_MODE)
 
   if (flags.version) {
-    if (AGENT_MODE) print({ version: VERSION })
-    else console.log(VERSION)
+    if (AGENT_MODE) {
+      // Agents need to disambiguate "CLI npm package version" from "Palmyr API
+      // server version" and the Node runtime — emit all three so they don't
+      // have to call multiple commands to assemble a support report.
+      print({
+        cliPackageVersion: VERSION,
+        version: VERSION, // back-compat alias for the legacy {version} shape
+        nodeVersion: process.version,
+        platform: process.platform,
+      })
+    } else {
+      console.log(VERSION)
+    }
     return
   }
   if (flags.help && !command) { help(); return }
@@ -5045,7 +5056,21 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
       case 'health': {
         const data = await ao.health()
-        return print(data)
+        // Surface every version layer at the top of the response so agents
+        // don't have to dig into nested `version.version`. Keeps the raw
+        // server payload available too for back-compat.
+        const apiVersion = (data as any)?.version?.version ?? null
+        const apiBuild = (data as any)?.version?.build ?? null
+        const apiName = (data as any)?.version?.name ?? null
+        return print({
+          cliPackageVersion: VERSION,
+          apiVersion,
+          apiName,
+          apiBuild,
+          nodeVersion: process.version,
+          platform: process.platform,
+          ...data,
+        })
 
         // Version check — warn if CLI is behind the server
         const serverVersion = data.version?.version
