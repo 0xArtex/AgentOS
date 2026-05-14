@@ -17,6 +17,39 @@ import { ethers } from 'ethers'
 
 const PARASWAP_API = 'https://api.paraswap.io'
 
+/**
+ * Structured route error. Thrown by the route-fetching helpers (Jupiter,
+ * ParaSwap) so CLI callers can return stable JSON shape + exit code to agents.
+ *
+ * `errorCode` is a stable identifier — agents pattern-match on it rather than
+ * the raw error message. Known codes:
+ *   - TOKEN_NOT_TRADABLE: provider says the token isn't tradable
+ *   - NO_ROUTE: provider can't find a route with sufficient liquidity
+ *   - RATE_LIMITED: provider returned 429 after the retry loop gave up
+ *   - PROVIDER_ERROR: generic upstream failure (5xx, parse failure)
+ */
+export class RouteError extends Error {
+  readonly errorCode: 'TOKEN_NOT_TRADABLE' | 'NO_ROUTE' | 'RATE_LIMITED' | 'PROVIDER_ERROR'
+  readonly provider: 'jupiter' | 'paraswap'
+  readonly chain: 'solana' | 'base'
+  readonly status?: number
+
+  constructor(
+    code: RouteError['errorCode'],
+    provider: RouteError['provider'],
+    chain: RouteError['chain'],
+    message: string,
+    status?: number,
+  ) {
+    super(message)
+    this.name = 'RouteError'
+    this.errorCode = code
+    this.provider = provider
+    this.chain = chain
+    this.status = status
+  }
+}
+
 /** ParaSwap's placeholder for native ETH (lowercase eee). Must match exactly. */
 export const NATIVE_ETH = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
 
@@ -104,11 +137,23 @@ export async function fetchParaswapPrice(p: FetchPriceParams): Promise<ParaswapP
     `&network=${p.network}&side=${side}`
   const res = await fetch(url)
   if (!res.ok) {
-    throw new Error(`ParaSwap price failed: ${res.status} ${await res.text()}`)
+    const body = await res.text()
+    // 404 "No routes found with enough liquidity" is the most common
+    // diagnostic — agents should pattern-match on `errorCode`, not the raw text.
+    if (res.status === 404 && /no routes? found/i.test(body)) {
+      throw new RouteError('NO_ROUTE', 'paraswap', 'base', `ParaSwap: no route for ${p.destToken}`, 404)
+    }
+    if (res.status === 429) {
+      throw new RouteError('RATE_LIMITED', 'paraswap', 'base', `ParaSwap rate limit hit: ${body}`, 429)
+    }
+    throw new RouteError('PROVIDER_ERROR', 'paraswap', 'base', `ParaSwap price failed: ${res.status} ${body}`, res.status)
   }
   const data = (await res.json()) as { priceRoute?: ParaswapPriceRoute; error?: string }
   if (data.error || !data.priceRoute) {
-    throw new Error(`ParaSwap price: ${data.error ?? 'no priceRoute in response'}`)
+    if (/no routes? found/i.test(data.error ?? '')) {
+      throw new RouteError('NO_ROUTE', 'paraswap', 'base', `ParaSwap: ${data.error}`)
+    }
+    throw new RouteError('PROVIDER_ERROR', 'paraswap', 'base', `ParaSwap price: ${data.error ?? 'no priceRoute in response'}`)
   }
   return data.priceRoute
 }

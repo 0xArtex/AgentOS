@@ -21,13 +21,49 @@ const JITO_BLOCK_ENGINE = "https://mainnet.block-engine.jito.wtf/api/v1/transact
 
 const DEFAULT_QUOTE_MAX_AGE_MS = 5000;
 
+/**
+ * Structured route error mirroring `cli/evm-trading.ts:RouteError`. Defined
+ * here so this package can be consumed standalone; the CLI catches both
+ * shapes via duck typing on `errorCode`.
+ */
+export class JupiterRouteError extends Error {
+  readonly errorCode: 'TOKEN_NOT_TRADABLE' | 'NO_ROUTE' | 'RATE_LIMITED' | 'PROVIDER_ERROR';
+  readonly provider: 'jupiter';
+  readonly chain: 'solana';
+  readonly status?: number;
+  constructor(
+    code: JupiterRouteError['errorCode'],
+    message: string,
+    status?: number,
+  ) {
+    super(message);
+    this.name = 'JupiterRouteError';
+    this.errorCode = code;
+    this.provider = 'jupiter';
+    this.chain = 'solana';
+    this.status = status;
+  }
+}
+
 export async function fetchQuote(p: JupiterQuoteParams): Promise<QuoteResponse> {
   const url =
     `${JUP_QUOTE}?inputMint=${p.inputMint}&outputMint=${p.outputMint}` +
     `&amount=${p.amount}&slippageBps=${p.slippageBps}` +
     `&onlyDirectRoutes=false&asLegacyTransaction=false`;
   const res = await fetch(url);
-  if (!res.ok) throw new Error(`Jupiter quote failed: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const body = await res.text();
+    // Jupiter signals untradable tokens via 400 + `TOKEN_NOT_TRADABLE`. Pattern-match
+    // both the explicit code and the message text so the CLI can return a stable
+    // exit code regardless of upstream wording shifts.
+    if (res.status === 400 && /TOKEN_NOT_TRADABLE|is not tradable/i.test(body)) {
+      throw new JupiterRouteError('TOKEN_NOT_TRADABLE', `Jupiter: ${p.outputMint} is not tradable`, 400);
+    }
+    if (res.status === 429) {
+      throw new JupiterRouteError('RATE_LIMITED', `Jupiter rate limit: ${body}`, 429);
+    }
+    throw new JupiterRouteError('PROVIDER_ERROR', `Jupiter quote failed: ${res.status} ${body}`, res.status);
+  }
   return (await res.json()) as QuoteResponse;
 }
 

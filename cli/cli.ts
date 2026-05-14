@@ -149,9 +149,9 @@ function parse(argv: string[]) {
 // EXIT table, parse stderr for the {error, exitCode} object on failure.
 let AGENT_MODE = !process.stdout.isTTY
 
-function err(msg: string, code: number = EXIT.BAD_INPUT): never {
+function err(msg: string, code: number = EXIT.BAD_INPUT, details?: Record<string, unknown>): never {
   if (AGENT_MODE) {
-    process.stderr.write(JSON.stringify({ error: msg, exitCode: code }) + '\n')
+    process.stderr.write(JSON.stringify({ error: msg, ...(details ?? {}), exitCode: code }) + '\n')
     process.exit(code)
   }
   render(React.createElement(ErrorScreen, {
@@ -161,6 +161,38 @@ function err(msg: string, code: number = EXIT.BAD_INPUT): never {
     footerLeft: 'Fix the command and retry',
   }))
   process.exit(code)
+}
+
+/**
+ * If `e` is a RouteError / JupiterRouteError shape, emit the structured fields
+ * + a stable exit code. Otherwise return `null` so the caller falls through to
+ * the generic error path.
+ *
+ * Stable exit code mapping:
+ *   - TOKEN_NOT_TRADABLE, NO_ROUTE → BAD_INPUT (2)
+ *   - RATE_LIMITED, PROVIDER_ERROR → NETWORK (5)
+ *
+ * Also recognises plain "No position…" / "No Base position…" errors thrown by
+ * the trading library and routes them to NOT_FOUND (4) so agents can branch on
+ * a stable code instead of grepping for the message.
+ */
+function emitRouteErrorIfApplicable(e: unknown): never | null {
+  const candidate = e as { errorCode?: string; provider?: string; chain?: string; status?: number; message?: string }
+  if (candidate?.errorCode && candidate?.provider) {
+    const stableExit = (candidate.errorCode === 'TOKEN_NOT_TRADABLE' || candidate.errorCode === 'NO_ROUTE')
+      ? EXIT.BAD_INPUT
+      : EXIT.NETWORK
+    err(candidate.message ?? `${candidate.provider}: ${candidate.errorCode}`, stableExit, {
+      errorCode: candidate.errorCode,
+      provider: candidate.provider,
+      chain: candidate.chain,
+      status: candidate.status,
+    })
+  }
+  if (candidate?.message && /^No (Base )?position for/i.test(candidate.message)) {
+    err(candidate.message, EXIT.NOT_FOUND, { errorCode: 'POSITION_NOT_FOUND' })
+  }
+  return null
 }
 
 /** Show per-subcommand help with flag descriptions */
@@ -1934,6 +1966,7 @@ async function main() {
               try {
                 baseResult = await buyBase(opts)
               } catch (e: any) {
+                emitRouteErrorIfApplicable(e)
                 err(e.message || 'buy (base) failed', EXIT.GENERAL)
               }
               log(`wallet buy: base ${ca} (${baseResult!.txHash})`)
@@ -1991,6 +2024,7 @@ async function main() {
             try {
               result = await buy(solOpts)
             } catch (e: any) {
+              emitRouteErrorIfApplicable(e)
               err(e.message || 'buy failed', EXIT.GENERAL)
             }
 
@@ -2489,6 +2523,7 @@ async function main() {
                   priorityFeeWei,
                 })
               } catch (e: any) {
+                emitRouteErrorIfApplicable(e)
                 err(e.message || 'sell (base) failed', EXIT.GENERAL)
               }
               log(`wallet sell: base ${ca} ${percent}% (${baseResult!.txHash})`)
@@ -2537,6 +2572,7 @@ async function main() {
                 jitoTipLamports,
               })
             } catch (e: any) {
+              emitRouteErrorIfApplicable(e)
               err(e.message || 'sell failed', EXIT.GENERAL)
             }
 
