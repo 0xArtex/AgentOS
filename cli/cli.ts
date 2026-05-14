@@ -1593,6 +1593,7 @@ async function main() {
               { name: 'watch', description: 'Maintain a watchlist of CAs to monitor', hint: 'add <CA> --trigger "..." | list' },
               { name: 'brief', description: 'Show thesis + PnL brief for a position', hint: '<CA>' },
               { name: 'doctor', description: 'Health check for the wallet-trading subsystem', hint: '[--wallet <ref>]' },
+              { name: 'smoke-test', description: 'End-to-end validation of wallet trading on Solana + Base', hint: '--wallet <ref> [--chain solana|base|all]' },
               { name: 'daemon', description: 'Auto-monitor positions for trigger-based exits', hint: 'tick | start [--auto] | stop | status' },
               { name: 'triggers', description: 'List pending trigger fires from the daemon', hint: '[--ca X] [--since ISO] [--clear]' },
               { name: 'trading-keystore', description: 'Encrypted BIP39 keystore for HD-derived trading wallets', hint: 'init | list | status | derive | export' },
@@ -3045,6 +3046,47 @@ async function main() {
             }
             console.log()
             if (report.status === 'fail') process.exit(EXIT.GENERAL)
+            break
+          }
+          case 'smoke-test': {
+            const smokeWalletRef = (flags.wallet as string) || undefined
+            if (!smokeWalletRef) err('--wallet required. Use a vault wallet name/id or `trading:N`.', EXIT.BAD_INPUT)
+            const smokeChainFlag = ((flags.chain as string) || 'all').toLowerCase()
+            if (smokeChainFlag !== 'solana' && smokeChainFlag !== 'base' && smokeChainFlag !== 'all') {
+              err(`--chain must be solana, base, or all (got ${smokeChainFlag})`, EXIT.BAD_INPUT)
+            }
+            const { runWalletSmokeTest } = await import('./wallet-smoke-test.js')
+            const report = await runWalletSmokeTest({
+              walletRef: smokeWalletRef,
+              chain: smokeChainFlag as 'solana' | 'base' | 'all',
+            })
+            if (AGENT_MODE) {
+              print(report)
+              if (!report.safeForAutonomousTrading) process.exit(EXIT.GENERAL)
+              break
+            }
+            console.log()
+            section('Wallet smoke-test')
+            kv('Wallet', report.wallet)
+            kv('Mode', report.mode)
+            if (report.solanaAddress) kv('Solana', report.solanaAddress)
+            if (report.evmAddress) kv('EVM', report.evmAddress)
+            kv('Verdict', report.safeForAutonomousTrading
+              ? `${t.success}safe for autonomous trading${t.reset}`
+              : `${t.error}NOT safe — investigate failed legs${t.reset}`)
+            console.log()
+            section('Legs')
+            for (const leg of report.legs) {
+              const dot = leg.status === 'pass'
+                ? `${t.success}✓${t.reset}`
+                : leg.status === 'skip'
+                  ? `${t.muted}-${t.reset}`
+                  : `${t.error}✗${t.reset}`
+              const tail = [leg.message, leg.durationMs !== undefined ? `${leg.durationMs}ms` : null].filter(Boolean).join(' — ')
+              console.log(`  ${dot} ${leg.chain}/${leg.name}${tail ? `: ${tail}` : ''}`)
+            }
+            console.log()
+            if (!report.safeForAutonomousTrading) process.exit(EXIT.GENERAL)
             break
           }
           case 'daemon': {
