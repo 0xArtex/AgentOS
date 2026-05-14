@@ -81,7 +81,7 @@ const BOOLEAN_FLAGS = new Set([
   // compute deploy/ssh flags
   'wait', 'generate-ssh-key', 'generate', 'progress',
   // wallet trading flags
-  'dry-run', 'all', 'protected', 'auto-slippage',
+  'dry-run', 'all', 'protected', 'auto-slippage', 'degen',
   // wallet daemon + triggers flags
   'auto', 'clear',
   // wallet brief flags
@@ -226,10 +226,11 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--hold-if "..."', desc: 'Free-form hold condition (informational)' },
     { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env WALLET_SECRET_KEY)' },
     { flag: '--slippage <bps>', desc: 'Explicit slippage in basis points', hint: 'overrides --auto-slippage' },
-    { flag: '--auto-slippage', desc: 'Dynamic slippage from DexScreener 5m volatility (solana)', hint: 'implied by --protected' },
-    { flag: '--protected', desc: 'MEV-protected execution', hint: 'sol: Jito tip + dyn slippage. base: priority-fee bump + PALMYR_BASE_PROTECTED_RPC' },
-    { flag: '--tip <amount>', desc: 'sol: Jito tip lamports (default 10000). base: priority fee in gwei (default 0.001)' },
-    { flag: '--rpc <url>', desc: 'Override RPC endpoint (base: maps to provider URL; bypasses --protected default)' },
+    { flag: '--degen', desc: 'Disable MEV protection + dynamic slippage. Faster / cheaper, no sandwich defense.' },
+    { flag: '--no-protected', desc: 'Disable MEV protection only (keep dynamic slippage)' },
+    { flag: '--no-auto-slippage', desc: 'Disable dynamic slippage only (use config default or --slippage)' },
+    { flag: '--tip <amount>', desc: 'Override the protection tip — sol: Jito tip lamports (default 10000); base: priority fee gwei (default 0.001)' },
+    { flag: '--rpc <url>', desc: 'Override RPC endpoint (base only; default uses PALMYR_BASE_PROTECTED_RPC env if set)' },
     { flag: '--template <name>', desc: 'YAML strategy template (see `wallet template list`). CLI flags win on conflict.' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
@@ -264,10 +265,11 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--reason "..."', desc: 'Why are you exiting? (required)' },
     { flag: '--wallet <id|name>', desc: 'Vault wallet to sign with (else env)' },
     { flag: '--slippage <bps>', desc: 'Explicit slippage in basis points', hint: 'overrides --auto-slippage' },
-    { flag: '--auto-slippage', desc: 'Dynamic slippage from DexScreener 5m volatility (solana)', hint: 'implied by --protected' },
-    { flag: '--protected', desc: 'MEV-protected execution', hint: 'sol: Jito tip + dyn slippage. base: priority-fee bump + PALMYR_BASE_PROTECTED_RPC' },
-    { flag: '--tip <amount>', desc: 'sol: Jito tip lamports (default 10000). base: priority fee in gwei (default 0.001)' },
-    { flag: '--rpc <url>', desc: 'Override RPC endpoint (base only currently)' },
+    { flag: '--degen', desc: 'Disable MEV protection + dynamic slippage' },
+    { flag: '--no-protected', desc: 'Disable MEV protection only' },
+    { flag: '--no-auto-slippage', desc: 'Disable dynamic slippage only' },
+    { flag: '--tip <amount>', desc: 'Override protection tip (sol: Jito lamports; base: priority fee gwei)' },
+    { flag: '--rpc <url>', desc: 'Override RPC endpoint (base only)' },
     { flag: '--dry-run', desc: 'Simulate without sending the swap' },
   ],
   sync: [
@@ -1878,6 +1880,25 @@ async function main() {
             const cliTimeLimit = (flags['time-limit'] as string) || undefined
             const cliThesisCheck = (flags['thesis-check'] as string) || undefined
 
+            // Safe-by-default — protectedExec and autoSlippage default to true
+            // (MEV-protected with dynamic slippage). `--degen` opts out of both
+            // for fast/raw execution. `--no-protected` / `--no-auto-slippage`
+            // disable each individually. Explicit `--protected` is a no-op now
+            // (kept for back-compat with scripts that pass it).
+            const degen = !!flags.degen
+            const resolveProtected = (): boolean | undefined => {
+              if (degen) return false
+              if (flags.protected === false) return false  // --no-protected
+              if (flags.protected === true) return true    // --protected (redundant but explicit)
+              return undefined  // fall through to template, then default true at lib layer
+            }
+            const resolveAutoSlippage = (): boolean | undefined => {
+              if (degen) return false
+              if (flags['auto-slippage'] === false) return false  // --no-auto-slippage
+              if (flags['auto-slippage'] === true) return true
+              return undefined
+            }
+
             // Base path — Phase 5b buy, 5c sell+sync, 5d --protected + private RPC.
             if (chain === 'base') {
               if (!walletRef) err('--wallet required for Base. Use a vault wallet name/id (`palmyr wallet create`) or `trading:N`.', EXIT.BAD_INPUT)
@@ -1896,7 +1917,7 @@ async function main() {
                 timeLimit: cliTimeLimit,
                 thesisCheck: cliThesisCheck,
                 slippageBps: cliSlippage,
-                protectedExec: flags.protected === true ? true : undefined,
+                protectedExec: resolveProtected(),
                 rpcUrl: (flags.rpc as string) || undefined,
                 priorityFeeWei: cliPriorityFeeWei,
               }
@@ -1904,6 +1925,9 @@ async function main() {
                 const { applyTemplateToBuyOpts } = await import('./wallet-strategy-templates.js')
                 opts = applyTemplateToBuyOpts(template, opts)
               }
+              // Final default: protected ON unless user/template said otherwise. --degen already
+              // forced it false above.
+              if (opts.protectedExec === undefined) opts.protectedExec = !degen
               if (!opts.amount) err(`--amount required (e.g. --amount 0.01eth) — not in template or CLI`, EXIT.BAD_INPUT)
               const { buyBase } = await import('./wallet-trading.js')
               let baseResult: Awaited<ReturnType<typeof buyBase>>
@@ -1948,8 +1972,8 @@ async function main() {
               timeLimit: cliTimeLimit,
               thesisCheck: cliThesisCheck,
               slippageBps: cliSlippage,
-              protectedExec: flags.protected === true ? true : undefined,
-              autoSlippage: flags['auto-slippage'] === true ? true : undefined,
+              protectedExec: resolveProtected(),
+              autoSlippage: resolveAutoSlippage(),
               jitoTipLamports: flags.tip !== undefined ? Number(flags.tip) : undefined,
             }
             if (template) {
@@ -1957,9 +1981,10 @@ async function main() {
               solOpts = applyTemplateToBuyOpts(template, solOpts)
             }
             if (!solOpts.amount) err(`--amount required (e.g. --amount 0.5sol) — not in template or CLI`, EXIT.BAD_INPUT)
-            // Normalize booleans for downstream call (undefined → false)
-            solOpts.protectedExec = !!solOpts.protectedExec
-            solOpts.autoSlippage = !!solOpts.autoSlippage
+            // Final defaults: MEV protection + dynamic slippage are ON unless --degen, --no-protected,
+            // --no-auto-slippage, or a template set them off.
+            if (solOpts.protectedExec === undefined) solOpts.protectedExec = !degen
+            if (solOpts.autoSlippage === undefined) solOpts.autoSlippage = !degen
 
             const { buy } = await import('./wallet-trading.js')
             let result: Awaited<ReturnType<typeof buy>>
@@ -2077,6 +2102,21 @@ async function main() {
             const cliTipGwei = flags.tip !== undefined && chain === 'base' ? Number(flags.tip) : undefined
             const cliPriorityFeeWei = cliTipGwei !== undefined ? BigInt(Math.round(cliTipGwei * 1e9)) : undefined
 
+            // Safe-by-default for cohort legs. --degen disables; --no-protected / --no-auto-slippage individually disable.
+            const cohortDegen = !!flags.degen
+            const cohortResolveProtected = (): boolean | undefined => {
+              if (cohortDegen) return false
+              if (flags.protected === false) return false
+              if (flags.protected === true) return true
+              return undefined
+            }
+            const cohortResolveAutoSlippage = (): boolean | undefined => {
+              if (cohortDegen) return false
+              if (flags['auto-slippage'] === false) return false
+              if (flags['auto-slippage'] === true) return true
+              return undefined
+            }
+
             // Build opts with CLI values; merge template defaults for the rest.
             let cohortOpts: any = {
               chain: chain as 'solana' | 'base',
@@ -2093,8 +2133,8 @@ async function main() {
               timeLimit: (flags['time-limit'] as string) || undefined,
               thesisCheck: (flags['thesis-check'] as string) || undefined,
               slippageBps: flags.slippage !== undefined ? Number(flags.slippage) : undefined,
-              protectedExec: flags.protected === true ? true : undefined,
-              autoSlippage: flags['auto-slippage'] === true ? true : undefined,
+              protectedExec: cohortResolveProtected(),
+              autoSlippage: cohortResolveAutoSlippage(),
               jitoTipLamports: flags.tip !== undefined && chain === 'solana' ? Number(flags.tip) : undefined,
               priorityFeeWei: cliPriorityFeeWei,
               rpcUrl: (flags.rpc as string) || undefined,
@@ -2110,9 +2150,9 @@ async function main() {
               cohortOpts.jitterMs = jitterMs!
               cohortOpts.dryRun = dryRun
             }
-            // Normalize booleans (template may leave them undefined)
-            cohortOpts.protectedExec = !!cohortOpts.protectedExec
-            cohortOpts.autoSlippage = !!cohortOpts.autoSlippage
+            // Final defaults: protected + auto-slippage ON unless user/template/degen disabled.
+            if (cohortOpts.protectedExec === undefined) cohortOpts.protectedExec = !cohortDegen
+            if (cohortOpts.autoSlippage === undefined) cohortOpts.autoSlippage = !cohortDegen
 
             const { cohortBuy } = await import('./wallet-trading.js')
             let result: Awaited<ReturnType<typeof cohortBuy>>
@@ -2409,10 +2449,18 @@ async function main() {
             const slippageBps = flags.slippage ? Number(flags.slippage) : undefined
             const dryRun = !!flags['dry-run'] || process.env.DRY_RUN === '1'
 
+            // Safe-by-default: protected ON unless --degen or --no-protected.
+            const sellDegen = !!flags.degen
+            const sellProtected = sellDegen
+              ? false
+              : flags.protected === false ? false : true
+            const sellAutoSlippage = sellDegen
+              ? false
+              : flags['auto-slippage'] === false ? false : true
+
             // Base sell path — Phase 5c, plus 5d --protected + private RPC.
             if (chain === 'base') {
               if (!walletRef) err('--wallet required for Base. Use a vault wallet name/id or `trading:N`.', EXIT.BAD_INPUT)
-              const baseProtected = !!flags.protected
               const baseRpc = (flags.rpc as string) || undefined
               const tipGwei = flags.tip ? Number(flags.tip) : undefined
               const priorityFeeWei = tipGwei !== undefined
@@ -2428,7 +2476,7 @@ async function main() {
                   walletRef,
                   slippageBps,
                   dryRun,
-                  protectedExec: baseProtected,
+                  protectedExec: sellProtected,
                   rpcUrl: baseRpc,
                   priorityFeeWei,
                 })
@@ -2464,8 +2512,6 @@ async function main() {
               break
             }
 
-            const protectedExec = !!flags.protected
-            const autoSlippage = !!flags['auto-slippage']
             const jitoTipLamports = flags.tip ? Number(flags.tip) : undefined
 
             const { sell } = await import('./wallet-trading.js')
@@ -2478,8 +2524,8 @@ async function main() {
                 walletRef,
                 slippageBps,
                 dryRun,
-                protectedExec,
-                autoSlippage,
+                protectedExec: sellProtected,
+                autoSlippage: sellAutoSlippage,
                 jitoTipLamports,
               })
             } catch (e: any) {
