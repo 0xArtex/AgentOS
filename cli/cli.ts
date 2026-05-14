@@ -216,7 +216,7 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   buy: [
     { flag: '<CHAIN>', desc: 'Chain (positional)', hint: 'solana' },
     { flag: '<CA>', desc: 'Token mint / contract address (positional)' },
-    { flag: '--amount <amt>', desc: 'Amount to spend (required)', hint: 'e.g. 0.5sol' },
+    { flag: '--amount <amt>', desc: 'Amount + asset suffix (required). Suffix picks the input asset.', hint: 'e.g. 0.5sol, 0.01eth, 10usdc' },
     { flag: '--thesis "..."', desc: 'Plain-string reasoning for the entry (required)' },
     { flag: '--cut <pct>', desc: 'Stop-loss target', hint: 'e.g. -25%' },
     { flag: '--tp <pct>', desc: 'Take-profit target', hint: 'e.g. +40%' },
@@ -235,7 +235,7 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   cohort: [
     { flag: 'buy <CHAIN> <CA>', desc: 'Split a buy across N derived wallets with timing jitter (Phase 4c)' },
-    { flag: '--total <amt>', desc: 'Total amount across all cohort legs (required unless template supplies it)', hint: 'e.g. 1.0sol, 0.05eth' },
+    { flag: '--total <amt>', desc: 'Total amount + asset suffix across all cohort legs (required unless template supplies it)', hint: 'e.g. 1.0sol, 0.05eth, 100usdc' },
     { flag: '--thesis "..."', desc: 'Plain-string reasoning (shared across all legs) — required' },
     { flag: '--wallets <list>', desc: 'Explicit comma-separated wallet refs (vault names/ids or `trading:N`)', hint: 'e.g. alice,bob,carol or trading:0,trading:1,trading:2' },
     { flag: '--from trading:N --split K', desc: 'Power-user: derive K consecutive wallets from the trading-keystore starting at index N' },
@@ -2448,7 +2448,11 @@ async function main() {
                 console.log(`  ${t.muted}tx:${t.reset}        ${baseResult!.txHash}`)
                 console.log(`  ${t.muted}sold:${t.reset}      ${baseResult!.tokensIn} tokens (${percent}%)`)
                 console.log(`  ${t.muted}received:${t.reset}  ${baseResult!.ethOut}`)
-                console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${baseResult!.realizedEth >= 0 ? '+' : ''}${baseResult!.realizedEth.toFixed(6)} ETH${t.reset}`)
+                {
+                  const unit = baseResult!.outputAsset ?? 'ETH'
+                  const decimals = unit === 'USDC' ? 2 : 6
+                  console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${baseResult!.realizedEth >= 0 ? '+' : ''}${baseResult!.realizedEth.toFixed(decimals)} ${unit}${t.reset}`)
+                }
                 console.log(`  ${t.muted}reason:${t.reset}    ${reason}`)
                 if (baseResult!.protectedExec) {
                   console.log(`  ${t.muted}rpc:${t.reset}       ${baseResult!.rpcUrl}`)
@@ -2498,7 +2502,11 @@ async function main() {
                 console.log(`  ${t.muted}tip:${t.reset}       ${result!.tipLamports} lamports (Jito)`)
               }
               console.log(`  ${t.muted}fee:${t.reset}       ${result!.feeLamports} lamports`)
-              console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${result!.realizedSol >= 0 ? '+' : ''}${result!.realizedSol.toFixed(6)} SOL${t.reset}`)
+              {
+                const unit = result!.outputAsset ?? 'SOL'
+                const decimals = unit === 'USDC' ? 2 : 6
+                console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${result!.realizedSol >= 0 ? '+' : ''}${result!.realizedSol.toFixed(decimals)} ${unit}${t.reset}`)
+              }
               console.log(`  ${t.muted}reason:${t.reset}    ${reason}`)
               if (result!.forensics && result!.forensics.flag === 'suspect-mev') {
                 console.log(`  ${t.warn}⚠ forensics: realized ${result!.forensics.realizedSlippageBps.toFixed(0)}bps slippage (${(result!.forensics.budgetUsed * 100).toFixed(0)}% of budget) — suspect MEV${t.reset}`)
@@ -2610,13 +2618,13 @@ async function main() {
             if (!AGENT_MODE) {
               console.log()
               section('PnL')
-              const totalPositions = report.solana.count + report.base.count
-              kv('Positions', `${totalPositions} (solana: ${report.solana.count}, base: ${report.base.count})`)
+              const totalPositions = report.solana.count + report.base.count + report.usdc.count
+              kv('Positions', `${totalPositions} (solana: ${report.solana.count}, base: ${report.base.count}, usdc: ${report.usdc.count})`)
 
-              // Per-chain native breakdown
+              // Per-asset native breakdown
               if (report.solana.count > 0) {
                 console.log()
-                section('Solana')
+                section('SOL')
                 const realColor = report.solana.realized >= 0 ? t.success : t.error
                 const unrealColor = report.solana.unrealized >= 0 ? t.success : t.error
                 console.log(`  ${t.muted}Realized:${t.reset}    ${realColor}${report.solana.realized >= 0 ? '+' : ''}${report.solana.realized.toFixed(6)} SOL${t.reset}`)
@@ -2625,12 +2633,21 @@ async function main() {
               }
               if (report.base.count > 0) {
                 console.log()
-                section('Base')
+                section('ETH')
                 const realColor = report.base.realized >= 0 ? t.success : t.error
                 const unrealColor = report.base.unrealized >= 0 ? t.success : t.error
                 console.log(`  ${t.muted}Realized:${t.reset}    ${realColor}${report.base.realized >= 0 ? '+' : ''}${report.base.realized.toFixed(6)} ETH${t.reset}`)
                 console.log(`  ${t.muted}Unrealized:${t.reset}  ${unrealColor}${report.base.unrealized >= 0 ? '+' : ''}${report.base.unrealized.toFixed(6)} ETH${t.reset}`)
                 console.log(`  ${t.muted}Total:${t.reset}       ${report.base.total >= 0 ? '+' : ''}${report.base.total.toFixed(6)} ETH`)
+              }
+              if (report.usdc.count > 0) {
+                console.log()
+                section('USDC')
+                const realColor = report.usdc.realized >= 0 ? t.success : t.error
+                const unrealColor = report.usdc.unrealized >= 0 ? t.success : t.error
+                console.log(`  ${t.muted}Realized:${t.reset}    ${realColor}${report.usdc.realized >= 0 ? '+' : ''}$${report.usdc.realized.toFixed(2)}${t.reset}`)
+                console.log(`  ${t.muted}Unrealized:${t.reset}  ${unrealColor}${report.usdc.unrealized >= 0 ? '+' : ''}$${report.usdc.unrealized.toFixed(2)}${t.reset}`)
+                console.log(`  ${t.muted}Total:${t.reset}       ${report.usdc.total >= 0 ? '+' : ''}$${report.usdc.total.toFixed(2)}`)
               }
 
               // Cross-chain USD totals
@@ -2658,13 +2675,16 @@ async function main() {
                 section(`By ${by}`)
                 table(
                   [by.toUpperCase(), 'COUNT', 'REALIZED', 'UNREALIZED', 'UNIT'],
-                  report.byGroup.map((g) => [
-                    g.key.length > 16 ? `${g.key.slice(0, 6)}..${g.key.slice(-4)}` : g.key,
-                    String(g.count),
-                    `${g.realized >= 0 ? '+' : ''}${g.realized.toFixed(6)}`,
-                    `${g.unrealized >= 0 ? '+' : ''}${g.unrealized.toFixed(6)}`,
-                    g.unit,
-                  ]),
+                  report.byGroup.map((g) => {
+                    const dec = g.unit === 'USDC' ? 2 : 6
+                    return [
+                      g.key.length > 16 ? `${g.key.slice(0, 6)}..${g.key.slice(-4)}` : g.key,
+                      String(g.count),
+                      `${g.realized >= 0 ? '+' : ''}${g.realized.toFixed(dec)}`,
+                      `${g.unrealized >= 0 ? '+' : ''}${g.unrealized.toFixed(dec)}`,
+                      g.unit,
+                    ]
+                  }),
                 )
               }
               console.log()

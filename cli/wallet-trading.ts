@@ -201,8 +201,9 @@ export interface MonitorState {
 export interface SolanaEntry {
   tx: string
   time: string
-  amountIn: string                    // e.g. "0.5 SOL"
-  amountInRawSol: number              // lamports (number — fits in JS Number for SOL)
+  amountIn: string                    // e.g. "0.5 SOL" or "10.00 USDC"
+  /** Native lamports for legacy SOL positions. Kept for back-compat — new code reads `amountInRaw` + `inputAsset`. */
+  amountInRawSol: number
   tokensOut: string
   tokensOutRaw: string                // raw u64 as decimal string
   tokenDecimals: number
@@ -213,6 +214,11 @@ export interface SolanaEntry {
   protectedExec?: boolean
   /** Phase 4c — links this entry to a cohort buy (same string across all the wallets involved). */
   cohortId?: string
+  // ── USDC-input support ─────────────────────────────────────────────────
+  /** The asset the user spent to open this position. Missing on legacy files; treated as 'SOL'. */
+  inputAsset?: SolanaInputAsset
+  /** Raw amount of `inputAsset` spent. Lamports for SOL (9 dec), 6-dec raw for USDC. */
+  amountInRaw?: number
 }
 
 export interface SolanaSell {
@@ -220,9 +226,12 @@ export interface SolanaSell {
   time: string
   tokensIn: string
   tokensInRaw: string
+  /** Display string. Holds "0.300000 SOL" for native sells, "5.00 USDC" for USDC sells. */
   solOut: string
-  solOutRaw: number                   // lamports
+  /** Raw output. Lamports for SOL exits, 6-dec raw for USDC exits. Both fit JS Number for realistic sizes. */
+  solOutRaw: number
   percentRequested: number
+  /** Realized PnL in the position's `inputAsset` (SOL or USDC). Field name kept for back-compat. */
   realizedSol: number
   reason: string
   feeLamports?: number
@@ -230,9 +239,12 @@ export interface SolanaSell {
   slippageBpsUsed?: number
   protectedExec?: boolean
   forensics?: FillForensics
+  /** USDC-aware: the asset this sell exited to. Missing on legacy sells; treated as 'SOL'. */
+  outputAsset?: SolanaInputAsset
 }
 
 export interface SolanaPnl {
+  /** Realized PnL in the position's input asset (SOL or USDC). Field name kept for back-compat with legacy SOL positions. */
   realizedSol: number
   unrealizedSol: number
   unrealizedPct: number
@@ -257,8 +269,9 @@ export interface SolanaPositionFile {
 export interface BaseEntry {
   tx: string                          // 0x... tx hash
   time: string
-  amountIn: string                    // e.g. "0.01 ETH"
-  amountInRawWei: string              // u256 wei (string)
+  amountIn: string                    // e.g. "0.01 ETH" or "10.00 USDC"
+  /** Raw wei for legacy ETH positions. Kept for back-compat — new code reads `amountInRaw` + `inputAsset`. */
+  amountInRawWei: string
   tokensOut: string
   tokensOutRaw: string                // u256 raw token units
   tokenDecimals: number
@@ -269,6 +282,11 @@ export interface BaseEntry {
   protectedExec?: boolean
   /** Phase 4c — links this entry to a cohort buy (same string across all the wallets involved). */
   cohortId?: string
+  // ── USDC-input support ─────────────────────────────────────────────────
+  /** Asset spent to open this position. Missing on legacy files; treated as 'ETH'. */
+  inputAsset?: BaseInputAsset
+  /** Raw amount of `inputAsset`. Wei for ETH (18 dec), 6-dec raw for USDC. String for u256 safety. */
+  amountInRaw?: string
 }
 
 export interface BaseSell {
@@ -276,18 +294,24 @@ export interface BaseSell {
   time: string
   tokensIn: string
   tokensInRaw: string                 // u256 raw token units
-  ethOut: string                      // display, e.g. "0.005 ETH"
-  ethOutRawWei: string                // u256 wei received
+  /** Display string: "0.005000 ETH" or "5.00 USDC". Field name kept for back-compat. */
+  ethOut: string
+  /** Raw output. Wei for ETH exits, 6-dec raw for USDC exits. Both kept as string for u256 safety. */
+  ethOutRawWei: string
   percentRequested: number
-  realizedEth: number                 // small enough to fit in number for typical positions
+  /** Realized PnL in the position's input asset (ETH or USDC). Field name kept for back-compat. */
+  realizedEth: number
   reason: string
   feeWei?: string
   slippageBpsUsed?: number
   protectedExec?: boolean
   forensics?: FillForensics
+  /** USDC-aware: asset this sell exited to. Missing on legacy sells; treated as 'ETH'. */
+  outputAsset?: BaseInputAsset
 }
 
 export interface BasePnl {
+  /** Realized PnL in the position's input asset (ETH or USDC). Field name kept for back-compat. */
   realizedEth: number
   unrealizedEth: number
   unrealizedPct: number
@@ -403,8 +427,45 @@ function atomicWriteFile(target: string, content: string) {
 
 // ───────── Position helpers ─────────
 
+/**
+ * Back-compat normalization. Pre-USDC positions don't have `inputAsset` or
+ * `amountInRaw`. We derive them from the legacy fields (`amountInRawSol` on
+ * Solana, `amountInRawWei` on Base) so downstream code can rely on the new
+ * canonical fields without per-callsite branching.
+ *
+ * Pure function — mutates the passed object in place AND returns it. Idempotent.
+ */
+export function normalizePosition(p: PositionFile): PositionFile {
+  if (p.chain === 'solana') {
+    if (!p.entry.inputAsset) p.entry.inputAsset = 'SOL'
+    if (p.entry.amountInRaw === undefined) {
+      p.entry.amountInRaw = p.entry.inputAsset === 'SOL'
+        ? p.entry.amountInRawSol
+        : 0
+    }
+    for (const s of p.sells) {
+      if (!s.outputAsset) s.outputAsset = p.entry.inputAsset
+    }
+  } else {
+    if (!p.entry.inputAsset) p.entry.inputAsset = 'ETH'
+    if (p.entry.amountInRaw === undefined) {
+      p.entry.amountInRaw = p.entry.inputAsset === 'ETH'
+        ? p.entry.amountInRawWei
+        : '0'
+    }
+    for (const s of p.sells) {
+      if (!s.outputAsset) s.outputAsset = p.entry.inputAsset
+    }
+  }
+  return p
+}
+
 export function writePosition(p: PositionFile) {
   ensureTradingDirs()
+  // Always run normalization before writing so files on disk have canonical
+  // shape, but keep legacy `amountInRawSol` / `amountInRawWei` populated when
+  // the position is native (so external readers / pre-USDC tooling still work).
+  normalizePosition(p)
   atomicWriteFile(positionPath(p.chain, p.mint, p.wallet), JSON.stringify(p, null, 2))
 }
 
@@ -425,7 +486,7 @@ export function readPosition(chain: 'solana' | 'base', mint: string, walletAddr?
     const p = positionPath(chain, mint, walletAddr)
     if (!existsSync(p)) return null
     try {
-      return JSON.parse(readFileSync(p, 'utf8')) as PositionFile
+      return normalizePosition(JSON.parse(readFileSync(p, 'utf8')) as PositionFile)
     } catch {
       return null
     }
@@ -490,7 +551,7 @@ export function listPositions(filter: PositionsFilter = {}): PositionFile[] {
       for (const f of chainEntries) {
         if (!f.endsWith('.json')) continue
         try {
-          const p = JSON.parse(readFileSync(join(chainDir, f), 'utf8')) as PositionFile
+          const p = normalizePosition(JSON.parse(readFileSync(join(chainDir, f), 'utf8')) as PositionFile)
           if (!filter.includeClosed && p.status !== 'open') continue
           out.push(p)
         } catch {}
@@ -633,11 +694,56 @@ export async function resolveSigner(
 
 // ───────── Helpers ─────────
 
-/** Parses an --amount flag like "0.5sol" or "0.5 SOL" → lamports. */
+/** USDC mint on Solana mainnet — 6 decimals. */
+export const USDC_MINT_SOLANA = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v'
+
+/** Asset types funded trades can spend / receive. */
+export type SolanaInputAsset = 'SOL' | 'USDC'
+export type BaseInputAsset = 'ETH' | 'USDC'
+
+export interface SolanaParsedAmount {
+  asset: SolanaInputAsset
+  raw: number               // lamports for SOL, 6-dec raw for USDC (both fit JS Number for typical sizes)
+  display: string           // e.g. "0.5000 SOL" or "10.00 USDC"
+}
+
+export interface BaseParsedAmount {
+  asset: BaseInputAsset
+  raw: string               // wei for ETH (u256-safe BigInt string), 6-dec raw for USDC (fits but kept string for uniformity)
+  display: string
+}
+
+/** Parses an --amount flag for Solana: "0.5sol" / "10usdc". Suffix is required. */
 export function parseAmountFlag(input: string): number {
-  const m = input.trim().match(/^(\d+(?:\.\d+)?)\s*(sol)$/i)
+  // Back-compat: legacy callers want lamports back directly. Keep the simple SOL parser available.
+  const m = input.trim().match(/^(\d+(?:\.\d+)?)\s*sol$/i)
   if (!m) throw new Error(`Invalid --amount: "${input}". Expected e.g. "0.5sol".`)
   return Math.floor(Number(m[1]) * 1e9)
+}
+
+/**
+ * Parse a Solana --amount with asset discrimination. Suffix is required and
+ * determines the input asset — `Nsol` for native SOL, `Nusdc` for USDC.
+ *
+ * Decimals: SOL = 9 (lamports), USDC = 6.
+ */
+export function parseSolanaInputAmount(input: string): SolanaParsedAmount {
+  const m = input.trim().match(/^(\d+(?:\.\d+)?)\s*(sol|usdc)$/i)
+  if (!m) throw new Error(`Invalid --amount: "${input}". Expected e.g. "0.5sol" or "10usdc".`)
+  const value = Number(m[1])
+  const unit = m[2].toLowerCase()
+  if (unit === 'sol') {
+    return {
+      asset: 'SOL',
+      raw: Math.floor(value * 1e9),
+      display: `${value.toFixed(4)} SOL`,
+    }
+  }
+  return {
+    asset: 'USDC',
+    raw: Math.floor(value * 1e6),
+    display: `${value.toFixed(2)} USDC`,
+  }
 }
 
 export function lamportsToSol(lamports: number): number {
@@ -692,12 +798,50 @@ export function parseEvmAmount(input: string): string {
   return (BigInt(intPart) * 10n ** 18n + BigInt(padded || '0')).toString()
 }
 
+/**
+ * Parse a Base --amount with asset discrimination. Suffix governs the input
+ * asset and how the value is converted to raw units:
+ *   - `Neth` / `Ngwei` / `Nwei` → ETH (18 decimals); default if suffix omitted
+ *   - `Nusdc` → USDC (6 decimals)
+ */
+export function parseBaseInputAmount(input: string): BaseParsedAmount {
+  const m = input.trim().match(/^(\d+(?:\.\d+)?)\s*(eth|gwei|wei|usdc)?$/i)
+  if (!m) throw new Error(`Invalid --amount: "${input}". Expected e.g. "0.01eth", "1000gwei", "1000wei", or "10usdc".`)
+  const n = m[1]
+  const unit = (m[2] || 'eth').toLowerCase()
+  if (unit === 'usdc') {
+    const [intPart, fracPart = ''] = n.split('.')
+    const padded = (fracPart + '000000').slice(0, 6)
+    const raw = (BigInt(intPart) * 1_000_000n + BigInt(padded || '0')).toString()
+    return { asset: 'USDC', raw, display: `${Number(n).toFixed(2)} USDC` }
+  }
+  if (unit === 'wei') {
+    const raw = n.includes('.') ? BigInt(Math.floor(Number(n))).toString() : n
+    return { asset: 'ETH', raw, display: `${raw} wei` }
+  }
+  if (unit === 'gwei') {
+    const raw = BigInt(Math.floor(Number(n) * 1e9)).toString()
+    return { asset: 'ETH', raw, display: `${n} gwei` }
+  }
+  // eth (default when no suffix)
+  const [intPart, fracPart = ''] = n.split('.')
+  const padded = (fracPart + '0'.repeat(18)).slice(0, 18)
+  const raw = (BigInt(intPart) * 10n ** 18n + BigInt(padded || '0')).toString()
+  return { asset: 'ETH', raw, display: `${Number(n).toFixed(6)} ETH` }
+}
+
 export function formatEthHuman(weiStr: string, decimals = 6): string {
   const wei = BigInt(weiStr)
   const whole = wei / 10n ** 18n
   const frac = wei % 10n ** 18n
   const fracStr = frac.toString().padStart(18, '0').slice(0, decimals)
   return `${whole}.${fracStr} ETH`
+}
+
+/** Format a USDC raw amount (6 decimals) for human display. Works for any chain. */
+export function formatUsdcHuman(raw: string | number, decimals = 2): string {
+  const rawNum = typeof raw === 'string' ? Number(raw) : raw
+  return `${(rawNum / 1e6).toFixed(decimals)} USDC`
 }
 
 // ───────── EVM signer resolver ─────────
@@ -807,21 +951,28 @@ export interface BuyBaseResult {
   slippageBpsUsed: number
   protectedExec: boolean
   rpcUrl: string
+  inputAsset: BaseInputAsset
 }
 
 export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
   assertValidEvmAddress(opts.ca)
   if (!opts.thesis?.trim()) throw new Error('Missing --thesis')
-  const amountInRawWei = parseEvmAmount(opts.amount)
+
+  // USDC-aware amount parsing.
+  const parsed = parseBaseInputAmount(opts.amount)
+  const inputAsset = parsed.asset
+  const amountInRaw = parsed.raw
 
   const cfg = loadTradingConfig()
   const slippageBps = opts.slippageBps ?? cfg.defaultSlippageBps ?? 100
 
   const {
     executeEvmSwap,
+    ensureErc20Approval,
     getErc20Decimals,
     makeEvmProvider,
     NATIVE_ETH,
+    BASE_USDC,
     BASE_CHAIN_ID,
     resolveBaseRpcUrl,
     DEFAULT_BASE_PROTECTED_TIP_WEI,
@@ -859,18 +1010,34 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     ? (opts.priorityFeeWei ?? DEFAULT_BASE_PROTECTED_TIP_WEI)
     : undefined
 
+  const srcToken = inputAsset === 'USDC' ? BASE_USDC : NATIVE_ETH
+  const srcDecimals = inputAsset === 'USDC' ? 6 : 18
+
   const swap = await executeEvmSwap({
     provider,
     wallet: connectedWallet,
-    srcToken: NATIVE_ETH,
+    srcToken,
     destToken: opts.ca,
-    srcAmount: amountInRawWei,
-    srcDecimals: 18,
+    srcAmount: amountInRaw,
+    srcDecimals,
     destDecimals: tokenDecimals,
     slippageBps,
     chainId: BASE_CHAIN_ID,
     dryRun: opts.dryRun,
     priorityFeeWei,
+    // USDC-input requires an ERC20 approval to the ParaSwap router on first
+    // use of that token from this wallet. ETH-input has no approval step.
+    onTxBuilt: inputAsset === 'USDC'
+      ? async (txBlob) => {
+          if (opts.dryRun) return
+          await ensureErc20Approval(
+            connectedWallet,
+            srcToken,
+            txBlob.to,
+            BigInt(amountInRaw),
+          )
+        }
+      : undefined,
   })
 
   const tokensOutRaw = swap.destAmount
@@ -891,8 +1058,11 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     entry: {
       tx: swap.txHash,
       time: nowIso,
-      amountIn: formatEthHuman(amountInRawWei),
-      amountInRawWei,
+      amountIn: parsed.display,
+      // Legacy field — populated only for ETH-funded entries.
+      amountInRawWei: inputAsset === 'ETH' ? amountInRaw : '0',
+      inputAsset,
+      amountInRaw,
       tokensOut,
       tokensOutRaw,
       tokenDecimals,
@@ -931,7 +1101,8 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     positionPath: positionPath('base', opts.ca, signer.address),
     txHash: swap.txHash,
     amountIn: position.entry.amountIn,
-    amountInRawWei,
+    // Legacy field — kept for back-compat in consumers; only meaningful for ETH-funded entries.
+    amountInRawWei: inputAsset === 'ETH' ? amountInRaw : '0',
     tokensOut,
     tokensOutRaw,
     tokenDecimals,
@@ -942,6 +1113,7 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     slippageBpsUsed: slippageBps,
     protectedExec: !!opts.protectedExec,
     rpcUrl,
+    inputAsset,
   }
 }
 
@@ -978,6 +1150,8 @@ export interface SellBaseResult {
   approvalTxHash?: string
   protectedExec: boolean
   rpcUrl: string
+  /** The asset this sell exited to (mirrors entry.inputAsset). */
+  outputAsset: BaseInputAsset
 }
 
 export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
@@ -995,6 +1169,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     ensureErc20Approval,
     makeEvmProvider,
     NATIVE_ETH,
+    BASE_USDC,
     BASE_CHAIN_ID,
     resolveBaseRpcUrl,
     DEFAULT_BASE_PROTECTED_TIP_WEI,
@@ -1009,6 +1184,11 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     )
   }
   if (position.status !== 'open') throw new Error(`Position ${opts.ca} is already closed`)
+
+  // Exit symmetry — sell back to whatever asset was used to enter.
+  const outputAsset = position.entry.inputAsset ?? 'ETH'
+  const destToken = outputAsset === 'USDC' ? BASE_USDC : NATIVE_ETH
+  const destDecimals = outputAsset === 'USDC' ? 6 : 18
 
   const rpcUrl = resolveBaseRpcUrl({
     rpcUrl: opts.rpcUrl,
@@ -1039,10 +1219,10 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     provider,
     wallet: connectedWallet,
     srcToken: opts.ca,
-    destToken: NATIVE_ETH,
+    destToken,
     srcAmount: tokensToSellRaw.toString(),
     srcDecimals: position.entry.tokenDecimals,
-    destDecimals: 18,
+    destDecimals,
     slippageBps,
     chainId: BASE_CHAIN_ID,
     dryRun: opts.dryRun,
@@ -1059,22 +1239,38 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     },
   })
 
-  const ethOutRawWei = swap.destAmount
-  const ethOutDisplay = formatEthHuman(ethOutRawWei)
+  const outRaw = swap.destAmount
+  const outDisplay = outputAsset === 'USDC'
+    ? formatUsdcHuman(outRaw)
+    : formatEthHuman(outRaw)
   const tokensInUi = Number(BigInt(tokensToSellRaw.toString())) / Math.pow(10, position.entry.tokenDecimals)
   const tokensInDisplay = formatTokensHuman(tokensInUi, 6)
 
-  // Realized PnL: proportional cost basis vs net proceeds.
-  // costWei = (entryAmountInWei + entryFeeWei) * tokensSold / totalTokens
-  const entryAmountWei = BigInt(position.entry.amountInRawWei)
-  const entryFeeWei = BigInt(position.entry.feeWei ?? '0')
-  const totalEntryCostWei = entryAmountWei + entryFeeWei
-  const costWei = (totalEntryCostWei * tokensToSellRaw) / totalRaw
-  const sellFeeWei = BigInt(swap.feeWei)
-  const proceedsNetWei = BigInt(ethOutRawWei) - sellFeeWei
-  const realizedWei = proceedsNetWei - costWei
-  // realizedEth as JS number — for typical positions (<1 ETH), fits comfortably.
-  const realizedEth = Number(realizedWei) / 1e18
+  // Realized PnL in the position's input asset (ETH or USDC).
+  // Entry cost = entry amount + gas fee (ETH-only — fee was paid in ETH at swap time;
+  // for USDC entries we treat gas as small and ignore it in the USDC accounting).
+  const entryRawStr = position.entry.amountInRaw ?? position.entry.amountInRawWei
+  let realizedEth: number
+  const inputAsset = position.entry.inputAsset ?? 'ETH'
+  if (inputAsset === 'ETH' && outputAsset === 'ETH') {
+    const entryAmountWei = BigInt(entryRawStr)
+    const entryFeeWei = BigInt(position.entry.feeWei ?? '0')
+    const totalEntryCostWei = entryAmountWei + entryFeeWei
+    const costWei = (totalEntryCostWei * tokensToSellRaw) / totalRaw
+    const sellFeeWei = BigInt(swap.feeWei)
+    const proceedsNetWei = BigInt(outRaw) - sellFeeWei
+    const realizedWei = proceedsNetWei - costWei
+    realizedEth = Number(realizedWei) / 1e18
+  } else if (inputAsset === 'USDC' && outputAsset === 'USDC') {
+    // USDC in, USDC out — fees were ETH but we don't subtract them from USDC PnL.
+    const entryUsdc = BigInt(entryRawStr)
+    const costUsdc = (entryUsdc * tokensToSellRaw) / totalRaw
+    const realized6 = BigInt(outRaw) - costUsdc
+    realizedEth = Number(realized6) / 1e6  // realizedEth field reused for USDC value
+  } else {
+    // Mixed in/out (rare — shouldn't happen with symmetric exit). Best-effort: native units.
+    realizedEth = 0
+  }
 
   const nowIso = new Date().toISOString()
   position.sells.push({
@@ -1082,14 +1278,15 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     time: nowIso,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
-    ethOut: ethOutDisplay,
-    ethOutRawWei,
+    ethOut: outDisplay,
+    ethOutRawWei: outRaw,
     percentRequested: opts.percent,
     realizedEth,
     reason: opts.reason.trim(),
     feeWei: swap.feeWei,
     slippageBpsUsed: slippageBps,
     protectedExec: !!opts.protectedExec,
+    outputAsset,
   })
 
   position.pnl.realizedEth = position.sells.reduce((a, s) => a + s.realizedEth, 0)
@@ -1108,8 +1305,8 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     txHash: swap.txHash,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
-    ethOut: ethOutDisplay,
-    ethOutRawWei,
+    ethOut: outDisplay,
+    ethOutRawWei: outRaw,
     realizedEth,
     positionStatus: position.status,
     wallet: signer.address,
@@ -1120,6 +1317,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     approvalTxHash,
     protectedExec: !!opts.protectedExec,
     rpcUrl,
+    outputAsset,
   }
 }
 
@@ -1157,6 +1355,7 @@ export async function syncBase(opts: SyncBaseOpts = {}): Promise<SyncBaseReport>
     getErc20Balance,
     makeEvmProvider,
     NATIVE_ETH,
+    BASE_USDC,
     BASE_CHAIN_ID,
     resolveBaseRpcUrl,
   } = await import('./evm-trading.js')
@@ -1192,22 +1391,30 @@ export async function syncBase(opts: SyncBaseOpts = {}): Promise<SyncBaseReport>
 
     if (bookRaw > 0n && p.status === 'open') {
       try {
+        const inputAsset = p.entry.inputAsset ?? 'ETH'
+        const destToken = inputAsset === 'USDC' ? BASE_USDC : NATIVE_ETH
+        const destDecimals = inputAsset === 'USDC' ? 6 : 18
         const route = await fetchParaswapPrice({
           srcToken: p.mint,
-          destToken: NATIVE_ETH,
+          destToken,
           amount: bookRaw.toString(),
           srcDecimals: p.entry.tokenDecimals,
-          destDecimals: 18,
+          destDecimals,
           network: BASE_CHAIN_ID,
         })
-        const quotedEthOutWei = BigInt(route.destAmount)
-        // Proportional cost basis in wei.
-        const entryCostWei = BigInt(p.entry.amountInRawWei) + BigInt(p.entry.feeWei ?? '0')
-        const remainingCostWei = (entryCostWei * bookRaw) / totalRaw
-        const diffWei = quotedEthOutWei - remainingCostWei
-        unrealizedEth = Number(diffWei) / 1e18
-        unrealizedPct = remainingCostWei > 0n
-          ? (Number(diffWei) / Number(remainingCostWei)) * 100
+        const quotedOut = BigInt(route.destAmount)
+        const entryRawStr = p.entry.amountInRaw ?? p.entry.amountInRawWei
+        // For ETH-funded: cost basis includes ETH-denominated gas. For USDC: gas was paid in ETH,
+        // not USDC, so we don't subtract it from the USDC cost basis.
+        const entryCost = inputAsset === 'ETH'
+          ? BigInt(entryRawStr) + BigInt(p.entry.feeWei ?? '0')
+          : BigInt(entryRawStr)
+        const remainingCost = (entryCost * bookRaw) / totalRaw
+        const diff = quotedOut - remainingCost
+        const divisor = inputAsset === 'USDC' ? 1e6 : 1e18
+        unrealizedEth = Number(diff) / divisor
+        unrealizedPct = remainingCost > 0n
+          ? (Number(diff) / Number(remainingCost)) * 100
           : 0
         p.pnl.unrealizedEth = unrealizedEth
         p.pnl.unrealizedPct = unrealizedPct
@@ -1313,12 +1520,19 @@ export interface BuyResult {
   slippageSource: 'user' | 'dexscreener' | 'fallback'
   protectedExec: boolean
   forensics?: FillForensics
+  // USDC-input awareness
+  inputAsset: SolanaInputAsset
 }
 
 export async function buy(opts: BuyOpts): Promise<BuyResult> {
   const mintPk = assertValidMint(opts.ca)
   if (!opts.thesis?.trim()) throw new Error('Missing --thesis')
-  const amountInRawSol = parseAmountFlag(opts.amount)
+
+  // USDC-aware amount parsing: suffix on --amount picks the input asset.
+  const parsed = parseSolanaInputAmount(opts.amount)
+  const inputAsset = parsed.asset
+  const amountInRaw = parsed.raw
+  const inputMint = inputAsset === 'USDC' ? USDC_MINT_SOLANA : SOL_MINT.toBase58()
 
   const cfg = loadTradingConfig()
   const rpcUrl = opts.rpcUrl ?? cfg.rpcUrl
@@ -1360,9 +1574,9 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
   const swap = await executeSwap({
     connection,
     wallet: signer.keypair,
-    inputMint: SOL_MINT.toBase58(),
+    inputMint,
     outputMint: mintPk.toBase58(),
-    inputAmountRaw: amountInRawSol,
+    inputAmountRaw: amountInRaw,
     slippageBps,
     dryRun: opts.dryRun,
     quoteMaxAgeMs,
@@ -1399,8 +1613,11 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     entry: {
       tx: swap.txSignature,
       time: nowIso,
-      amountIn: formatSolHuman(amountInRawSol, 4),
-      amountInRawSol: amountInRawSol,
+      amountIn: parsed.display,
+      // Keep legacy lamports field populated when SOL-funded; 0 otherwise.
+      amountInRawSol: inputAsset === 'SOL' ? amountInRaw : 0,
+      inputAsset,
+      amountInRaw,
       tokensOut,
       tokensOutRaw,
       tokenDecimals,
@@ -1443,7 +1660,8 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     wallet: signer.address,
     mint: opts.ca,
     tx: swap.txSignature,
-    solIn: amountInRawSol / 1e9,
+    // For SOL-funded: actual SOL in. For USDC-funded: 0 (legacy log shape; keep semantics consistent).
+    solIn: inputAsset === 'SOL' ? amountInRaw / 1e9 : 0,
     tokensOut,
     tokenDecimals,
     entryMcap,
@@ -1459,7 +1677,7 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     positionPath: positionPath('solana', opts.ca, signer.address),
     txSignature: swap.txSignature,
     amountIn: position.entry.amountIn,
-    amountInRawSol,
+    amountInRawSol: inputAsset === 'SOL' ? amountInRaw : 0,
     tokensOut,
     tokensOutRaw,
     tokenDecimals,
@@ -1473,6 +1691,7 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     slippageSource,
     protectedExec: !!opts.protectedExec,
     forensics,
+    inputAsset,
   }
 }
 
@@ -1505,6 +1724,8 @@ export interface SellResult {
   wallet: string
   mint: string
   dryRun: boolean
+  /** Asset this sell exited to (mirrors entry.inputAsset). */
+  outputAsset: SolanaInputAsset
   // Phase 2
   feeLamports: number
   tipLamports: number
@@ -1572,11 +1793,16 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     throw new Error(`Computed sell amount is zero (remaining=${remainingRaw}, percent=${opts.percent}).`)
   }
 
+  // Exit symmetry: sell back to the same asset the position was opened in.
+  const outputAsset = position.entry.inputAsset ?? 'SOL'
+  const outputMint = outputAsset === 'USDC' ? USDC_MINT_SOLANA : SOL_MINT.toBase58()
+  const outputDecimals = outputAsset === 'USDC' ? 6 : 9
+
   const swap = await executeSwap({
     connection,
     wallet: signer.keypair,
     inputMint: mintPk.toBase58(),
-    outputMint: SOL_MINT.toBase58(),
+    outputMint,
     inputAmountRaw: Number(tokensToSellRaw),
     slippageBps,
     dryRun: opts.dryRun,
@@ -1584,25 +1810,42 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     jitoTipLamports,
   })
 
-  const solOutRaw = swap.outputAmountRaw          // gross SOL out (fee + tip already added back)
+  const solOutRaw = swap.outputAmountRaw          // raw output in `outputAsset` units (gross — fee+tip added back)
   const feeLamports = swap.feeLamports ?? 0
   const tipLamports = swap.tipLamports ?? 0
   const tokensInUi = Number(tokensToSellRaw) / Math.pow(10, position.entry.tokenDecimals)
   const tokensInDisplay = formatTokensHuman(tokensInUi, 6)
-  const solOutDisplay = formatSolHuman(solOutRaw, 6)
+  const solOutDisplay = outputAsset === 'USDC'
+    ? formatUsdcHuman(solOutRaw)
+    : formatSolHuman(solOutRaw, 6)
 
-  // FIFO realized PnL, fee-aware on both sides.
-  //   entryCost includes entry fee + tip — Phase 2 positions store these; Phase 1
-  //   positions had only amountInRawSol (fee/tip default to 0 via ??).
-  //   sellNetProceeds = grossSolOut - sellFee - sellTip.
-  const entryFee = position.entry.feeLamports ?? 0
-  const entryTip = position.entry.tipLamports ?? 0
-  const entryCostLamports = position.entry.amountInRawSol + entryFee + entryTip
-  const entryCostSol = entryCostLamports / 1e9
+  // FIFO realized PnL in the position's input asset (SOL or USDC).
+  //   entryCost = entry amount + entry fee + entry tip (all in input asset units)
+  //     - USDC entries: fees were paid in SOL at swap time, so they don't reduce
+  //       the USDC cost basis. We treat entryCost as purely the USDC spent.
+  //   netProceeds = gross out - sell fee/tip (SOL-paid) when output is SOL;
+  //     for USDC output, fees were paid in SOL so we don't subtract from USDC out.
+  const entryAssetRaw = position.entry.amountInRaw ?? position.entry.amountInRawSol
   const proportion = Number(tokensToSellRaw) / Number(totalRaw)
-  const costSol = proportion * entryCostSol
-  const netProceedsSol = (solOutRaw - feeLamports - tipLamports) / 1e9
-  const realizedSol = netProceedsSol - costSol
+  let realizedSol: number
+  let netProceedsForLog: number
+  if (outputAsset === 'SOL') {
+    const entryFee = position.entry.feeLamports ?? 0
+    const entryTip = position.entry.tipLamports ?? 0
+    const entryCostLamports = entryAssetRaw + entryFee + entryTip
+    const entryCostSol = entryCostLamports / 1e9
+    const costSol = proportion * entryCostSol
+    const netProceedsSol = (solOutRaw - feeLamports - tipLamports) / 1e9
+    realizedSol = netProceedsSol - costSol
+    netProceedsForLog = netProceedsSol
+  } else {
+    // USDC: entry raw is in 6-decimal USDC units. Sell proceeds also in USDC.
+    const entryCostUsdc = entryAssetRaw / 1e6
+    const costUsdc = proportion * entryCostUsdc
+    const netProceedsUsdc = solOutRaw / 1e6
+    realizedSol = netProceedsUsdc - costUsdc
+    netProceedsForLog = netProceedsUsdc
+  }
 
   const forensics: FillForensics | undefined = opts.dryRun
     ? undefined
@@ -1624,6 +1867,7 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     slippageBpsUsed: slippageBps,
     protectedExec: !!opts.protectedExec,
     forensics,
+    outputAsset,
   })
 
   position.pnl.realizedSol = position.sells.reduce((a, s) => a + s.realizedSol, 0)
@@ -1645,7 +1889,7 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     mint: opts.ca,
     tx: swap.txSignature,
     tokensIn: tokensInDisplay,
-    solOut: netProceedsSol,
+    solOut: netProceedsForLog,
     percentRequested: opts.percent,
     realizedSol,
     reason: opts.reason.trim(),
@@ -1673,6 +1917,7 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     slippageSource,
     protectedExec: !!opts.protectedExec,
     forensics,
+    outputAsset,
   }
 }
 
@@ -1738,18 +1983,31 @@ export async function sync(opts: SyncOpts = {}): Promise<SyncReport> {
 
     if (bookRaw > 0n && p.status === 'open') {
       try {
+        // Quote token → position's input asset (SOL or USDC).
+        const inputAsset = p.entry.inputAsset ?? 'SOL'
+        const outputMint = inputAsset === 'USDC' ? USDC_MINT_SOLANA : SOL_MINT.toBase58()
         const q = await fetchQuote({
           inputMint: p.mint,
-          outputMint: SOL_MINT.toBase58(),
+          outputMint,
           amount: Number(bookRaw),
           slippageBps: slippageBpsForQuote,
         })
-        const solOut = Number(q.outAmount) / 1e9
-        const entrySol = p.entry.amountInRawSol / 1e9
-        const proportion = Number(bookRaw) / Number(totalRaw)
-        const remCost = proportion * entrySol
-        unrealizedSol = solOut - remCost
-        unrealizedPct = remCost > 0 ? (unrealizedSol / remCost) * 100 : 0
+        const entryAssetRaw = p.entry.amountInRaw ?? p.entry.amountInRawSol
+        if (inputAsset === 'SOL') {
+          const solOut = Number(q.outAmount) / 1e9
+          const entrySol = entryAssetRaw / 1e9
+          const proportion = Number(bookRaw) / Number(totalRaw)
+          const remCost = proportion * entrySol
+          unrealizedSol = solOut - remCost
+          unrealizedPct = remCost > 0 ? (unrealizedSol / remCost) * 100 : 0
+        } else {
+          const usdcOut = Number(q.outAmount) / 1e6
+          const entryUsdc = entryAssetRaw / 1e6
+          const proportion = Number(bookRaw) / Number(totalRaw)
+          const remCost = proportion * entryUsdc
+          unrealizedSol = usdcOut - remCost          // field name kept; holds USDC realized for USDC positions
+          unrealizedPct = remCost > 0 ? (unrealizedSol / remCost) * 100 : 0
+        }
         p.pnl.unrealizedSol = unrealizedSol
         p.pnl.unrealizedPct = unrealizedPct
         p.pnl.lastPricedAt = nowIso
@@ -1867,31 +2125,42 @@ async function delay(ms: number): Promise<void> {
 }
 
 /**
- * Solana amount split. `totalAmount` parses to lamports; per-leg amount is
- * floor(total / n). The remainder is silently dropped — at typical cohort
- * sizes (3–10 wallets, sub-SOL amounts) it's at most n-1 lamports.
+ * Solana amount split. Auto-detects asset (SOL or USDC) from the total's suffix.
+ * Per-leg amount is `floor(total / n)`; remainder is silently dropped (at most
+ * n-1 base units, negligible at typical cohort sizes).
  */
 function splitSolAmount(totalAmount: string, n: number): string {
-  const totalLamports = parseAmountFlag(totalAmount)
-  const perLeg = Math.floor(totalLamports / n)
+  const parsed = parseSolanaInputAmount(totalAmount)
+  const perLeg = Math.floor(parsed.raw / n)
   if (perLeg <= 0) {
-    throw new Error(`Cohort split: per-leg amount is 0 lamports (total=${totalLamports}, n=${n}). Increase --total or reduce wallet count.`)
+    throw new Error(`Cohort split: per-leg amount is 0 (total=${parsed.raw} ${parsed.asset} raw, n=${n}). Increase --total or reduce wallet count.`)
   }
-  return `${(perLeg / 1e9).toFixed(9)}sol`
+  if (parsed.asset === 'SOL') {
+    return `${(perLeg / 1e9).toFixed(9)}sol`
+  }
+  return `${(perLeg / 1e6).toFixed(6)}usdc`
 }
 
 /**
- * Base amount split. Parses wei (u256-safe BigInt), divides by N, returns the
- * per-leg amount in a wei suffix so `buyBase` round-trips it back without
- * floating-point drift.
+ * Base amount split. Auto-detects asset (ETH or USDC) from total's suffix.
+ * Returns per-leg in the asset's canonical raw suffix so `buyBase` round-trips
+ * without float drift.
  */
 function splitEthAmount(totalAmount: string, n: number): string {
-  const totalWei = BigInt(parseEvmAmount(totalAmount))
-  const perLeg = totalWei / BigInt(n)
+  const parsed = parseBaseInputAmount(totalAmount)
+  const totalRaw = BigInt(parsed.raw)
+  const perLeg = totalRaw / BigInt(n)
   if (perLeg <= 0n) {
-    throw new Error(`Cohort split: per-leg amount is 0 wei (total=${totalWei}, n=${n}). Increase --total or reduce wallet count.`)
+    throw new Error(`Cohort split: per-leg amount is 0 raw (total=${totalRaw} ${parsed.asset}, n=${n}). Increase --total or reduce wallet count.`)
   }
-  return `${perLeg.toString()}wei`
+  if (parsed.asset === 'ETH') {
+    return `${perLeg.toString()}wei`
+  }
+  // USDC: emit as decimal "Nusdc" since `Nusdc` parser handles fractional values.
+  // Use 6-decimal representation; BigInt division is integer-exact at the raw level.
+  const whole = perLeg / 1_000_000n
+  const frac = (perLeg % 1_000_000n).toString().padStart(6, '0')
+  return `${whole}.${frac}usdc`
 }
 
 export async function cohortBuy(opts: CohortBuyOpts): Promise<CohortBuyResult> {
@@ -2009,6 +2278,13 @@ export interface PnlPerChain {
   unit: 'SOL' | 'ETH'
 }
 
+export interface PnlUsdcBucket {
+  realized: number                    // USDC (already 1:1 with USD)
+  unrealized: number
+  total: number
+  count: number
+}
+
 export interface PnlUsdSection {
   realized: number
   unrealized: number
@@ -2024,17 +2300,19 @@ export interface PnlByGroupEntry {
   realized: number
   unrealized: number
   count: number
-  /** Native unit for this group ('SOL' or 'ETH'). */
-  unit: 'SOL' | 'ETH'
+  /** Native unit for this group ('SOL', 'ETH', or 'USDC'). */
+  unit: 'SOL' | 'ETH' | 'USDC'
   /** Chain (always set; for `--by chain` it equals the group key). */
   chain: 'solana' | 'base'
 }
 
 export interface PnlReport {
-  // Per-chain breakdown in native units
+  // Per-chain breakdown in native units (only counts native-funded positions)
   solana: PnlPerChain
   base: PnlPerChain
-  // Cross-chain USD aggregation (null if both price lookups failed)
+  // USDC-funded positions aggregated across chains
+  usdc: PnlUsdcBucket
+  // Cross-chain USD aggregation (null if all price lookups failed AND no USDC positions)
   usd: PnlUsdSection | null
   // Grouping when --by is set
   byGroup?: PnlByGroupEntry[]
@@ -2058,40 +2336,58 @@ export async function computePnl(opts: PnlOpts = {}): Promise<PnlReport> {
     (p): p is BasePositionFile => p.chain === 'base',
   )
 
-  // ── Per-chain native totals ──
-  let solRealized = 0
-  let solUnrealized = 0
+  // ── Per-asset totals — bucket by inputAsset, not by chain ──
+  let solRealized = 0, solUnrealized = 0, solCount = 0
+  let ethRealized = 0, ethUnrealized = 0, ethCount = 0
+  let usdcRealized = 0, usdcUnrealized = 0, usdcCount = 0
+
   for (const p of solanaPositions) {
-    solRealized += p.pnl.realizedSol
-    solUnrealized += p.pnl.unrealizedSol
+    const asset = p.entry.inputAsset ?? 'SOL'
+    if (asset === 'USDC') {
+      usdcRealized += p.pnl.realizedSol           // field name kept for back-compat; value is USDC
+      usdcUnrealized += p.pnl.unrealizedSol
+      usdcCount += 1
+    } else {
+      solRealized += p.pnl.realizedSol
+      solUnrealized += p.pnl.unrealizedSol
+      solCount += 1
+    }
   }
-  let ethRealized = 0
-  let ethUnrealized = 0
   for (const p of basePositions) {
-    ethRealized += p.pnl.realizedEth
-    ethUnrealized += p.pnl.unrealizedEth
+    const asset = p.entry.inputAsset ?? 'ETH'
+    if (asset === 'USDC') {
+      usdcRealized += p.pnl.realizedEth
+      usdcUnrealized += p.pnl.unrealizedEth
+      usdcCount += 1
+    } else {
+      ethRealized += p.pnl.realizedEth
+      ethUnrealized += p.pnl.unrealizedEth
+      ethCount += 1
+    }
   }
 
-  // ── USD conversion (Phase 5d) ──
+  // ── USD conversion ──
   let usdSection: PnlUsdSection | null = null
   const wantUsd = opts.usd ?? true
   if (wantUsd) {
     const { fetchUsdPrice } = await import('./evm-trading.js')
-    const needsSol = solanaPositions.length > 0
-    const needsEth = basePositions.length > 0
+    const needsSol = solCount > 0
+    const needsEth = ethCount > 0
     const [solPrice, ethPrice] = await Promise.all([
       needsSol ? fetchUsdPrice('SOL') : Promise.resolve(null),
       needsEth ? fetchUsdPrice('ETH') : Promise.resolve(null),
     ])
-    if (solPrice !== null || ethPrice !== null) {
+    const haveAnyPrice = solPrice !== null || ethPrice !== null || usdcCount > 0
+    if (haveAnyPrice) {
       const solR = solPrice !== null ? solRealized * solPrice : 0
       const solU = solPrice !== null ? solUnrealized * solPrice : 0
       const ethR = ethPrice !== null ? ethRealized * ethPrice : 0
       const ethU = ethPrice !== null ? ethUnrealized * ethPrice : 0
+      // USDC = USD 1:1 by definition.
       usdSection = {
-        realized: solR + ethR,
-        unrealized: solU + ethU,
-        total: solR + solU + ethR + ethU,
+        realized: solR + ethR + usdcRealized,
+        unrealized: solU + ethU + usdcUnrealized,
+        total: solR + solU + ethR + ethU + usdcRealized + usdcUnrealized,
         solPriceUsd: solPrice,
         ethPriceUsd: ethPrice,
       }
@@ -2102,11 +2398,18 @@ export async function computePnl(opts: PnlOpts = {}): Promise<PnlReport> {
   let byGroup: PnlByGroupEntry[] | undefined
   if (opts.by) {
     const map = new Map<string, PnlByGroupEntry>()
+    const bucketKey = (p: PositionFile, asset: 'SOL' | 'ETH' | 'USDC') => {
+      if (opts.by === 'wallet') return `${p.wallet}|${asset}`
+      // by chain: split USDC out as its own bucket since it crosses chains
+      return asset === 'USDC' ? 'usdc' : p.chain
+    }
     for (const p of solanaPositions) {
-      const key = opts.by === 'wallet' ? p.wallet : 'solana'
+      const asset: 'SOL' | 'USDC' = p.entry.inputAsset ?? 'SOL'
+      const key = bucketKey(p, asset)
       let entry = map.get(key)
       if (!entry) {
-        entry = { key, realized: 0, unrealized: 0, count: 0, unit: 'SOL', chain: 'solana' }
+        const displayKey = opts.by === 'wallet' ? p.wallet : key
+        entry = { key: displayKey, realized: 0, unrealized: 0, count: 0, unit: asset, chain: 'solana' }
         map.set(key, entry)
       }
       entry.realized += p.pnl.realizedSol
@@ -2114,10 +2417,12 @@ export async function computePnl(opts: PnlOpts = {}): Promise<PnlReport> {
       entry.count += 1
     }
     for (const p of basePositions) {
-      const key = opts.by === 'wallet' ? p.wallet : 'base'
+      const asset: 'ETH' | 'USDC' = p.entry.inputAsset ?? 'ETH'
+      const key = bucketKey(p, asset)
       let entry = map.get(key)
       if (!entry) {
-        entry = { key, realized: 0, unrealized: 0, count: 0, unit: 'ETH', chain: 'base' }
+        const displayKey = opts.by === 'wallet' ? p.wallet : key
+        entry = { key: displayKey, realized: 0, unrealized: 0, count: 0, unit: asset, chain: 'base' }
         map.set(key, entry)
       }
       entry.realized += p.pnl.realizedEth
@@ -2131,20 +2436,27 @@ export async function computePnl(opts: PnlOpts = {}): Promise<PnlReport> {
     realized: solRealized,
     unrealized: solUnrealized,
     total: solRealized + solUnrealized,
-    count: solanaPositions.length,
+    count: solCount,
     unit: 'SOL',
   }
   const base: PnlPerChain = {
     realized: ethRealized,
     unrealized: ethUnrealized,
     total: ethRealized + ethUnrealized,
-    count: basePositions.length,
+    count: ethCount,
     unit: 'ETH',
+  }
+  const usdc: PnlUsdcBucket = {
+    realized: usdcRealized,
+    unrealized: usdcUnrealized,
+    total: usdcRealized + usdcUnrealized,
+    count: usdcCount,
   }
 
   return {
     solana,
     base,
+    usdc,
     usd: usdSection,
     byGroup,
     // Back-compat fields — still describe the Solana totals as in Phase 1-5c.

@@ -389,6 +389,8 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 
 **Any wallet you create with `palmyr wallet create` can trade.** Vault wallets are BIP39 mnemonics with both Solana (`m/44'/501'`) and EVM (`m/44'/60'/0'/0/0`) derivations out of the box — pass `--wallet <name|id>` to any trading command. The session secret cached in your OS keychain (from `wallet create` / `wallet import`) makes the daemon and one-off commands work without re-prompting. The optional `trading-keystore` is still available for power users who want one mnemonic that HD-derives many trading wallets at consecutive indices — see "Trading keystore" below.
 
+**Fund trades with native asset or USDC.** The `--amount` suffix picks the input asset: `0.5sol` and `0.01eth` spend native, `10usdc` spends USDC (same `EPjFW…Dt1v` on Solana and `0x8335…2913` on Base). Sells exit back to whatever the position was entered in (exit symmetry — buy with USDC, sell back to USDC). PnL is tracked per-asset: a USDC-funded position's realized/unrealized are USDC, not SOL. `palmyr wallet pnl` shows separate SOL / ETH / USDC buckets and a cross-asset USD total (Jupiter SOL/USD + Coinbase ETH/USD + USDC@1.00).
+
 **MEV protection (Phase 2).** Pass `--protected` on `buy` / `sell` to route through Jito Block Engine with a tip (default 10000 lamports, override via `--tip <lamports>`). Automatically switches to dynamic slippage from DexScreener 5m volatility (`3× vol`, clamped to [0.5%, 15%]) unless `--slippage <bps>` is explicit. Realized PnL is fee-and-tip-aware. Each fill gets a post-trade forensics flag (`ok` / `suspect-mev`) based on how much of the slippage budget the realized fill consumed.
 
 | Command | Network | Notes |
