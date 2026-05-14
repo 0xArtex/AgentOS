@@ -237,8 +237,8 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: 'buy <CHAIN> <CA>', desc: 'Split a buy across N derived wallets with timing jitter (Phase 4c)' },
     { flag: '--total <amt>', desc: 'Total amount across all cohort legs (required unless template supplies it)', hint: 'e.g. 1.0sol, 0.05eth' },
     { flag: '--thesis "..."', desc: 'Plain-string reasoning (shared across all legs) — required' },
-    { flag: '--wallets <list>', desc: 'Explicit comma-separated wallet refs', hint: 'e.g. trading:0,trading:1,trading:2' },
-    { flag: '--from trading:N --split K', desc: 'Derive K consecutive wallets starting at index N (alternative to --wallets)' },
+    { flag: '--wallets <list>', desc: 'Explicit comma-separated wallet refs (vault names/ids or `trading:N`)', hint: 'e.g. alice,bob,carol or trading:0,trading:1,trading:2' },
+    { flag: '--from trading:N --split K', desc: 'Power-user: derive K consecutive wallets from the trading-keystore starting at index N' },
     { flag: '--jitter <ms>', desc: 'Random delay [0..jitterMs] between legs; first leg fires immediately', hint: 'default 0' },
     { flag: '--template <name>', desc: 'YAML strategy template. Can supply chain, total, exit plan, and cohort {split,from,jitterMs}.' },
     { flag: '(other flags)', desc: 'Same as `buy`: --cut, --tp, --trail, --time-limit, --thesis-check, --slippage, --protected, --tip, --rpc, --dry-run' },
@@ -1880,7 +1880,7 @@ async function main() {
 
             // Base path — Phase 5b buy, 5c sell+sync, 5d --protected + private RPC.
             if (chain === 'base') {
-              if (!walletRef) err('--wallet required for Base (use trading:N from `trading-keystore list`)', EXIT.BAD_INPUT)
+              if (!walletRef) err('--wallet required for Base. Use a vault wallet name/id (`palmyr wallet create`) or `trading:N`.', EXIT.BAD_INPUT)
               const tipGwei = flags.tip !== undefined ? Number(flags.tip) : undefined
               const cliPriorityFeeWei = tipGwei !== undefined ? BigInt(Math.round(tipGwei * 1e9)) : undefined
               let opts: any = {
@@ -2411,7 +2411,7 @@ async function main() {
 
             // Base sell path — Phase 5c, plus 5d --protected + private RPC.
             if (chain === 'base') {
-              if (!walletRef) err('--wallet required for Base (use trading:N)', EXIT.BAD_INPUT)
+              if (!walletRef) err('--wallet required for Base. Use a vault wallet name/id or `trading:N`.', EXIT.BAD_INPUT)
               const baseProtected = !!flags.protected
               const baseRpc = (flags.rpc as string) || undefined
               const tipGwei = flags.tip ? Number(flags.tip) : undefined
@@ -2518,7 +2518,7 @@ async function main() {
 
             // Phase 5c — Base sync path. Only triggered when --chain=base.
             if (chainFlag === 'base') {
-              if (!walletRef) err('--wallet required for Base sync (use trading:N)', EXIT.BAD_INPUT)
+              if (!walletRef) err('--wallet required for Base sync. Use a vault wallet name/id or `trading:N`.', EXIT.BAD_INPUT)
               const { syncBase } = await import('./wallet-trading.js')
               let report: Awaited<ReturnType<typeof syncBase>>
               try {
