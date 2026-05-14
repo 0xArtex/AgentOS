@@ -1592,6 +1592,7 @@ async function main() {
               { name: 'journal', description: 'Append or read trade journal entries', hint: 'add <CA> --note "..." | show' },
               { name: 'watch', description: 'Maintain a watchlist of CAs to monitor', hint: 'add <CA> --trigger "..." | list' },
               { name: 'brief', description: 'Show thesis + PnL brief for a position', hint: '<CA>' },
+              { name: 'doctor', description: 'Health check for the wallet-trading subsystem', hint: '[--wallet <ref>]' },
               { name: 'daemon', description: 'Auto-monitor positions for trigger-based exits', hint: 'tick | start [--auto] | stop | status' },
               { name: 'triggers', description: 'List pending trigger fires from the daemon', hint: '[--ca X] [--since ISO] [--clear]' },
               { name: 'trading-keystore', description: 'Encrypted BIP39 keystore for HD-derived trading wallets', hint: 'init | list | status | derive | export' },
@@ -3000,6 +3001,50 @@ async function main() {
                 llm,
               })
             }
+            break
+          }
+          case 'doctor': {
+            // Wallet-trading health check. Walks dep versions, RPC reachability,
+            // wallet derivation, and trading dir writability. Returns a stable
+            // {status, checks[]} shape so agents can branch on individual checks.
+            const doctorWalletRef = (flags.wallet as string) || undefined
+            const { runWalletDoctor } = await import('./wallet-doctor.js')
+            const report = await runWalletDoctor({ walletRef: doctorWalletRef, cliVersion: VERSION })
+            if (AGENT_MODE) {
+              print(report)
+              if (report.status === 'fail') process.exit(EXIT.GENERAL)
+              break
+            }
+            console.log()
+            section('Wallet doctor')
+            kv('Overall', report.status === 'ok'
+              ? `${t.success}ok${t.reset}`
+              : report.status === 'warning'
+                ? `${t.warn}warning${t.reset}`
+                : `${t.error}fail${t.reset}`)
+            kv('CLI', report.cliVersion)
+            kv('Node', report.nodeVersion)
+            kv('Platform', report.platform)
+            if (report.wallet) {
+              kv('Wallet', report.wallet)
+              if (report.solanaAddress) kv('Solana', report.solanaAddress)
+              if (report.evmAddress) kv('EVM', report.evmAddress)
+            }
+            console.log()
+            section('Checks')
+            for (const c of report.checks) {
+              const dot = c.status === 'pass'
+                ? `${t.success}✓${t.reset}`
+                : c.status === 'warn'
+                  ? `${t.warn}!${t.reset}`
+                  : c.status === 'skip'
+                    ? `${t.muted}-${t.reset}`
+                    : `${t.error}✗${t.reset}`
+              const trail = [c.value, c.message].filter(Boolean).join(' — ')
+              console.log(`  ${dot} ${c.name}${trail ? `: ${trail}` : ''}`)
+            }
+            console.log()
+            if (report.status === 'fail') process.exit(EXIT.GENERAL)
             break
           }
           case 'daemon': {
