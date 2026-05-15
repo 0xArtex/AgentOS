@@ -72,10 +72,11 @@ function buildPrompt(p: PositionFile): string {
     p.exitPlan.holdIf ? `holdIf=${p.exitPlan.holdIf}` : null,
   ].filter(Boolean).join(' | ') || 'none'
 
-  // Phase 5b — chain-aware realized PnL formatting.
-  const realized =
-    p.chain === 'solana' ? p.pnl.realizedSol : p.pnl.realizedEth
-  const unit = p.chain === 'solana' ? 'SOL' : 'ETH'
+  // Read canonical asset-tagged PnL — the field reflects what the position
+  // was actually funded in (USDC for USDC-funded positions, not the chain's
+  // native asset).
+  const realized = p.pnl.realized?.amount ?? 0
+  const unit = p.pnl.realized?.asset ?? (p.chain === 'solana' ? 'SOL' : 'ETH')
   return `You are reviewing a ${p.chain === 'base' ? 'Base' : 'Solana'} trading position. The trader entered with this plain-string thesis:
 
 THESIS: ${p.thesis}

@@ -76,7 +76,6 @@ palmyr domain pricing --name example     # Get pricing (free)
 palmyr domain buy --name example.dev     # Register domain
 
 # Wallet
-palmyr wallet keygen                     # Generate keypair (free)
 palmyr wallet create                     # Create local HD wallet (free)
 palmyr wallet create --managed           # Same, with passkey-gated spending limits
 
@@ -93,7 +92,7 @@ palmyr wallet sell <chain> <CA> --percent N --reason "..." --wallet <name>   # e
 palmyr wallet positions [--all] [--history] [--wallet <name>] [--chain X]    # cross-chain by default
 palmyr wallet sync [--chain solana|base] [--wallet <name>]                   # both chains by default
 palmyr wallet pnl [--by chain|wallet] [--no-usd]                             # SOL/ETH/USDC buckets + USD total
-palmyr wallet brief <CA> [--wallet <name>] [--chain X] [--evaluate]          # chain inferred from CA format
+palmyr wallet brief <CA> [--wallet <name>] [--chain X] [--evaluate]          # chain inferred from CA format; --evaluate needs ANTHROPIC_API_KEY env var
 palmyr wallet doctor [--wallet <name>]                                        # deps + RPC + derivation health check
 palmyr wallet smoke-test --wallet <name> [--chain solana|base|all]            # end-to-end dry-run validation
 
@@ -189,7 +188,6 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | **Wallet** | | |
 | Create wallet | `POST /wallet` | Free |
 | Wallet status | `GET /wallet/:address` | Free |
-| Generate keypair | `POST /wallet/keygen` | Free |
 | Transfer (ERC20) | Via smart contract | Gas only |
 | **Twitter / X** | | |
 | Buy account from pool | `POST /social/twitter/buy` | 5.00 |
