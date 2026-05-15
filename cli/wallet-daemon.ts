@@ -72,6 +72,8 @@ export interface TriggerFire {
   thresholdPct?: number
   /** trailingStop: peak unrealizedPct that the position has reached. */
   peakPct?: number
+  /** trailingStop: drawdown from peak (peakPct − currentPct). Precomputed so agents don't have to. */
+  drawdownPct?: number
   /** timeLimit: configured duration in milliseconds. */
   thresholdDurationMs?: number
   /** timeLimit: actual elapsed milliseconds since entry at fire time. */
@@ -121,7 +123,7 @@ export function formatTriggerReason(fire: TriggerFire): string {
     case 'trailingStop': {
       const allowedDrop = fire.thresholdPct !== undefined ? `${fire.thresholdPct.toFixed(2)}%` : '?%'
       if (fire.peakPct !== undefined) {
-        const drawdown = (fire.peakPct - fire.currentPct).toFixed(2)
+        const drawdown = (fire.drawdownPct ?? fire.peakPct - fire.currentPct).toFixed(2)
         const peakSigned = `${fire.peakPct >= 0 ? '+' : ''}${fire.peakPct.toFixed(2)}%`
         return `auto: trailingStop fired: drop ${drawdown}% from peak ${peakSigned} > ${allowedDrop} allowed; selling 100%`
       }
@@ -207,11 +209,13 @@ export function evaluateTriggers(p: PositionFile): TriggerFire[] {
     p.monitorState.peakUnrealizedPct > 0 &&
     p.monitorState.peakUnrealizedPct - currentPct >= trailPct
   ) {
+    const peak = p.monitorState.peakUnrealizedPct
     out.push({
       ...base,
       trigger: 'trailingStop',
       thresholdPct: trailPct,
-      peakPct: p.monitorState.peakUnrealizedPct,
+      peakPct: peak,
+      drawdownPct: peak - currentPct,
     })
   }
 
@@ -448,6 +452,7 @@ async function processPositionFires(p: PositionFile, opts: DaemonOpts): Promise<
       currentPct: fire.currentPct,
       thresholdPct: fire.thresholdPct,
       peakPct: fire.peakPct,
+      drawdownPct: fire.drawdownPct,
       thresholdDurationMs: fire.thresholdDurationMs,
       elapsedMs: fire.elapsedMs,
       llmVerdict: fire.llmVerdict,

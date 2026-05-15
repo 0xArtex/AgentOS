@@ -95,6 +95,8 @@ palmyr wallet pnl [--by chain|wallet] [--no-usd]                             # S
 palmyr wallet brief <CA> [--wallet <name>] [--chain X] [--evaluate]          # chain inferred from CA format; --evaluate needs ANTHROPIC_API_KEY env var
 palmyr wallet doctor [--wallet <name>]                                        # deps + RPC + derivation health check
 palmyr wallet smoke-test --wallet <name> [--chain solana|base|all]            # end-to-end dry-run validation
+palmyr wallet readiness --wallet <name>                                       # go/no-go: sign, gas, quotes, daemon, open positions
+palmyr wallet live-test --wallet <name> --budget 1usdc [--chain solana|base|all]  # tiny real round trips, verifies no leftover positions
 
 # Autonomous monitor daemon — syncs both chains, fires exitPlan triggers
 # (cut, takeProfit, trailingStop, timeLimit, thesisCheck via LLM):

@@ -1594,6 +1594,8 @@ async function main() {
               { name: 'brief', description: 'Show thesis + PnL brief for a position', hint: '<CA>' },
               { name: 'doctor', description: 'Health check for the wallet-trading subsystem', hint: '[--wallet <ref>]' },
               { name: 'smoke-test', description: 'End-to-end validation of wallet trading on Solana + Base', hint: '--wallet <ref> [--chain solana|base|all]' },
+              { name: 'readiness', description: 'Go/no-go autonomous-trading readiness — sign, gas, quotes, daemon, open positions', hint: '--wallet <ref>' },
+              { name: 'live-test', description: 'Execute tiny real round trips on Solana + Base, verify no leftover positions', hint: '--wallet <ref> --budget Nusdc [--chain ...]' },
               { name: 'daemon', description: 'Auto-monitor positions for trigger-based exits', hint: 'tick | start [--auto] | stop | status' },
               { name: 'triggers', description: 'List pending trigger fires from the daemon', hint: '[--ca X] [--since ISO] [--clear]' },
               { name: 'trading-keystore', description: 'Encrypted BIP39 keystore for HD-derived trading wallets', hint: 'init | list | status | derive | export' },
@@ -2947,13 +2949,18 @@ async function main() {
             const p = readPosition(inferredChain, ca, scopedAddr)
             if (!p) err(`Position not found: ${ca}`, EXIT.NOT_FOUND)
 
+            // `--evaluate` degrades gracefully: a missing ANTHROPIC_API_KEY or
+            // a model-API failure must NOT take down the whole brief. We surface
+            // the LLM error as `llmError` so agents can branch on it, and still
+            // print the deterministic brief fields.
             let llm: Awaited<ReturnType<typeof import('./wallet-brief-llm.js').evaluateBriefWithLLM>> | undefined
+            let llmError: string | undefined
             if (evaluate) {
               const { evaluateBriefWithLLM } = await import('./wallet-brief-llm.js')
               try {
                 llm = await evaluateBriefWithLLM(p!)
               } catch (e: any) {
-                err(e.message || 'brief --evaluate failed', EXIT.GENERAL)
+                llmError = e?.message ?? 'brief --evaluate failed'
               }
             }
 
@@ -2986,6 +2993,9 @@ async function main() {
                 console.log(`  ${t.muted}Action:${t.reset}          ${llm.recommendedAction}`)
                 console.log(`  ${t.muted}Reasoning:${t.reset}       ${llm.reasoning}`)
                 console.log(`  ${t.muted}Watch for:${t.reset}       ${llm.watchFor}`)
+              } else if (llmError) {
+                console.log()
+                console.log(`  ${t.warn}LLM eval skipped: ${llmError}${t.reset}`)
               } else {
                 console.log()
                 console.log(`  ${t.muted}Add --evaluate for an LLM thesis-health check.${t.reset}`)
@@ -3002,6 +3012,7 @@ async function main() {
                 pnl: p!.pnl,
                 sellsCount: p!.sells.length,
                 llm,
+                llmError,
               })
             }
             break
@@ -3089,6 +3100,98 @@ async function main() {
             }
             console.log()
             if (!report.safeForAutonomousTrading) process.exit(EXIT.GENERAL)
+            break
+          }
+          case 'readiness': {
+            const readyWalletRef = (flags.wallet as string) || undefined
+            if (!readyWalletRef) err('--wallet required. Use a vault wallet name/id or `trading:N`.', EXIT.BAD_INPUT)
+            const { runWalletReadiness } = await import('./wallet-readiness.js')
+            const report = await runWalletReadiness({ walletRef: readyWalletRef })
+            if (AGENT_MODE) {
+              print(report)
+              if (!report.safeForAutonomousTrading) process.exit(EXIT.GENERAL)
+              break
+            }
+            console.log()
+            section('Wallet readiness')
+            kv('Wallet', report.wallet)
+            if (report.solanaAddress) kv('Solana', report.solanaAddress)
+            if (report.evmAddress) kv('EVM', report.evmAddress)
+            kv('Verdict', report.safeForAutonomousTrading
+              ? `${t.success}safe for autonomous trading${t.reset}`
+              : `${t.error}NOT safe — see failing checks${t.reset}`)
+            if (report.balances.solana) kv('SOL balance', `${report.balances.solana.sol.toFixed(6)} SOL`)
+            if (report.balances.base) kv('ETH balance', `${report.balances.base.eth.toFixed(8)} ETH`)
+            kv('Open positions', `solana=${report.openPositions.solana} base=${report.openPositions.base}`)
+            kv('Daemon', report.daemon.running
+              ? `${t.success}running${t.reset} (pid ${report.daemon.pid}${report.daemon.autoExecute ? ', auto-execute' : ''})`
+              : `${t.warn}not running${t.reset}`)
+            console.log()
+            section('Checks')
+            for (const c of report.checks) {
+              const dot = c.status === 'pass' ? `${t.success}✓${t.reset}`
+                : c.status === 'warn' ? `${t.warn}!${t.reset}`
+                : c.status === 'skip' ? `${t.muted}-${t.reset}`
+                : `${t.error}✗${t.reset}`
+              const tail = [c.value !== undefined ? String(c.value) : null, c.message].filter(Boolean).join(' — ')
+              console.log(`  ${dot} ${c.name}${tail ? `: ${tail}` : ''}`)
+            }
+            console.log()
+            if (!report.safeForAutonomousTrading) process.exit(EXIT.GENERAL)
+            break
+          }
+          case 'live-test': {
+            const liveWalletRef = (flags.wallet as string) || undefined
+            if (!liveWalletRef) err('--wallet required. Use a vault wallet name/id or `trading:N`.', EXIT.BAD_INPUT)
+            const budgetRaw = flags.budget as string | undefined
+            if (!budgetRaw) err('--budget required, e.g. --budget 1usdc (caps total trade exposure).', EXIT.BAD_INPUT)
+            const budgetMatch = (budgetRaw ?? '').trim().match(/^(\d+(?:\.\d+)?)\s*usdc$/i)
+            if (!budgetMatch) err(`--budget must be in USDC (e.g. "0.5usdc", "1usdc"), got "${budgetRaw}".`, EXIT.BAD_INPUT)
+            const budgetUsdc = Number(budgetMatch![1])
+            const liveChainFlag = ((flags.chain as string) || 'all').toLowerCase()
+            if (liveChainFlag !== 'solana' && liveChainFlag !== 'base' && liveChainFlag !== 'all') {
+              err(`--chain must be solana, base, or all (got ${liveChainFlag})`, EXIT.BAD_INPUT)
+            }
+            const { runWalletLiveTest } = await import('./wallet-live-test.js')
+            let report: Awaited<ReturnType<typeof runWalletLiveTest>>
+            try {
+              report = await runWalletLiveTest({
+                walletRef: liveWalletRef!,
+                budgetUsdc,
+                chain: liveChainFlag as 'solana' | 'base' | 'all',
+              })
+            } catch (e: any) {
+              err(e.message || 'live-test failed', EXIT.GENERAL)
+            }
+            if (AGENT_MODE) {
+              print(report!)
+              if (!report!.safeForAutonomousTrading) process.exit(EXIT.GENERAL)
+              break
+            }
+            console.log()
+            section('Wallet live-test')
+            kv('Wallet', report!.wallet)
+            kv('Budget', `${report!.budgetUsdc.toFixed(6)} USDC (per leg ${report!.perLegUsdc.toFixed(6)} USDC)`)
+            kv('Verdict', report!.safeForAutonomousTrading
+              ? `${t.success}safe for autonomous trading${t.reset}`
+              : `${t.error}NOT safe — see failing legs${t.reset}`)
+            kv('Total realized', `${report!.totalRealizedUsdc >= 0 ? '+' : ''}${report!.totalRealizedUsdc.toFixed(6)} USDC`)
+            kv('Open positions after', String(report!.openPositionsAfter))
+            console.log()
+            section('Legs')
+            for (const leg of report!.legs) {
+              const dot = leg.status === 'pass' ? `${t.success}✓${t.reset}`
+                : leg.status === 'skip' ? `${t.muted}-${t.reset}`
+                : `${t.error}✗${t.reset}`
+              const realizedStr = leg.realized
+                ? `; realized ${leg.realized.amount >= 0 ? '+' : ''}${leg.realized.amount.toFixed(6)} ${leg.realized.asset}`
+                : ''
+              const txStr = leg.txHash ? ` (${leg.txHash.slice(0, 10)}…)` : ''
+              const detail = [leg.message, leg.durationMs !== undefined ? `${leg.durationMs}ms` : null].filter(Boolean).join(' — ')
+              console.log(`  ${dot} ${leg.chain}/${leg.name}${txStr}${realizedStr}${detail ? `: ${detail}` : ''}`)
+            }
+            console.log()
+            if (!report!.safeForAutonomousTrading) process.exit(EXIT.GENERAL)
             break
           }
           case 'daemon': {

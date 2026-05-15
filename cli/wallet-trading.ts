@@ -463,6 +463,7 @@ export type TradeLogLine =
       currentPct: number
       thresholdPct?: number           // cut/takeProfit/trailingStop
       peakPct?: number                // trailingStop
+      drawdownPct?: number            // trailingStop: peakPct − currentPct
       thresholdDurationMs?: number    // timeLimit
       elapsedMs?: number              // timeLimit
       llmVerdict?: 'yes' | 'no' | 'unclear'  // thesis_falsified
@@ -1207,6 +1208,8 @@ export interface BuyBaseResult {
   protectedExec: boolean
   rpcUrl: string
   inputAsset: BaseInputAsset
+  /** One-line human-readable summary; safe to print directly. */
+  summary: string
 }
 
 export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
@@ -1361,6 +1364,8 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
   // Dry-run must be strictly read-only: simulated trades never touch live state.
   if (!opts.dryRun) writePosition(position)
 
+  const summary = `${opts.dryRun ? '[dry-run] ' : ''}Bought ${tokensOut} ${opts.ca} for ${position.entry.amountIn} on Base.`
+
   return {
     positionPath: opts.dryRun
       ? `simulated:${opts.ca}`
@@ -1380,6 +1385,7 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     protectedExec: !!opts.protectedExec,
     rpcUrl,
     inputAsset,
+    summary,
   }
 }
 
@@ -1427,6 +1433,8 @@ export interface SellBaseResult {
   output: AssetAmount
   /** Canonical, asset-tagged realized PnL for this sell. */
   realized: AssetPnl
+  /** One-line human-readable summary; safe to print directly. */
+  summary: string
 }
 
 export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
@@ -1617,6 +1625,10 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
   // position file (otherwise a simulation can "close" a real position).
   if (!opts.dryRun) writePosition(position)
 
+  const realizedSign = realizedAmount >= 0 ? '+' : ''
+  const realizedDigits = outputAsset === 'USDC' ? 6 : 8
+  const summary = `${opts.dryRun ? '[dry-run] ' : ''}Sold ${tokensInDisplay} ${opts.ca} for ${outDisplay}; realized ${realizedSign}${realizedAmount.toFixed(realizedDigits)} ${outputAsset}; position ${position.status}.`
+
   return {
     positionPath: opts.dryRun
       ? `simulated:${opts.ca}`
@@ -1637,6 +1649,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     reconcileDriftRaw: reconcileDriftRaw === 0n ? undefined : reconcileDriftRaw.toString(),
     output: { asset: outputAsset, raw: outRaw, display: outDisplay },
     realized: { asset: outputAsset, amount: realizedAmount },
+    summary,
   }
 }
 
@@ -1841,6 +1854,8 @@ export interface BuyResult {
   forensics?: FillForensics
   // USDC-input awareness
   inputAsset: SolanaInputAsset
+  /** One-line human-readable summary; safe to print directly. */
+  summary: string
 }
 
 export async function buy(opts: BuyOpts): Promise<BuyResult> {
@@ -2022,6 +2037,7 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     protectedExec: !!opts.protectedExec,
     forensics,
     inputAsset,
+    summary: `${opts.dryRun ? '[dry-run] ' : ''}Bought ${tokensOut} ${opts.ca} for ${position.entry.amountIn} on Solana.`,
   }
 }
 
@@ -2064,6 +2080,8 @@ export interface SellResult {
   output: AssetAmount
   /** Canonical, asset-tagged realized PnL for this sell. */
   realized: AssetPnl
+  /** One-line human-readable summary; safe to print directly. */
+  summary: string
 }
 
 export async function sell(opts: SellOpts): Promise<SellResult> {
@@ -2233,6 +2251,10 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     })
   }
 
+  const sign = realizedSol >= 0 ? '+' : ''
+  const digits = outputAsset === 'USDC' ? 6 : 8
+  const summary = `${opts.dryRun ? '[dry-run] ' : ''}Sold ${tokensInDisplay} ${opts.ca} for ${solOutDisplay}; realized ${sign}${realizedSol.toFixed(digits)} ${outputAsset}; position ${position.status}.`
+
   return {
     positionPath: opts.dryRun
       ? `simulated:${opts.ca}`
@@ -2253,6 +2275,7 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     outputAsset,
     output: { asset: outputAsset, raw: String(solOutRaw), display: solOutDisplay },
     realized: { asset: outputAsset, amount: realizedSol },
+    summary,
   }
 }
 
