@@ -272,39 +272,42 @@ export interface SolanaSell {
   time: string
   tokensIn: string
   tokensInRaw: string
-  /** Display string. Holds "0.300000 SOL" for native sells, "5.00 USDC" for USDC sells. */
-  solOut: string
-  /** Raw output. Lamports for SOL exits, 6-dec raw for USDC exits. Both fit JS Number for realistic sizes. */
-  solOutRaw: number
   percentRequested: number
-  /** Realized PnL in the position's `inputAsset` (SOL or USDC). Field name kept for back-compat. */
-  realizedSol: number
   reason: string
   feeLamports?: number
   tipLamports?: number
   slippageBpsUsed?: number
   protectedExec?: boolean
   forensics?: FillForensics
-  /** USDC-aware: the asset this sell exited to. Missing on legacy sells; treated as 'SOL'. */
-  outputAsset?: SolanaInputAsset
-  // ── Canonical accounting (preferred over legacy *Sol/*Eth fields) ─────
-  /** Realized output (asset-tagged). `solOut` / `solOutRaw` are back-compat aliases. */
-  output?: AssetAmount
-  /** Realized PnL for this sell (asset-tagged). `realizedSol` is a back-compat alias. */
-  realized?: AssetPnl
+  /** Asset this sell exited to (mirrors entry.inputAsset). */
+  outputAsset: SolanaInputAsset
+  /** Realized output (asset-tagged). Holds USDC values on USDC exits — name no longer chain-typed. */
+  output: AssetAmount
+  /** Realized PnL for this sell (asset-tagged). */
+  realized: AssetPnl
+  /**
+   * @deprecated Read `output.display` / `output.raw` / `realized.amount` instead.
+   * Optional only so legacy position files on disk (pre-canonical) still parse;
+   * new sells no longer set these.
+   */
+  solOut?: string
+  /** @deprecated Use `output.raw`. */
+  solOutRaw?: number
+  /** @deprecated Use `realized.amount`. */
+  realizedSol?: number
 }
 
 export interface SolanaPnl {
-  /** Realized PnL in the position's input asset (SOL or USDC). Field name kept for back-compat with legacy SOL positions. */
-  realizedSol: number
-  unrealizedSol: number
   unrealizedPct: number
   lastPricedAt: string | null
-  // ── Canonical accounting (preferred over legacy *Sol fields) ──────────
   /** Realized PnL across all sells (asset-tagged). */
-  realized?: AssetPnl
+  realized: AssetPnl
   /** Mark-to-market unrealized PnL (asset-tagged). */
-  unrealized?: AssetPnl
+  unrealized: AssetPnl
+  /** @deprecated Use `realized.amount`. */
+  realizedSol?: number
+  /** @deprecated Use `unrealized.amount`. */
+  unrealizedSol?: number
 }
 
 export interface SolanaPositionFile {
@@ -350,38 +353,41 @@ export interface BaseSell {
   time: string
   tokensIn: string
   tokensInRaw: string                 // u256 raw token units
-  /** Display string: "0.005000 ETH" or "5.00 USDC". Field name kept for back-compat. */
-  ethOut: string
-  /** Raw output. Wei for ETH exits, 6-dec raw for USDC exits. Both kept as string for u256 safety. */
-  ethOutRawWei: string
   percentRequested: number
-  /** Realized PnL in the position's input asset (ETH or USDC). Field name kept for back-compat. */
-  realizedEth: number
   reason: string
   feeWei?: string
   slippageBpsUsed?: number
   protectedExec?: boolean
   forensics?: FillForensics
-  /** USDC-aware: asset this sell exited to. Missing on legacy sells; treated as 'ETH'. */
-  outputAsset?: BaseInputAsset
-  // ── Canonical accounting (preferred over legacy *Eth fields) ──────────
-  /** Realized output (asset-tagged). `ethOut` / `ethOutRawWei` are back-compat aliases. */
-  output?: AssetAmount
-  /** Realized PnL for this sell (asset-tagged). `realizedEth` is a back-compat alias. */
-  realized?: AssetPnl
+  /** Asset this sell exited to (mirrors entry.inputAsset). */
+  outputAsset: BaseInputAsset
+  /** Realized output (asset-tagged). Holds USDC values on USDC exits — name no longer chain-typed. */
+  output: AssetAmount
+  /** Realized PnL for this sell (asset-tagged). */
+  realized: AssetPnl
+  /**
+   * @deprecated Read `output.display` / `output.raw` / `realized.amount` instead.
+   * Optional only so legacy position files on disk (pre-canonical) still parse;
+   * new sells no longer set these.
+   */
+  ethOut?: string
+  /** @deprecated Use `output.raw`. */
+  ethOutRawWei?: string
+  /** @deprecated Use `realized.amount`. */
+  realizedEth?: number
 }
 
 export interface BasePnl {
-  /** Realized PnL in the position's input asset (ETH or USDC). Field name kept for back-compat. */
-  realizedEth: number
-  unrealizedEth: number
   unrealizedPct: number
   lastPricedAt: string | null
-  // ── Canonical accounting (preferred over legacy *Eth fields) ──────────
   /** Realized PnL across all sells (asset-tagged). */
-  realized?: AssetPnl
+  realized: AssetPnl
   /** Mark-to-market unrealized PnL (asset-tagged). */
-  unrealized?: AssetPnl
+  unrealized: AssetPnl
+  /** @deprecated Use `realized.amount`. */
+  realizedEth?: number
+  /** @deprecated Use `unrealized.amount`. */
+  unrealizedEth?: number
 }
 
 export interface BasePositionFile {
@@ -510,28 +516,35 @@ export function normalizePosition(p: PositionFile): PositionFile {
         : 0
     }
     for (const s of p.sells) {
-      if (!s.outputAsset) s.outputAsset = p.entry.inputAsset
-      // Back-fill canonical fields for sells written by pre-canonical CLIs.
-      // Raw output: lamports for SOL, 6-dec raw for USDC.
-      if (!s.output) {
-        const outAsset = s.outputAsset ?? p.entry.inputAsset
+      if (!s.outputAsset) s.outputAsset = p.entry.inputAsset ?? 'SOL'
+      // Back-fill canonical fields from legacy `solOut*` / `realizedSol` if the
+      // file pre-dates the canonical schema, then strip the legacy fields so
+      // they don't get re-emitted on the next write.
+      if (!s.output && s.solOutRaw !== undefined && s.solOut !== undefined) {
         s.output = {
-          asset: outAsset,
+          asset: s.outputAsset,
           raw: String(s.solOutRaw),
           display: s.solOut,
         }
       }
-      if (!s.realized) {
-        s.realized = { asset: s.outputAsset ?? p.entry.inputAsset, amount: s.realizedSol }
+      if (!s.realized && s.realizedSol !== undefined) {
+        s.realized = { asset: s.outputAsset, amount: s.realizedSol }
       }
+      delete s.solOut
+      delete s.solOutRaw
+      delete s.realizedSol
     }
-    // Back-fill pnl.realized/unrealized for legacy files.
-    if (!p.pnl.realized) {
+    if (!p.pnl.realized && p.pnl.realizedSol !== undefined) {
       p.pnl.realized = { asset: p.entry.inputAsset, amount: p.pnl.realizedSol }
     }
-    if (!p.pnl.unrealized) {
+    if (!p.pnl.unrealized && p.pnl.unrealizedSol !== undefined) {
       p.pnl.unrealized = { asset: p.entry.inputAsset, amount: p.pnl.unrealizedSol }
     }
+    // Guarantee canonical pnl shape exists for downstream readers.
+    if (!p.pnl.realized) p.pnl.realized = { asset: p.entry.inputAsset, amount: 0 }
+    if (!p.pnl.unrealized) p.pnl.unrealized = { asset: p.entry.inputAsset, amount: 0 }
+    delete p.pnl.realizedSol
+    delete p.pnl.unrealizedSol
   } else {
     if (!p.entry.inputAsset) p.entry.inputAsset = 'ETH'
     if (p.entry.amountInRaw === undefined) {
@@ -540,24 +553,31 @@ export function normalizePosition(p: PositionFile): PositionFile {
         : '0'
     }
     for (const s of p.sells) {
-      if (!s.outputAsset) s.outputAsset = p.entry.inputAsset
-      if (!s.output) {
+      if (!s.outputAsset) s.outputAsset = p.entry.inputAsset ?? 'ETH'
+      if (!s.output && s.ethOutRawWei !== undefined && s.ethOut !== undefined) {
         s.output = {
-          asset: s.outputAsset ?? p.entry.inputAsset,
+          asset: s.outputAsset,
           raw: s.ethOutRawWei,
           display: s.ethOut,
         }
       }
-      if (!s.realized) {
-        s.realized = { asset: s.outputAsset ?? p.entry.inputAsset, amount: s.realizedEth }
+      if (!s.realized && s.realizedEth !== undefined) {
+        s.realized = { asset: s.outputAsset, amount: s.realizedEth }
       }
+      delete s.ethOut
+      delete s.ethOutRawWei
+      delete s.realizedEth
     }
-    if (!p.pnl.realized) {
+    if (!p.pnl.realized && p.pnl.realizedEth !== undefined) {
       p.pnl.realized = { asset: p.entry.inputAsset, amount: p.pnl.realizedEth }
     }
-    if (!p.pnl.unrealized) {
+    if (!p.pnl.unrealized && p.pnl.unrealizedEth !== undefined) {
       p.pnl.unrealized = { asset: p.entry.inputAsset, amount: p.pnl.unrealizedEth }
     }
+    if (!p.pnl.realized) p.pnl.realized = { asset: p.entry.inputAsset, amount: 0 }
+    if (!p.pnl.unrealized) p.pnl.unrealized = { asset: p.entry.inputAsset, amount: 0 }
+    delete p.pnl.realizedEth
+    delete p.pnl.unrealizedEth
   }
   return p
 }
@@ -1331,8 +1351,6 @@ export async function buyBase(opts: BuyBaseOpts): Promise<BuyBaseResult> {
     riskFlags: opts.riskFlags ?? [],
     sells: [],
     pnl: {
-      realizedEth: 0,
-      unrealizedEth: 0,
       unrealizedPct: 0,
       lastPricedAt: null,
       realized: { asset: inputAsset, amount: 0 },
@@ -1386,9 +1404,6 @@ export interface SellBaseResult {
   txHash: string
   tokensIn: string
   tokensInRaw: string
-  ethOut: string
-  ethOutRawWei: string
-  realizedEth: number
   positionStatus: 'open' | 'closed'
   wallet: string
   mint: string
@@ -1408,9 +1423,9 @@ export interface SellBaseResult {
    * on partial sells of a drifted position.
    */
   reconcileDriftRaw?: string
-  /** Canonical, asset-tagged output. Preferred over `ethOut`/`ethOutRawWei`. */
+  /** Canonical, asset-tagged output. */
   output: AssetAmount
-  /** Canonical, asset-tagged realized PnL for this sell. Preferred over `realizedEth`. */
+  /** Canonical, asset-tagged realized PnL for this sell. */
   realized: AssetPnl
 }
 
@@ -1544,7 +1559,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
   // Entry cost = entry amount + gas fee (ETH-only — fee was paid in ETH at swap time;
   // for USDC entries we treat gas as small and ignore it in the USDC accounting).
   const entryRawStr = position.entry.amountInRaw ?? position.entry.amountInRawWei
-  let realizedEth: number
+  let realizedAmount: number
   const inputAsset = position.entry.inputAsset ?? 'ETH'
   if (inputAsset === 'ETH' && outputAsset === 'ETH') {
     const entryAmountWei = BigInt(entryRawStr)
@@ -1554,16 +1569,16 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     const sellFeeWei = BigInt(swap.feeWei)
     const proceedsNetWei = BigInt(outRaw) - sellFeeWei
     const realizedWei = proceedsNetWei - costWei
-    realizedEth = Number(realizedWei) / 1e18
+    realizedAmount = Number(realizedWei) / 1e18
   } else if (inputAsset === 'USDC' && outputAsset === 'USDC') {
     // USDC in, USDC out — fees were ETH but we don't subtract them from USDC PnL.
     const entryUsdc = BigInt(entryRawStr)
     const costUsdc = (entryUsdc * tokensToSellRaw) / totalRaw
     const realized6 = BigInt(outRaw) - costUsdc
-    realizedEth = Number(realized6) / 1e6  // realizedEth field reused for USDC value
+    realizedAmount = Number(realized6) / 1e6
   } else {
-    // Mixed in/out (rare — shouldn't happen with symmetric exit). Best-effort: native units.
-    realizedEth = 0
+    // Mixed in/out (rare — shouldn't happen with symmetric exit). Best-effort.
+    realizedAmount = 0
   }
 
   const nowIso = new Date().toISOString()
@@ -1572,35 +1587,28 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     time: nowIso,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
-    ethOut: outDisplay,
-    ethOutRawWei: outRaw,
     percentRequested: opts.percent,
-    realizedEth,
     reason: opts.reason.trim(),
     feeWei: swap.feeWei,
     slippageBpsUsed: slippageBps,
     protectedExec: !!opts.protectedExec,
     outputAsset,
-    // Canonical, asset-tagged accounting — preferred over legacy `ethOut*` fields.
     output: { asset: outputAsset, raw: outRaw, display: outDisplay },
-    realized: { asset: outputAsset, amount: realizedEth },
+    realized: { asset: outputAsset, amount: realizedAmount },
   })
 
-  position.pnl.realizedEth = position.sells.reduce((a, s) => a + s.realizedEth, 0)
-  position.pnl.realized = { asset: position.entry.inputAsset ?? 'ETH', amount: position.pnl.realizedEth }
+  const totalRealized = position.sells.reduce((a, s) => a + (s.realized?.amount ?? 0), 0)
+  position.pnl.realized = { asset: position.entry.inputAsset ?? 'ETH', amount: totalRealized }
 
   // Position closes when (a) the user explicitly sold 100% — even if the
   // on-chain balance was less than the book amount due to drift — or (b) the
-  // sum of recorded sells exceeds the book entry amount. Both paths land at
-  // status='closed', and we account for any drift between book and chain so
-  // partial sells of a drifted balance still close correctly when fully exited.
+  // sum of recorded sells exceeds the book entry amount.
   const newSoldRaw = soldRaw + tokensToSellRaw
   const fullyExited =
     opts.percent >= 100 ||
     newSoldRaw + reconcileDriftRaw >= totalRaw
   if (fullyExited) {
     position.status = 'closed'
-    position.pnl.unrealizedEth = 0
     position.pnl.unrealizedPct = 0
     position.pnl.unrealized = { asset: position.entry.inputAsset ?? 'ETH', amount: 0 }
   }
@@ -1616,9 +1624,6 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     txHash: swap.txHash,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
-    ethOut: outDisplay,
-    ethOutRawWei: outRaw,
-    realizedEth,
     positionStatus: position.status,
     wallet: signer.address,
     mint: opts.ca,
@@ -1631,7 +1636,7 @@ export async function sellBase(opts: SellBaseOpts): Promise<SellBaseResult> {
     outputAsset,
     reconcileDriftRaw: reconcileDriftRaw === 0n ? undefined : reconcileDriftRaw.toString(),
     output: { asset: outputAsset, raw: outRaw, display: outDisplay },
-    realized: { asset: outputAsset, amount: realizedEth },
+    realized: { asset: outputAsset, amount: realizedAmount },
   }
 }
 
@@ -1730,7 +1735,6 @@ export async function syncBase(opts: SyncBaseOpts = {}): Promise<SyncBaseReport>
         unrealizedPct = remainingCost > 0n
           ? (Number(diff) / Number(remainingCost)) * 100
           : 0
-        p.pnl.unrealizedEth = unrealizedEth
         p.pnl.unrealizedPct = unrealizedPct
         p.pnl.lastPricedAt = nowIso
         p.pnl.unrealized = { asset: p.entry.inputAsset ?? 'ETH', amount: unrealizedEth }
@@ -1738,7 +1742,6 @@ export async function syncBase(opts: SyncBaseOpts = {}): Promise<SyncBaseReport>
         priceNote = `quote failed: ${e?.message ?? String(e)}`
       }
     } else {
-      p.pnl.unrealizedEth = 0
       p.pnl.unrealizedPct = 0
       p.pnl.unrealized = { asset: p.entry.inputAsset ?? 'ETH', amount: 0 }
     }
@@ -1966,8 +1969,6 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
     riskFlags: opts.riskFlags ?? [],
     sells: [],
     pnl: {
-      realizedSol: 0,
-      unrealizedSol: 0,
       unrealizedPct: 0,
       lastPricedAt: null,
       realized: { asset: inputAsset, amount: 0 },
@@ -2046,9 +2047,6 @@ export interface SellResult {
   txSignature: string
   tokensIn: string
   tokensInRaw: string
-  solOut: string
-  solOutRaw: number
-  realizedSol: number
   positionStatus: 'open' | 'closed'
   wallet: string
   mint: string
@@ -2062,9 +2060,9 @@ export interface SellResult {
   slippageSource: 'user' | 'dexscreener' | 'fallback'
   protectedExec: boolean
   forensics?: FillForensics
-  /** Canonical, asset-tagged output. Preferred over `solOut`/`solOutRaw`. */
+  /** Canonical, asset-tagged output. */
   output: AssetAmount
-  /** Canonical, asset-tagged realized PnL for this sell. Preferred over `realizedSol`. */
+  /** Canonical, asset-tagged realized PnL for this sell. */
   realized: AssetPnl
 }
 
@@ -2190,10 +2188,7 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     time: nowIso,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
-    solOut: solOutDisplay,
-    solOutRaw,
     percentRequested: opts.percent,
-    realizedSol,
     reason: opts.reason.trim(),
     feeLamports,
     tipLamports,
@@ -2201,18 +2196,16 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     protectedExec: !!opts.protectedExec,
     forensics,
     outputAsset,
-    // Canonical, asset-tagged accounting — preferred over legacy `solOut*` fields.
     output: { asset: outputAsset, raw: String(solOutRaw), display: solOutDisplay },
     realized: { asset: outputAsset, amount: realizedSol },
   })
 
-  position.pnl.realizedSol = position.sells.reduce((a, s) => a + s.realizedSol, 0)
-  position.pnl.realized = { asset: position.entry.inputAsset ?? 'SOL', amount: position.pnl.realizedSol }
+  const totalRealized = position.sells.reduce((a, s) => a + (s.realized?.amount ?? 0), 0)
+  position.pnl.realized = { asset: position.entry.inputAsset ?? 'SOL', amount: totalRealized }
 
   const newSoldRaw = soldRaw + tokensToSellRaw
   if (newSoldRaw >= totalRaw) {
     position.status = 'closed'
-    position.pnl.unrealizedSol = 0
     position.pnl.unrealizedPct = 0
     position.pnl.unrealized = { asset: position.entry.inputAsset ?? 'SOL', amount: 0 }
   }
@@ -2247,9 +2240,6 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     txSignature: swap.txSignature,
     tokensIn: tokensInDisplay,
     tokensInRaw: tokensToSellRaw.toString(),
-    solOut: solOutDisplay,
-    solOutRaw,
-    realizedSol,
     positionStatus: position.status,
     wallet: signer.address,
     mint: opts.ca,
@@ -2353,7 +2343,6 @@ export async function sync(opts: SyncOpts = {}): Promise<SyncReport> {
           unrealizedSol = usdcOut - remCost          // field name kept; holds USDC realized for USDC positions
           unrealizedPct = remCost > 0 ? (unrealizedSol / remCost) * 100 : 0
         }
-        p.pnl.unrealizedSol = unrealizedSol
         p.pnl.unrealizedPct = unrealizedPct
         p.pnl.lastPricedAt = nowIso
         p.pnl.unrealized = { asset: p.entry.inputAsset ?? 'SOL', amount: unrealizedSol }
@@ -2361,7 +2350,6 @@ export async function sync(opts: SyncOpts = {}): Promise<SyncReport> {
         priceNote = `quote failed: ${e.message}`
       }
     } else {
-      p.pnl.unrealizedSol = 0
       p.pnl.unrealizedPct = 0
       p.pnl.unrealized = { asset: p.entry.inputAsset ?? 'SOL', amount: 0 }
     }
@@ -2696,25 +2684,29 @@ export async function computePnl(opts: PnlOpts = {}): Promise<PnlReport> {
 
   for (const p of solanaPositions) {
     const asset = p.entry.inputAsset ?? 'SOL'
+    const realized = p.pnl.realized?.amount ?? 0
+    const unrealized = p.pnl.unrealized?.amount ?? 0
     if (asset === 'USDC') {
-      usdcRealized += p.pnl.realizedSol           // field name kept for back-compat; value is USDC
-      usdcUnrealized += p.pnl.unrealizedSol
+      usdcRealized += realized
+      usdcUnrealized += unrealized
       usdcCount += 1
     } else {
-      solRealized += p.pnl.realizedSol
-      solUnrealized += p.pnl.unrealizedSol
+      solRealized += realized
+      solUnrealized += unrealized
       solCount += 1
     }
   }
   for (const p of basePositions) {
     const asset = p.entry.inputAsset ?? 'ETH'
+    const realized = p.pnl.realized?.amount ?? 0
+    const unrealized = p.pnl.unrealized?.amount ?? 0
     if (asset === 'USDC') {
-      usdcRealized += p.pnl.realizedEth
-      usdcUnrealized += p.pnl.unrealizedEth
+      usdcRealized += realized
+      usdcUnrealized += unrealized
       usdcCount += 1
     } else {
-      ethRealized += p.pnl.realizedEth
-      ethUnrealized += p.pnl.unrealizedEth
+      ethRealized += realized
+      ethUnrealized += unrealized
       ethCount += 1
     }
   }
@@ -2765,8 +2757,8 @@ export async function computePnl(opts: PnlOpts = {}): Promise<PnlReport> {
         entry = { key: displayKey, realized: 0, unrealized: 0, count: 0, unit: asset, chain: 'solana' }
         map.set(key, entry)
       }
-      entry.realized += p.pnl.realizedSol
-      entry.unrealized += p.pnl.unrealizedSol
+      entry.realized += p.pnl.realized?.amount ?? 0
+      entry.unrealized += p.pnl.unrealized?.amount ?? 0
       entry.count += 1
     }
     for (const p of basePositions) {
@@ -2778,8 +2770,8 @@ export async function computePnl(opts: PnlOpts = {}): Promise<PnlReport> {
         entry = { key: displayKey, realized: 0, unrealized: 0, count: 0, unit: asset, chain: 'base' }
         map.set(key, entry)
       }
-      entry.realized += p.pnl.realizedEth
-      entry.unrealized += p.pnl.unrealizedEth
+      entry.realized += p.pnl.realized?.amount ?? 0
+      entry.unrealized += p.pnl.unrealized?.amount ?? 0
       entry.count += 1
     }
     byGroup = Array.from(map.values())

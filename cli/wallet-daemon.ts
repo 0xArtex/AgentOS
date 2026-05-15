@@ -119,9 +119,13 @@ export function formatTriggerReason(fire: TriggerFire): string {
       return `auto: timeLimit fired; selling 100%`
     }
     case 'trailingStop': {
-      const peak = fire.peakPct !== undefined ? `peak ${fire.peakPct.toFixed(2)}%` : 'peak ?'
-      const drop = fire.thresholdPct !== undefined ? `${fire.thresholdPct.toFixed(2)}%` : '?%'
-      return `auto: trailingStop fired at ${pct} (${peak} - drop ≥ ${drop}); selling 100%`
+      const allowedDrop = fire.thresholdPct !== undefined ? `${fire.thresholdPct.toFixed(2)}%` : '?%'
+      if (fire.peakPct !== undefined) {
+        const drawdown = (fire.peakPct - fire.currentPct).toFixed(2)
+        const peakSigned = `${fire.peakPct >= 0 ? '+' : ''}${fire.peakPct.toFixed(2)}%`
+        return `auto: trailingStop fired: drop ${drawdown}% from peak ${peakSigned} > ${allowedDrop} allowed; selling 100%`
+      }
+      return `auto: trailingStop fired at ${pct}; drop allowed ${allowedDrop}; selling 100%`
     }
     case 'thesis_falsified': {
       const verdict = fire.llmVerdict ?? 'no'

@@ -2428,9 +2428,12 @@ async function main() {
               : (readPosition('solana', ca) ?? readPosition('base', ca))
             if (!p) err(`Position not found: ${ca}`, EXIT.NOT_FOUND)
 
-            const unit = p!.chain === 'solana' ? 'SOL' : 'ETH'
-            const realized = p!.chain === 'solana' ? p!.pnl.realizedSol : p!.pnl.realizedEth
-            const unrealized = p!.chain === 'solana' ? p!.pnl.unrealizedSol : p!.pnl.unrealizedEth
+            // Canonical asset-tagged PnL — reflects what the position was
+            // actually funded in (USDC-funded positions report USDC, not the
+            // chain native asset).
+            const unit = p!.pnl.realized?.asset ?? (p!.chain === 'solana' ? 'SOL' : 'ETH')
+            const realized = p!.pnl.realized?.amount ?? 0
+            const unrealized = p!.pnl.unrealized?.amount ?? 0
 
             if (!AGENT_MODE) {
               console.log()
@@ -2473,14 +2476,11 @@ async function main() {
               if (p!.sells.length > 0) {
                 console.log()
                 section(`Sells (${p!.sells.length})`)
-                if (p!.chain === 'solana') {
-                  for (const s of p!.sells) {
-                    console.log(`  ${t.muted}${s.time}${t.reset}  ${s.tokensIn} → ${s.solOut} (realized ${s.realizedSol >= 0 ? '+' : ''}${s.realizedSol.toFixed(6)} SOL) — ${s.reason}`)
-                  }
-                } else {
-                  for (const s of p!.sells) {
-                    console.log(`  ${t.muted}${s.time}${t.reset}  ${s.tokensIn} → ${s.ethOut} (realized ${s.realizedEth >= 0 ? '+' : ''}${s.realizedEth.toFixed(6)} ETH) — ${s.reason}`)
-                  }
+                for (const s of p!.sells) {
+                  const outDisplay = s.output?.display ?? '?'
+                  const r = s.realized?.amount ?? 0
+                  const ru = s.realized?.asset ?? unit
+                  console.log(`  ${t.muted}${s.time}${t.reset}  ${s.tokensIn} → ${outDisplay} (realized ${r >= 0 ? '+' : ''}${r.toFixed(6)} ${ru}) — ${s.reason}`)
                 }
               }
               console.log()
@@ -2543,7 +2543,8 @@ async function main() {
               if (!AGENT_MODE) {
                 const tag = baseResult!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
                 const protTag = baseResult!.protectedExec ? ` ${t.accent}[protected]${t.reset}` : ''
-                const pnlColor = baseResult!.realizedEth >= 0 ? t.success : t.error
+                const realizedAmt = baseResult!.realized.amount
+                const pnlColor = realizedAmt >= 0 ? t.success : t.error
                 const closedTag = baseResult!.positionStatus === 'closed' ? ` ${t.muted}[closed]${t.reset}` : ''
                 console.log(`\n  ${t.success}${icon.success} ${tag}Base sell executed${protTag}${closedTag}${t.reset}`)
                 if (baseResult!.approvalTxHash) {
@@ -2551,11 +2552,11 @@ async function main() {
                 }
                 console.log(`  ${t.muted}tx:${t.reset}        ${baseResult!.txHash}`)
                 console.log(`  ${t.muted}sold:${t.reset}      ${baseResult!.tokensIn} tokens (${percent}%)`)
-                console.log(`  ${t.muted}received:${t.reset}  ${baseResult!.ethOut}`)
+                console.log(`  ${t.muted}received:${t.reset}  ${baseResult!.output.display}`)
                 {
-                  const unit = baseResult!.outputAsset ?? 'ETH'
+                  const unit = baseResult!.realized.asset
                   const decimals = unit === 'USDC' ? 2 : 6
-                  console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${baseResult!.realizedEth >= 0 ? '+' : ''}${baseResult!.realizedEth.toFixed(decimals)} ${unit}${t.reset}`)
+                  console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${realizedAmt >= 0 ? '+' : ''}${realizedAmt.toFixed(decimals)} ${unit}${t.reset}`)
                 }
                 console.log(`  ${t.muted}reason:${t.reset}    ${reason}`)
                 if (baseResult!.protectedExec) {
@@ -2594,21 +2595,22 @@ async function main() {
             if (!AGENT_MODE) {
               const tag = result!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
               const protTag = result!.protectedExec ? ` ${t.accent}[protected]${t.reset}` : ''
-              const pnlColor = result!.realizedSol >= 0 ? t.success : t.error
+              const realizedAmt = result!.realized.amount
+              const pnlColor = realizedAmt >= 0 ? t.success : t.error
               const closedTag = result!.positionStatus === 'closed' ? ` ${t.muted}[closed]${t.reset}` : ''
               console.log(`\n  ${t.success}${icon.success} ${tag}Sell executed${protTag}${closedTag}${t.reset}`)
               console.log(`  ${t.muted}tx:${t.reset}        ${result!.txSignature}`)
               console.log(`  ${t.muted}sold:${t.reset}      ${result!.tokensIn} tokens (${percent}%)`)
-              console.log(`  ${t.muted}received:${t.reset}  ${result!.solOut}`)
+              console.log(`  ${t.muted}received:${t.reset}  ${result!.output.display}`)
               console.log(`  ${t.muted}slippage:${t.reset}  ${result!.slippageBpsUsed}bps (${result!.slippageSource})`)
               if (result!.protectedExec) {
                 console.log(`  ${t.muted}tip:${t.reset}       ${result!.tipLamports} lamports (Jito)`)
               }
               console.log(`  ${t.muted}fee:${t.reset}       ${result!.feeLamports} lamports`)
               {
-                const unit = result!.outputAsset ?? 'SOL'
+                const unit = result!.realized.asset
                 const decimals = unit === 'USDC' ? 2 : 6
-                console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${result!.realizedSol >= 0 ? '+' : ''}${result!.realizedSol.toFixed(decimals)} ${unit}${t.reset}`)
+                console.log(`  ${t.muted}realized:${t.reset}  ${pnlColor}${realizedAmt >= 0 ? '+' : ''}${realizedAmt.toFixed(decimals)} ${unit}${t.reset}`)
               }
               console.log(`  ${t.muted}reason:${t.reset}    ${reason}`)
               if (result!.forensics && result!.forensics.flag === 'suspect-mev') {
@@ -2967,11 +2969,11 @@ async function main() {
               console.log()
               section('Current')
               const pnlColor = p!.pnl.unrealizedPct >= 0 ? t.success : t.error
-              // Brief is now chain-aware — read canonical asset-tagged pnl
-              // fields rather than the Solana-specific `realizedSol` / `unrealizedSol`.
-              const realizedAmt = p!.pnl.realized?.amount ?? (p!.chain === 'solana' ? p!.pnl.realizedSol : p!.pnl.realizedEth)
+              // Canonical asset-tagged pnl — normalizePosition guarantees these
+              // exist on read, including back-fill from legacy on-disk fields.
+              const realizedAmt = p!.pnl.realized?.amount ?? 0
               const realizedAsset = p!.pnl.realized?.asset ?? (p!.chain === 'solana' ? 'SOL' : 'ETH')
-              const unrealizedAmt = p!.pnl.unrealized?.amount ?? (p!.chain === 'solana' ? p!.pnl.unrealizedSol : p!.pnl.unrealizedEth)
+              const unrealizedAmt = p!.pnl.unrealized?.amount ?? 0
               const unrealizedAsset = p!.pnl.unrealized?.asset ?? realizedAsset
               kv('Realized', `${realizedAmt >= 0 ? '+' : ''}${realizedAmt.toFixed(6)} ${realizedAsset}`)
               console.log(`  ${t.muted}Unrealized:${t.reset}  ${pnlColor}${unrealizedAmt >= 0 ? '+' : ''}${unrealizedAmt.toFixed(6)} ${unrealizedAsset} (${p!.pnl.unrealizedPct.toFixed(2)}%)${t.reset}`)
