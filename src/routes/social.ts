@@ -16,6 +16,11 @@ import {
   registerAccount,
   unregisterAccount,
   listRegisteredAccounts,
+  accountsAccessibleBy,
+  getOwnerDecryptedState,
+  persistRotatedCreds,
+  shareRegistered,
+  unshareRegistered,
 } from "../services/registered-accounts";
 import {
   createScheduled,
@@ -35,6 +40,8 @@ import {
   updateAvatar,
   updateBanner,
   changeUsername,
+  changePassword,
+  generateStrongPassword,
   listMyTweets,
 } from "../services/social-operations";
 import { loginTikTok } from "../services/tiktok-login";
@@ -685,6 +692,293 @@ router.get(
     } catch (err: any) {
       res.status(500).json({ error: err.message || "List registered failed" });
     }
+  }
+);
+
+// ── Transfer / share / unshare / claim for registered accounts ──────────
+//
+// Mirrors /x/accounts/:id/{transfer,share,unshare} but operates on the
+// social_registered_accounts table (BYO/wallet-bound accounts) instead of
+// the admin-seeded pool. Credentials live encrypted server-side; the
+// rotation flow decrypts → drives the X password-change UI → re-encrypts.
+
+// ── Wallet validators reused inside this section ──
+const SOL_PUBKEY_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const EVM_ADDR_RE = /^0x[a-fA-F0-9]{40}$/;
+const isWalletAddr = (s: any) => typeof s === "string" && (SOL_PUBKEY_RE.test(s) || EVM_ADDR_RE.test(s));
+
+/**
+ * GET /social/twitter/registered/mine — Full credential bundle for every
+ * registered account the caller owns or has shared access to. Used by
+ * `palmyr twitter claim` so a wallet that just received a transferred
+ * account can pull it into the local vault.
+ *
+ * Mirrored on /x/accounts/mine for pool-bought accounts. The CLI claim
+ * command queries both endpoints and merges the results.
+ */
+router.get(
+  "/twitter/registered/mine",
+  requireXEnabled,
+  requireAuth(0.001, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    try {
+      const accounts = accountsAccessibleBy(wallet, "twitter");
+      res.json({ success: true, wallet, count: accounts.length, accounts });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "List failed" });
+    }
+  }
+);
+
+/**
+ * POST /social/twitter/registered/:id/transfer — Atomically hand a registered
+ * X account to another wallet. Server rotates the password and revokes other
+ * sessions before flipping the `wallet` column, so the previous owner's
+ * exported cookies / password become useless. Symmetric with
+ * /x/accounts/:id/transfer for pool accounts.
+ */
+router.post(
+  "/twitter/registered/:id/transfer",
+  requireXEnabled,
+  requireAuth(0.0001, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const caller = req.payment?.payer || req.agentId;
+    if (!caller) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const { to_wallet } = (req.body || {}) as { to_wallet?: string };
+    if (!isWalletAddr(to_wallet)) {
+      res.status(400).json({ error: "to_wallet must be a Solana (base58) or EVM (0x…) wallet address" });
+      return;
+    }
+    if (to_wallet === caller) {
+      res.status(400).json({ error: "to_wallet is already the current owner" });
+      return;
+    }
+
+    const accountId = String(req.params.id || "");
+    const state = getOwnerDecryptedState(accountId, caller);
+    if (!state) {
+      res.status(404).json({ error: "Registered account not found or not owned by you" });
+      return;
+    }
+    if (state.cookies.length === 0) {
+      res.status(409).json({
+        error: "No cached cookies for this account — re-run register so the server has a session before transferring",
+      });
+      return;
+    }
+
+    const newPassword = generateStrongPassword();
+    const rotation = await changePassword({
+      account_id: state.row.id,
+      proxy_session_id: state.row.proxy_session_id,
+      cookies: state.cookies,
+      current_password: state.creds.password,
+      new_password: newPassword,
+      log_out_other_sessions: true,
+    });
+
+    if (!rotation.success) {
+      // Atomic: no DB change. Old owner keeps the account.
+      res.status(502).json({
+        error: rotation.error || "Password rotation failed",
+        error_code: rotation.error_code,
+      });
+      return;
+    }
+
+    const newCookies = rotation.data?.cookies && rotation.data.cookies.length > 0
+      ? rotation.data.cookies
+      : state.cookies;
+    const newCreds = {
+      ...state.creds,
+      password: newPassword,
+      auth_token: rotation.data?.auth_token || undefined,
+      ct0: rotation.data?.ct0 || undefined,
+    };
+
+    const updated = persistRotatedCreds(state.row.id, caller, newCreds, newCookies, {
+      transferToWallet: to_wallet,
+    });
+    if (!updated) {
+      res.status(409).json({
+        error: "Ownership changed during rotation; password was rotated but transfer aborted",
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: `Account @${state.row.username} transferred to ${to_wallet}. Credentials rotated; the new owner can claim with: palmyr twitter claim`,
+      id: state.row.id,
+      username: state.row.username,
+      previous_owner: caller,
+      new_owner: to_wallet,
+      credentials_rotated: true,
+    });
+  }
+);
+
+/**
+ * POST /social/twitter/registered/:id/share — Grant another wallet shared
+ * access. Same encrypted credentials; the shared wallet can post / etc.
+ * exactly like the owner. Owner-only.
+ */
+router.post(
+  "/twitter/registered/:id/share",
+  requireXEnabled,
+  requireAuth(0.0001, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const caller = req.payment?.payer || req.agentId;
+    if (!caller) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const withWallet = (req.body || {}).with;
+    if (!isWalletAddr(withWallet)) {
+      res.status(400).json({ error: "`with` must be a wallet address" });
+      return;
+    }
+
+    const result = shareRegistered(String(req.params.id || ""), caller, withWallet);
+    if (result === null) {
+      res.status(404).json({ error: "Registered account not found or not owned by you" });
+      return;
+    }
+    res.json({
+      success: true,
+      message: `Shared with ${withWallet}`,
+      id: req.params.id,
+      shared_with: result,
+    });
+  }
+);
+
+/**
+ * POST /social/twitter/registered/:id/unshare — Revoke shared access. With
+ * `rotate: true` in the body, the server also rotates the password + revokes
+ * other sessions and returns the new credentials so the caller (still the
+ * owner) can update their local vault. Without `rotate`, only `shared_with`
+ * is updated; previously captured creds on the revoked wallet remain valid
+ * until X-side expiry.
+ */
+router.post(
+  "/twitter/registered/:id/unshare",
+  requireXEnabled,
+  requireAuth(0.0001, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const caller = req.payment?.payer || req.agentId;
+    if (!caller) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const body = (req.body || {}) as { wallet?: string; rotate?: boolean };
+    if (!isWalletAddr(body.wallet)) {
+      res.status(400).json({ error: "`wallet` must be a wallet address" });
+      return;
+    }
+    const rotate = body.rotate === true;
+    const accountId = String(req.params.id || "");
+
+    const afterUnshare = unshareRegistered(accountId, caller, body.wallet!);
+    if (afterUnshare === null) {
+      res.status(404).json({ error: "Registered account not found or not owned by you" });
+      return;
+    }
+
+    if (!rotate) {
+      res.json({
+        success: true,
+        message: `${body.wallet} no longer has shared access`,
+        id: accountId,
+        shared_with: afterUnshare,
+        rotated: false,
+      });
+      return;
+    }
+
+    // --rotate path: decrypt → changePassword → re-encrypt → persist
+    const state = getOwnerDecryptedState(accountId, caller);
+    if (!state || state.cookies.length === 0) {
+      res.status(200).json({
+        success: true,
+        message: `${body.wallet} unshared, but rotation skipped — no cached cookies for this account`,
+        id: accountId,
+        shared_with: afterUnshare,
+        rotated: false,
+        rotation_skipped_reason: "no_cookies",
+      });
+      return;
+    }
+
+    const newPassword = generateStrongPassword();
+    const rotation = await changePassword({
+      account_id: state.row.id,
+      proxy_session_id: state.row.proxy_session_id,
+      cookies: state.cookies,
+      current_password: state.creds.password,
+      new_password: newPassword,
+      log_out_other_sessions: true,
+    });
+
+    if (!rotation.success) {
+      // Unshare succeeded; rotation didn't. The revoked wallet is out of
+      // shared_with, but may still have working cookies until X-side expiry.
+      res.status(207).json({
+        success: true,
+        message: `${body.wallet} unshared. Password rotation failed — retry to fully revoke any cached creds`,
+        id: accountId,
+        shared_with: afterUnshare,
+        rotated: false,
+        rotation_error: rotation.error,
+        rotation_error_code: rotation.error_code,
+      });
+      return;
+    }
+
+    const newCookies = rotation.data?.cookies && rotation.data.cookies.length > 0
+      ? rotation.data.cookies
+      : state.cookies;
+    const newCreds = {
+      ...state.creds,
+      password: newPassword,
+      auth_token: rotation.data?.auth_token || undefined,
+      ct0: rotation.data?.ct0 || undefined,
+    };
+
+    const updated = persistRotatedCreds(state.row.id, caller, newCreds, newCookies);
+    if (!updated) {
+      res.status(207).json({
+        success: true,
+        message: `${body.wallet} unshared; rotation completed on X but DB write raced — re-resolve session to pick up new state`,
+        id: accountId,
+        shared_with: afterUnshare,
+        rotated: false,
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      message: `${body.wallet} unshared and credentials rotated`,
+      id: accountId,
+      shared_with: afterUnshare,
+      rotated: true,
+      // Caller is still the owner — returning fresh creds is safe and
+      // necessary so the local vault stays in sync.
+      credentials: {
+        password: newPassword,
+        cookies: newCookies,
+        auth_token: rotation.data?.auth_token || null,
+      },
+    });
   }
 );
 

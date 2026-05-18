@@ -3896,6 +3896,32 @@ async function main() {
         const sv = await import('./social-vault.js')
         const platform = 'twitter' as const
 
+        // Resolve a username to its server-side account_id and which table
+        // holds it. X accounts can live in two places: x_accounts (pool-bought)
+        // and social_registered_accounts (BYO-registered). The local vault
+        // doesn't track which, so we query both in parallel and find a match.
+        // Used by transfer / share / unshare to dispatch to the correct
+        // endpoint family. Returns null if the username isn't on the server.
+        const resolveServerAccount = async (username: string): Promise<
+          | { kind: 'x_accounts'; id: string }
+          | { kind: 'registered'; id: string }
+          | null
+        > => {
+          const [xMine, reg] = await Promise.allSettled([
+            ao.xAccountsMine(),
+            ao.socialTwitterListRegistered(),
+          ])
+          if (xMine.status === 'fulfilled') {
+            const m = (xMine.value?.accounts || []).find((a: any) => a.username === username)
+            if (m) return { kind: 'x_accounts', id: m.id }
+          }
+          if (reg.status === 'fulfilled') {
+            const m = (reg.value?.accounts || []).find((a: any) => a.username === username)
+            if (m) return { kind: 'registered', id: m.id }
+          }
+          return null
+        }
+
         if (!subcommand) {
           showMenu({
             command: 'twitter',
@@ -4772,8 +4798,8 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // Hand the X account to another wallet. Server rotates the password
             // and revokes other sessions before flipping ownership, so the local
             // copy of credentials we keep is intentionally invalidated. After
-            // success, we wipe the local vault entry — receiver will pick up
-            // fresh credentials via `palmyr twitter claim`.
+            // success, we wipe the local vault entry — receiver picks up fresh
+            // credentials via `palmyr twitter claim`.
             const username = positional[0] || (flags.username as string)
             const to = flags.to as string
             if (!username) err('<username> required')
@@ -4792,23 +4818,36 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               )
             }
 
+            const resolved = await resolveServerAccount(username!)
+            if (!resolved) {
+              err(
+                `@${username} is in your local vault but not on the Palmyr server.\n\n` +
+                `Transfer needs a server-side row so the new owner can claim it. Either:\n` +
+                `  palmyr twitter register ${username}   (uploads encrypted creds to server)\n` +
+                `then re-run the transfer.`,
+                EXIT.NOT_FOUND
+              )
+            }
+
             const spin = new Spinner()
             spin.start(`Rotating @${username} password and transferring…`)
             let data: any
             try {
-              data = await ao.xAccountTransfer(acc!.id, to)
+              data = resolved.kind === 'x_accounts'
+                ? await ao.xAccountTransfer(resolved.id, to)
+                : await ao.socialTwitterRegisteredTransfer(resolved.id, to)
             } catch (e: any) {
               spin.stop('Transfer failed', false)
               err(`Transfer failed: ${e.message}`, EXIT.GENERAL)
             }
             spin.stop('Transferred', true)
 
-            // The local vault still holds the OLD password / cookies which are
+            // Local vault still holds the OLD password / cookies which are
             // now useless. Drop the entry so we don't confuse the user with a
             // ghost account they can't log into.
             try { sv.removeAccount(platform, username!) } catch { /* best effort */ }
 
-            return print({ ...data, local_vault_cleared: true })
+            return print({ ...data, source_table: resolved.kind, local_vault_cleared: true })
           }
 
           case 'share': {
@@ -4820,9 +4859,19 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             const acc = sv.getAccount(platform, username!)
             if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
 
-            const data = await ao.xAccountShare(acc!.id, withWallet)
+            const resolved = await resolveServerAccount(username!)
+            if (!resolved) {
+              err(
+                `@${username} is not on the server. Register it first with: palmyr twitter register ${username}`,
+                EXIT.NOT_FOUND
+              )
+            }
+
+            const data = resolved!.kind === 'x_accounts'
+              ? await ao.xAccountShare(resolved!.id, withWallet)
+              : await ao.socialTwitterRegisteredShare(resolved!.id, withWallet)
             log(`twitter share: @${username} → ${withWallet}`)
-            return print(data)
+            return print({ ...data, source_table: resolved!.kind })
           }
 
           case 'unshare': {
@@ -4835,12 +4884,22 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             const acc = sv.getAccount(platform, username!)
             if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
 
+            const resolved = await resolveServerAccount(username!)
+            if (!resolved) {
+              err(
+                `@${username} is not on the server. Register it first with: palmyr twitter register ${username}`,
+                EXIT.NOT_FOUND
+              )
+            }
+
             const spin = rotate ? new Spinner() : null
             if (spin) spin.start(`Unsharing @${username} and rotating password…`)
 
             let data: any
             try {
-              data = await ao.xAccountUnshare(acc!.id, targetWallet, { rotate })
+              data = resolved!.kind === 'x_accounts'
+                ? await ao.xAccountUnshare(resolved!.id, targetWallet, { rotate })
+                : await ao.socialTwitterRegisteredUnshare(resolved!.id, targetWallet, { rotate })
             } catch (e: any) {
               if (spin) spin.stop('Unshare failed', false)
               err(`Unshare failed: ${e.message}`, EXIT.GENERAL)
@@ -4871,16 +4930,40 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             }
 
             log(`twitter unshare: @${username} ✗ ${targetWallet}${rotate ? ' (rotated)' : ''}`)
-            return print(data)
+            return print({ ...data, source_table: resolved!.kind })
           }
 
           case 'claim': {
-            // Fetch every server-side X account this wallet owns or has shared
-            // access to. Optionally import any not yet in the local vault —
-            // typical use is the new owner of a transferred account picking it
-            // up for the first time.
-            const data = await ao.xAccountsMine()
-            const accounts: any[] = data?.accounts || []
+            // Fetch server-side accounts the calling wallet owns or has shared
+            // access to — from BOTH tables. x_accounts (pool-bought) and
+            // social_registered_accounts (BYO-registered) are queried in
+            // parallel; both contribute to the claim list. Import any not
+            // already in the local vault so the receiver of a transfer can
+            // pick up the account in one command.
+            const [xRes, regRes] = await Promise.allSettled([
+              ao.xAccountsMine(),
+              ao.socialTwitterRegisteredMine(),
+            ])
+
+            const xAccounts: any[] = xRes.status === 'fulfilled' ? (xRes.value?.accounts || []) : []
+            const regAccountsRaw: any[] = regRes.status === 'fulfilled' ? (regRes.value?.accounts || []) : []
+            // Normalize the registered shape (creds + cookies live in nested
+            // fields) to the same flat shape as x_accounts so the loop below
+            // doesn't have to branch on source.
+            const regAccounts: any[] = regAccountsRaw.map(a => ({
+              username: a.username,
+              email: a.credentials?.email,
+              password: a.credentials?.password,
+              auth_token: a.credentials?.auth_token,
+              cookies: a.cookies || [],
+              access: a.access,
+              source_table: 'registered',
+            }))
+            const accounts: any[] = [
+              ...xAccounts.map(a => ({ ...a, source_table: 'x_accounts' })),
+              ...regAccounts,
+            ]
+
             if (accounts.length === 0) {
               log('No X accounts associated with your wallet on the server.')
               return print({ count: 0, claimed: 0, accounts: [] })
@@ -4909,7 +4992,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 if (Array.isArray(a.cookies) && a.cookies.length > 0) {
                   sv.saveSession(summary.id, platform, a.cookies)
                 }
-                imported.push({ username: a.username, id: summary.id, access: a.access })
+                imported.push({ username: a.username, id: summary.id, access: a.access, source_table: a.source_table })
               } catch (e: any) {
                 skipped.push({ username: a.username, reason: e.message })
               }
