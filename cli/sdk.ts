@@ -535,6 +535,32 @@ export class Palmyr {
     return this.request('POST', `/domains/${domain}/transfer-ownership`, { new_owner: newOwner })
   }
 
+  async domainShare(domain: string, withWallet: string): Promise<any> {
+    return this.request('POST', `/domains/${domain}/share`, { with: withWallet })
+  }
+
+  async domainUnshare(domain: string, wallet: string): Promise<any> {
+    return this.request('POST', `/domains/${domain}/unshare`, { wallet })
+  }
+
+  // ── X account pool: transfer / share / claim ──
+  async xAccountTransfer(id: string, toWallet: string): Promise<any> {
+    return this.request('POST', `/x/accounts/${encodeURIComponent(id)}/transfer`, { to_wallet: toWallet })
+  }
+
+  async xAccountShare(id: string, withWallet: string): Promise<any> {
+    return this.request('POST', `/x/accounts/${encodeURIComponent(id)}/share`, { with: withWallet })
+  }
+
+  async xAccountUnshare(id: string, wallet: string): Promise<any> {
+    return this.request('POST', `/x/accounts/${encodeURIComponent(id)}/unshare`, { wallet })
+  }
+
+  /** Accounts the calling wallet owns or has shared access to. */
+  async xAccountsMine(): Promise<any> {
+    return this.request('GET', '/x/accounts/mine')
+  }
+
   // ── Wallet ──
   async walletCreate(label?: string, chains?: string[], mode?: 'unmanaged' | 'managed'): Promise<any> {
     return this.request('POST', '/wallet', { label, chains, mode })

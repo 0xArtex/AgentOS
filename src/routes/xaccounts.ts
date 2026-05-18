@@ -1,11 +1,89 @@
 import { Router, Request, Response } from "express";
-import { xAccountService } from "../services/xaccounts";
+import { randomBytes } from "crypto";
+import { xAccountService, XAccount } from "../services/xaccounts";
 import { requirePoolAdmin } from "../middleware/pool-admin";
+import { requireAuth } from "../middleware/auth";
+import { AuthenticatedRequest } from "../types";
+import { changePassword } from "../services/social-operations";
 
 const router = Router();
 
 // Initialize table on load
 xAccountService.init().catch(console.error);
+
+// Owners are wallet addresses on either chain x402 settles on:
+//   Solana: base58, 32–44 chars
+//   EVM (Base): 0x + 40 hex chars
+const SOL_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const EVM_ADDR = /^0x[a-fA-F0-9]{40}$/;
+const isWalletAddress = (s: string) => typeof s === "string" && (SOL_PUBKEY.test(s) || EVM_ADDR.test(s));
+
+// Symbolic x402 fee on owner-write endpoints. The point is the signature, not
+// the dollar amount — paying with USDC cryptographically proves the caller
+// controls the wallet they claim, which the routes use to gate transfer/share.
+// Mirrors the domains.ts pattern.
+const OWNERSHIP_PROOF_USDC = 0.0001;
+
+function callerWallet(req: Request): string | null {
+  const r = req as AuthenticatedRequest;
+  const w = r.payment?.payer || r.agentId || (req as any).payerAddress || req.body?.wallet || req.query?.wallet;
+  return typeof w === "string" && w ? w : null;
+}
+
+/**
+ * Generate a strong password that satisfies X's complexity rules. 32 chars
+ * mixing upper/lower/digits/symbols clears the strongest interpretation of
+ * their requirements with comfortable margin.
+ */
+function generatePassword(): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "!@#$%^&*-_=+";
+  const alphabet = upper + lower + digits + symbols;
+  const bytes = randomBytes(32);
+  let out = "";
+  // Guarantee one char from each class, then fill the rest randomly.
+  out += upper[bytes[0] % upper.length];
+  out += lower[bytes[1] % lower.length];
+  out += digits[bytes[2] % digits.length];
+  out += symbols[bytes[3] % symbols.length];
+  for (let i = 4; i < 32; i++) out += alphabet[bytes[i] % alphabet.length];
+  // Shuffle so the guaranteed chars aren't always at the start.
+  const arr = out.split("");
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = randomBytes(1)[0] % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.join("");
+}
+
+function serializeAccount(account: XAccount, includeSecrets: boolean) {
+  const base = {
+    id: account.id,
+    username: account.username,
+    status: account.status,
+    warmed: account.warmed,
+    age_days: account.age_days,
+    sold_to: account.sold_to,
+    shared_with: account.shared_with,
+  };
+  if (!includeSecrets) return base;
+  let cookies: any[] = [];
+  try { cookies = JSON.parse(account.cookies || "[]"); } catch { cookies = []; }
+  return {
+    ...base,
+    email: account.email,
+    password: account.password,
+    cookies,
+    auth_token: account.auth_token,
+    profile: {
+      name: account.profile_name,
+      bio: account.profile_bio,
+      image: account.profile_image,
+    },
+  };
+}
 
 /**
  * POST /x/accounts — Purchase an X account from the pool
@@ -51,7 +129,40 @@ router.post("/accounts", async (req: Request, res: Response) => {
 });
 
 /**
- * GET /x/accounts/:id — Check account status
+ * GET /x/accounts/mine — List every account the caller owns or has shared
+ * access to. Returns full credentials for each (so a freshly-onboarded wallet
+ * that's been transferred an account can pick it up). Placed BEFORE /:id so
+ * the literal "mine" doesn't get matched as an account id.
+ *
+ * Auth: x402 ownership proof. The payer signature is the only thing keeping
+ * this endpoint from leaking every X account's password to anyone with a
+ * wallet address.
+ */
+router.get("/accounts/mine", requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: Request, res: Response) => {
+  try {
+    const wallet = callerWallet(req);
+    if (!wallet) {
+      res.status(401).json({ error: "Unauthorized", message: "Provide a wallet via x402 payment or ?wallet=…" });
+      return;
+    }
+
+    const accounts = await xAccountService.accountsAccessibleBy(wallet);
+    res.json({
+      wallet,
+      count: accounts.length,
+      accounts: accounts.map(a => ({
+        ...serializeAccount(a, true),
+        access: a.sold_to === wallet ? "owner" : "shared",
+      })),
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: "Error", message: error.message });
+  }
+});
+
+/**
+ * GET /x/accounts/:id — Account status. Returns full credentials to the
+ * owner and to any wallet in shared_with; otherwise returns public-only info.
  */
 router.get("/accounts/:id", async (req: Request, res: Response) => {
   try {
@@ -62,29 +173,9 @@ router.get("/accounts/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    // Only return full details if the requester is the buyer
-    const wallet = (req as any).payerAddress || req.query.wallet;
-    if (account.sold_to && account.sold_to === wallet) {
-      res.json({
-        id: account.id,
-        username: account.username,
-        email: account.email,
-        password: account.password,
-        cookies: JSON.parse(account.cookies),
-        auth_token: account.auth_token,
-        status: account.status,
-        age_days: account.age_days,
-      });
-    } else {
-      // Public info only
-      res.json({
-        id: account.id,
-        username: account.username,
-        status: account.status,
-        warmed: account.warmed,
-        age_days: account.age_days,
-      });
-    }
+    const wallet = callerWallet(req);
+    const hasAccess = !!wallet && xAccountService.canAccess(account, wallet);
+    res.json(serializeAccount(account, hasAccess));
   } catch (error: any) {
     res.status(500).json({ error: "Error", message: error.message });
   }
@@ -102,6 +193,201 @@ router.get("/accounts", async (_req: Request, res: Response) => {
       message: stats.available > 0
         ? `${stats.available} X accounts ready for purchase`
         : "No accounts currently available",
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: "Error", message: error.message });
+  }
+});
+
+/**
+ * POST /x/accounts/:id/transfer — Atomically hand an X account to another wallet.
+ *
+ * Body: { to_wallet }
+ *
+ * Flow: caller must currently own the account. Server rotates the password
+ * (and revokes other sessions), then flips sold_to to the new wallet and
+ * stores the rotated credentials. New owner picks them up by calling
+ * GET /x/accounts/mine — the credentials never leave the server through
+ * the response to the *transferring* wallet, so the prior owner can't
+ * retain a copy of the post-rotation login.
+ */
+router.post("/accounts/:id/transfer", requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: Request, res: Response) => {
+  try {
+    const caller = callerWallet(req);
+    if (!caller) {
+      res.status(401).json({ error: "Unauthorized", message: "Caller wallet required" });
+      return;
+    }
+
+    const { to_wallet } = req.body || {};
+    if (!isWalletAddress(to_wallet)) {
+      res.status(400).json({ error: "Bad Request", message: "to_wallet must be a Solana (base58) or EVM (0x…) wallet address" });
+      return;
+    }
+    if (to_wallet === caller) {
+      res.status(400).json({ error: "Bad Request", message: "to_wallet is already the current owner" });
+      return;
+    }
+
+    const account = await xAccountService.getAccount(req.params.id as string);
+    if (!account) {
+      res.status(404).json({ error: "Not Found", message: "Account not found" });
+      return;
+    }
+    if (account.sold_to !== caller) {
+      res.status(403).json({ error: "Forbidden", message: "Caller does not own this account" });
+      return;
+    }
+    if (account.status === "suspended") {
+      res.status(409).json({ error: "Conflict", message: "Account is suspended — cannot transfer" });
+      return;
+    }
+
+    let currentCookies: any[] = [];
+    try { currentCookies = JSON.parse(account.cookies || "[]"); } catch { currentCookies = []; }
+    if (currentCookies.length === 0) {
+      res.status(409).json({
+        error: "Conflict",
+        message: "Account has no cached cookies — run twitter login first so the server can drive the password-change UI",
+      });
+      return;
+    }
+
+    const newPassword = generatePassword();
+    const rotation = await changePassword({
+      account_id: account.id,
+      cookies: currentCookies,
+      current_password: account.password,
+      new_password: newPassword,
+      log_out_other_sessions: true,
+    });
+
+    if (!rotation.success) {
+      // Atomic: nothing persisted. Old owner keeps the account.
+      res.status(502).json({
+        error: "Rotation Failed",
+        message: rotation.error || "Password rotation failed",
+        error_code: rotation.error_code,
+      });
+      return;
+    }
+
+    const newCookies = rotation.data?.cookies && rotation.data.cookies.length > 0
+      ? JSON.stringify(rotation.data.cookies)
+      : "[]";
+    const updated = await xAccountService.transferOwnership(
+      account.id,
+      caller,
+      to_wallet,
+      {
+        password: newPassword,
+        cookies: newCookies,
+        auth_token: rotation.data?.auth_token || null,
+      }
+    );
+
+    if (!updated) {
+      // The sold_to row no longer matches caller — concurrent transfer happened
+      // between the ownership check and the rotation. The password HAS been
+      // rotated though; whoever owns the row now holds the new password.
+      res.status(409).json({
+        error: "Conflict",
+        message: "Account ownership changed during rotation; password was rotated but ownership transfer aborted",
+      });
+      return;
+    }
+
+    res.json({
+      message: `Account @${updated.username} transferred to ${to_wallet}. Credentials rotated; the new owner can claim with: palmyr twitter claim`,
+      id: updated.id,
+      username: updated.username,
+      previous_owner: caller,
+      new_owner: to_wallet,
+      credentials_rotated: true,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: "Error", message: error.message });
+  }
+});
+
+/**
+ * POST /x/accounts/:id/share — Grant another wallet read access to this account.
+ *
+ * Body: { with }  — wallet to share with
+ *
+ * Sharing does NOT rotate credentials. Shared wallets see the same cookies /
+ * password / auth_token. Effectively "shared login," same as handing someone
+ * your Netflix password. Owner can revoke at any time with /unshare.
+ */
+router.post("/accounts/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: Request, res: Response) => {
+  try {
+    const caller = callerWallet(req);
+    if (!caller) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const withWallet = (req.body || {}).with;
+    if (!isWalletAddress(withWallet)) {
+      res.status(400).json({ error: "Bad Request", message: "`with` must be a wallet address" });
+      return;
+    }
+
+    const account = await xAccountService.getAccount(req.params.id as string);
+    if (!account) {
+      res.status(404).json({ error: "Not Found" });
+      return;
+    }
+    if (account.sold_to !== caller) {
+      res.status(403).json({ error: "Forbidden", message: "Only the owner can share an account" });
+      return;
+    }
+
+    const updated = await xAccountService.share(account.id, withWallet);
+    res.json({
+      message: `@${account.username} shared with ${withWallet}`,
+      id: account.id,
+      username: account.username,
+      shared_with: updated?.shared_with || [],
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: "Error", message: error.message });
+  }
+});
+
+/**
+ * POST /x/accounts/:id/unshare — Revoke a wallet's shared access.
+ *
+ * Body: { wallet }  — wallet to remove
+ */
+router.post("/accounts/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: Request, res: Response) => {
+  try {
+    const caller = callerWallet(req);
+    if (!caller) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const targetWallet = (req.body || {}).wallet;
+    if (!isWalletAddress(targetWallet)) {
+      res.status(400).json({ error: "Bad Request", message: "`wallet` must be a wallet address" });
+      return;
+    }
+
+    const account = await xAccountService.getAccount(req.params.id as string);
+    if (!account) {
+      res.status(404).json({ error: "Not Found" });
+      return;
+    }
+    if (account.sold_to !== caller) {
+      res.status(403).json({ error: "Forbidden", message: "Only the owner can revoke shares" });
+      return;
+    }
+
+    const updated = await xAccountService.unshare(account.id, targetWallet);
+    res.json({
+      message: `${targetWallet} no longer has shared access to @${account.username}`,
+      id: account.id,
+      username: account.username,
+      shared_with: updated?.shared_with || [],
     });
   } catch (error: any) {
     res.status(500).json({ error: "Error", message: error.message });

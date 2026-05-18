@@ -14,7 +14,8 @@ export interface XAccount {
   profile_image: string | null;
   created_at: string;
   sold_at: string | null;
-  sold_to: string | null; // agent wallet address
+  sold_to: string | null; // owner wallet address
+  shared_with: string[]; // wallets granted shared access (same creds, same session)
   warmed: boolean;
   age_days: number;
 }
@@ -24,7 +25,7 @@ export class XAccountService {
    * Initialize the x_accounts table
    */
   async init(): Promise<void> {
-    
+
     db.exec(`
       CREATE TABLE IF NOT EXISTS x_accounts (
         id TEXT PRIMARY KEY,
@@ -40,10 +41,17 @@ export class XAccountService {
         created_at TEXT DEFAULT (datetime('now')),
         sold_at TEXT,
         sold_to TEXT,
+        shared_with TEXT DEFAULT '[]',
         warmed INTEGER DEFAULT 0,
         age_days INTEGER DEFAULT 0
       )
     `);
+
+    // Idempotent backfill for older DBs that pre-date shared_with.
+    const cols = db.prepare("PRAGMA table_info(x_accounts)").all() as Array<{ name: string }>;
+    if (!cols.some(c => c.name === 'shared_with')) {
+      db.exec("ALTER TABLE x_accounts ADD COLUMN shared_with TEXT DEFAULT '[]'");
+    }
   }
 
   /**
@@ -211,6 +219,8 @@ export class XAccountService {
   }
 
   private rowToAccount(row: any): XAccount {
+    let shared: string[] = [];
+    try { shared = row.shared_with ? JSON.parse(row.shared_with) : []; } catch { shared = []; }
     return {
       id: row.id,
       username: row.username,
@@ -225,9 +235,89 @@ export class XAccountService {
       created_at: row.created_at,
       sold_at: row.sold_at,
       sold_to: row.sold_to,
+      shared_with: shared,
       warmed: !!row.warmed,
       age_days: row.age_days || 0,
     };
+  }
+
+  /**
+   * True if `wallet` can read/use this account — either the sold_to owner
+   * or in the shared_with list.
+   */
+  canAccess(account: Pick<XAccount, "sold_to" | "shared_with">, wallet: string): boolean {
+    if (!wallet) return false;
+    if (account.sold_to && account.sold_to === wallet) return true;
+    return Array.isArray(account.shared_with) && account.shared_with.includes(wallet);
+  }
+
+  /**
+   * Atomically flip the owner of an account and rewrite credentials. Caller
+   * (typically the transfer route) is responsible for having actually rotated
+   * the password / cookies / auth_token on X before calling this — this just
+   * persists the new state. Clears shared_with: the prior owner's collaborators
+   * don't transfer with the account.
+   *
+   * Returns the updated account, or null if `fromWallet` no longer matches
+   * the current `sold_to` (a concurrent transfer happened).
+   */
+  async transferOwnership(
+    id: string,
+    fromWallet: string,
+    toWallet: string,
+    newCreds: { password: string; cookies: string; auth_token: string | null }
+  ): Promise<XAccount | null> {
+    const result = db.prepare(`
+      UPDATE x_accounts
+      SET sold_to = ?, password = ?, cookies = ?, auth_token = ?, shared_with = '[]'
+      WHERE id = ? AND sold_to = ?
+    `).run(toWallet, newCreds.password, newCreds.cookies, newCreds.auth_token, id, fromWallet);
+
+    if (result.changes === 0) return null;
+    return this.getAccount(id);
+  }
+
+  /**
+   * Grant `withWallet` shared access. Idempotent — repeated calls do nothing.
+   * Caller verifies `ownerWallet` matches sold_to.
+   */
+  async share(id: string, withWallet: string): Promise<XAccount | null> {
+    const account = await this.getAccount(id);
+    if (!account) return null;
+    if (account.shared_with.includes(withWallet)) return account;
+    if (account.sold_to === withWallet) return account; // owner is implicitly shared
+    const next = [...account.shared_with, withWallet];
+    db.prepare("UPDATE x_accounts SET shared_with = ? WHERE id = ?").run(JSON.stringify(next), id);
+    return this.getAccount(id);
+  }
+
+  /**
+   * Revoke `withWallet`'s shared access. Idempotent.
+   */
+  async unshare(id: string, withWallet: string): Promise<XAccount | null> {
+    const account = await this.getAccount(id);
+    if (!account) return null;
+    const next = account.shared_with.filter(w => w !== withWallet);
+    if (next.length === account.shared_with.length) return account;
+    db.prepare("UPDATE x_accounts SET shared_with = ? WHERE id = ?").run(JSON.stringify(next), id);
+    return this.getAccount(id);
+  }
+
+  /**
+   * List accounts the wallet owns or has shared access to. Used by the new
+   * owner after a transfer to discover what's been handed to them.
+   */
+  async accountsAccessibleBy(wallet: string): Promise<XAccount[]> {
+    // SQLite has no native JSON contains; pull rows that name the wallet
+    // anywhere in sold_to OR shared_with, then filter in JS to avoid
+    // false positives from substring matches.
+    const rows = db.prepare(`
+      SELECT * FROM x_accounts
+      WHERE sold_to = ? OR shared_with LIKE ?
+    `).all(wallet, `%${wallet}%`) as any[];
+
+    const accounts = rows.map(r => this.rowToAccount(r));
+    return accounts.filter(a => this.canAccess(a, wallet));
   }
 }
 
