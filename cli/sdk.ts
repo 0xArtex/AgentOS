@@ -709,6 +709,15 @@ export class Palmyr {
     return this.request('GET', '/social/twitter/registered/mine')
   }
 
+  /**
+   * Poll status of an in-flight transfer. Transfer endpoints return a
+   * transfer_id; rotation runs in the background and this endpoint reflects
+   * the row state (pending → rotating → completed | failed).
+   */
+  async transferStatus(transferId: string): Promise<any> {
+    return this.request('GET', `/transfers/${encodeURIComponent(transferId)}`)
+  }
+
   // ── Server-side scheduled posts ──
   // Pay at schedule time; worker fires at post_at with no further charge.
   // accountId is the 32-char hex returned by socialTwitterRegister().

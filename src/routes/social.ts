@@ -22,6 +22,7 @@ import {
   shareRegistered,
   unshareRegistered,
 } from "../services/registered-accounts";
+import { createTransfer } from "../services/transfers";
 import {
   createScheduled,
   listScheduled,
@@ -775,53 +776,19 @@ router.post(
       return;
     }
 
-    const newPassword = generateStrongPassword();
-    const rotation = await changePassword({
-      account_id: state.row.id,
-      proxy_session_id: state.row.proxy_session_id,
-      cookies: state.cookies,
-      current_password: state.creds.password,
-      new_password: newPassword,
-      log_out_other_sessions: true,
-    });
-
-    if (!rotation.success) {
-      // Atomic: no DB change. Old owner keeps the account.
-      res.status(502).json({
-        error: rotation.error || "Password rotation failed",
-        error_code: rotation.error_code,
-      });
-      return;
-    }
-
-    const newCookies = rotation.data?.cookies && rotation.data.cookies.length > 0
-      ? rotation.data.cookies
-      : state.cookies;
-    const newCreds = {
-      ...state.creds,
-      password: newPassword,
-      auth_token: rotation.data?.auth_token || undefined,
-      ct0: rotation.data?.ct0 || undefined,
-    };
-
-    const updated = persistRotatedCreds(state.row.id, caller, newCreds, newCookies, {
-      transferToWallet: to_wallet,
-    });
-    if (!updated) {
-      res.status(409).json({
-        error: "Ownership changed during rotation; password was rotated but transfer aborted",
-      });
-      return;
-    }
-
-    res.json({
+    // Kick off rotation in the background — Playwright takes 30-90s, longer
+    // than Cloudflare Tunnel's HTTP timeout. Client polls /transfers/:id.
+    const transfer = createTransfer("registered", state.row.id, caller, to_wallet!);
+    res.status(202).json({
       success: true,
-      message: `Account @${state.row.username} transferred to ${to_wallet}. Credentials rotated; the new owner can claim with: palmyr twitter claim`,
-      id: state.row.id,
+      transfer_id: transfer.id,
+      status: transfer.status,
+      account_id: state.row.id,
       username: state.row.username,
-      previous_owner: caller,
-      new_owner: to_wallet,
-      credentials_rotated: true,
+      from_wallet: caller,
+      to_wallet,
+      message: "Transfer accepted. Poll GET /transfers/:transfer_id to see when the rotation completes.",
+      poll_url: `/transfers/${transfer.id}`,
     });
   }
 );

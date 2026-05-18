@@ -4,6 +4,7 @@ import { requirePoolAdmin } from "../middleware/pool-admin";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest } from "../types";
 import { changePassword, generateStrongPassword } from "../services/social-operations";
+import { createTransfer } from "../services/transfers";
 
 const router = Router();
 
@@ -224,57 +225,20 @@ router.post("/accounts/:id/transfer", requireAuth(OWNERSHIP_PROOF_USDC, 'general
       return;
     }
 
-    const newPassword = generateStrongPassword();
-    const rotation = await changePassword({
+    // Kick off the rotation in the background. We return 202 with the
+    // transfer_id immediately — the actual Playwright work takes 30-90s,
+    // which is longer than Cloudflare Tunnel's HTTP response budget. Client
+    // polls GET /transfers/:transfer_id for status.
+    const transfer = createTransfer("x_accounts", account.id, caller, to_wallet);
+    res.status(202).json({
+      transfer_id: transfer.id,
+      status: transfer.status,
       account_id: account.id,
-      cookies: currentCookies,
-      current_password: account.password,
-      new_password: newPassword,
-      log_out_other_sessions: true,
-    });
-
-    if (!rotation.success) {
-      // Atomic: nothing persisted. Old owner keeps the account.
-      res.status(502).json({
-        error: "Rotation Failed",
-        message: rotation.error || "Password rotation failed",
-        error_code: rotation.error_code,
-      });
-      return;
-    }
-
-    const newCookies = rotation.data?.cookies && rotation.data.cookies.length > 0
-      ? JSON.stringify(rotation.data.cookies)
-      : "[]";
-    const updated = await xAccountService.transferOwnership(
-      account.id,
-      caller,
+      username: account.username,
+      from_wallet: caller,
       to_wallet,
-      {
-        password: newPassword,
-        cookies: newCookies,
-        auth_token: rotation.data?.auth_token || null,
-      }
-    );
-
-    if (!updated) {
-      // The sold_to row no longer matches caller — concurrent transfer happened
-      // between the ownership check and the rotation. The password HAS been
-      // rotated though; whoever owns the row now holds the new password.
-      res.status(409).json({
-        error: "Conflict",
-        message: "Account ownership changed during rotation; password was rotated but ownership transfer aborted",
-      });
-      return;
-    }
-
-    res.json({
-      message: `Account @${updated.username} transferred to ${to_wallet}. Credentials rotated; the new owner can claim with: palmyr twitter claim`,
-      id: updated.id,
-      username: updated.username,
-      previous_owner: caller,
-      new_owner: to_wallet,
-      credentials_rotated: true,
+      message: "Transfer accepted. Poll GET /transfers/:transfer_id to see when the rotation completes.",
+      poll_url: `/transfers/${transfer.id}`,
     });
   } catch (error: any) {
     res.status(500).json({ error: "Error", message: error.message });

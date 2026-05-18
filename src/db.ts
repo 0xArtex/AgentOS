@@ -973,6 +973,29 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_i402_escrow_session ON i402_escrow_ledger(session_id, created_at);
   `);
 
+  // Async X account transfers — Playwright password-rotation takes 30-90s
+  // which exceeds Cloudflare's tunnel response timeout. Transfer endpoints
+  // return immediately with a transfer_id; the rotation runs in-process via
+  // setImmediate; CLI polls /transfers/:id for status.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS transfers (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      account_kind TEXT NOT NULL CHECK(account_kind IN ('x_accounts', 'registered')),
+      from_wallet TEXT NOT NULL,
+      to_wallet TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'rotating', 'completed', 'failed')),
+      error TEXT,
+      error_code TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      started_at TEXT,
+      completed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_transfers_from_wallet ON transfers(from_wallet, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_transfers_to_wallet ON transfers(to_wallet, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_transfers_status ON transfers(status, created_at);
+  `);
+
   console.log('✅ Database initialized with all tables');
 }
 

@@ -218,6 +218,8 @@ app.use("/x", xAccountRoutes);
 app.use("/skills", skillsRoutes);
 app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
+import transfersRoutes from "./routes/transfers";
+app.use("/transfers", transfersRoutes);
 import agentChatRoutes from "./routes/agent-chat";
 app.use("/chat", agentChatRoutes);
 import discoveryRoutes from "./routes/discovery";

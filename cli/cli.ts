@@ -4920,14 +4920,60 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
             const spin = new Spinner()
             spin.start(`Rotating @${username} password and transferring…`)
-            let data: any
+
+            // Kick off the transfer. Server responds 202 with a transfer_id;
+            // the rotation runs in the background to avoid Cloudflare's HTTP
+            // timeout. We poll /transfers/:id until it terminates.
+            let kicked: any
             try {
-              data = resolved!.kind === 'x_accounts'
+              kicked = resolved!.kind === 'x_accounts'
                 ? await ao.xAccountTransfer(resolved!.id, to)
                 : await ao.socialTwitterRegisteredTransfer(resolved!.id, to)
             } catch (e: any) {
               spin.stop('Transfer failed', false)
               err(`Transfer failed: ${e.message}`, EXIT.GENERAL)
+            }
+            const transferId = kicked?.transfer_id
+            if (!transferId) {
+              spin.stop('Transfer failed', false)
+              err(`Server didn't return a transfer_id. Response: ${JSON.stringify(kicked)}`, EXIT.GENERAL)
+            }
+
+            // Poll every 5s; cap at 5 minutes so a stuck transfer doesn't
+            // hang the CLI forever. The server's own startup sweep will mark
+            // anything still stuck after 5 min as failed.
+            const startedAt = Date.now()
+            const MAX_WAIT_MS = 5 * 60 * 1000
+            let status: any = null
+            while (true) {
+              if (Date.now() - startedAt > MAX_WAIT_MS) {
+                spin.stop('Timed out waiting', false)
+                err(
+                  `Transfer ${transferId} is still in progress after 5 min. Check status with: ` +
+                  `curl https://palmyr.ai/transfers/${transferId} (with payment header)`,
+                  EXIT.GENERAL
+                )
+              }
+              await new Promise(r => setTimeout(r, 5000))
+              try {
+                status = await ao.transferStatus(transferId!)
+              } catch (e: any) {
+                // Transient poll failures shouldn't abort — the rotation is
+                // still running on the server. Surface it but keep polling.
+                spin.update(`Poll error (will retry): ${e.message}`)
+                continue
+              }
+              spin.update(`Status: ${status.status}…`)
+              if (status.status === 'completed' || status.status === 'failed') break
+            }
+
+            if (status.status === 'failed') {
+              spin.stop('Transfer failed', false)
+              err(
+                `Transfer failed: ${status.error || 'unknown'}` +
+                (status.error_code ? ` [${status.error_code}]` : ''),
+                EXIT.GENERAL
+              )
             }
             spin.stop('Transferred', true)
 
@@ -4936,7 +4982,11 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // ghost account they can't log into.
             try { sv.removeAccount(platform, username!) } catch { /* best effort */ }
 
-            return print({ ...data, source_table: resolved!.kind, local_vault_cleared: true })
+            return print({
+              ...status,
+              source_table: resolved!.kind,
+              local_vault_cleared: true,
+            })
           }
 
           case 'share': {

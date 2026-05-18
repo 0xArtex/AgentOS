@@ -136,7 +136,7 @@ palmyr twitter username <username> --to <new-handle>     # Change handle ($0.005
 # accounts are auto-registered with the server on the first transfer (~$0.01
 # USDC, transparent), so the receiver wallet can claim them. No separate
 # `register` step required.
-palmyr twitter transfer <username> --to <wallet> --confirm       # Rotates password + revokes other sessions, then flips ownership. Auto-registers if not on server yet. Local copy is wiped on success.
+palmyr twitter transfer <username> --to <wallet> --confirm       # Rotates password + revokes other sessions, then flips ownership. Auto-registers if not on server yet. Server returns transfer_id immediately; CLI polls /transfers/:id every 5s until completed (rotation runs ~30-90s in the background). Local copy is wiped on success.
 palmyr twitter share <username> --with <wallet>                  # Grant shared access (same login, no rotation)
 palmyr twitter unshare <username> --from <wallet> [--rotate]     # Revoke share. --rotate also rotates password so the revoked wallet's cached cookies stop working.
 palmyr twitter list [--local]                                    # Local vault PLUS server-only accounts the wallet owns or has shared with (with a hint to `claim`). --local skips the server check.
@@ -223,11 +223,12 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Update avatar | `POST /social/twitter/avatar` | 0.005 |
 | Update banner | `POST /social/twitter/banner` | 0.005 |
 | Change username | `POST /social/twitter/username` | 0.005 |
-| Transfer pool account | `POST /x/accounts/:id/transfer` | 0.0001 *(ownership proof; rotates password + revokes other sessions, atomic)* |
+| Transfer pool account | `POST /x/accounts/:id/transfer` *(202 with `{ transfer_id }`; poll `GET /transfers/:transfer_id`)* | 0.0001 *(ownership proof; rotation runs in background, atomic when it completes)* |
+| Poll transfer status | `GET /transfers/:id` | 0.0001 *(ownership proof; expected ~6-18 polls per transfer at 5s interval)* |
 | Share pool account | `POST /x/accounts/:id/share` | 0.0001 *(ownership proof; owner-only)* |
 | Revoke shared wallet (pool) | `POST /x/accounts/:id/unshare` *(body: `{ wallet, rotate? }`)* | 0.0001 *(ownership proof; owner-only; `rotate: true` also rotates password)* |
 | List pool accounts owned/shared with you | `GET /x/accounts/mine` | 0.0001 *(ownership proof)* |
-| Transfer registered (BYO) account | `POST /social/twitter/registered/:id/transfer` | 0.0001 *(ownership proof; rotates password + revokes other sessions, atomic)* |
+| Transfer registered (BYO) account | `POST /social/twitter/registered/:id/transfer` *(202 with `{ transfer_id }`; poll `GET /transfers/:transfer_id`)* | 0.0001 *(ownership proof; rotation runs in background, atomic when it completes)* |
 | Share registered (BYO) account | `POST /social/twitter/registered/:id/share` | 0.0001 *(ownership proof; owner-only)* |
 | Revoke shared wallet (registered) | `POST /social/twitter/registered/:id/unshare` *(body: `{ wallet, rotate? }`)* | 0.0001 *(ownership proof; owner-only)* |
 | List registered accounts owned/shared with you | `GET /social/twitter/registered/mine` | 0.001 *(ownership proof; returns decrypted creds)* |
