@@ -117,12 +117,18 @@ export async function loginTwitter(
     });
 
     // ── Fast path: cookie injection ──
-    // If the caller provided auth_token + ct0, skip the login form entirely.
-    // Inject the cookies, hit /home, verify we didn't get bounced to /login,
+    // If the caller provided auth_token, skip the login form entirely.
+    // Inject the cookie, hit /home, verify we didn't get bounced to /login,
     // and harvest the full cookie set. This avoids every anti-bot control at
     // the login step because there IS no login step.
-    if (req.auth_token && req.ct0) {
-      await ctx.addCookies([
+    //
+    // `ct0` is optional: marketplaces that bundle the auth_token cookie
+    // often omit ct0 because it's a CSRF token that X re-issues on every
+    // session. If we have it we inject it; if not, the first authenticated
+    // request fetches a fresh ct0 from X and the harvest step at the end
+    // captures it. auth_token alone is enough to establish the session.
+    if (req.auth_token) {
+      const injected: any[] = [
         {
           name: "auth_token",
           value: req.auth_token,
@@ -132,15 +138,18 @@ export async function loginTwitter(
           secure: true,
           sameSite: "Lax",
         },
-        {
+      ];
+      if (req.ct0) {
+        injected.push({
           name: "ct0",
           value: req.ct0,
           domain: ".x.com",
           path: "/",
           secure: true,
           sameSite: "Lax",
-        },
-      ]);
+        });
+      }
+      await ctx.addCookies(injected);
       const page = await ctx.newPage();
       try {
         await page.goto("https://x.com/home", {
