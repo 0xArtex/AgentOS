@@ -1,10 +1,9 @@
 import { Router, Request, Response } from "express";
-import { randomBytes } from "crypto";
 import { xAccountService, XAccount } from "../services/xaccounts";
 import { requirePoolAdmin } from "../middleware/pool-admin";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest } from "../types";
-import { changePassword } from "../services/social-operations";
+import { changePassword, generateStrongPassword } from "../services/social-operations";
 
 const router = Router();
 
@@ -28,34 +27,6 @@ function callerWallet(req: Request): string | null {
   const r = req as AuthenticatedRequest;
   const w = r.payment?.payer || r.agentId || (req as any).payerAddress || req.body?.wallet || req.query?.wallet;
   return typeof w === "string" && w ? w : null;
-}
-
-/**
- * Generate a strong password that satisfies X's complexity rules. 32 chars
- * mixing upper/lower/digits/symbols clears the strongest interpretation of
- * their requirements with comfortable margin.
- */
-function generatePassword(): string {
-  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
-  const lower = "abcdefghijkmnpqrstuvwxyz";
-  const digits = "23456789";
-  const symbols = "!@#$%^&*-_=+";
-  const alphabet = upper + lower + digits + symbols;
-  const bytes = randomBytes(32);
-  let out = "";
-  // Guarantee one char from each class, then fill the rest randomly.
-  out += upper[bytes[0] % upper.length];
-  out += lower[bytes[1] % lower.length];
-  out += digits[bytes[2] % digits.length];
-  out += symbols[bytes[3] % symbols.length];
-  for (let i = 4; i < 32; i++) out += alphabet[bytes[i] % alphabet.length];
-  // Shuffle so the guaranteed chars aren't always at the start.
-  const arr = out.split("");
-  for (let i = arr.length - 1; i > 0; i--) {
-    const j = randomBytes(1)[0] % (i + 1);
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr.join("");
 }
 
 function serializeAccount(account: XAccount, includeSecrets: boolean) {
@@ -253,7 +224,7 @@ router.post("/accounts/:id/transfer", requireAuth(OWNERSHIP_PROOF_USDC, 'general
       return;
     }
 
-    const newPassword = generatePassword();
+    const newPassword = generateStrongPassword();
     const rotation = await changePassword({
       account_id: account.id,
       cookies: currentCookies,
@@ -425,7 +396,7 @@ router.post("/accounts/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, 'general'
       return;
     }
 
-    const newPassword = generatePassword();
+    const newPassword = generateStrongPassword();
     const rotation = await changePassword({
       account_id: account.id,
       cookies: currentCookies,

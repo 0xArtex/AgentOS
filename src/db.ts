@@ -763,13 +763,21 @@ export function initDatabase(): void {
       status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'session_expired', 'revoked')),
       registered_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
       last_login_at TEXT,
-      last_used_at TEXT
+      last_used_at TEXT,
+      shared_with TEXT DEFAULT '[]'
     );
     CREATE INDEX IF NOT EXISTS idx_registered_wallet_platform ON social_registered_accounts(wallet, platform);
     CREATE INDEX IF NOT EXISTS idx_registered_username ON social_registered_accounts(platform, username);
     CREATE UNIQUE INDEX IF NOT EXISTS uq_registered_wallet_username
       ON social_registered_accounts(wallet, platform, username);
   `);
+
+  // Idempotent backfill: shared_with arrived with the transfer feature
+  // (#162) and may be missing on older prod DBs.
+  const regCols = db.prepare("PRAGMA table_info(social_registered_accounts)").all() as Array<{ name: string }>;
+  if (!regCols.some(c => c.name === 'shared_with')) {
+    db.exec("ALTER TABLE social_registered_accounts ADD COLUMN shared_with TEXT DEFAULT '[]'");
+  }
 
   // Server-side scheduled posts. Agents call POST /social/scheduled, pay
   // upfront via x402 (the payment covers the eventual fire — worker calls

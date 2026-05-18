@@ -686,6 +686,29 @@ export class Palmyr {
     return this.request('GET', '/social/twitter/registered')
   }
 
+  // ── Transfer / share / unshare / claim on registered accounts ──
+  // Mirrors xAccount* for the BYO-registered path. The CLI picks which
+  // family to call based on where the account lives server-side.
+  async socialTwitterRegisteredTransfer(accountId: string, toWallet: string): Promise<any> {
+    return this.request('POST', `/social/twitter/registered/${encodeURIComponent(accountId)}/transfer`, { to_wallet: toWallet })
+  }
+
+  async socialTwitterRegisteredShare(accountId: string, withWallet: string): Promise<any> {
+    return this.request('POST', `/social/twitter/registered/${encodeURIComponent(accountId)}/share`, { with: withWallet })
+  }
+
+  async socialTwitterRegisteredUnshare(accountId: string, wallet: string, opts: { rotate?: boolean } = {}): Promise<any> {
+    return this.request('POST', `/social/twitter/registered/${encodeURIComponent(accountId)}/unshare`, {
+      wallet,
+      ...(opts.rotate ? { rotate: true } : {}),
+    })
+  }
+
+  /** Registered-account claim: full creds for every account the wallet owns or has shared access to. */
+  async socialTwitterRegisteredMine(): Promise<any> {
+    return this.request('GET', '/social/twitter/registered/mine')
+  }
+
   // ── Server-side scheduled posts ──
   // Pay at schedule time; worker fires at post_at with no further charge.
   // accountId is the 32-char hex returned by socialTwitterRegister().

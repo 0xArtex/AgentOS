@@ -208,20 +208,240 @@ export interface RegisteredAccountSummary {
   registered_at: string;
   last_login_at: string | null;
   last_used_at: string | null;
+  shared_with?: string[];
+  access?: "owner" | "shared";
+}
+
+function parseSharedWith(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(w => typeof w === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** True if `wallet` is the owner or in the shared_with list for the row. */
+export function canAccessRegistered(
+  row: { wallet: string; shared_with: string | null },
+  wallet: string
+): boolean {
+  if (!wallet) return false;
+  if (row.wallet === wallet) return true;
+  return parseSharedWith(row.shared_with).includes(wallet);
 }
 
 export function listRegisteredAccounts(wallet: string, platform?: string): RegisteredAccountSummary[] {
+  // Owned OR shared. Substring LIKE narrows candidates; the JS-side
+  // canAccessRegistered filter rejects any false-positive prefix matches.
   const rows = db
     .prepare(
-      `SELECT id, platform, username, country, status, registered_at, last_login_at, last_used_at
+      `SELECT id, wallet, platform, username, country, status, registered_at, last_login_at, last_used_at, shared_with
        FROM social_registered_accounts
-       WHERE wallet = ?
+       WHERE (wallet = ? OR shared_with LIKE ?)
          AND (? IS NULL OR platform = ?)
          AND status != 'revoked'
        ORDER BY registered_at DESC`
     )
-    .all(wallet, platform || null, platform || null) as RegisteredAccountSummary[];
-  return rows;
+    .all(wallet, `%${wallet}%`, platform || null, platform || null) as Array<RegisteredAccountSummary & { wallet: string; shared_with: string | null }>;
+
+  return rows
+    .filter(r => canAccessRegistered(r, wallet))
+    .map(r => {
+      const isOwner = r.wallet === wallet;
+      const out: RegisteredAccountSummary = {
+        id: r.id,
+        platform: r.platform,
+        username: r.username,
+        country: r.country,
+        status: r.status,
+        registered_at: r.registered_at,
+        last_login_at: r.last_login_at,
+        last_used_at: r.last_used_at,
+        access: isOwner ? "owner" : "shared",
+      };
+      if (isOwner) out.shared_with = parseSharedWith(r.shared_with);
+      return out;
+    });
+}
+
+/**
+ * For the claim flow: return registered accounts the caller can access along
+ * with their decrypted credentials and cookies. Used to bootstrap a new
+ * owner's local vault after a transfer. Equivalent to /x/accounts/mine for
+ * the BYO-registered table.
+ */
+export interface ClaimableRegisteredAccount {
+  id: string;
+  username: string;
+  platform: string;
+  country: string | null;
+  status: "active" | "session_expired" | "revoked";
+  access: "owner" | "shared";
+  credentials: RegisteredCredentials;
+  cookies: any[];
+}
+
+export function accountsAccessibleBy(wallet: string, platform?: string): ClaimableRegisteredAccount[] {
+  const rows = db
+    .prepare(
+      `SELECT id, wallet, platform, username, country, status,
+              credentials_encrypted, cookies_encrypted, shared_with
+       FROM social_registered_accounts
+       WHERE (wallet = ? OR shared_with LIKE ?)
+         AND (? IS NULL OR platform = ?)
+         AND status != 'revoked'
+       ORDER BY registered_at DESC`
+    )
+    .all(wallet, `%${wallet}%`, platform || null, platform || null) as Array<{
+      id: string;
+      wallet: string;
+      platform: string;
+      username: string;
+      country: string | null;
+      status: "active" | "session_expired" | "revoked";
+      credentials_encrypted: string;
+      cookies_encrypted: string | null;
+      shared_with: string | null;
+    }>;
+
+  return rows
+    .filter(r => canAccessRegistered(r, wallet))
+    .map(r => {
+      let creds: RegisteredCredentials;
+      let cookies: any[] = [];
+      try { creds = JSON.parse(decrypt(r.credentials_encrypted)) as RegisteredCredentials; }
+      catch { creds = { login: "", password: "" }; }
+      if (r.cookies_encrypted) {
+        try { cookies = JSON.parse(decrypt(r.cookies_encrypted)) as any[]; } catch {}
+      }
+      return {
+        id: r.id,
+        username: r.username,
+        platform: r.platform,
+        country: r.country,
+        status: r.status,
+        access: r.wallet === wallet ? "owner" : "shared",
+        credentials: creds,
+        cookies,
+      };
+    });
+}
+
+/**
+ * Owner-only context: decrypt + return the credentials and cookies the
+ * server holds for this account. Throws if the caller doesn't own the row
+ * (shared-only access is intentionally not enough — only the owner can
+ * decrypt for ops like transfer / rotate that touch ownership state).
+ */
+export function getOwnerDecryptedState(
+  id: string,
+  ownerWallet: string
+): { row: { id: string; wallet: string; username: string; proxy_session_id: string; shared_with: string | null }; creds: RegisteredCredentials; cookies: any[] } | null {
+  const row = db
+    .prepare(
+      `SELECT id, wallet, username, proxy_session_id, credentials_encrypted, cookies_encrypted, shared_with, status
+       FROM social_registered_accounts WHERE id = ?`
+    )
+    .get(id) as
+      | {
+          id: string;
+          wallet: string;
+          username: string;
+          proxy_session_id: string;
+          credentials_encrypted: string;
+          cookies_encrypted: string | null;
+          shared_with: string | null;
+          status: string;
+        }
+      | undefined;
+  if (!row || row.wallet !== ownerWallet || row.status === 'revoked') return null;
+  const creds = JSON.parse(decrypt(row.credentials_encrypted)) as RegisteredCredentials;
+  let cookies: any[] = [];
+  if (row.cookies_encrypted) {
+    try { cookies = JSON.parse(decrypt(row.cookies_encrypted)) as any[]; } catch {}
+  }
+  return {
+    row: { id: row.id, wallet: row.wallet, username: row.username, proxy_session_id: row.proxy_session_id, shared_with: row.shared_with },
+    creds,
+    cookies,
+  };
+}
+
+/**
+ * Persist rotated credentials. If `transferToWallet` is set, atomically
+ * flips the `wallet` column to the new owner and clears `shared_with` —
+ * the prior owner's collaborators don't travel with the account. Returns
+ * null if the WHERE guard fails (concurrent transfer raced us); in that
+ * case the X-side password has already been rotated and the row's new
+ * owner is whoever won the race.
+ */
+export function persistRotatedCreds(
+  id: string,
+  expectedWallet: string,
+  newCreds: RegisteredCredentials,
+  newCookies: any[],
+  opts: { transferToWallet?: string } = {}
+): { id: string; wallet: string } | null {
+  const credsBlob = encrypt(JSON.stringify(newCreds));
+  const cookiesBlob = encrypt(JSON.stringify(newCookies));
+  const now = new Date().toISOString();
+
+  if (opts.transferToWallet) {
+    const result = db
+      .prepare(
+        `UPDATE social_registered_accounts
+         SET credentials_encrypted = ?, cookies_encrypted = ?, last_login_at = ?,
+             wallet = ?, shared_with = '[]'
+         WHERE id = ? AND wallet = ?`
+      )
+      .run(credsBlob, cookiesBlob, now, opts.transferToWallet, id, expectedWallet);
+    if (result.changes === 0) return null;
+    return { id, wallet: opts.transferToWallet };
+  }
+
+  const result = db
+    .prepare(
+      `UPDATE social_registered_accounts
+       SET credentials_encrypted = ?, cookies_encrypted = ?, last_login_at = ?
+       WHERE id = ? AND wallet = ?`
+    )
+    .run(credsBlob, cookiesBlob, now, id, expectedWallet);
+  if (result.changes === 0) return null;
+  return { id, wallet: expectedWallet };
+}
+
+/**
+ * Add a wallet to shared_with. Idempotent. Owner-only — verify caller in
+ * the route before calling. Returns null if the row doesn't exist or
+ * isn't owned by `ownerWallet`.
+ */
+export function shareRegistered(id: string, ownerWallet: string, withWallet: string): string[] | null {
+  const row = db.prepare(
+    `SELECT wallet, shared_with FROM social_registered_accounts WHERE id = ? AND wallet = ? AND status != 'revoked'`
+  ).get(id, ownerWallet) as { wallet: string; shared_with: string | null } | undefined;
+  if (!row) return null;
+  const current = parseSharedWith(row.shared_with);
+  if (current.includes(withWallet) || withWallet === ownerWallet) return current;
+  const next = [...current, withWallet];
+  db.prepare(`UPDATE social_registered_accounts SET shared_with = ? WHERE id = ?`)
+    .run(JSON.stringify(next), id);
+  return next;
+}
+
+/**
+ * Remove a wallet from shared_with. Idempotent. Owner-only.
+ */
+export function unshareRegistered(id: string, ownerWallet: string, withWallet: string): string[] | null {
+  const row = db.prepare(
+    `SELECT wallet, shared_with FROM social_registered_accounts WHERE id = ? AND wallet = ? AND status != 'revoked'`
+  ).get(id, ownerWallet) as { wallet: string; shared_with: string | null } | undefined;
+  if (!row) return null;
+  const next = parseSharedWith(row.shared_with).filter(w => w !== withWallet);
+  db.prepare(`UPDATE social_registered_accounts SET shared_with = ? WHERE id = ?`)
+    .run(JSON.stringify(next), id);
+  return next;
 }
 
 export interface UnregisterResult {
@@ -279,24 +499,29 @@ export async function getResolvedSession(
   wallet: string,
   accountId: string
 ): Promise<ResolvedSession> {
+  // Owner OR shared wallet may resolve a session for ops like post/like/etc.
+  // Substring LIKE filters candidates; the explicit canAccessRegistered check
+  // below rejects false-positive prefix matches.
   const row = db
     .prepare(
-      `SELECT id, username, proxy_session_id, credentials_encrypted, cookies_encrypted,
-              last_login_at, status
+      `SELECT id, wallet, username, proxy_session_id, credentials_encrypted, cookies_encrypted,
+              last_login_at, status, shared_with
        FROM social_registered_accounts
-       WHERE id=? AND wallet=?`
+       WHERE id=? AND (wallet=? OR shared_with LIKE ?)`
     )
-    .get(accountId, wallet) as {
+    .get(accountId, wallet, `%${wallet}%`) as {
       id: string;
+      wallet: string;
       username: string;
       proxy_session_id: string;
       credentials_encrypted: string;
       cookies_encrypted: string | null;
       last_login_at: string | null;
       status: string;
+      shared_with: string | null;
     } | undefined;
 
-  if (!row) {
+  if (!row || !canAccessRegistered(row, wallet)) {
     throw new SessionResolveError("ACCOUNT_NOT_FOUND", `No registered account "${accountId}" for this wallet`);
   }
   if (row.status === "revoked") {

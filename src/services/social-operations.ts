@@ -12,7 +12,34 @@
  */
 import { openAuthenticatedSession, isSessionExpiredUrl } from "./social-runtime";
 import { fetchSsrfSafe } from "./email";
-import { randomUUID } from "crypto";
+import { randomUUID, randomBytes } from "crypto";
+
+/**
+ * Generate a strong password satisfying the strictest interpretation of X's
+ * complexity rules. 32 chars from upper/lower/digits/symbols with one of each
+ * class guaranteed, then shuffled. Used by transfer-rotates-password flows
+ * for both pool and registered accounts.
+ */
+export function generateStrongPassword(): string {
+  const upper = "ABCDEFGHJKLMNPQRSTUVWXYZ";
+  const lower = "abcdefghijkmnpqrstuvwxyz";
+  const digits = "23456789";
+  const symbols = "!@#$%^&*-_=+";
+  const alphabet = upper + lower + digits + symbols;
+  const bytes = randomBytes(32);
+  let out = "";
+  out += upper[bytes[0] % upper.length];
+  out += lower[bytes[1] % lower.length];
+  out += digits[bytes[2] % digits.length];
+  out += symbols[bytes[3] % symbols.length];
+  for (let i = 4; i < 32; i++) out += alphabet[bytes[i] % alphabet.length];
+  const arr = out.split("");
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = randomBytes(1)[0] % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr.join("");
+}
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB
 const MAX_VIDEO_BYTES = 512 * 1024 * 1024; // 512 MB — X's documented hard cap
