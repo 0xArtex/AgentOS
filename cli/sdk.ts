@@ -323,12 +323,13 @@ export class Palmyr {
       }
     }
 
-    if (data.error) {
-      // Surface the server's `message` and `hint` if present — the bare
-      // `error` field is often a category label ("Invalid install recipe")
-      // while the actual specifics (which recipe, what's allowed) live in
-      // `message` and `hint`. CLI's err() formatter renders multi-line
-      // messages cleanly.
+    // Only treat `data.error` as an exception when the HTTP response itself
+    // signaled failure. Some endpoints return 200 with an `error` field as
+    // legitimate row data — most notably `GET /transfers/:id`, where a
+    // failed async transfer's reason ends up in `row.error`. Throwing on
+    // those would short-circuit the caller's status check. Mirrors the
+    // pattern already used in `requestWithHeaders` (line ~1185).
+    if (data.error && !res.ok) {
       const parts: string[] = [String(data.error)]
       if (data.message && data.message !== data.error) parts.push(String(data.message))
       if (data.hint) parts.push(`Hint: ${data.hint}`)
