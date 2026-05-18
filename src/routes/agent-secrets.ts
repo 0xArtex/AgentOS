@@ -1,9 +1,10 @@
 import { Router, Request, Response } from "express";
 import Database from "better-sqlite3";
 import path from "path";
+import { DATA_DIR } from "../db";
 
 const router = Router();
-const dbPath = path.join(process.cwd(), "data", "secrets.db");
+const dbPath = path.join(DATA_DIR, "secrets.db");
 
 function getDb() {
   const db = new Database(dbPath);

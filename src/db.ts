@@ -1,14 +1,26 @@
 import Database from 'better-sqlite3';
-import { join } from 'path';
+import { isAbsolute, join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 
-const DATA_DIR = join(process.cwd(), 'data');
+// PALMYR_DATA_DIR pins the SQLite path to a stable location outside the
+// release tree. Critical in prod: without this, `process.cwd()` resolves
+// inside the current release directory (e.g. /opt/palmyr/releases/<ts>/),
+// and every redeploy creates a fresh empty DB. Set it to something like
+// `/var/lib/palmyr/data` and the DB survives every deploy.
+//
+// Dev falls back to the repo-relative ./data path, gitignored so it
+// doesn't pollute commits.
+const envDir = process.env.PALMYR_DATA_DIR;
+export const DATA_DIR = envDir
+  ? (isAbsolute(envDir) ? envDir : join(process.cwd(), envDir))
+  : join(process.cwd(), 'data');
 const DB_PATH = join(DATA_DIR, 'agentos.db');
 
-// Ensure data directory exists
 if (!existsSync(DATA_DIR)) {
   mkdirSync(DATA_DIR, { recursive: true });
 }
+
+console.log(`[db] using ${DB_PATH}${envDir ? ' (PALMYR_DATA_DIR)' : ' (cwd default)'}`);
 
 // Initialize SQLite database
 export const db: Database.Database = new Database(DB_PATH);
