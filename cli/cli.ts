@@ -3930,7 +3930,7 @@ async function main() {
             footerLeft: 'Phase 1: local vault + BYO import works today. Server-dependent commands stub out.',
             commands: [
               { name: 'import',  description: 'Save a BYO account to the local vault', hint: '--username --password --totp-seed' },
-              { name: 'list',    description: 'List all local X accounts' },
+              { name: 'list',    description: 'List local accounts and any server-only ones the wallet can access', hint: '[--local]' },
               { name: 'info',    description: 'Show one account', hint: '<username>' },
               { name: 'rename',  description: 'Update the local record when the handle changes', hint: '<old> --to <new>' },
               { name: 'remove',  description: 'Delete an account from the local vault', hint: '<username> --confirm' },
@@ -3939,7 +3939,7 @@ async function main() {
               { name: 'login',   description: 'Force a fresh server-side session (requires browser runtime)', hint: '<username>' },
               { name: 'post',    description: 'Post a tweet (requires server browser runtime)', hint: '<username> --body "..."' },
               { name: 'status',  description: 'Check if the account is alive / shadow-banned', hint: '<username>' },
-              { name: 'transfer', description: 'Hand an account to another wallet (rotates password)', hint: '<username> --to <wallet>' },
+              { name: 'transfer', description: 'Hand an account to another wallet (rotates password; auto-registers if needed)', hint: '<username> --to <wallet> --confirm' },
               { name: 'share',    description: 'Grant another wallet shared access', hint: '<username> --with <wallet>' },
               { name: 'unshare',  description: 'Revoke a wallet’s shared access', hint: '<username> --from <wallet> [--rotate]' },
               { name: 'claim',    description: 'Import server-side accounts owned by your wallet into the local vault' },
@@ -4012,8 +4012,57 @@ async function main() {
           }
 
           case 'list': {
-            const accounts = sv.listAccounts(platform)
-            return print({ accounts, count: accounts.length })
+            // Local vault is always queried (free, instant). By default we
+            // also query the server for accounts the wallet owns or has been
+            // shared with — that's how a wallet that just received a transfer
+            // sees the account here without an extra `claim` step. Pass
+            // --local to skip the server check for cheap mode.
+            const localAccounts = sv.listAccounts(platform)
+            const skipRemote = !!flags.local
+
+            if (skipRemote) {
+              return print({ accounts: localAccounts, count: localAccounts.length, source: 'local' })
+            }
+
+            const [xRes, regRes] = await Promise.allSettled([
+              ao.xAccountsMine(),
+              ao.socialTwitterRegisteredMine(),
+            ])
+            const xAccounts: any[] = xRes.status === 'fulfilled' ? (xRes.value?.accounts || []) : []
+            const regAccounts: any[] = regRes.status === 'fulfilled' ? (regRes.value?.accounts || []) : []
+
+            const localUsernames = new Set(localAccounts.map(a => a.username))
+            const serverOnly: any[] = []
+            for (const a of xAccounts) {
+              if (a.username && !localUsernames.has(a.username)) {
+                serverOnly.push({
+                  username: a.username,
+                  access: a.access || 'owner',
+                  source_table: 'x_accounts',
+                  status: 'server-only — run `palmyr twitter claim` to import',
+                })
+              }
+            }
+            for (const a of regAccounts) {
+              if (a.username && !localUsernames.has(a.username)) {
+                serverOnly.push({
+                  username: a.username,
+                  access: a.access || 'owner',
+                  source_table: 'registered',
+                  status: 'server-only — run `palmyr twitter claim` to import',
+                })
+              }
+            }
+
+            return print({
+              accounts: localAccounts,
+              server_only: serverOnly,
+              count_local: localAccounts.length,
+              count_server_only: serverOnly.length,
+              ...(serverOnly.length > 0
+                ? { hint: `${serverOnly.length} account${serverOnly.length === 1 ? '' : 's'} on server but not in local vault — run 'palmyr twitter claim' to import` }
+                : {}),
+            })
           }
 
           case 'info': {
@@ -4795,11 +4844,14 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           case 'transfer': {
-            // Hand the X account to another wallet. Server rotates the password
-            // and revokes other sessions before flipping ownership, so the local
-            // copy of credentials we keep is intentionally invalidated. After
-            // success, we wipe the local vault entry — receiver picks up fresh
-            // credentials via `palmyr twitter claim`.
+            // Hand the X account to another wallet. End-to-end one-command:
+            //   1. If the account is only in the local vault, auto-register it
+            //      with the server (uploads encrypted creds; $0.01 USDC).
+            //   2. Server rotates the password and revokes other sessions
+            //      ($0.0001 USDC ownership proof).
+            //   3. Atomically flips ownership in the DB.
+            // Receiver picks up the rotated credentials via `palmyr twitter
+            // list` (which now surfaces server-side accounts) and/or `claim`.
             const username = positional[0] || (flags.username as string)
             const to = flags.to as string
             if (!username) err('<username> required')
@@ -4813,29 +4865,66 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               err(
                 `This rotates @${username} on X and hands it to a wallet ending in …${tail}. ` +
                 `You will lose access immediately and irreversibly. ` +
+                `If the account isn't on the Palmyr server yet, it will be auto-registered (~$0.01 USDC) before the transfer.\n\n` +
                 `Re-run with --confirm:\n` +
                 `  palmyr twitter transfer ${username} --to ${to} --confirm`
               )
             }
 
-            const resolved = await resolveServerAccount(username!)
+            let resolved = await resolveServerAccount(username!)
+
+            // Auto-register if the account is only in the local vault. This
+            // is the most common case for accounts that were imported BYO and
+            // never explicitly registered. We pull creds straight from the
+            // local vault so the user doesn't have to re-type anything.
             if (!resolved) {
-              err(
-                `@${username} is in your local vault but not on the Palmyr server.\n\n` +
-                `Transfer needs a server-side row so the new owner can claim it. Either:\n` +
-                `  palmyr twitter register ${username}   (uploads encrypted creds to server)\n` +
-                `then re-run the transfer.`,
-                EXIT.NOT_FOUND
-              )
+              const spinReg = new Spinner()
+              spinReg.start(`@${username} not on server yet — auto-registering before transfer…`)
+              let regData: any
+              try {
+                const localCreds = sv.unlockCredentials(platform, username!)
+                if (!localCreds.password) {
+                  spinReg.stop('Register failed', false)
+                  err(
+                    `Cannot auto-register @${username}: local vault has no password. ` +
+                    `Re-import the account with a password first.`,
+                    EXIT.BAD_INPUT
+                  )
+                }
+                const country = sv.getCountry(platform, username!)
+                regData = await ao.socialTwitterRegister(username!, localCreds.password, {
+                  login: localCreds.login,
+                  email: localCreds.email,
+                  email_password: localCreds.email_password,
+                  totp_seed: localCreds.totp_seed,
+                  auth_token: localCreds.auth_token,
+                  ct0: localCreds.ct0,
+                  country,
+                })
+              } catch (e: any) {
+                spinReg.stop('Register failed', false)
+                err(`Auto-register failed: ${e.message}`, EXIT.GENERAL)
+              }
+              if (!regData?.success || !regData?.id) {
+                spinReg.stop('Register failed', false)
+                err(
+                  `Auto-register failed: ${regData?.error || 'unknown'}` +
+                  (regData?.login_error_code ? ` [${regData.login_error_code}]` : '') +
+                  `\nFix the credentials in the local vault, then re-run the transfer.`,
+                  EXIT.GENERAL
+                )
+              }
+              spinReg.stop('Registered', true)
+              resolved = { kind: 'registered', id: regData.id }
             }
 
             const spin = new Spinner()
             spin.start(`Rotating @${username} password and transferring…`)
             let data: any
             try {
-              data = resolved.kind === 'x_accounts'
-                ? await ao.xAccountTransfer(resolved.id, to)
-                : await ao.socialTwitterRegisteredTransfer(resolved.id, to)
+              data = resolved!.kind === 'x_accounts'
+                ? await ao.xAccountTransfer(resolved!.id, to)
+                : await ao.socialTwitterRegisteredTransfer(resolved!.id, to)
             } catch (e: any) {
               spin.stop('Transfer failed', false)
               err(`Transfer failed: ${e.message}`, EXIT.GENERAL)
@@ -4847,7 +4936,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // ghost account they can't log into.
             try { sv.removeAccount(platform, username!) } catch { /* best effort */ }
 
-            return print({ ...data, source_table: resolved.kind, local_vault_cleared: true })
+            return print({ ...data, source_table: resolved!.kind, local_vault_cleared: true })
           }
 
           case 'share': {
