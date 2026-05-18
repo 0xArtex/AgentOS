@@ -278,6 +278,24 @@ export class XAccountService {
   }
 
   /**
+   * Rewrite an account's stored credentials in place. Used by the unshare
+   * --rotate flow where ownership doesn't change but the password and
+   * cookies need to be rotated so a revoked share-holder can't keep using
+   * cached creds. Does NOT touch sold_to or shared_with.
+   */
+  async updateCredentials(
+    id: string,
+    newCreds: { password: string; cookies: string; auth_token: string | null }
+  ): Promise<XAccount | null> {
+    db.prepare(`
+      UPDATE x_accounts
+      SET password = ?, cookies = ?, auth_token = ?
+      WHERE id = ?
+    `).run(newCreds.password, newCreds.cookies, newCreds.auth_token, id);
+    return this.getAccount(id);
+  }
+
+  /**
    * Grant `withWallet` shared access. Idempotent — repeated calls do nothing.
    * Caller verifies `ownerWallet` matches sold_to.
    */

@@ -552,8 +552,11 @@ export class Palmyr {
     return this.request('POST', `/x/accounts/${encodeURIComponent(id)}/share`, { with: withWallet })
   }
 
-  async xAccountUnshare(id: string, wallet: string): Promise<any> {
-    return this.request('POST', `/x/accounts/${encodeURIComponent(id)}/unshare`, { wallet })
+  async xAccountUnshare(id: string, wallet: string, opts: { rotate?: boolean } = {}): Promise<any> {
+    return this.request('POST', `/x/accounts/${encodeURIComponent(id)}/unshare`, {
+      wallet,
+      ...(opts.rotate ? { rotate: true } : {}),
+    })
   }
 
   /** Accounts the calling wallet owns or has shared access to. */

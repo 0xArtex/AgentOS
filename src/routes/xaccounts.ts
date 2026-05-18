@@ -357,7 +357,15 @@ router.post("/accounts/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, 'general', 
 /**
  * POST /x/accounts/:id/unshare — Revoke a wallet's shared access.
  *
- * Body: { wallet }  — wallet to remove
+ * Body: { wallet, rotate? }
+ *
+ * When `rotate: true` is set, the server additionally rotates the account
+ * password and revokes other sessions before returning. Use this when the
+ * shared wallet may have exported cookies or noted the password — sharing
+ * gives them the same login, so simply removing them from `shared_with` on
+ * the server doesn't invalidate creds they already captured. The rotated
+ * credentials are returned to the caller (still the owner) so the local
+ * vault can be updated.
  */
 router.post("/accounts/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: Request, res: Response) => {
   try {
@@ -366,7 +374,9 @@ router.post("/accounts/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, 'general'
       res.status(401).json({ error: "Unauthorized" });
       return;
     }
-    const targetWallet = (req.body || {}).wallet;
+    const body = req.body || {};
+    const targetWallet = body.wallet;
+    const rotate = body.rotate === true;
     if (!isWalletAddress(targetWallet)) {
       res.status(400).json({ error: "Bad Request", message: "`wallet` must be a wallet address" });
       return;
@@ -382,12 +392,86 @@ router.post("/accounts/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, 'general'
       return;
     }
 
-    const updated = await xAccountService.unshare(account.id, targetWallet);
+    // Step 1: remove from shared_with. Fast, can't really fail, and we want
+    // it persisted before the slow rotation in case rotation blows up.
+    const afterUnshare = await xAccountService.unshare(account.id, targetWallet);
+
+    if (!rotate) {
+      res.json({
+        message: `${targetWallet} no longer has shared access to @${account.username}`,
+        id: account.id,
+        username: account.username,
+        shared_with: afterUnshare?.shared_with || [],
+        rotated: false,
+      });
+      return;
+    }
+
+    // Step 2: rotate credentials. The revoked wallet may have exported
+    // cookies / noted the password — the unshare on its own only blocks
+    // /mine reads on the server; it doesn't invalidate already-captured
+    // creds. Password change + log-out-other-sessions handles that.
+    let currentCookies: any[] = [];
+    try { currentCookies = JSON.parse(account.cookies || "[]"); } catch { currentCookies = []; }
+    if (currentCookies.length === 0) {
+      res.status(200).json({
+        message: `${targetWallet} unshared, but rotation skipped — no cached cookies for @${account.username}. Run twitter login first, then re-run with --rotate.`,
+        id: account.id,
+        username: account.username,
+        shared_with: afterUnshare?.shared_with || [],
+        rotated: false,
+        rotation_skipped_reason: "no_cookies",
+      });
+      return;
+    }
+
+    const newPassword = generatePassword();
+    const rotation = await changePassword({
+      account_id: account.id,
+      cookies: currentCookies,
+      current_password: account.password,
+      new_password: newPassword,
+      log_out_other_sessions: true,
+    });
+
+    if (!rotation.success) {
+      // Unshare succeeded but rotation didn't. The revoked wallet still
+      // can't read /mine (they're out of shared_with), but they may still
+      // have working cookies. Surface the failure so the caller can retry.
+      res.status(207).json({
+        message: `${targetWallet} unshared. Password rotation failed — retry with palmyr twitter rotate-password ${account.username} (or assume the revoked wallet may retain cookie access until they expire).`,
+        id: account.id,
+        username: account.username,
+        shared_with: afterUnshare?.shared_with || [],
+        rotated: false,
+        rotation_error: rotation.error,
+        rotation_error_code: rotation.error_code,
+      });
+      return;
+    }
+
+    const newCookiesArr = rotation.data?.cookies && rotation.data.cookies.length > 0
+      ? rotation.data.cookies
+      : [];
+    const updated = await xAccountService.updateCredentials(account.id, {
+      password: newPassword,
+      cookies: JSON.stringify(newCookiesArr),
+      auth_token: rotation.data?.auth_token || null,
+    });
+
     res.json({
-      message: `${targetWallet} no longer has shared access to @${account.username}`,
+      message: `${targetWallet} unshared and credentials rotated for @${account.username}.`,
       id: account.id,
-      username: account.username,
-      shared_with: updated?.shared_with || [],
+      username: updated?.username || account.username,
+      shared_with: updated?.shared_with || afterUnshare?.shared_with || [],
+      rotated: true,
+      // Caller is still the owner — returning fresh creds is safe and
+      // necessary so the local vault stays in sync.
+      credentials: {
+        password: newPassword,
+        cookies: newCookiesArr,
+        auth_token: rotation.data?.auth_token || null,
+      },
     });
   } catch (error: any) {
     res.status(500).json({ error: "Error", message: error.message });
