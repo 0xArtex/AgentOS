@@ -132,13 +132,15 @@ palmyr twitter pfp <username> --file pic.png             # Update avatar ($0.005
 palmyr twitter banner <username> --file banner.png       # Update banner ($0.005)
 palmyr twitter username <username> --to <new-handle>     # Change handle ($0.005)
 
-# Hand off / share an X account between wallets — owner-only. Requires the
-# account to be on the server (either bought from the pool or registered via
-# `palmyr twitter register`); imported-only accounts must be registered first.
-palmyr twitter transfer <username> --to <wallet> --confirm       # Rotates password + revokes other sessions, then flips ownership. Local copy is wiped on success.
+# Hand off / share an X account between wallets — owner-only. Imported-only
+# accounts are auto-registered with the server on the first transfer (~$0.01
+# USDC, transparent), so the receiver wallet can claim them. No separate
+# `register` step required.
+palmyr twitter transfer <username> --to <wallet> --confirm       # Rotates password + revokes other sessions, then flips ownership. Auto-registers if not on server yet. Local copy is wiped on success.
 palmyr twitter share <username> --with <wallet>                  # Grant shared access (same login, no rotation)
 palmyr twitter unshare <username> --from <wallet> [--rotate]     # Revoke share. --rotate also rotates password so the revoked wallet's cached cookies stop working.
-palmyr twitter claim                                             # Receiving wallet: pull every X account on the server bound to your wallet into the local vault.
+palmyr twitter list [--local]                                    # Local vault PLUS server-only accounts the wallet owns or has shared with (with a hint to `claim`). --local skips the server check.
+palmyr twitter claim                                             # Pull every server-side X account the wallet can access into the local vault.
 
 # Info
 palmyr pricing    # All service prices
