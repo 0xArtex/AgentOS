@@ -271,6 +271,32 @@ export function unlockCredentials(platform: Platform, username: string): SocialC
 }
 
 /**
+ * Replace the stored credentials for an existing account, preserving id,
+ * proxy_session_id, country, and meta. Re-encrypts with the existing
+ * session secret. Used after a server-side password rotation (e.g.
+ * `palmyr twitter unshare … --rotate`) so the local vault stays in sync
+ * with the rotated credentials on X.
+ */
+export function replaceCredentials(
+  platform: Platform,
+  username: string,
+  newCredentials: SocialCredentials
+): SocialAccountSummary {
+  const acc = findByUsername(platform, username)
+  if (!acc) throw new Error(`${platform} account "${username}" not found locally`)
+  const sessionSecret = retrieveSecret(acc.id)
+  if (!sessionSecret) {
+    throw new Error(
+      `No session secret found for ${platform}/${username}. ` +
+      `Cannot replace credentials without it — re-import the account first.`
+    )
+  }
+  acc.cred_crypto = encrypt(JSON.stringify(newCredentials), sessionSecret)
+  writeAccount(acc)
+  return summarise(acc)
+}
+
+/**
  * Update the status / notes / last_action_at fields on an account. Doesn't
  * touch the encrypted credentials.
  */

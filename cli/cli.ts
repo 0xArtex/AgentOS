@@ -3915,7 +3915,7 @@ async function main() {
               { name: 'status',  description: 'Check if the account is alive / shadow-banned', hint: '<username>' },
               { name: 'transfer', description: 'Hand an account to another wallet (rotates password)', hint: '<username> --to <wallet>' },
               { name: 'share',    description: 'Grant another wallet shared access', hint: '<username> --with <wallet>' },
-              { name: 'unshare',  description: 'Revoke a wallet’s shared access', hint: '<username> --from <wallet>' },
+              { name: 'unshare',  description: 'Revoke a wallet’s shared access', hint: '<username> --from <wallet> [--rotate]' },
               { name: 'claim',    description: 'Import server-side accounts owned by your wallet into the local vault' },
             ],
             fromHome,
@@ -4828,14 +4828,49 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           case 'unshare': {
             const username = positional[0] || (flags.username as string)
             const targetWallet = (flags.from as string) || (flags.wallet as string)
+            const rotate = !!flags.rotate
             if (!username) err('<username> required')
             if (!targetWallet) err('--from <wallet> required')
 
             const acc = sv.getAccount(platform, username!)
             if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
 
-            const data = await ao.xAccountUnshare(acc!.id, targetWallet)
-            log(`twitter unshare: @${username} ✗ ${targetWallet}`)
+            const spin = rotate ? new Spinner() : null
+            if (spin) spin.start(`Unsharing @${username} and rotating password…`)
+
+            let data: any
+            try {
+              data = await ao.xAccountUnshare(acc!.id, targetWallet, { rotate })
+            } catch (e: any) {
+              if (spin) spin.stop('Unshare failed', false)
+              err(`Unshare failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (spin) spin.stop(data?.rotated ? 'Unshared and rotated' : 'Unshared (rotation skipped)', !!data?.rotated)
+
+            // If rotation succeeded, sync the local vault so the next op
+            // doesn't try to log in with the now-defunct password / cookies.
+            if (rotate && data?.rotated && data?.credentials) {
+              try {
+                const existing = sv.unlockCredentials(platform, username!)
+                const next: import('./social-vault.js').SocialCredentials = {
+                  ...existing,
+                  password: data.credentials.password,
+                  auth_token: data.credentials.auth_token || undefined,
+                  ct0: (data.credentials.cookies || []).find((c: any) => c.name === 'ct0')?.value || existing.ct0,
+                }
+                sv.replaceCredentials(platform, username!, next)
+                if (Array.isArray(data.credentials.cookies) && data.credentials.cookies.length > 0) {
+                  sv.saveSession(acc!.id, platform, data.credentials.cookies)
+                }
+                // Don't leak the new password into the printed JSON output —
+                // it's already persisted locally.
+                data = { ...data, credentials: { rotated: true, persisted_locally: true } }
+              } catch (e: any) {
+                warn(`Local vault sync failed: ${e.message}. Run 'palmyr twitter claim' to refresh from server.`)
+              }
+            }
+
+            log(`twitter unshare: @${username} ✗ ${targetWallet}${rotate ? ' (rotated)' : ''}`)
             return print(data)
           }
 
