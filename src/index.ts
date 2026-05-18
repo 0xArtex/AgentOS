@@ -47,6 +47,7 @@ import swaggerUi from "swagger-ui-express";
 import { config } from "./config";
 import { swaggerSpec } from "./swagger";
 import "./db"; // Initialize database
+import { DATA_DIR } from "./db";
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
 import socialRoutes from "./routes/social";
@@ -351,7 +352,7 @@ app.get("/overlay-stats", async (_req, res) => {
   let commits = 0;
   try {
     const fs = await import("fs");
-    const taskFile = path.join(process.cwd(), "data", "overlay.json");
+    const taskFile = path.join(DATA_DIR, "overlay.json");
     if (fs.existsSync(taskFile)) {
       const data = JSON.parse(fs.readFileSync(taskFile, "utf-8"));
       if (data.task) task = data.task;
@@ -363,7 +364,7 @@ app.get("/overlay-stats", async (_req, res) => {
   let endpoints = 48;
   try {
     const fs = await import("fs");
-    const taskFile = path.join(process.cwd(), "data", "overlay.json");
+    const taskFile = path.join(DATA_DIR, "overlay.json");
     if (fs.existsSync(taskFile)) {
       const data = JSON.parse(fs.readFileSync(taskFile, "utf-8"));
       if (data.endpoints) endpoints = data.endpoints;
