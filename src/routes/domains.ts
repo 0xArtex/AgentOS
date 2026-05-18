@@ -30,6 +30,25 @@ interface DomainDbRecord {
   expires_at: string;
   created_at: string;
   dns_records: string | null;
+  shared_with: string | null;
+}
+
+/** Parse the shared_with JSON column, tolerating null/malformed rows. */
+function parseSharedWith(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(w => typeof w === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** True if `wallet` is the owner or has shared access to this domain. */
+function canAccessDomain(row: Pick<DomainDbRecord, "owner" | "shared_with">, wallet: string): boolean {
+  if (!wallet) return false;
+  if (row.owner === wallet) return true;
+  return parseSharedWith(row.shared_with).includes(wallet);
 }
 
 // Cache for pricing data
@@ -470,10 +489,27 @@ router.get('/', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req: Authen
     if (!owner) {
       return res.status(400).json({ error: 'No wallet identity on request' });
     }
-    const rows = db.prepare(
-      'SELECT domain, status, registrar_id, expires_at, created_at FROM domains WHERE owner = ? ORDER BY created_at DESC'
-    ).all(owner) as Array<{ domain: string; status: string; registrar_id: string | null; expires_at: string; created_at: string }>;
-    res.json({ owner, count: rows.length, domains: rows });
+    // Pull rows owned OR mentioned in shared_with. SQLite can't query JSON
+    // arrays natively, so the LIKE filters by substring and we refine in JS.
+    const rows = db.prepare(`
+      SELECT domain, owner, status, registrar_id, expires_at, created_at, shared_with
+      FROM domains
+      WHERE owner = ? OR shared_with LIKE ?
+      ORDER BY created_at DESC
+    `).all(owner, `%${owner}%`) as Array<DomainDbRecord>;
+
+    const domains = rows
+      .filter(r => canAccessDomain(r, owner))
+      .map(r => ({
+        domain: r.domain,
+        status: r.status,
+        registrar_id: r.registrar_id,
+        expires_at: r.expires_at,
+        created_at: r.created_at,
+        access: r.owner === owner ? "owner" : "shared",
+        ...(r.owner === owner ? { shared_with: parseSharedWith(r.shared_with) } : {}),
+      }));
+    res.json({ owner, count: domains.length, domains });
   } catch (error: any) {
     console.error('[domains] List error:', error);
     res.status(500).json({ error: error.message });
@@ -488,20 +524,23 @@ router.get('/:domain', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (req:
   try {
     const { domain } = req.params;
 
-    const owner = ownerFromRequest(req);
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
-    if (!domainRecord) {
-      return res.status(404).json({ error: 'Domain not found or not owned by you' });
+    const caller = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ?').get(domain) as DomainDbRecord | undefined;
+    if (!domainRecord || !caller || !canAccessDomain(domainRecord, caller)) {
+      return res.status(404).json({ error: 'Domain not found or not accessible by you' });
     }
 
     const dnsRecords = domainRecord.dns_records ? JSON.parse(domainRecord.dns_records) : [];
+    const isOwner = domainRecord.owner === caller;
 
     res.json({
       domain: domainRecord.domain,
       status: domainRecord.status,
       expiresAt: domainRecord.expires_at,
       createdAt: domainRecord.created_at,
-      dnsRecords
+      dnsRecords,
+      access: isOwner ? "owner" : "shared",
+      ...(isOwner ? { shared_with: parseSharedWith(domainRecord.shared_with) } : {}),
     });
   } catch (error: any) {
     console.error('[domains] Get domain error:', error);
@@ -517,10 +556,10 @@ router.get('/:domain/dns', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async (
   try {
     const { domain } = req.params;
 
-    const owner = ownerFromRequest(req);
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
-    if (!domainRecord) {
-      return res.status(404).json({ error: 'Domain not found or not owned by you' });
+    const caller = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ?').get(domain) as DomainDbRecord | undefined;
+    if (!domainRecord || !caller || !canAccessDomain(domainRecord, caller)) {
+      return res.status(404).json({ error: 'Domain not found or not accessible by you' });
     }
 
     try {
@@ -566,10 +605,10 @@ router.post('/:domain/dns', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async 
       return res.status(400).json({ error: 'records array is required' });
     }
 
-    const owner = ownerFromRequest(req);
-    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
-    if (!domainRecord) {
-      return res.status(404).json({ error: 'Domain not found or not owned by you' });
+    const caller = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ?').get(domain) as DomainDbRecord | undefined;
+    if (!domainRecord || !caller || !canAccessDomain(domainRecord, caller)) {
+      return res.status(404).json({ error: 'Domain not found or not accessible by you' });
     }
 
     // Validate records
@@ -653,7 +692,9 @@ router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'ge
       return res.status(400).json({ error: 'new_owner is already the current owner' });
     }
 
-    db.prepare('UPDATE domains SET owner = ? WHERE id = ?').run(new_owner, domainRecord.id);
+    // Clear shared_with on transfer — the previous owner's collaborators
+    // don't travel with the domain. New owner can re-share if desired.
+    db.prepare("UPDATE domains SET owner = ?, shared_with = '[]' WHERE id = ?").run(new_owner, domainRecord.id);
 
     res.json({
       message: 'Ownership transferred',
@@ -663,6 +704,77 @@ router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'ge
     });
   } catch (error: any) {
     console.error('[domains] Transfer ownership error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /domains/:domain/share
+ * Grant another wallet shared access (visibility + DNS edits). Owner-only.
+ * Body: { with: "<wallet>" }
+ */
+router.post('/:domain/share', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { domain } = req.params;
+    const withWallet = (req.body || {}).with;
+    if (!withWallet || typeof withWallet !== 'string' || !isWalletAddress(withWallet)) {
+      return res.status(400).json({ error: '`with` must be a Solana (base58) or EVM (0x…) wallet address' });
+    }
+
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
+    if (!domainRecord) {
+      return res.status(404).json({ error: 'Domain not found or not owned by you' });
+    }
+
+    if (withWallet === owner) {
+      return res.status(400).json({ error: 'Cannot share with the current owner' });
+    }
+
+    const current = parseSharedWith(domainRecord.shared_with);
+    const next = current.includes(withWallet) ? current : [...current, withWallet];
+    db.prepare('UPDATE domains SET shared_with = ? WHERE id = ?').run(JSON.stringify(next), domainRecord.id);
+
+    res.json({
+      message: `${domainRecord.domain} shared with ${withWallet}`,
+      domain: domainRecord.domain,
+      shared_with: next,
+    });
+  } catch (error: any) {
+    console.error('[domains] Share error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /domains/:domain/unshare
+ * Revoke shared access from a wallet. Owner-only.
+ * Body: { wallet: "<wallet>" }
+ */
+router.post('/:domain/unshare', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { domain } = req.params;
+    const targetWallet = (req.body || {}).wallet;
+    if (!targetWallet || typeof targetWallet !== 'string' || !isWalletAddress(targetWallet)) {
+      return res.status(400).json({ error: '`wallet` must be a Solana (base58) or EVM (0x…) wallet address' });
+    }
+
+    const owner = ownerFromRequest(req);
+    const domainRecord = db.prepare('SELECT * FROM domains WHERE domain = ? AND owner = ?').get(domain, owner) as DomainDbRecord | undefined;
+    if (!domainRecord) {
+      return res.status(404).json({ error: 'Domain not found or not owned by you' });
+    }
+
+    const next = parseSharedWith(domainRecord.shared_with).filter(w => w !== targetWallet);
+    db.prepare('UPDATE domains SET shared_with = ? WHERE id = ?').run(JSON.stringify(next), domainRecord.id);
+
+    res.json({
+      message: `${targetWallet} no longer has shared access to ${domainRecord.domain}`,
+      domain: domainRecord.domain,
+      shared_with: next,
+    });
+  } catch (error: any) {
+    console.error('[domains] Unshare error:', error);
     res.status(500).json({ error: error.message });
   }
 });

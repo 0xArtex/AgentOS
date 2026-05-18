@@ -258,7 +258,8 @@ export function initDatabase(): void {
       created_at TEXT NOT NULL,
       dns_records TEXT,
       payment_signature TEXT,
-      failure_reason TEXT
+      failure_reason TEXT,
+      shared_with TEXT DEFAULT '[]'
     );
 
     CREATE INDEX IF NOT EXISTS idx_domains_domain ON domains(domain);
@@ -280,6 +281,9 @@ export function initDatabase(): void {
     ['payment_signature', 'TEXT'],
     // Captures why a registration moved to 'failed' so ops can refund with context.
     ['failure_reason', 'TEXT'],
+    // JSON array of wallet addresses granted shared access (sees the row in
+    // GET /domains, can edit DNS — but cannot re-transfer or unshare).
+    ['shared_with', "TEXT DEFAULT '[]'"],
   ];
   for (const [name, spec] of additions) {
     if (!have.has(name)) db.exec(`ALTER TABLE domains ADD COLUMN ${name} ${spec}`);
@@ -311,12 +315,14 @@ export function initDatabase(): void {
             created_at TEXT NOT NULL,
             dns_records TEXT,
             payment_signature TEXT,
-            failure_reason TEXT
+            failure_reason TEXT,
+            shared_with TEXT DEFAULT '[]'
           );
         `);
+        const sharedExpr = have.has('shared_with') ? "COALESCE(shared_with, '[]')" : "'[]'";
         db.exec(`
-          INSERT INTO domains_new (id, domain, owner, registrar_id, status, expires_at, created_at, dns_records, payment_signature, failure_reason)
-          SELECT id, domain, owner, registrar_id, status, expires_at, ${createdAtExpr}, dns_records, payment_signature, failure_reason
+          INSERT INTO domains_new (id, domain, owner, registrar_id, status, expires_at, created_at, dns_records, payment_signature, failure_reason, shared_with)
+          SELECT id, domain, owner, registrar_id, status, expires_at, ${createdAtExpr}, dns_records, payment_signature, failure_reason, ${sharedExpr}
           FROM domains
         `);
         db.exec('DROP TABLE domains');

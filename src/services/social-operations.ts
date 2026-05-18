@@ -1752,6 +1752,214 @@ export async function changeUsername(
   }
 }
 
+/* ─── changePassword: rotate password + (optionally) revoke other sessions ─ */
+
+/**
+ * Rotate an X account's password by driving the settings UI. Used by the
+ * /x/accounts/:id/transfer route to make the previous owner's cached cookies
+ * and exported password worthless before flipping the DB owner.
+ *
+ * Flow:
+ *   1. Open authenticated session with the current cookies.
+ *   2. Navigate to https://x.com/settings/password.
+ *   3. Fill current / new / confirm password fields.
+ *   4. Toggle "Log out of other sessions" if requested (invalidates every
+ *      auth_token on every other device, including the exported one the
+ *      previous owner saved locally).
+ *   5. Submit and watch for the API response.
+ *   6. On success, refresh cookies — X rotates ct0 and may rotate auth_token
+ *      on password change, so we capture the fresh values for the new owner.
+ *
+ * Returns the new cookie set + auth_token when X reports success. Caller
+ * gates DB writes on `success === true`: if anything fails (X 4xx, captcha,
+ * UI moved), the old owner keeps the account untouched.
+ */
+export async function changePassword(
+  req: OpRequest & {
+    current_password: string;
+    new_password: string;
+    log_out_other_sessions?: boolean;
+  }
+): Promise<OpResult<{ cookies: any[]; auth_token: string | null; ct0: string | null }>> {
+  if (!req.current_password) {
+    return { success: false, error: "current_password is required", error_code: "INVALID_INPUT" };
+  }
+  // X enforces 8+ chars; we ask for 12+ since we generate the new password.
+  if (!req.new_password || req.new_password.length < 12) {
+    return { success: false, error: "new_password must be at least 12 characters", error_code: "INVALID_INPUT" };
+  }
+  if (req.new_password === req.current_password) {
+    return { success: false, error: "new_password must differ from current_password", error_code: "INVALID_INPUT" };
+  }
+
+  let session;
+  try {
+    session = await openAuthenticatedSession({
+      accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
+      cookies: req.cookies,
+    });
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "LAUNCH_FAILED" };
+  }
+
+  const { page, ctx, close } = session as any;
+  try {
+    await page.goto("https://x.com/settings/password", {
+      waitUntil: "domcontentloaded",
+      timeout: 45000,
+    });
+
+    if (isSessionExpiredUrl(page.url())) {
+      return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
+    }
+
+    // X's password settings has three password fields in order: current, new,
+    // confirm new. Specific name attributes vary across UI revisions, so target
+    // by index over all visible password inputs as a robust fallback.
+    const pwInputs = page.locator('input[type="password"]:visible');
+    let inputCount = 0;
+    try {
+      await pwInputs.first().waitFor({ state: "visible", timeout: 20000 });
+      inputCount = await pwInputs.count();
+    } catch {
+      const diag = await debugShot(page, "password-no-inputs");
+      return {
+        success: false,
+        error: `Password inputs never rendered on /settings/password. Screenshot: ${diag}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    if (inputCount < 3) {
+      const diag = await debugShot(page, "password-too-few-inputs");
+      return {
+        success: false,
+        error: `Expected 3 password inputs, found ${inputCount}. X may have changed the UI. Screenshot: ${diag}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    // Fill current → new → confirm. Use type() instead of fill() because X's
+    // form listens for real keydown events to enable the Save button.
+    await pwInputs.nth(0).click();
+    await pwInputs.nth(0).type(req.current_password, { delay: 30 });
+    await pwInputs.nth(1).click();
+    await pwInputs.nth(1).type(req.new_password, { delay: 30 });
+    await pwInputs.nth(2).click();
+    await pwInputs.nth(2).type(req.new_password, { delay: 30 });
+    await page.waitForTimeout(600);
+
+    // "Log out of other sessions" — an opt-in toggle that, when on, instructs
+    // X to invalidate every auth_token belonging to this account on every
+    // OTHER device. Critical for transfer: the previous owner has exported
+    // cookies + auth_token locally; without this they'd retain access until
+    // the cookies happened to expire on X's side.
+    if (req.log_out_other_sessions) {
+      // X uses a switch role for this toggle; selectors vary.
+      const toggle = page
+        .locator(
+          'input[type="checkbox"]:visible, ' +
+          '[role="switch"]:visible, ' +
+          'input[name*="logout"]:visible, ' +
+          'input[name*="log_out"]:visible'
+        )
+        .first();
+      const toggleExists = await toggle.count().catch(() => 0);
+      if (toggleExists > 0) {
+        const isOn = await toggle.isChecked().catch(() => false);
+        if (!isOn) {
+          await toggle.click({ timeout: 5000 }).catch(() => {});
+        }
+      }
+      // If the toggle isn't found, X may not be offering it on this account;
+      // we don't fail — the password change alone still invalidates the
+      // previous owner's saved password.
+    }
+
+    const saveButton = page
+      .locator(
+        'button:has-text("Save"):not([aria-disabled="true"]):visible, ' +
+        '[data-testid="settingsDetailSave"]:not([aria-disabled="true"]):visible, ' +
+        'div[role="button"]:has-text("Save"):not([aria-disabled="true"]):visible'
+      )
+      .first();
+    try {
+      await saveButton.waitFor({ state: "visible", timeout: 10000 });
+    } catch {
+      const diag = await debugShot(page, "password-save-not-enabled");
+      return {
+        success: false,
+        error: `Save button never enabled. Inputs may have rejected the values. Screenshot: ${diag}`,
+        error_code: "UI_TIMEOUT",
+      };
+    }
+
+    // Track POSTs so we can diagnose if the pattern doesn't match.
+    const seenPosts: string[] = [];
+    const requestLog = (r: any) => {
+      if (r.method() === "POST") {
+        const u = r.url();
+        if (/x\.com|twitter\.com/.test(u)) seenPosts.push(u);
+      }
+    };
+    page.on("request", requestLog);
+
+    const apiResult = await submitAndAwaitXApi(
+      page,
+      async () => { await saveButton.click({ timeout: 5000 }); },
+      /change_password|update_password|UpdatePassword|password_reset/
+    );
+
+    page.off("request", requestLog);
+
+    if (!apiResult) {
+      const shot = await debugShot(page, "password-no-api-call");
+      return {
+        success: false,
+        error:
+          `No password-change API call observed. Observed POSTs: ${seenPosts.slice(0, 10).join(" | ") || "(none)"}. ` +
+          `Screenshot: ${shot}`,
+        error_code: "UI_TIMEOUT",
+        data: { cookies: [], auth_token: null, ct0: null },
+      };
+    }
+
+    if (!apiResult.ok) {
+      const errMsg = apiResult.errorMessage || `HTTP ${apiResult.status}`;
+      // X returns 403 on a wrong current_password — flag explicitly so the
+      // caller can surface "wrong current password" rather than a generic 401.
+      const code = mapXError(apiResult.status, apiResult.errorCode);
+      return {
+        success: false,
+        error: `X rejected password change: ${errMsg}`,
+        error_code: code,
+      };
+    }
+
+    // Give X a beat to set the new session cookies before harvest. Without
+    // this we sometimes capture the pre-rotation auth_token.
+    await page.waitForTimeout(1500);
+
+    const cookies = await ctx.cookies();
+    const authTokenCookie = cookies.find((c: any) => c.name === "auth_token");
+    const ct0Cookie = cookies.find((c: any) => c.name === "ct0");
+
+    return {
+      success: true,
+      data: {
+        cookies,
+        auth_token: authTokenCookie?.value || null,
+        ct0: ct0Cookie?.value || null,
+      },
+    };
+  } catch (e: any) {
+    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+  } finally {
+    await close();
+  }
+}
+
 /* ─── updateAvatar / updateBanner: set profile picture or header image ── */
 
 async function updateProfileImage(

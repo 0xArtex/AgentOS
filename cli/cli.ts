@@ -1427,9 +1427,11 @@ async function main() {
               { name: 'check', description: 'Check availability', hint: '--name example.dev' },
               { name: 'pricing', description: 'Get TLD pricing', hint: '--name example' },
               { name: 'buy', description: 'Register a domain', hint: '--name example.dev' },
-              { name: 'list', description: 'List domains owned by your wallet', hint: '' },
+              { name: 'list', description: 'List domains owned or shared with your wallet', hint: '' },
               { name: 'dns', description: 'Get DNS records', hint: '--name example.dev' },
               { name: 'transfer-ownership', description: 'Transfer domain to another wallet', hint: '--name example.dev --to <wallet>' },
+              { name: 'share', description: 'Grant another wallet shared access', hint: '--name example.dev --with <wallet>' },
+              { name: 'unshare', description: 'Revoke a wallet’s shared access', hint: '--name example.dev --from <wallet>' },
             ],
             fromHome,
           })
@@ -1540,6 +1542,24 @@ async function main() {
             const data = await ao.domainTransferOwnership(name, to)
             return print(data)
           }
+          case 'share': {
+            const name = (flags.name as string) || positional[0]
+            const withWallet = (flags.with as string) || (flags.wallet as string)
+            if (!name) err('--name domain.dev required')
+            if (!withWallet) err('--with <wallet> required')
+            const data = await ao.domainShare(name, withWallet)
+            log(`domain share: ${name} → ${withWallet}`)
+            return print(data)
+          }
+          case 'unshare': {
+            const name = (flags.name as string) || positional[0]
+            const targetWallet = (flags.from as string) || (flags.wallet as string)
+            if (!name) err('--name domain.dev required')
+            if (!targetWallet) err('--from <wallet> required')
+            const data = await ao.domainUnshare(name, targetWallet)
+            log(`domain unshare: ${name} ✗ ${targetWallet}`)
+            return print(data)
+          }
           case 'dns': {
             const name = flags.name as string || positional[0]
             if (!name) err('--name domain.dev required')
@@ -1557,7 +1577,7 @@ async function main() {
             }))
             break
           }
-          default: err(`Unknown domain command: ${subcommand}. Try: check, pricing, buy, list, dns, transfer-ownership`)
+          default: err(`Unknown domain command: ${subcommand}. Try: check, pricing, buy, list, dns, transfer-ownership, share, unshare`)
         }
         break
       }
@@ -3893,6 +3913,10 @@ async function main() {
               { name: 'login',   description: 'Force a fresh server-side session (requires browser runtime)', hint: '<username>' },
               { name: 'post',    description: 'Post a tweet (requires server browser runtime)', hint: '<username> --body "..."' },
               { name: 'status',  description: 'Check if the account is alive / shadow-banned', hint: '<username>' },
+              { name: 'transfer', description: 'Hand an account to another wallet (rotates password)', hint: '<username> --to <wallet>' },
+              { name: 'share',    description: 'Grant another wallet shared access', hint: '<username> --with <wallet>' },
+              { name: 'unshare',  description: 'Revoke a wallet’s shared access', hint: '<username> --from <wallet>' },
+              { name: 'claim',    description: 'Import server-side accounts owned by your wallet into the local vault' },
             ],
             fromHome,
           })
@@ -4744,8 +4768,129 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             )
           }
 
+          case 'transfer': {
+            // Hand the X account to another wallet. Server rotates the password
+            // and revokes other sessions before flipping ownership, so the local
+            // copy of credentials we keep is intentionally invalidated. After
+            // success, we wipe the local vault entry — receiver will pick up
+            // fresh credentials via `palmyr twitter claim`.
+            const username = positional[0] || (flags.username as string)
+            const to = flags.to as string
+            if (!username) err('<username> required')
+            if (!to) err('--to <wallet> required')
+
+            const acc = sv.getAccount(platform, username!)
+            if (!acc) err(`twitter account "${username}" not found locally — can only transfer accounts you own`, EXIT.NOT_FOUND)
+
+            if (!flags.confirm) {
+              const tail = to.slice(-6)
+              err(
+                `This rotates @${username} on X and hands it to a wallet ending in …${tail}. ` +
+                `You will lose access immediately and irreversibly. ` +
+                `Re-run with --confirm:\n` +
+                `  palmyr twitter transfer ${username} --to ${to} --confirm`
+              )
+            }
+
+            const spin = new Spinner()
+            spin.start(`Rotating @${username} password and transferring…`)
+            let data: any
+            try {
+              data = await ao.xAccountTransfer(acc!.id, to)
+            } catch (e: any) {
+              spin.stop('Transfer failed', false)
+              err(`Transfer failed: ${e.message}`, EXIT.GENERAL)
+            }
+            spin.stop('Transferred', true)
+
+            // The local vault still holds the OLD password / cookies which are
+            // now useless. Drop the entry so we don't confuse the user with a
+            // ghost account they can't log into.
+            try { sv.removeAccount(platform, username!) } catch { /* best effort */ }
+
+            return print({ ...data, local_vault_cleared: true })
+          }
+
+          case 'share': {
+            const username = positional[0] || (flags.username as string)
+            const withWallet = (flags.with as string) || (flags.wallet as string)
+            if (!username) err('<username> required')
+            if (!withWallet) err('--with <wallet> required')
+
+            const acc = sv.getAccount(platform, username!)
+            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
+
+            const data = await ao.xAccountShare(acc!.id, withWallet)
+            log(`twitter share: @${username} → ${withWallet}`)
+            return print(data)
+          }
+
+          case 'unshare': {
+            const username = positional[0] || (flags.username as string)
+            const targetWallet = (flags.from as string) || (flags.wallet as string)
+            if (!username) err('<username> required')
+            if (!targetWallet) err('--from <wallet> required')
+
+            const acc = sv.getAccount(platform, username!)
+            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
+
+            const data = await ao.xAccountUnshare(acc!.id, targetWallet)
+            log(`twitter unshare: @${username} ✗ ${targetWallet}`)
+            return print(data)
+          }
+
+          case 'claim': {
+            // Fetch every server-side X account this wallet owns or has shared
+            // access to. Optionally import any not yet in the local vault —
+            // typical use is the new owner of a transferred account picking it
+            // up for the first time.
+            const data = await ao.xAccountsMine()
+            const accounts: any[] = data?.accounts || []
+            if (accounts.length === 0) {
+              log('No X accounts associated with your wallet on the server.')
+              return print({ count: 0, claimed: 0, accounts: [] })
+            }
+
+            const imported: any[] = []
+            const skipped: any[] = []
+            for (const a of accounts) {
+              const existing = sv.getAccount(platform, a.username)
+              if (existing) {
+                skipped.push({ username: a.username, reason: 'already in local vault' })
+                continue
+              }
+              try {
+                const ct0 = (a.cookies || []).find((c: any) => c.name === 'ct0')?.value
+                const creds: import('./social-vault.js').SocialCredentials = {
+                  login: a.email || a.username,
+                  password: a.password,
+                  email: a.email,
+                  auth_token: a.auth_token || undefined,
+                  ct0,
+                }
+                const summary = sv.importAccount(platform, a.username, creds, { source: 'claim' })
+                // Save the cookies so `palmyr twitter login` can use the
+                // cookie-fast-path instead of re-driving the login form.
+                if (Array.isArray(a.cookies) && a.cookies.length > 0) {
+                  sv.saveSession(summary.id, platform, a.cookies)
+                }
+                imported.push({ username: a.username, id: summary.id, access: a.access })
+              } catch (e: any) {
+                skipped.push({ username: a.username, reason: e.message })
+              }
+            }
+
+            log(`twitter claim: imported ${imported.length}, skipped ${skipped.length} (of ${accounts.length})`)
+            return print({
+              count: accounts.length,
+              claimed: imported.length,
+              imported,
+              skipped,
+            })
+          }
+
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, manual-login, session, post, reply, like, retweet, follow, unfollow, delete, list-tweets, bio, name, location, website, pfp, banner, username, buy`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, manual-login, session, post, reply, like, retweet, follow, unfollow, delete, list-tweets, bio, name, location, website, pfp, banner, username, buy, transfer, share, unshare, claim`)
         }
         break
       }
