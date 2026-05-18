@@ -976,7 +976,10 @@ export function initDatabase(): void {
   // Async X account transfers — Playwright password-rotation takes 30-90s
   // which exceeds Cloudflare's tunnel response timeout. Transfer endpoints
   // return immediately with a transfer_id; the rotation runs in-process via
-  // setImmediate; CLI polls /transfers/:id for status.
+  // setImmediate; CLI polls /transfers/:id for status. Same table now also
+  // tracks unshare-with-rotate jobs (op='unshare_rotate' — rotates creds in
+  // place without ownership change), since both share the slow Playwright
+  // password-change op and benefit from the same async machinery.
   db.exec(`
     CREATE TABLE IF NOT EXISTS transfers (
       id TEXT PRIMARY KEY,
@@ -984,6 +987,7 @@ export function initDatabase(): void {
       account_kind TEXT NOT NULL CHECK(account_kind IN ('x_accounts', 'registered')),
       from_wallet TEXT NOT NULL,
       to_wallet TEXT NOT NULL,
+      op TEXT NOT NULL DEFAULT 'transfer' CHECK(op IN ('transfer', 'unshare_rotate')),
       status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'rotating', 'completed', 'failed')),
       error TEXT,
       error_code TEXT,
@@ -995,6 +999,12 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_transfers_to_wallet ON transfers(to_wallet, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_transfers_status ON transfers(status, created_at);
   `);
+
+  // Idempotent: add `op` to older DBs created before unshare_rotate.
+  const transferCols = db.prepare("PRAGMA table_info(transfers)").all() as Array<{ name: string }>;
+  if (!transferCols.some(c => c.name === 'op')) {
+    db.exec("ALTER TABLE transfers ADD COLUMN op TEXT NOT NULL DEFAULT 'transfer'");
+  }
 
   console.log('✅ Database initialized with all tables');
 }

@@ -18,7 +18,6 @@ import {
   listRegisteredAccounts,
   accountsAccessibleBy,
   getOwnerDecryptedState,
-  persistRotatedCreds,
   shareRegistered,
   unshareRegistered,
 } from "../services/registered-accounts";
@@ -41,8 +40,6 @@ import {
   updateAvatar,
   updateBanner,
   changeUsername,
-  changePassword,
-  generateStrongPassword,
   listMyTweets,
 } from "../services/social-operations";
 import { loginTikTok } from "../services/tiktok-login";
@@ -871,80 +868,18 @@ router.post(
       return;
     }
 
-    // --rotate path: decrypt → changePassword → re-encrypt → persist
-    const state = getOwnerDecryptedState(accountId, caller);
-    if (!state || state.cookies.length === 0) {
-      res.status(200).json({
-        success: true,
-        message: `${body.wallet} unshared, but rotation skipped — no cached cookies for this account`,
-        id: accountId,
-        shared_with: afterUnshare,
-        rotated: false,
-        rotation_skipped_reason: "no_cookies",
-      });
-      return;
-    }
-
-    const newPassword = generateStrongPassword();
-    const rotation = await changePassword({
-      account_id: state.row.id,
-      proxy_session_id: state.row.proxy_session_id,
-      cookies: state.cookies,
-      current_password: state.creds.password,
-      new_password: newPassword,
-      log_out_other_sessions: true,
-    });
-
-    if (!rotation.success) {
-      // Unshare succeeded; rotation didn't. The revoked wallet is out of
-      // shared_with, but may still have working cookies until X-side expiry.
-      res.status(207).json({
-        success: true,
-        message: `${body.wallet} unshared. Password rotation failed — retry to fully revoke any cached creds`,
-        id: accountId,
-        shared_with: afterUnshare,
-        rotated: false,
-        rotation_error: rotation.error,
-        rotation_error_code: rotation.error_code,
-      });
-      return;
-    }
-
-    const newCookies = rotation.data?.cookies && rotation.data.cookies.length > 0
-      ? rotation.data.cookies
-      : state.cookies;
-    const newCreds = {
-      ...state.creds,
-      password: newPassword,
-      auth_token: rotation.data?.auth_token || undefined,
-      ct0: rotation.data?.ct0 || undefined,
-    };
-
-    const updated = persistRotatedCreds(state.row.id, caller, newCreds, newCookies);
-    if (!updated) {
-      res.status(207).json({
-        success: true,
-        message: `${body.wallet} unshared; rotation completed on X but DB write raced — re-resolve session to pick up new state`,
-        id: accountId,
-        shared_with: afterUnshare,
-        rotated: false,
-      });
-      return;
-    }
-
-    res.json({
+    // --rotate path: kick off async rotation. Same async machinery as
+    // transfer — Playwright takes longer than Cloudflare's HTTP timeout.
+    const transfer = createTransfer("registered", accountId, caller, caller, "unshare_rotate");
+    res.status(202).json({
       success: true,
-      message: `${body.wallet} unshared and credentials rotated`,
+      message: `${body.wallet} unshared. Rotation kicked off — poll /transfers/${transfer.id} for status.`,
       id: accountId,
       shared_with: afterUnshare,
-      rotated: true,
-      // Caller is still the owner — returning fresh creds is safe and
-      // necessary so the local vault stays in sync.
-      credentials: {
-        password: newPassword,
-        cookies: newCookies,
-        auth_token: rotation.data?.auth_token || null,
-      },
+      rotated: false,
+      rotation_in_progress: true,
+      transfer_id: transfer.id,
+      poll_url: `/transfers/${transfer.id}`,
     });
   }
 );

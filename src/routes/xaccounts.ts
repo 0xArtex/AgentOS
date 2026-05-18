@@ -3,7 +3,6 @@ import { xAccountService, XAccount } from "../services/xaccounts";
 import { requirePoolAdmin } from "../middleware/pool-admin";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest } from "../types";
-import { changePassword, generateStrongPassword } from "../services/social-operations";
 import { createTransfer } from "../services/transfers";
 
 const router = Router();
@@ -342,71 +341,21 @@ router.post("/accounts/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, 'general'
       return;
     }
 
-    // Step 2: rotate credentials. The revoked wallet may have exported
-    // cookies / noted the password — the unshare on its own only blocks
-    // /mine reads on the server; it doesn't invalidate already-captured
-    // creds. Password change + log-out-other-sessions handles that.
-    let currentCookies: any[] = [];
-    try { currentCookies = JSON.parse(account.cookies || "[]"); } catch { currentCookies = []; }
-    if (currentCookies.length === 0) {
-      res.status(200).json({
-        message: `${targetWallet} unshared, but rotation skipped — no cached cookies for @${account.username}. Run twitter login first, then re-run with --rotate.`,
-        id: account.id,
-        username: account.username,
-        shared_with: afterUnshare?.shared_with || [],
-        rotated: false,
-        rotation_skipped_reason: "no_cookies",
-      });
-      return;
-    }
-
-    const newPassword = generateStrongPassword();
-    const rotation = await changePassword({
-      account_id: account.id,
-      cookies: currentCookies,
-      current_password: account.password,
-      new_password: newPassword,
-      log_out_other_sessions: true,
-    });
-
-    if (!rotation.success) {
-      // Unshare succeeded but rotation didn't. The revoked wallet still
-      // can't read /mine (they're out of shared_with), but they may still
-      // have working cookies. Surface the failure so the caller can retry.
-      res.status(207).json({
-        message: `${targetWallet} unshared. Password rotation failed — retry with palmyr twitter rotate-password ${account.username} (or assume the revoked wallet may retain cookie access until they expire).`,
-        id: account.id,
-        username: account.username,
-        shared_with: afterUnshare?.shared_with || [],
-        rotated: false,
-        rotation_error: rotation.error,
-        rotation_error_code: rotation.error_code,
-      });
-      return;
-    }
-
-    const newCookiesArr = rotation.data?.cookies && rotation.data.cookies.length > 0
-      ? rotation.data.cookies
-      : [];
-    const updated = await xAccountService.updateCredentials(account.id, {
-      password: newPassword,
-      cookies: JSON.stringify(newCookiesArr),
-      auth_token: rotation.data?.auth_token || null,
-    });
-
-    res.json({
-      message: `${targetWallet} unshared and credentials rotated for @${account.username}.`,
+    // Step 2: rotate credentials in the background. Same async machinery
+    // as transfer (Playwright takes longer than Cloudflare's HTTP timeout).
+    // We DON'T pre-check for cached cookies here — the background runner
+    // handles that and surfaces a clean failure if there's nothing to
+    // drive the password-change UI with.
+    const transfer = createTransfer("x_accounts", account.id, caller, caller, "unshare_rotate");
+    res.status(202).json({
+      message: `${targetWallet} unshared. Rotation kicked off — poll /transfers/${transfer.id} for status.`,
       id: account.id,
-      username: updated?.username || account.username,
-      shared_with: updated?.shared_with || afterUnshare?.shared_with || [],
-      rotated: true,
-      // Caller is still the owner — returning fresh creds is safe and
-      // necessary so the local vault stays in sync.
-      credentials: {
-        password: newPassword,
-        cookies: newCookiesArr,
-        auth_token: rotation.data?.auth_token || null,
-      },
+      username: account.username,
+      shared_with: afterUnshare?.shared_with || [],
+      rotated: false,
+      rotation_in_progress: true,
+      transfer_id: transfer.id,
+      poll_url: `/transfers/${transfer.id}`,
     });
   } catch (error: any) {
     res.status(500).json({ error: "Error", message: error.message });

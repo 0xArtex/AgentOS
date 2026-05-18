@@ -27,6 +27,15 @@ import { changePassword, generateStrongPassword } from "./social-operations";
 
 export type AccountKind = "x_accounts" | "registered";
 export type TransferStatus = "pending" | "rotating" | "completed" | "failed";
+/**
+ * What the background worker should do:
+ *   - 'transfer'        rotate password + flip ownership to to_wallet (atomic).
+ *   - 'unshare_rotate'  rotate password in place; ownership stays with from_wallet.
+ *                       Used after a `palmyr twitter unshare --rotate` so the
+ *                       revoked wallet's exported cookies stop working without
+ *                       the owner losing access.
+ */
+export type TransferOp = "transfer" | "unshare_rotate";
 
 export interface TransferRow {
   id: string;
@@ -34,6 +43,7 @@ export interface TransferRow {
   account_kind: AccountKind;
   from_wallet: string;
   to_wallet: string;
+  op: TransferOp;
   status: TransferStatus;
   error: string | null;
   error_code: string | null;
@@ -46,18 +56,22 @@ export interface TransferRow {
  * Insert the transfer row and kick off the background rotation. Returns
  * immediately so the HTTP handler can respond 202 within Cloudflare's
  * response budget.
+ *
+ * For op='unshare_rotate', toWallet should equal fromWallet (rotation in
+ * place, no ownership change).
  */
 export function createTransfer(
   kind: AccountKind,
   accountId: string,
   fromWallet: string,
-  toWallet: string
+  toWallet: string,
+  op: TransferOp = "transfer"
 ): TransferRow {
   const id = randomUUID();
   db.prepare(
-    `INSERT INTO transfers (id, account_id, account_kind, from_wallet, to_wallet, status)
-     VALUES (?, ?, ?, ?, ?, 'pending')`
-  ).run(id, accountId, kind, fromWallet, toWallet);
+    `INSERT INTO transfers (id, account_id, account_kind, from_wallet, to_wallet, op, status)
+     VALUES (?, ?, ?, ?, ?, ?, 'pending')`
+  ).run(id, accountId, kind, fromWallet, toWallet, op);
 
   // Schedule the slow path. Errors thrown out of the runner shouldn't crash
   // the process — they get caught and persisted to the row so the poller
@@ -96,7 +110,13 @@ async function runTransfer(transferId: string): Promise<void> {
     transferId
   );
 
-  if (transfer.account_kind === "x_accounts") {
+  if (transfer.op === "unshare_rotate") {
+    if (transfer.account_kind === "x_accounts") {
+      await runPoolUnshareRotate(transfer);
+    } else {
+      await runRegisteredUnshareRotate(transfer);
+    }
+  } else if (transfer.account_kind === "x_accounts") {
     await runPoolTransfer(transfer);
   } else {
     await runRegisteredTransfer(transfer);
@@ -239,6 +259,99 @@ async function runRegisteredTransfer(t: TransferRow): Promise<void> {
     );
     return;
   }
+  markCompleted(t.id);
+}
+
+/**
+ * Rotate the password on a pool account without flipping ownership.
+ * Used by `palmyr twitter unshare --rotate` so the revoked share-holder's
+ * cached cookies stop working immediately; the original owner keeps the
+ * account with fresh credentials.
+ */
+async function runPoolUnshareRotate(t: TransferRow): Promise<void> {
+  const account = await xAccountService.getAccount(t.account_id);
+  if (!account || account.sold_to !== t.from_wallet) {
+    markFailed(t.id, "ownership_check_failed", "Account no longer owned by from_wallet");
+    return;
+  }
+  let cookies: any[] = [];
+  try {
+    cookies = JSON.parse(account.cookies || "[]");
+  } catch {
+    cookies = [];
+  }
+  if (cookies.length === 0) {
+    markFailed(t.id, "no_cookies", "No cached cookies — run twitter login first");
+    return;
+  }
+
+  const newPassword = generateStrongPassword();
+  const rotation = await changePassword({
+    account_id: account.id,
+    cookies,
+    current_password: account.password,
+    new_password: newPassword,
+    log_out_other_sessions: true,
+  });
+
+  if (!rotation.success) {
+    markFailed(t.id, rotation.error_code || "rotation_failed", rotation.error || "Password rotation failed");
+    return;
+  }
+
+  const newCookies =
+    rotation.data?.cookies && rotation.data.cookies.length > 0
+      ? JSON.stringify(rotation.data.cookies)
+      : "[]";
+  await xAccountService.updateCredentials(account.id, {
+    password: newPassword,
+    cookies: newCookies,
+    auth_token: rotation.data?.auth_token || null,
+  });
+  markCompleted(t.id);
+}
+
+/**
+ * Rotate the password on a BYO-registered account without flipping ownership.
+ */
+async function runRegisteredUnshareRotate(t: TransferRow): Promise<void> {
+  const state = getOwnerDecryptedState(t.account_id, t.from_wallet);
+  if (!state) {
+    markFailed(t.id, "ownership_check_failed", "Registered account not found or not owned by from_wallet");
+    return;
+  }
+  if (state.cookies.length === 0) {
+    markFailed(t.id, "no_cookies", "No cached cookies — re-register or run twitter login first");
+    return;
+  }
+
+  const newPassword = generateStrongPassword();
+  const rotation = await changePassword({
+    account_id: state.row.id,
+    proxy_session_id: state.row.proxy_session_id,
+    cookies: state.cookies,
+    current_password: state.creds.password,
+    new_password: newPassword,
+    log_out_other_sessions: true,
+  });
+
+  if (!rotation.success) {
+    markFailed(t.id, rotation.error_code || "rotation_failed", rotation.error || "Password rotation failed");
+    return;
+  }
+
+  const newCookies =
+    rotation.data?.cookies && rotation.data.cookies.length > 0
+      ? rotation.data.cookies
+      : state.cookies;
+  const newCreds = {
+    ...state.creds,
+    password: newPassword,
+    auth_token: rotation.data?.auth_token || undefined,
+    ct0: rotation.data?.ct0 || undefined,
+  };
+  // No transferToWallet → ownership stays with from_wallet.
+  persistRotatedCreds(state.row.id, t.from_wallet, newCreds, newCookies);
   markCompleted(t.id);
 }
 
