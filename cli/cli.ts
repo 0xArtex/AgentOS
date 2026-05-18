@@ -3922,6 +3922,54 @@ async function main() {
           return null
         }
 
+        // Look up an account by username; if it's not in the local vault,
+        // check both server-side tables and auto-import any match. This is
+        // what makes `palmyr twitter <op> @h` "just work" for a wallet that
+        // was just transferred or shared an account — no separate `claim`
+        // step. Errs cleanly if the account is neither local nor accessible
+        // server-side. Each auto-import costs ~$0.0011 (two paid lookups +
+        // creds-decryption fee on the registered side), so call sites that
+        // are pure local ops (rename, remove) intentionally skip this.
+        const ensureLocalAccount = async (username: string) => {
+          const existing = sv.getAccount(platform, username)
+          if (existing) return existing
+
+          const [xRes, regRes] = await Promise.allSettled([
+            ao.xAccountsMine(),
+            ao.socialTwitterRegisteredMine(),
+          ])
+          const xMatch = xRes.status === 'fulfilled'
+            ? (xRes.value?.accounts || []).find((a: any) => a.username === username)
+            : null
+          const regMatch = regRes.status === 'fulfilled'
+            ? (regRes.value?.accounts || []).find((a: any) => a.username === username)
+            : null
+          const match: any = xMatch || regMatch
+          if (!match) {
+            err(`twitter account "${username}" not found locally or on the server (this wallet has no access)`, EXIT.NOT_FOUND)
+          }
+
+          const cookies = (match.cookies || []) as any[]
+          const ct0 = cookies.find((c: any) => c.name === 'ct0')?.value
+          // Registered accounts return creds nested under `credentials`;
+          // pool accounts return them flat alongside cookies.
+          const creds: import('./social-vault.js').SocialCredentials = regMatch
+            ? (regMatch.credentials as import('./social-vault.js').SocialCredentials)
+            : {
+                login: match.email || match.username,
+                password: match.password,
+                email: match.email,
+                auth_token: match.auth_token || undefined,
+                ct0,
+              }
+          const summary = sv.importAccount(platform, username, creds, { source: 'auto-claim' })
+          if (cookies.length > 0) {
+            sv.saveSession(summary.id, platform, cookies)
+          }
+          log(`auto-imported @${username} from server (${regMatch ? 'registered' : 'pool'} → local vault)`)
+          return summary
+        }
+
         if (!subcommand) {
           showMenu({
             command: 'twitter',
@@ -4068,9 +4116,8 @@ async function main() {
           case 'info': {
             const username = positional[0] || (flags.username as string)
             if (!username) err('<username> required')
-            const acc = sv.getAccount(platform, username)
-            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
-            return print(acc!)
+            const acc = await ensureLocalAccount(username!)
+            return print(acc)
           }
 
           case 'rename': {
@@ -4101,7 +4148,8 @@ async function main() {
           case 'totp': {
             const username = positional[0] || (flags.username as string)
             if (!username) err('<username> required')
-            const creds = sv.unlockCredentials(platform, username)
+            await ensureLocalAccount(username!)
+            const creds = sv.unlockCredentials(platform, username!)
             if (!creds.totp_seed) err(`twitter account "${username}" has no TOTP seed configured`, EXIT.NOT_FOUND)
             const { code, secondsUntilNextCode } = await import('./totp.js')
             return print({
@@ -4214,9 +4262,8 @@ async function main() {
           case 'session': {
             const username = positional[0] || (flags.username as string)
             if (!username) err('<username> required')
-            const acc = sv.getAccount(platform, username)
-            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
-            const sess = sv.loadSession(acc!.id)
+            const acc = await ensureLocalAccount(username!)
+            const sess = sv.loadSession(acc.id)
             if (!sess) {
               return print({
                 platform,
@@ -4225,7 +4272,7 @@ async function main() {
                 hint: `No cached session. Run: node cli/dist/cli.js twitter login ${username}`,
               })
             }
-            const ageHours = sv.sessionAgeHours(acc!.id)
+            const ageHours = sv.sessionAgeHours(acc.id)
             return print({
               platform,
               username,
@@ -4247,19 +4294,18 @@ async function main() {
               if (!Number.isFinite(n) || n <= 0) err('--limit must be a positive integer', EXIT.BAD_INPUT)
               limit = Math.floor(n)
             }
-            const acc = sv.getAccount(platform, username)
-            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
-            const sess = sv.loadSession(acc!.id)
+            const acc = await ensureLocalAccount(username!)
+            const sess = sv.loadSession(acc.id)
             if (!sess || !sess.cookies || sess.cookies.length === 0) {
               err(
                 `No cached session for ${username}. Run 'twitter login ${username}' first.`,
                 EXIT.NOT_FOUND
               )
             }
-            const psid = sv.getProxySessionId(platform, username)
+            const psid = sv.getProxySessionId(platform, username!)
             let data: any
             try {
-              data = await ao.socialTwitterListMyTweets(acc!.id, sess!.cookies, limit, psid)
+              data = await ao.socialTwitterListMyTweets(acc.id, sess!.cookies, limit, psid)
             } catch (e: any) {
               err(`list-tweets failed: ${e.message}`, EXIT.GENERAL)
             }
@@ -4530,20 +4576,19 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 EXIT.BAD_INPUT
               )
             }
-            const acc = sv.getAccount(platform, username)
-            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
-            const sess = sv.loadSession(acc!.id)
+            const acc = await ensureLocalAccount(username!)
+            const sess = sv.loadSession(acc.id)
             if (!sess || !sess.cookies || sess.cookies.length === 0) {
               err(`No cached session. Run 'twitter login ${username}' first.`, EXIT.NOT_FOUND)
             }
             // Unlock password locally — transits to server only in this call.
-            const creds = sv.unlockCredentials(platform, username)
+            const creds = sv.unlockCredentials(platform, username!)
             if (!creds.password) err('Account has no password in vault — cannot authenticate username change.')
 
-            const psid = sv.getProxySessionId(platform, username)
+            const psid = sv.getProxySessionId(platform, username!)
             let data: any
             try {
-              data = await ao.socialTwitterUsername(acc!.id, sess!.cookies, newUsername, creds.password, psid)
+              data = await ao.socialTwitterUsername(acc.id, sess!.cookies, newUsername, creds.password, psid)
             } catch (e: any) {
               err(`Username change failed: ${e.message}`, EXIT.GENERAL)
             }
@@ -4577,16 +4622,15 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           case 'banner': {
             const username = positional[0] || (flags.username as string)
             if (!username) err(`<username> required`)
-            const acc = sv.getAccount(platform, username)
-            if (!acc) err(`twitter account "${username}" not found locally`, EXIT.NOT_FOUND)
-            const sess = sv.loadSession(acc!.id)
+            const acc = await ensureLocalAccount(username!)
+            const sess = sv.loadSession(acc.id)
             if (!sess || !sess.cookies || sess.cookies.length === 0) {
               err(
                 `No cached session for ${username}. Run 'twitter login ${username}' first.`,
                 EXIT.NOT_FOUND
               )
             }
-            const psid = sv.getProxySessionId(platform, username)
+            const psid = sv.getProxySessionId(platform, username!)
 
             let data: any
             try {
@@ -5043,29 +5087,77 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               if (spin) spin.stop('Unshare failed', false)
               err(`Unshare failed: ${e.message}`, EXIT.GENERAL)
             }
-            if (spin) spin.stop(data?.rotated ? 'Unshared and rotated' : 'Unshared (rotation skipped)', !!data?.rotated)
 
-            // If rotation succeeded, sync the local vault so the next op
-            // doesn't try to log in with the now-defunct password / cookies.
-            if (rotate && data?.rotated && data?.credentials) {
-              try {
-                const existing = sv.unlockCredentials(platform, username!)
-                const next: import('./social-vault.js').SocialCredentials = {
-                  ...existing,
-                  password: data.credentials.password,
-                  auth_token: data.credentials.auth_token || undefined,
-                  ct0: (data.credentials.cookies || []).find((c: any) => c.name === 'ct0')?.value || existing.ct0,
+            // If the server kicked off an async rotation, poll until it
+            // settles. Same polling pattern as transfer — Playwright takes
+            // longer than Cloudflare's HTTP response budget.
+            if (rotate && data?.transfer_id) {
+              const transferId = data.transfer_id as string
+              const startedAt = Date.now()
+              const MAX_WAIT_MS = 5 * 60 * 1000
+              let status: any = null
+              while (true) {
+                if (Date.now() - startedAt > MAX_WAIT_MS) {
+                  if (spin) spin.stop('Rotation timed out', false)
+                  err(
+                    `Rotation ${transferId} still in progress after 5 min. ` +
+                    `Account is unshared but cached cookies on the revoked wallet may still work until X-side expiry. ` +
+                    `Check status at /transfers/${transferId}.`,
+                    EXIT.GENERAL
+                  )
                 }
-                sv.replaceCredentials(platform, username!, next)
-                if (Array.isArray(data.credentials.cookies) && data.credentials.cookies.length > 0) {
-                  sv.saveSession(acc!.id, platform, data.credentials.cookies)
+                await new Promise(r => setTimeout(r, 5000))
+                try {
+                  status = await ao.transferStatus(transferId)
+                } catch (e: any) {
+                  if (spin) spin.update(`Poll error (will retry): ${e.message}`)
+                  continue
                 }
-                // Don't leak the new password into the printed JSON output —
-                // it's already persisted locally.
-                data = { ...data, credentials: { rotated: true, persisted_locally: true } }
-              } catch (e: any) {
-                warn(`Local vault sync failed: ${e.message}. Run 'palmyr twitter claim' to refresh from server.`)
+                if (spin) spin.update(`Rotation: ${status.status}…`)
+                if (status.status === 'completed' || status.status === 'failed') break
               }
+              if (status.status === 'failed') {
+                if (spin) spin.stop('Rotation failed', false)
+                warn(
+                  `Unshare succeeded but rotation failed: ${status.error || 'unknown'}` +
+                  (status.error_code ? ` [${status.error_code}]` : '') +
+                  `. The revoked wallet's cached cookies may still work until X-side expiry. Retry rotation if needed.`
+                )
+                data = { ...data, rotated: false, rotation_error: status.error, rotation_error_code: status.error_code }
+              } else {
+                if (spin) spin.stop('Unshared and rotated', true)
+                // Fetch fresh creds from the appropriate /mine endpoint and
+                // sync the local vault. Caller is still the owner, so the
+                // server returns the new credentials they need.
+                try {
+                  const mineResp = resolved!.kind === 'x_accounts'
+                    ? await ao.xAccountsMine()
+                    : await ao.socialTwitterRegisteredMine()
+                  const fresh = (mineResp?.accounts || []).find((a: any) => a.username === username)
+                  if (fresh) {
+                    const existing = sv.unlockCredentials(platform, username!)
+                    const isReg = resolved!.kind === 'registered'
+                    const freshPassword = isReg ? fresh.credentials?.password : fresh.password
+                    const freshAuth = isReg ? fresh.credentials?.auth_token : fresh.auth_token
+                    const freshCookies = fresh.cookies || []
+                    const next: import('./social-vault.js').SocialCredentials = {
+                      ...existing,
+                      password: freshPassword || existing.password,
+                      auth_token: freshAuth || undefined,
+                      ct0: freshCookies.find((c: any) => c.name === 'ct0')?.value || existing.ct0,
+                    }
+                    sv.replaceCredentials(platform, username!, next)
+                    if (Array.isArray(freshCookies) && freshCookies.length > 0) {
+                      sv.saveSession(acc!.id, platform, freshCookies)
+                    }
+                  }
+                } catch (e: any) {
+                  warn(`Local vault sync failed: ${e.message}. Run 'palmyr twitter claim' to refresh from server.`)
+                }
+                data = { ...data, rotated: true, credentials: { rotated: true, persisted_locally: true } }
+              }
+            } else {
+              if (spin) spin.stop('Unshared (rotation skipped)', false)
             }
 
             log(`twitter unshare: @${username} ✗ ${targetWallet}${rotate ? ' (rotated)' : ''}`)
@@ -5415,7 +5507,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 hint: `No cached session. Run: palmyr tiktok login ${username}`,
               })
             }
-            const ageHours = sv.sessionAgeHours(acc!.id)
+            const ageHours = sv.sessionAgeHours(acc.id)
             return print({
               platform,
               username,

@@ -138,9 +138,14 @@ palmyr twitter username <username> --to <new-handle>     # Change handle ($0.005
 # `register` step required.
 palmyr twitter transfer <username> --to <wallet> --confirm       # Rotates password + revokes other sessions, then flips ownership. Auto-registers if not on server yet. Server returns transfer_id immediately; CLI polls /transfers/:id every 5s until completed (rotation runs ~30-90s in the background). Local copy is wiped on success.
 palmyr twitter share <username> --with <wallet>                  # Grant shared access (same login, no rotation)
-palmyr twitter unshare <username> --from <wallet> [--rotate]     # Revoke share. --rotate also rotates password so the revoked wallet's cached cookies stop working.
+palmyr twitter unshare <username> --from <wallet> [--rotate]     # Revoke share. --rotate also rotates password so the revoked wallet's cached cookies stop working — runs async with polling like transfer (~30-90s).
 palmyr twitter list [--local]                                    # Local vault PLUS server-only accounts the wallet owns or has shared with (with a hint to `claim`). --local skips the server check.
 palmyr twitter claim                                             # Pull every server-side X account the wallet can access into the local vault.
+
+# Auto-import on use: any of the commands above (post, like, info, totp, etc.) that target an account
+# the wallet has access to server-side but doesn't yet have locally will auto-import on first call.
+# So a wallet that was just transferred or shared an account can run `palmyr twitter post @h "gm"`
+# directly — no separate `claim` step needed.
 
 # Info
 palmyr pricing    # All service prices
