@@ -74,6 +74,10 @@ palmyr compute delete <name|id>                            # Delete server ($0.1
 palmyr domain check --name example.dev   # Check availability (free)
 palmyr domain pricing --name example     # Get pricing (free)
 palmyr domain buy --name example.dev     # Register domain
+palmyr domain list                       # Owned + shared
+palmyr domain transfer-ownership --name example.dev --to <wallet>  # Hand domain to another wallet
+palmyr domain share --name example.dev --with <wallet>             # Grant another wallet access (DNS edits)
+palmyr domain unshare --name example.dev --from <wallet>
 
 # Wallet
 palmyr wallet create                     # Create local HD wallet (free)
@@ -127,6 +131,12 @@ palmyr twitter name <username> --display "..."           # Update display name (
 palmyr twitter pfp <username> --file pic.png             # Update avatar ($0.005)
 palmyr twitter banner <username> --file banner.png       # Update banner ($0.005)
 palmyr twitter username <username> --to <new-handle>     # Change handle ($0.005)
+
+# Hand off / share an X account between wallets — owner-only.
+palmyr twitter transfer <username> --to <wallet> --confirm       # Rotates password + revokes other sessions, then flips ownership. Local copy is wiped on success.
+palmyr twitter share <username> --with <wallet>                  # Grant shared access (same login, no rotation)
+palmyr twitter unshare <username> --from <wallet> [--rotate]     # Revoke share. --rotate also rotates password so the revoked wallet's cached cookies stop working.
+palmyr twitter claim                                             # Receiving wallet: pull every X account on the server bound to your wallet into the local vault.
 
 # Info
 palmyr pricing    # All service prices
@@ -184,8 +194,12 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Check availability | `GET /domains/check?domain=example.com` | Free |
 | TLD pricing | `GET /domains/pricing?domain=example` | Free |
 | Register domain | `POST /domains/register` | dynamic (25% markup) |
-| DNS records | `GET /domains/:domain/dns` | Free |
-| Update DNS | `POST /domains/:domain/dns` | Free |
+| List your domains *(owner + shared)* | `GET /domains` | 0.0001 *(ownership proof)* |
+| DNS records | `GET /domains/:domain/dns` | 0.0001 *(ownership proof)* |
+| Update DNS | `POST /domains/:domain/dns` | 0.0001 *(ownership proof; shared wallets allowed)* |
+| Transfer ownership | `POST /domains/:domain/transfer-ownership` | 0.0001 *(ownership proof; clears shared_with)* |
+| Share with another wallet | `POST /domains/:domain/share` | 0.0001 *(ownership proof; owner-only)* |
+| Revoke a shared wallet | `POST /domains/:domain/unshare` | 0.0001 *(ownership proof; owner-only)* |
 | Pricing | `GET /pricing` | Free |
 | **Wallet** | | |
 | Create wallet | `POST /wallet` | Free |
@@ -205,6 +219,10 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Update avatar | `POST /social/twitter/avatar` | 0.005 |
 | Update banner | `POST /social/twitter/banner` | 0.005 |
 | Change username | `POST /social/twitter/username` | 0.005 |
+| Transfer account to another wallet | `POST /x/accounts/:id/transfer` | 0.0001 *(ownership proof; rotates password + revokes other sessions, atomic)* |
+| Share account with another wallet | `POST /x/accounts/:id/share` | 0.0001 *(ownership proof; owner-only)* |
+| Revoke a shared wallet | `POST /x/accounts/:id/unshare` *(body: `{ wallet, rotate? }`)* | 0.0001 *(ownership proof; owner-only; `rotate: true` also rotates password)* |
+| List accounts owned or shared with you | `GET /x/accounts/mine` | 0.0001 *(ownership proof)* |
 | **Skills** | | |
 | Browse catalog | `GET /compute/skills/catalog` | Free |
 | Security scan | `GET /compute/skills/:slug/security` | Free |
