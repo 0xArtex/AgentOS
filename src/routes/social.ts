@@ -474,13 +474,16 @@ router.post(
     let username = explicitUsername;
 
     if (credentials_line && typeof credentials_line === "string") {
-      const parts = credentials_line.split(":");
-      // Only accept the documented 4 / 5 / 7-field formats exactly. Anything
-      // else indicates a password containing `:` — the caller must use the
-      // explicit-flag path instead to avoid a silent mis-split.
+      // Strip trailing empty fields — marketplaces routinely export with a
+      // trailing colon (so `…:auth_token:` parses to 6 fields with an empty
+      // last). Don't penalize that.
+      const raw = credentials_line.split(":");
+      while (raw.length > 0 && raw[raw.length - 1] === "") raw.pop();
+      const parts = raw;
+
       if (![4, 5, 7].includes(parts.length)) {
         res.status(400).json({
-          error: "credentials_line must have exactly 4, 5, or 7 colon-separated fields",
+          error: "credentials_line must have 4, 5, or 7 colon-separated fields (trailing empty fields are tolerated)",
           hint: "If your password contains ':', use explicit body fields instead of credentials_line.",
           got: parts.length,
         });
@@ -493,32 +496,55 @@ router.post(
         email: parts[2],
         email_password: parts[3],
       };
-      if (parts[4]) creds.totp_seed = parts[4];
-      if (parts[5]) creds.ct0 = parts[5];
-      if (parts[6]) creds.auth_token = parts[6];
 
-      // Validate typed fields. A mis-split will almost always fail one of
-      // these checks — fail fast rather than storing garbage credentials.
-      if (creds.totp_seed !== undefined && !/^[A-Z2-7]{16,64}$/.test(creds.totp_seed)) {
-        res.status(400).json({
-          error: "credentials_line: 5th field must be an RFC 4648 base32 TOTP seed (16-64 chars of A-Z 2-7)",
-          hint: "Your password probably contains ':' — use explicit body fields instead.",
-        });
-        return;
-      }
-      if (creds.ct0 !== undefined && !/^[0-9a-f]{16,64}$/i.test(creds.ct0)) {
-        res.status(400).json({
-          error: "credentials_line: 6th field must be the X `ct0` cookie (16-64 hex chars)",
-          hint: "Your password probably contains ':' — use explicit body fields instead.",
-        });
-        return;
-      }
-      if (creds.auth_token !== undefined && !/^[0-9a-f]{32,80}$/i.test(creds.auth_token)) {
-        res.status(400).json({
-          error: "credentials_line: 7th field must be the X `auth_token` cookie (32-80 hex chars)",
-          hint: "Your password probably contains ':' — use explicit body fields instead.",
-        });
-        return;
+      const TOTP_RE = /^[A-Z2-7]{16,64}$/;       // RFC 4648 base32
+      const CT0_RE = /^[0-9a-f]{16,64}$/i;       // X `ct0` cookie
+      const AUTH_TOKEN_RE = /^[0-9a-f]{32,80}$/i; // X `auth_token` cookie
+
+      if (parts.length === 5) {
+        // The 5th field is ambiguous across marketplace conventions: some
+        // sellers put `totp_seed` there (base32), others put `auth_token`
+        // (hex). Pattern-match to figure out which.
+        const f5 = parts[4];
+        if (TOTP_RE.test(f5)) {
+          creds.totp_seed = f5;
+        } else if (AUTH_TOKEN_RE.test(f5)) {
+          creds.auth_token = f5;
+        } else {
+          res.status(400).json({
+            error: "credentials_line: 5th field must be either a base32 TOTP seed (16-64 chars A-Z/2-7) or a hex auth_token (32-80 hex chars)",
+            hint: "Your password probably contains ':' — use explicit body fields instead.",
+            got_length: f5.length,
+          });
+          return;
+        }
+      } else if (parts.length === 7) {
+        // 7-field canonical: login:password:email:email_pw:2fa:ct0:auth_token
+        if (parts[4]) creds.totp_seed = parts[4];
+        if (parts[5]) creds.ct0 = parts[5];
+        if (parts[6]) creds.auth_token = parts[6];
+
+        if (creds.totp_seed !== undefined && !TOTP_RE.test(creds.totp_seed)) {
+          res.status(400).json({
+            error: "credentials_line: 5th field must be an RFC 4648 base32 TOTP seed (16-64 chars of A-Z 2-7)",
+            hint: "Your password probably contains ':' — use explicit body fields instead.",
+          });
+          return;
+        }
+        if (creds.ct0 !== undefined && !CT0_RE.test(creds.ct0)) {
+          res.status(400).json({
+            error: "credentials_line: 6th field must be the X `ct0` cookie (16-64 hex chars)",
+            hint: "Your password probably contains ':' — use explicit body fields instead.",
+          });
+          return;
+        }
+        if (creds.auth_token !== undefined && !AUTH_TOKEN_RE.test(creds.auth_token)) {
+          res.status(400).json({
+            error: "credentials_line: 7th field must be the X `auth_token` cookie (32-80 hex chars)",
+            hint: "Your password probably contains ':' — use explicit body fields instead.",
+          });
+          return;
+        }
       }
 
       if (!username) username = parts[0];
