@@ -2,9 +2,10 @@ import { Router, Request, Response } from "express";
 import Database from "better-sqlite3";
 import path from "path";
 import os from "os";
+import { DATA_DIR } from "../db";
 
 const router = Router();
-const dbPath = path.join(__dirname, "../../data/palmyr.db");
+const dbPath = path.join(DATA_DIR, "palmyr.db");
 
 router.get("/api/agent-snapshot", (req: Request, res: Response) => {
   const agentId = req.headers["x-agent-id"] as string;

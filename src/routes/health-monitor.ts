@@ -1,9 +1,10 @@
 import { Router, Request, Response } from "express";
 import Database from "better-sqlite3";
 import path from "path";
+import { DATA_DIR } from "../db";
 
 const router = Router();
-const db = new Database(path.join(__dirname, "../../data/health-monitor.db"));
+const db = new Database(path.join(DATA_DIR, "health-monitor.db"));
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS health_checks (

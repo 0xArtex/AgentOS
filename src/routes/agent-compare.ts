@@ -1,9 +1,10 @@
 import { Router, Request, Response } from "express";
 import Database from "better-sqlite3";
 import path from "path";
+import { DATA_DIR } from "../db";
 
 const router = Router();
-const dbPath = path.join(__dirname, "../../data/palmyr.db");
+const dbPath = path.join(DATA_DIR, "palmyr.db");
 
 function getDb() {
   return new Database(dbPath, { readonly: true });
