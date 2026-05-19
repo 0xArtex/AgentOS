@@ -329,3 +329,169 @@ export function poolMarkDead(id: string, reason: string): boolean {
     .run(reason, id);
   return result.changes === 1;
 }
+
+/* ─── Sharing for pool-bought accounts ─────────────────────────────────
+   Once a row is `sold` to a wallet, the buyer can share read+use access
+   with another wallet via `shared_with`. Mirrors what x_accounts and
+   social_registered_accounts already support. Owner-only writes; reads
+   honour either side. */
+
+function parseSharedWith(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(w => typeof w === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** True if `wallet` is the owner or in the shared_with list. */
+export function poolCanAccess(
+  row: { sold_to_wallet: string | null; shared_with: string | null },
+  wallet: string
+): boolean {
+  if (!wallet) return false;
+  if (row.sold_to_wallet === wallet) return true;
+  return parseSharedWith(row.shared_with).includes(wallet);
+}
+
+export interface ClaimablePoolAccount {
+  id: string;
+  username: string;
+  platform: string;
+  country: string | null;
+  proxy_session_id: string;
+  access: "owner" | "shared";
+  credentials: PoolCredentials;
+  cookies: any[];
+}
+
+/**
+ * Pool accounts the wallet owns or has shared access to, with decrypted
+ * credentials + cookies. Used by `palmyr twitter claim` / `list` to
+ * surface pool-bought accounts post-share-or-transfer.
+ */
+export function poolAccountsAccessibleBy(wallet: string, platform: string = "twitter"): ClaimablePoolAccount[] {
+  const rows = db
+    .prepare(
+      `SELECT id, platform, username, country, proxy_session_id,
+              credentials_encrypted, cookies_encrypted, sold_to_wallet, shared_with, status
+       FROM social_account_pool
+       WHERE platform = ?
+         AND status = 'sold'
+         AND (sold_to_wallet = ? OR shared_with LIKE ?)`
+    )
+    .all(platform, wallet, `%${wallet}%`) as Array<{
+      id: string;
+      platform: string;
+      username: string;
+      country: string | null;
+      proxy_session_id: string;
+      credentials_encrypted: string;
+      cookies_encrypted: string | null;
+      sold_to_wallet: string | null;
+      shared_with: string | null;
+      status: string;
+    }>;
+
+  return rows
+    .filter(r => poolCanAccess(r, wallet))
+    .map(r => {
+      let creds: PoolCredentials;
+      let cookies: any[] = [];
+      try { creds = JSON.parse(decrypt(r.credentials_encrypted)) as PoolCredentials; }
+      catch { creds = { login: "", password: "" }; }
+      if (r.cookies_encrypted) {
+        try { cookies = JSON.parse(decrypt(r.cookies_encrypted)) as any[]; } catch {}
+      }
+      return {
+        id: r.id,
+        username: r.username,
+        platform: r.platform,
+        country: r.country,
+        proxy_session_id: r.proxy_session_id,
+        access: r.sold_to_wallet === wallet ? "owner" : "shared",
+        credentials: creds,
+        cookies,
+      } as ClaimablePoolAccount;
+    });
+}
+
+/**
+ * Grant `withWallet` shared access. Idempotent. Owner-only — caller's
+ * wallet must equal sold_to_wallet. Returns the new shared_with array
+ * or null if the row doesn't exist / isn't owned by ownerWallet / is
+ * not in 'sold' status.
+ */
+export function poolShare(id: string, ownerWallet: string, withWallet: string): string[] | null {
+  const row = db.prepare(
+    `SELECT sold_to_wallet, shared_with FROM social_account_pool
+     WHERE id = ? AND sold_to_wallet = ? AND status = 'sold'`
+  ).get(id, ownerWallet) as { sold_to_wallet: string; shared_with: string | null } | undefined;
+  if (!row) return null;
+  const current = parseSharedWith(row.shared_with);
+  if (current.includes(withWallet) || withWallet === ownerWallet) return current;
+  const next = [...current, withWallet];
+  db.prepare(`UPDATE social_account_pool SET shared_with = ? WHERE id = ?`)
+    .run(JSON.stringify(next), id);
+  return next;
+}
+
+/** Remove a wallet from shared_with. Idempotent. Owner-only. */
+export function poolUnshare(id: string, ownerWallet: string, withWallet: string): string[] | null {
+  const row = db.prepare(
+    `SELECT sold_to_wallet, shared_with FROM social_account_pool
+     WHERE id = ? AND sold_to_wallet = ? AND status = 'sold'`
+  ).get(id, ownerWallet) as { sold_to_wallet: string; shared_with: string | null } | undefined;
+  if (!row) return null;
+  const next = parseSharedWith(row.shared_with).filter(w => w !== withWallet);
+  db.prepare(`UPDATE social_account_pool SET shared_with = ? WHERE id = ?`)
+    .run(JSON.stringify(next), id);
+  return next;
+}
+
+/**
+ * Public-safe pool account summary — used by list endpoints so wallets
+ * can see what they own / are shared without exposing creds.
+ */
+export interface PoolAccountSummary {
+  id: string;
+  platform: string;
+  username: string;
+  country: string | null;
+  status: string;
+  access: "owner" | "shared";
+  shared_with?: string[];
+}
+
+export function poolListAccessibleSummaries(wallet: string, platform: string = "twitter"): PoolAccountSummary[] {
+  const rows = db
+    .prepare(
+      `SELECT id, platform, username, country, status, sold_to_wallet, shared_with
+       FROM social_account_pool
+       WHERE platform = ?
+         AND status = 'sold'
+         AND (sold_to_wallet = ? OR shared_with LIKE ?)`
+    )
+    .all(platform, wallet, `%${wallet}%`) as Array<{
+      id: string; platform: string; username: string; country: string | null;
+      status: string; sold_to_wallet: string | null; shared_with: string | null;
+    }>;
+
+  return rows
+    .filter(r => poolCanAccess(r, wallet))
+    .map(r => {
+      const isOwner = r.sold_to_wallet === wallet;
+      const out: PoolAccountSummary = {
+        id: r.id,
+        platform: r.platform,
+        username: r.username,
+        country: r.country,
+        status: r.status,
+        access: isOwner ? "owner" : "shared",
+      };
+      if (isOwner) out.shared_with = parseSharedWith(r.shared_with);
+      return out;
+    });
+}

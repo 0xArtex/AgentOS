@@ -237,6 +237,9 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Share registered (BYO) account | `POST /social/twitter/registered/:id/share` | 0.0001 *(ownership proof; owner-only)* |
 | Revoke shared wallet (registered) | `POST /social/twitter/registered/:id/unshare` *(body: `{ wallet, rotate? }`)* | 0.0001 *(ownership proof; owner-only)* |
 | List registered accounts owned/shared with you | `GET /social/twitter/registered/mine` | 0.001 *(ownership proof; returns decrypted creds)* |
+| Share pool-bought account *(from `palmyr twitter buy`)* | `POST /social/twitter/pool/:id/share` | 0.0001 *(ownership proof; owner-only)* |
+| Revoke shared wallet (pool-bought) | `POST /social/twitter/pool/:id/unshare` | 0.0001 *(ownership proof; owner-only; rotate not yet wired)* |
+| List pool-bought accounts owned/shared with you | `GET /social/twitter/pool/mine` | 0.001 *(ownership proof; returns decrypted creds)* |
 | **Skills** | | |
 | Browse catalog | `GET /compute/skills/catalog` | Free |
 | Security scan | `GET /compute/skills/:slug/security` | Free |

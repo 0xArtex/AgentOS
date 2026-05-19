@@ -11,7 +11,15 @@ import { requireAuth } from "../middleware/auth";
 import { requirePoolAdmin } from "../middleware/pool-admin";
 import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
-import { poolAdd, poolBuy, poolStatus, poolMarkDead } from "../services/social-pool";
+import {
+  poolAdd,
+  poolBuy,
+  poolStatus,
+  poolMarkDead,
+  poolShare,
+  poolUnshare,
+  poolAccountsAccessibleBy,
+} from "../services/social-pool";
 import {
   registerAccount,
   unregisterAccount,
@@ -1095,6 +1103,95 @@ router.post(
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Buy failed" });
     }
+  }
+);
+
+/* ─── Pool share / unshare / claim ──────────────────────────────────────
+   Once a wallet has bought an X account via `palmyr twitter buy` (which
+   sets `sold_to_wallet` on the social_account_pool row), they can share
+   access with another wallet — same shape as x_accounts and
+   social_registered_accounts. Pool-bought accounts were previously
+   invisible to share/transfer machinery; these routes close that gap. */
+
+/**
+ * GET /social/twitter/pool/mine — full decrypted creds for every pool
+ * account the caller owns or has shared access to. Used by `palmyr
+ * twitter claim` to merge with the other two tables.
+ */
+router.get(
+  "/twitter/pool/mine",
+  requireXEnabled,
+  requireAuth(0.001, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    try {
+      const accounts = poolAccountsAccessibleBy(wallet, "twitter");
+      res.json({ success: true, wallet, count: accounts.length, accounts });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "List failed" });
+    }
+  }
+);
+
+router.post(
+  "/twitter/pool/:id/share",
+  requireXEnabled,
+  requireAuth(0.0001, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const caller = req.payment?.payer || req.agentId;
+    if (!caller) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const withWallet = (req.body || {}).with;
+    if (!isWalletAddr(withWallet)) {
+      res.status(400).json({ error: "`with` must be a wallet address" });
+      return;
+    }
+    const result = poolShare(String(req.params.id || ""), caller, withWallet);
+    if (result === null) {
+      res.status(404).json({ error: "Pool account not found or not owned by you (or not yet bought)" });
+      return;
+    }
+    res.json({
+      success: true,
+      message: `Shared with ${withWallet}`,
+      id: req.params.id,
+      shared_with: result,
+    });
+  }
+);
+
+router.post(
+  "/twitter/pool/:id/unshare",
+  requireXEnabled,
+  requireAuth(0.0001, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const caller = req.payment?.payer || req.agentId;
+    if (!caller) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const wallet = (req.body || {}).wallet;
+    if (!isWalletAddr(wallet)) {
+      res.status(400).json({ error: "`wallet` must be a wallet address" });
+      return;
+    }
+    const result = poolUnshare(String(req.params.id || ""), caller, wallet);
+    if (result === null) {
+      res.status(404).json({ error: "Pool account not found or not owned by you" });
+      return;
+    }
+    res.json({
+      success: true,
+      message: `${wallet} no longer has shared access`,
+      id: req.params.id,
+      shared_with: result,
+    });
   }
 );
 

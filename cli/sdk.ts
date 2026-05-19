@@ -719,6 +719,23 @@ export class Palmyr {
     return this.request('GET', `/transfers/${encodeURIComponent(transferId)}`)
   }
 
+  // ── Pool-bought X accounts: share / unshare / mine ──
+  // Pool accounts live in social_account_pool (where `palmyr twitter buy`
+  // writes). These mirror the same share semantics as x_accounts and
+  // social_registered_accounts so the CLI can dispatch uniformly.
+  async socialTwitterPoolShare(accountId: string, withWallet: string): Promise<any> {
+    return this.request('POST', `/social/twitter/pool/${encodeURIComponent(accountId)}/share`, { with: withWallet })
+  }
+
+  async socialTwitterPoolUnshare(accountId: string, wallet: string): Promise<any> {
+    return this.request('POST', `/social/twitter/pool/${encodeURIComponent(accountId)}/unshare`, { wallet })
+  }
+
+  /** Pool accounts the calling wallet owns or has shared access to, with full creds. */
+  async socialTwitterPoolMine(): Promise<any> {
+    return this.request('GET', '/social/twitter/pool/mine')
+  }
+
   // ── Server-side scheduled posts ──
   // Pay at schedule time; worker fires at post_at with no further charge.
   // accountId is the 32-char hex returned by socialTwitterRegister().
