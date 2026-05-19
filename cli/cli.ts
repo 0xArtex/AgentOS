@@ -3897,23 +3897,32 @@ async function main() {
         const platform = 'twitter' as const
 
         // Resolve a username to its server-side account_id and which table
-        // holds it. X accounts can live in two places: x_accounts (pool-bought)
-        // and social_registered_accounts (BYO-registered). The local vault
-        // doesn't track which, so we query both in parallel and find a match.
-        // Used by transfer / share / unshare to dispatch to the correct
-        // endpoint family. Returns null if the username isn't on the server.
+        // holds it. X accounts can live in THREE places:
+        //   - x_accounts (legacy pool, rarely used now)
+        //   - social_account_pool (where `palmyr twitter buy` writes)
+        //   - social_registered_accounts (BYO-registered)
+        // The local vault doesn't track which, so we query all three in
+        // parallel and find a match. Used by transfer / share / unshare
+        // to dispatch to the correct endpoint family. Returns null if the
+        // username isn't on any of them.
         const resolveServerAccount = async (username: string): Promise<
           | { kind: 'x_accounts'; id: string }
+          | { kind: 'pool'; id: string }
           | { kind: 'registered'; id: string }
           | null
         > => {
-          const [xMine, reg] = await Promise.allSettled([
+          const [xMine, poolMine, reg] = await Promise.allSettled([
             ao.xAccountsMine(),
+            ao.socialTwitterPoolMine(),
             ao.socialTwitterListRegistered(),
           ])
           if (xMine.status === 'fulfilled') {
             const m = (xMine.value?.accounts || []).find((a: any) => a.username === username)
             if (m) return { kind: 'x_accounts', id: m.id }
+          }
+          if (poolMine.status === 'fulfilled') {
+            const m = (poolMine.value?.accounts || []).find((a: any) => a.username === username)
+            if (m) return { kind: 'pool', id: m.id }
           }
           if (reg.status === 'fulfilled') {
             const m = (reg.value?.accounts || []).find((a: any) => a.username === username)
@@ -3934,27 +3943,33 @@ async function main() {
           const existing = sv.getAccount(platform, username)
           if (existing) return existing
 
-          const [xRes, regRes] = await Promise.allSettled([
+          const [xRes, poolRes, regRes] = await Promise.allSettled([
             ao.xAccountsMine(),
+            ao.socialTwitterPoolMine(),
             ao.socialTwitterRegisteredMine(),
           ])
           const xMatch = xRes.status === 'fulfilled'
             ? (xRes.value?.accounts || []).find((a: any) => a.username === username)
             : null
+          const poolMatch = poolRes.status === 'fulfilled'
+            ? (poolRes.value?.accounts || []).find((a: any) => a.username === username)
+            : null
           const regMatch = regRes.status === 'fulfilled'
             ? (regRes.value?.accounts || []).find((a: any) => a.username === username)
             : null
-          const match: any = xMatch || regMatch
+          const match: any = xMatch || poolMatch || regMatch
           if (!match) {
             err(`twitter account "${username}" not found locally or on the server (this wallet has no access)`, EXIT.NOT_FOUND)
           }
 
+          // Pool-mine and registered-mine return creds nested under
+          // `credentials`; legacy x_accounts/mine returns them flat alongside
+          // cookies. Normalize so the import works the same in either case.
           const cookies = (match.cookies || []) as any[]
           const ct0 = cookies.find((c: any) => c.name === 'ct0')?.value
-          // Registered accounts return creds nested under `credentials`;
-          // pool accounts return them flat alongside cookies.
-          const creds: import('./social-vault.js').SocialCredentials = regMatch
-            ? (regMatch.credentials as import('./social-vault.js').SocialCredentials)
+          const hasNestedCreds = poolMatch || regMatch
+          const creds: import('./social-vault.js').SocialCredentials = hasNestedCreds
+            ? (match.credentials as import('./social-vault.js').SocialCredentials)
             : {
                 login: match.email || match.username,
                 password: match.password,
@@ -3962,11 +3977,16 @@ async function main() {
                 auth_token: match.auth_token || undefined,
                 ct0,
               }
-          const summary = sv.importAccount(platform, username, creds, { source: 'auto-claim' })
+          const summary = sv.importAccount(platform, username, creds, {
+            source: 'auto-claim',
+            proxy_session_id: poolMatch?.proxy_session_id,
+            country: poolMatch?.country || undefined,
+          })
           if (cookies.length > 0) {
             sv.saveSession(summary.id, platform, cookies)
           }
-          log(`auto-imported @${username} from server (${regMatch ? 'registered' : 'pool'} → local vault)`)
+          const sourceLabel = poolMatch ? 'pool' : regMatch ? 'registered' : 'x_accounts'
+          log(`auto-imported @${username} from server (${sourceLabel} → local vault)`)
           return summary
         }
 
@@ -4072,11 +4092,13 @@ async function main() {
               return print({ accounts: localAccounts, count: localAccounts.length, source: 'local' })
             }
 
-            const [xRes, regRes] = await Promise.allSettled([
+            const [xRes, poolRes, regRes] = await Promise.allSettled([
               ao.xAccountsMine(),
+              ao.socialTwitterPoolMine(),
               ao.socialTwitterRegisteredMine(),
             ])
             const xAccounts: any[] = xRes.status === 'fulfilled' ? (xRes.value?.accounts || []) : []
+            const poolAccounts: any[] = poolRes.status === 'fulfilled' ? (poolRes.value?.accounts || []) : []
             const regAccounts: any[] = regRes.status === 'fulfilled' ? (regRes.value?.accounts || []) : []
 
             const localUsernames = new Set(localAccounts.map(a => a.username))
@@ -4087,6 +4109,16 @@ async function main() {
                   username: a.username,
                   access: a.access || 'owner',
                   source_table: 'x_accounts',
+                  status: 'server-only — run `palmyr twitter claim` to import',
+                })
+              }
+            }
+            for (const a of poolAccounts) {
+              if (a.username && !localUsernames.has(a.username)) {
+                serverOnly.push({
+                  username: a.username,
+                  access: a.access || 'owner',
+                  source_table: 'pool',
                   status: 'server-only — run `palmyr twitter claim` to import',
                 })
               }
@@ -4962,6 +4994,17 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               resolved = { kind: 'registered', id: regData.id }
             }
 
+            // Transfer-on-pool isn't wired yet (pool table has no transfer
+            // endpoint with the async rotation machinery). Surface a clear
+            // workaround instead of a silent 404.
+            if (resolved!.kind === 'pool') {
+              err(
+                `@${username} is a pool-bought account and transfer isn't supported on the pool table yet — share/unshare work.\n\n` +
+                `Workaround: \`palmyr twitter register ${username}\` first (uploads to the registered table), then re-run the transfer.`,
+                EXIT.GENERAL
+              )
+            }
+
             const spin = new Spinner()
             spin.start(`Rotating @${username} password and transferring…`)
 
@@ -5052,7 +5095,9 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
             const data = resolved!.kind === 'x_accounts'
               ? await ao.xAccountShare(resolved!.id, withWallet)
-              : await ao.socialTwitterRegisteredShare(resolved!.id, withWallet)
+              : resolved!.kind === 'pool'
+                ? await ao.socialTwitterPoolShare(resolved!.id, withWallet)
+                : await ao.socialTwitterRegisteredShare(resolved!.id, withWallet)
             log(`twitter share: @${username} → ${withWallet}`)
             return print({ ...data, source_table: resolved!.kind })
           }
@@ -5080,9 +5125,17 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
             let data: any
             try {
-              data = resolved!.kind === 'x_accounts'
-                ? await ao.xAccountUnshare(resolved!.id, targetWallet, { rotate })
-                : await ao.socialTwitterRegisteredUnshare(resolved!.id, targetWallet, { rotate })
+              if (resolved!.kind === 'x_accounts') {
+                data = await ao.xAccountUnshare(resolved!.id, targetWallet, { rotate })
+              } else if (resolved!.kind === 'pool') {
+                // The pool unshare endpoint doesn't support rotate today
+                // (rotation infra lives on the transfers async pipeline and
+                // hasn't been wired to pool yet). Warn and call without rotate.
+                if (rotate) warn(`--rotate not supported on pool-bought accounts yet — performing unshare only`)
+                data = await ao.socialTwitterPoolUnshare(resolved!.id, targetWallet)
+              } else {
+                data = await ao.socialTwitterRegisteredUnshare(resolved!.id, targetWallet, { rotate })
+              }
             } catch (e: any) {
               if (spin) spin.stop('Unshare failed', false)
               err(`Unshare failed: ${e.message}`, EXIT.GENERAL)
@@ -5166,21 +5219,25 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
           case 'claim': {
             // Fetch server-side accounts the calling wallet owns or has shared
-            // access to — from BOTH tables. x_accounts (pool-bought) and
+            // access to — from all THREE tables. x_accounts (legacy pool),
+            // social_account_pool (where `palmyr twitter buy` writes), and
             // social_registered_accounts (BYO-registered) are queried in
-            // parallel; both contribute to the claim list. Import any not
-            // already in the local vault so the receiver of a transfer can
-            // pick up the account in one command.
-            const [xRes, regRes] = await Promise.allSettled([
+            // parallel; all three contribute to the claim list. Import any
+            // not already in the local vault so the receiver of a transfer
+            // or share can pick up the account in one command.
+            const [xRes, poolRes, regRes] = await Promise.allSettled([
               ao.xAccountsMine(),
+              ao.socialTwitterPoolMine(),
               ao.socialTwitterRegisteredMine(),
             ])
 
             const xAccounts: any[] = xRes.status === 'fulfilled' ? (xRes.value?.accounts || []) : []
+            const poolAccountsRaw: any[] = poolRes.status === 'fulfilled' ? (poolRes.value?.accounts || []) : []
             const regAccountsRaw: any[] = regRes.status === 'fulfilled' ? (regRes.value?.accounts || []) : []
-            // Normalize the registered shape (creds + cookies live in nested
-            // fields) to the same flat shape as x_accounts so the loop below
-            // doesn't have to branch on source.
+
+            // Normalize the registered + pool shape (creds + cookies live in
+            // nested fields) to the same flat shape as x_accounts so the
+            // loop below doesn't have to branch on source.
             const regAccounts: any[] = regAccountsRaw.map(a => ({
               username: a.username,
               email: a.credentials?.email,
@@ -5190,8 +5247,20 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               access: a.access,
               source_table: 'registered',
             }))
+            const poolAccounts: any[] = poolAccountsRaw.map(a => ({
+              username: a.username,
+              email: a.credentials?.email,
+              password: a.credentials?.password,
+              auth_token: a.credentials?.auth_token,
+              cookies: a.cookies || [],
+              access: a.access,
+              proxy_session_id: a.proxy_session_id,
+              country: a.country,
+              source_table: 'pool',
+            }))
             const accounts: any[] = [
               ...xAccounts.map(a => ({ ...a, source_table: 'x_accounts' })),
+              ...poolAccounts,
               ...regAccounts,
             ]
 
@@ -5217,7 +5286,11 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                   auth_token: a.auth_token || undefined,
                   ct0,
                 }
-                const summary = sv.importAccount(platform, a.username, creds, { source: 'claim' })
+                const summary = sv.importAccount(platform, a.username, creds, {
+                  source: 'claim',
+                  proxy_session_id: a.proxy_session_id,
+                  country: a.country || undefined,
+                })
                 // Save the cookies so `palmyr twitter login` can use the
                 // cookie-fast-path instead of re-driving the login form.
                 if (Array.isArray(a.cookies) && a.cookies.length > 0) {

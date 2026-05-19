@@ -757,6 +757,14 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_pool_sold_to ON social_account_pool(sold_to_wallet);
   `);
 
+  // Idempotent backfill: shared_with arrived alongside x_accounts and
+  // social_registered_accounts; pool rows need it too so post-purchase
+  // sharing works the same way.
+  const poolCols = db.prepare("PRAGMA table_info(social_account_pool)").all() as Array<{ name: string }>;
+  if (!poolCols.some(c => c.name === 'shared_with')) {
+    db.exec("ALTER TABLE social_account_pool ADD COLUMN shared_with TEXT DEFAULT '[]'");
+  }
+
   // Wallet-registered social accounts — user uploads credentials once, server
   // encrypts them at rest, then re-uses them indefinitely (re-logging in when
   // cookies go stale). Distinct from social_account_pool: those are admin-
