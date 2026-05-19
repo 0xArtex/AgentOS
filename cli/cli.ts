@@ -4269,7 +4269,7 @@ async function main() {
                 platform,
                 username,
                 cached: false,
-                hint: `No cached session. Run: node cli/dist/cli.js twitter login ${username}`,
+                hint: `No cached session. Run: palmyr twitter login ${username}`,
               })
             }
             const ageHours = sv.sessionAgeHours(acc.id)
@@ -4795,7 +4795,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               success: true,
               platform,
               username: summary.username,
-              hint: `Ready to post — try: node cli/dist/cli.js twitter post ${summary.username} --body "gm"`,
+              hint: `Ready to post — try: palmyr twitter post ${summary.username} --body "gm"`,
             })
           }
 
