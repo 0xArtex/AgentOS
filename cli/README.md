@@ -118,14 +118,46 @@ palmyr wallet create --name agent-prod
 
 # Managed: prints a setup link to send to a human
 palmyr wallet create --name treasury --managed
+
+# Single-chain: skip the other chain's account
+palmyr wallet create --name sol-only --solana
+palmyr wallet create --name base-only --base
 ```
 
+By default a wallet derives both Solana and Base/EVM accounts. Pass `--solana` or `--base` (not both) to materialize only one side. The mnemonic always derives both — `--solana` / `--base` controls *which addresses are surfaced and stored*, not which keys exist cryptographically.
+
 The managed flow returns a one-time URL. The recipient opens it in a browser, registers a WebAuthn passkey, and sets spending limits. From that point on, transactions inside the limit sign instantly; transactions over the limit emit an `approvalUrl` that the human visits to authenticate and approve.
+
+### Bulk creation with tags
+
+Group many wallets under one folder-like tag, then cascade-delete them together when done — ideal for spinning up demo, agent-cohort, or test wallets:
+
+```bash
+# Create 100 unmanaged wallets sharing one tag (~7s on Windows, batched DPAPI seal)
+palmyr wallet create --tag palmyr-demo --count 100
+
+# Custom name prefix; defaults to the tag if omitted → wallets named bot-001..bot-050
+palmyr wallet create --tag agents --count 50 --name-prefix bot
+
+# List, retag, untag
+palmyr wallet list --tag palmyr-demo
+palmyr wallet tag <WALLET_ID> palmyr-demo       # assign / change
+palmyr wallet tag <WALLET_ID> --clear           # remove
+palmyr wallet tags                              # all tags + counts + chains
+
+# Cascade-delete every wallet under a tag (vault file + OS-credential-store secret)
+palmyr wallet tag-delete palmyr-demo --confirm
+```
+
+Bulk-create is unmanaged-only (managed wallets need per-wallet passkey setup) and capped at 500 per call. Names auto-suffix `-001..-N` with zero-padding based on count width.
 
 ### Importing an existing seed
 
 ```bash
 palmyr wallet import --mnemonic "twelve word seed phrase ..." --name imported
+
+# Same chain / tag flags as create
+palmyr wallet import --mnemonic "..." --name from-backup --tag restored --solana
 ```
 
 ### Exporting a seed
@@ -377,10 +409,13 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 
 | Command | Network | Notes |
 |---|---|---|
-| `palmyr wallet create [--name N] [--managed]` | local *(server only if `--managed`)* | New wallet. Stores session secret in OS credential store. |
-| `palmyr wallet import --mnemonic "..." [--name N] [--managed]` | local | Restore from BIP-39. |
-| `palmyr wallet list` | local | Lists wallets in the local vault. |
-| `palmyr wallet info <ID>` | local | Show one wallet (id, name, addresses, mode). |
+| `palmyr wallet create [--name N] [--managed] [--solana\|--base] [--tag T] [--count N] [--name-prefix P]` | local *(server only if `--managed`)* | New wallet. Stores session secret in OS credential store. `--count > 1` bulk-creates N unmanaged wallets under a required `--tag` (max 500/call, batched DPAPI seal on Windows). `--solana` / `--base` materializes only one chain. |
+| `palmyr wallet import --mnemonic "..." [--name N] [--managed] [--solana\|--base] [--tag T]` | local | Restore from BIP-39. Same chain / tag flags as `create`. |
+| `palmyr wallet list [--tag T]` | local | Lists wallets in the local vault. `--tag` filters to one folder. |
+| `palmyr wallet info <ID>` | local | Show one wallet (id, name, addresses, mode, tag). |
+| `palmyr wallet tags` | local | List all tags with wallet count, chains, and date range. |
+| `palmyr wallet tag <ID> <TAG>` / `palmyr wallet tag <ID> --clear` | local | Assign, change, or clear a wallet's tag. |
+| `palmyr wallet tag-delete <TAG> --confirm` | local | Cascade-delete every wallet under the tag (vault file + OS-credential-store secret). Requires explicit `--confirm`. |
 | `palmyr wallet addresses <ID>` | API | Server-side derived addresses (multi-chain). |
 | `palmyr wallet sign-message <ID> --chain solana\|evm --msg "..."` | local | Sign an arbitrary message offline. |
 | `palmyr wallet api-key <ID> [--name N]` | API | Mint an agent API key bound to the wallet. |
