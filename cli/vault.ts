@@ -34,6 +34,13 @@ interface WalletFile {
   key_type: 'mnemonic' | 'private_key'
   agentos_version?: number
   created_at: string
+  // Folder-like grouping. Set via `wallet create --tag X` or `wallet tag <id> <tag>`.
+  // Tag deletion cascades to every wallet sharing the tag.
+  tag?: string
+  // Which chains the user asked to materialize. Absent on legacy wallets — the
+  // listing path treats absence as "back-fill EVM if missing" so the historical
+  // both-chains default doesn't regress. New wallets always write this field.
+  chains?: string[]
 }
 
 export interface VaultWalletSummary {
@@ -43,6 +50,8 @@ export interface VaultWalletSummary {
   solanaAddress: string | null
   evmAddress: string | null
   createdAt: string
+  tag: string | null
+  chains: string[]
 }
 
 function getVaultDir(): string {
@@ -219,15 +228,29 @@ export function listVaultWallets(): VaultWalletSummary[] {
       let evm = data.accounts.find(a => a.chainId?.startsWith('eip155:'))?.address || null
       // Legacy wallets predate EVM-account storage. Fall back to deriving
       // from the same mnemonic, then persist the result so the next read
-      // finds it in `accounts` directly.
-      if (!evm) {
+      // finds it in `accounts` directly. Wallets with an explicit `chains`
+      // array that excludes base opt out of this backfill — they were
+      // intentionally created solana-only.
+      const chainsField = Array.isArray(data.chains) ? data.chains : null
+      const baseOptedOut = chainsField !== null && !chainsField.includes('base')
+      if (!evm && !baseOptedOut) {
         const derived = deriveEvmFromVaultFile(data)
         if (derived) {
           evm = derived
           persistEvmAccount(filePath, derived)
         }
       }
-      wallets.push({ id: data.id, name: data.name, mode: data.mode || 'legacy', solanaAddress: sol, evmAddress: evm, createdAt: data.created_at })
+      const chains = chainsField ?? [...(sol ? ['solana'] : []), ...(evm ? ['base'] : [])]
+      wallets.push({
+        id: data.id,
+        name: data.name,
+        mode: data.mode || 'legacy',
+        solanaAddress: sol,
+        evmAddress: evm,
+        createdAt: data.created_at,
+        tag: data.tag || null,
+        chains,
+      })
     } catch (e: any) {
       console.warn(`[vault] skipping ${f}: ${e.message.split('\n')[0]}`)
     }
@@ -313,6 +336,34 @@ function validateName(name: string): string {
   return trimmed
 }
 
+const SAFE_TAG_RE = /^[a-zA-Z0-9][a-zA-Z0-9\-\._]{0,63}$/
+
+export function validateTag(tag: string): string {
+  if (!tag || typeof tag !== 'string') throw new Error('Tag is required')
+  const trimmed = tag.trim()
+  if (!SAFE_TAG_RE.test(trimmed)) {
+    throw new Error(
+      `Invalid tag: must be 1-64 chars, alphanumeric/hyphens/dots/underscores, must start with alphanumeric. Got: "${trimmed.slice(0, 30)}"`
+    )
+  }
+  return trimmed
+}
+
+export type ChainName = 'solana' | 'base'
+
+export function normalizeChains(chains: string[] | undefined): ChainName[] {
+  if (!chains || chains.length === 0) return ['solana', 'base']
+  const out = new Set<ChainName>()
+  for (const c of chains) {
+    const lc = c.toLowerCase()
+    if (lc === 'solana') out.add('solana')
+    else if (lc === 'base' || lc === 'evm' || lc === 'ethereum') out.add('base')
+    else throw new Error(`Unsupported chain: ${c}. Try: solana, base`)
+  }
+  if (out.size === 0) throw new Error('At least one chain is required')
+  return Array.from(out)
+}
+
 function atomicWriteFileSync(filePath: string, data: string): void {
   const tmpPath = filePath + `.tmp.${process.pid}`
   writeFileSync(tmpPath, data)
@@ -395,47 +446,51 @@ function loadEthers(): typeof import('ethers') | { __loadError: Error } {
   }
 }
 
-function deriveAllAccounts(mnemonic: string): AccountInfo[] {
+function deriveAllAccounts(mnemonic: string, chains: ChainName[] = ['solana', 'base']): AccountInfo[] {
   const accounts: AccountInfo[] = []
   const seed = bip39.mnemonicToSeedSync(mnemonic)
 
-  try {
-    const derived = derivePath("m/44'/501'/0'/0'", seed.toString('hex'))
-    const kp = Keypair.fromSeed(derived.key)
-    accounts.push({
-      chainId: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
-      address: kp.publicKey.toBase58(),
-      derivationPath: "m/44'/501'/0'/0'",
-    })
-  } catch {}
-
-  // ethers MUST be present (it's a declared dependency). If `require('ethers')`
-  // throws, that's an environment problem — surface it loudly rather than
-  // silently producing a partial account list. A partial list cascades into
-  // verifyIntegrity()'s "Chain eip155:1 present in file but not derivable
-  // from mnemonic" error, which gets reported as `SECURITY: wallet file
-  // integrity check failed` and makes the user think their wallet was
-  // tampered with. (Issue: 2026-05-05 user feedback after upgrade from
-  // 0.7.17 → 0.7.20.)
-  const ethersMod: any = loadEthers()
-  if (ethersMod.__loadError) {
-    throw new Error(
-      `Could not load 'ethers'. Reinstall the CLI: 'npm i -g @palmyr/cli@latest'. ` +
-      `Underlying error: ${ethersMod.__loadError.message}`
-    )
+  if (chains.includes('solana')) {
+    try {
+      const derived = derivePath("m/44'/501'/0'/0'", seed.toString('hex'))
+      const kp = Keypair.fromSeed(derived.key)
+      accounts.push({
+        chainId: 'solana:5eykt4UsFv8P8NJdTREpY1vzqKqZKvdp',
+        address: kp.publicKey.toBase58(),
+        derivationPath: "m/44'/501'/0'/0'",
+      })
+    } catch {}
   }
-  try {
-    const hd = ethersMod.ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0")
-    accounts.push({
-      chainId: 'eip155:1',
-      address: hd.address,
-      derivationPath: "m/44'/60'/0'/0/0",
-    })
-  } catch (e: any) {
-    // ethers loaded but derivation threw. Truly anomalous — re-raise so the
-    // integrity check sees a hard failure rather than a missing-account
-    // false-positive.
-    throw new Error(`EVM (eip155:1) account derivation failed: ${e?.message || e}`)
+
+  if (chains.includes('base')) {
+    // ethers MUST be present (it's a declared dependency). If `require('ethers')`
+    // throws, that's an environment problem — surface it loudly rather than
+    // silently producing a partial account list. A partial list cascades into
+    // verifyIntegrity()'s "Chain eip155:1 present in file but not derivable
+    // from mnemonic" error, which gets reported as `SECURITY: wallet file
+    // integrity check failed` and makes the user think their wallet was
+    // tampered with. (Issue: 2026-05-05 user feedback after upgrade from
+    // 0.7.17 → 0.7.20.)
+    const ethersMod: any = loadEthers()
+    if (ethersMod.__loadError) {
+      throw new Error(
+        `Could not load 'ethers'. Reinstall the CLI: 'npm i -g @palmyr/cli@latest'. ` +
+        `Underlying error: ${ethersMod.__loadError.message}`
+      )
+    }
+    try {
+      const hd = ethersMod.ethers.HDNodeWallet.fromPhrase(mnemonic, undefined, "m/44'/60'/0'/0/0")
+      accounts.push({
+        chainId: 'eip155:1',
+        address: hd.address,
+        derivationPath: "m/44'/60'/0'/0/0",
+      })
+    } catch (e: any) {
+      // ethers loaded but derivation threw. Truly anomalous — re-raise so the
+      // integrity check sees a hard failure rather than a missing-account
+      // false-positive.
+      throw new Error(`EVM (eip155:1) account derivation failed: ${e?.message || e}`)
+    }
   }
 
   return accounts
@@ -450,6 +505,56 @@ export interface LocalWalletResult {
   evmAddress: string | null
   accounts: AccountInfo[]
   createdAt: string
+  tag: string | null
+  chains: ChainName[]
+}
+
+export interface CreateWalletOpts {
+  tag?: string
+  chains?: ChainName[]
+}
+
+function buildWallet(
+  name: string,
+  mode: 'unmanaged' | 'managed',
+  mnemonic: string,
+  opts: CreateWalletOpts,
+): { file: WalletFile; result: LocalWalletResult } {
+  const safeName = validateName(name)
+  const safeTag = opts.tag === undefined ? undefined : validateTag(opts.tag)
+  const chains = normalizeChains(opts.chains)
+  const id = randomBytes(16).toString('hex')
+  const sessionSecret = randomBytes(32).toString('hex')
+  const accounts = deriveAllAccounts(mnemonic, chains)
+
+  const file: WalletFile = {
+    id,
+    name: safeName,
+    mode,
+    accounts,
+    session_crypto: encryptWithRawKey(mnemonic, sessionSecret),
+    key_type: 'mnemonic',
+    created_at: new Date().toISOString(),
+    chains,
+    ...(safeTag ? { tag: safeTag } : {}),
+  }
+
+  const sol = accounts.find(a => a.chainId.startsWith('solana:'))?.address || null
+  const evm = accounts.find(a => a.chainId.startsWith('eip155:'))?.address || null
+
+  const result: LocalWalletResult = {
+    id,
+    name: safeName,
+    mode,
+    sessionSecret,
+    solanaAddress: sol,
+    evmAddress: evm,
+    accounts,
+    createdAt: file.created_at,
+    tag: safeTag ?? null,
+    chains,
+  }
+  return { file, result }
 }
 
 /**
@@ -459,31 +564,14 @@ export interface LocalWalletResult {
 export function createLocalWallet(
   name: string,
   mode: 'unmanaged' | 'managed' = 'unmanaged',
+  opts: CreateWalletOpts = {},
 ): LocalWalletResult {
-  const safeName = validateName(name)
   ensureVaultDirs()
   const mnemonic = bip39.generateMnemonic(128)
-  const id = randomBytes(16).toString('hex')
-  const sessionSecret = randomBytes(32).toString('hex')
-  const accounts = deriveAllAccounts(mnemonic)
-
-  const file: WalletFile = {
-    id,
-    name: safeName,
-    mode,
-    accounts,
-    session_crypto: encryptWithRawKey(mnemonic, sessionSecret),
-    key_type: 'mnemonic',
-    created_at: new Date().toISOString(),
-  }
-
-  const fpath = join(getVaultDir(), 'wallets', `${id}.json`)
+  const { file, result } = buildWallet(name, mode, mnemonic, opts)
+  const fpath = join(getVaultDir(), 'wallets', `${file.id}.json`)
   withLock(fpath, () => atomicWriteFileSync(fpath, JSON.stringify(file, null, 2)))
-
-  const sol = accounts.find(a => a.chainId.startsWith('solana:'))?.address || null
-  const evm = accounts.find(a => a.chainId.startsWith('eip155:'))?.address || null
-
-  return { id, name: safeName, mode, sessionSecret, solanaAddress: sol, evmAddress: evm, accounts, createdAt: file.created_at }
+  return result
 }
 
 /**
@@ -493,31 +581,142 @@ export function importLocalWallet(
   name: string,
   mnemonic: string,
   mode: 'unmanaged' | 'managed' = 'unmanaged',
+  opts: CreateWalletOpts = {},
 ): LocalWalletResult {
-  const safeName = validateName(name)
   if (!bip39.validateMnemonic(mnemonic)) throw new Error('Invalid mnemonic')
   ensureVaultDirs()
-  const id = randomBytes(16).toString('hex')
-  const sessionSecret = randomBytes(32).toString('hex')
-  const accounts = deriveAllAccounts(mnemonic)
+  const { file, result } = buildWallet(name, mode, mnemonic, opts)
+  const fpath = join(getVaultDir(), 'wallets', `${file.id}.json`)
+  withLock(fpath, () => atomicWriteFileSync(fpath, JSON.stringify(file, null, 2)))
+  return result
+}
 
-  const file: WalletFile = {
-    id,
-    name: safeName,
-    mode,
-    accounts,
-    session_crypto: encryptWithRawKey(mnemonic, sessionSecret),
-    key_type: 'mnemonic',
-    created_at: new Date().toISOString(),
+/**
+ * Bulk-create N wallets sharing one tag. Caller is responsible for storing
+ * `sessionSecret` for every returned wallet in the OS credential store —
+ * `storeSecretsBatch` exists precisely so this can be one DPAPI call on Windows.
+ *
+ * Names are `${prefix}-{padded-index}` starting at 1. Throws up front if any
+ * generated name would collide with an existing vault wallet so we never
+ * write a partial batch (the loop is otherwise transactional file-by-file
+ * but we'd rather fail before key material exists on disk than mid-flight).
+ */
+export function createLocalWalletsBatch(
+  prefix: string,
+  count: number,
+  mode: 'unmanaged' | 'managed' = 'unmanaged',
+  opts: CreateWalletOpts = {},
+): LocalWalletResult[] {
+  if (!Number.isInteger(count) || count < 1) throw new Error('count must be a positive integer')
+  if (count > 500) throw new Error('count must be ≤ 500 per call')
+  const safePrefix = validateName(prefix)
+  ensureVaultDirs()
+
+  const width = String(count).length
+  const names: string[] = []
+  for (let i = 1; i <= count; i++) names.push(`${safePrefix}-${String(i).padStart(width, '0')}`)
+
+  // Collision check against existing vault wallets — fail before writing anything.
+  const existing = new Set(listVaultWallets().map(w => w.name))
+  const collisions = names.filter(n => existing.has(n))
+  if (collisions.length > 0) {
+    const shown = collisions.slice(0, 5).join(', ')
+    const more = collisions.length > 5 ? `, +${collisions.length - 5} more` : ''
+    throw new Error(`Name collisions in vault: ${shown}${more}. Pick a different --name-prefix.`)
   }
 
-  const fpath = join(getVaultDir(), 'wallets', `${id}.json`)
-  withLock(fpath, () => atomicWriteFileSync(fpath, JSON.stringify(file, null, 2)))
+  const dir = join(getVaultDir(), 'wallets')
+  const results: LocalWalletResult[] = []
+  for (let i = 0; i < count; i++) {
+    const mnemonic = bip39.generateMnemonic(128)
+    const { file, result } = buildWallet(names[i], mode, mnemonic, opts)
+    const fpath = join(dir, `${file.id}.json`)
+    withLock(fpath, () => atomicWriteFileSync(fpath, JSON.stringify(file, null, 2)))
+    results.push(result)
+  }
+  return results
+}
 
-  const sol = accounts.find(a => a.chainId.startsWith('solana:'))?.address || null
-  const evm = accounts.find(a => a.chainId.startsWith('eip155:'))?.address || null
+function findWalletFile(walletId: string): { path: string; data: WalletFile } | null {
+  const dir = join(getVaultDir(), 'wallets')
+  if (!existsSync(dir)) return null
+  for (const f of readdirSync(dir).filter(x => x.endsWith('.json'))) {
+    const fpath = join(dir, f)
+    try {
+      const data = JSON.parse(readFileSync(fpath, 'utf8')) as WalletFile
+      if (data.id === walletId || data.name === walletId) return { path: fpath, data }
+    } catch {}
+  }
+  return null
+}
 
-  return { id, name: safeName, mode, sessionSecret, solanaAddress: sol, evmAddress: evm, accounts, createdAt: file.created_at }
+/**
+ * Delete a wallet's JSON file from the vault. Returns the wallet id+name so
+ * the caller can also clear the OS credential store secret keyed by id.
+ */
+export function deleteLocalWallet(walletId: string): { id: string; name: string } {
+  const hit = findWalletFile(walletId)
+  if (!hit) throw new Error(`Wallet "${walletId}" not found`)
+  withLock(hit.path, () => { try { unlinkSync(hit.path) } catch {} })
+  return { id: hit.data.id, name: hit.data.name }
+}
+
+/**
+ * Assign, change, or clear a wallet's tag. Pass `null` to remove the tag.
+ */
+export function tagWallet(walletId: string, tag: string | null): { id: string; name: string; tag: string | null } {
+  const hit = findWalletFile(walletId)
+  if (!hit) throw new Error(`Wallet "${walletId}" not found`)
+  withLock(hit.path, () => {
+    // Re-read inside the lock to merge with any concurrent backfill (e.g. EVM
+    // backfill from listVaultWallets).
+    const fresh = JSON.parse(readFileSync(hit.path, 'utf8')) as WalletFile
+    if (tag === null) {
+      delete (fresh as any).tag
+    } else {
+      fresh.tag = validateTag(tag)
+    }
+    atomicWriteFileSync(hit.path, JSON.stringify(fresh, null, 2))
+  })
+  return { id: hit.data.id, name: hit.data.name, tag: tag === null ? null : validateTag(tag) }
+}
+
+export interface TagSummary {
+  name: string
+  count: number
+  chains: string[]
+  firstCreatedAt: string
+  lastCreatedAt: string
+}
+
+export function listTags(): TagSummary[] {
+  const wallets = listVaultWallets()
+  const byTag = new Map<string, VaultWalletSummary[]>()
+  for (const w of wallets) {
+    if (!w.tag) continue
+    if (!byTag.has(w.tag)) byTag.set(w.tag, [])
+    byTag.get(w.tag)!.push(w)
+  }
+  const tags: TagSummary[] = []
+  for (const [name, ws] of byTag) {
+    const chainsSet = new Set<string>()
+    for (const w of ws) for (const c of w.chains) chainsSet.add(c)
+    const sortedDates = ws.map(w => w.createdAt).sort()
+    tags.push({
+      name,
+      count: ws.length,
+      chains: Array.from(chainsSet).sort(),
+      firstCreatedAt: sortedDates[0],
+      lastCreatedAt: sortedDates[sortedDates.length - 1],
+    })
+  }
+  tags.sort((a, b) => a.name.localeCompare(b.name))
+  return tags
+}
+
+export function walletsByTag(tag: string): VaultWalletSummary[] {
+  const validated = validateTag(tag)
+  return listVaultWallets().filter(w => w.tag === validated)
 }
 
 /**

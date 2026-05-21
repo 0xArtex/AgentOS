@@ -214,13 +214,35 @@ function subcommandHelp(command: string, subcommand: string, options: Array<{ fl
 const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
   create: [
     { flag: '--name <name>', desc: 'Wallet name', hint: 'default: "My Wallet"' },
-    { flag: '--managed', desc: 'Create managed wallet with human oversight via passkey' },
-    { flag: '--chains <list>', desc: 'Supported chains (comma-separated)', hint: 'default: solana,evm' },
+    { flag: '--managed', desc: 'Create managed wallet with human oversight via passkey (single-create only)' },
+    { flag: '--solana', desc: 'Materialize the Solana account only', hint: 'default: both chains' },
+    { flag: '--base', desc: 'Materialize the Base/EVM account only', hint: 'pair with --solana for both (default)' },
+    { flag: '--tag <name>', desc: 'Folder-like grouping tag', hint: 'e.g. palmyr-demo — required with --count' },
+    { flag: '--count <N>', desc: 'Bulk-create N wallets in one call (1-500)', hint: 'unmanaged only; requires --tag' },
+    { flag: '--name-prefix <p>', desc: 'Bulk name prefix; suffixed `-001..-N`', hint: 'default: same as --tag' },
   ],
   import: [
     { flag: '--mnemonic <words>', desc: 'BIP-39 mnemonic phrase (required)' },
     { flag: '--name <name>', desc: 'Wallet name', hint: 'default: "Imported Wallet"' },
     { flag: '--managed', desc: 'Import as managed wallet' },
+    { flag: '--solana', desc: 'Materialize the Solana account only' },
+    { flag: '--base', desc: 'Materialize the Base/EVM account only' },
+    { flag: '--tag <name>', desc: 'Assign a tag at import time' },
+  ],
+  tags: [
+    { flag: '(no args)', desc: 'List all tags with wallet count, chains, and date range' },
+  ],
+  tag: [
+    { flag: '<WALLET_ID>', desc: 'Wallet id or name (positional or --id)' },
+    { flag: '<TAG>', desc: 'Tag to assign (positional)' },
+    { flag: '--clear', desc: 'Remove the tag from this wallet instead of assigning one' },
+  ],
+  'tag-delete': [
+    { flag: '<TAG>', desc: 'Tag to wipe (positional)' },
+    { flag: '--confirm', desc: 'Required — deletes every wallet sharing this tag (irreversible)' },
+  ],
+  list: [
+    { flag: '--tag <name>', desc: 'Filter to wallets in this tag' },
   ],
   'sign-message': [
     { flag: '<WALLET_ID>', desc: 'Wallet ID (positional or --id)' },
@@ -1590,11 +1612,14 @@ async function main() {
             subtitle: 'Non-custodial HD wallet',
             footerLeft: 'Solana + Base wallet operations',
             commands: [
-              { name: 'create', description: 'Create a new wallet', hint: '[--managed]' },
-              { name: 'import', description: 'Import from mnemonic', hint: '--mnemonic "..."' },
-              { name: 'list', description: 'List all wallets' },
+              { name: 'create', description: 'Create one or many wallets', hint: '[--tag X --count 100] [--solana|--base] [--managed]' },
+              { name: 'import', description: 'Import from mnemonic', hint: '--mnemonic "..." [--tag X]' },
+              { name: 'list', description: 'List all wallets', hint: '[--tag <name>]' },
               { name: 'info', description: 'Wallet details', hint: 'WALLET_ID' },
               { name: 'addresses', description: 'Show all chain addresses', hint: 'WALLET_ID' },
+              { name: 'tags', description: 'List wallet tags with counts' },
+              { name: 'tag', description: 'Assign / change / clear a wallet tag', hint: 'WALLET_ID TAG | WALLET_ID --clear' },
+              { name: 'tag-delete', description: 'Cascade-delete every wallet under a tag', hint: 'TAG --confirm' },
               { name: 'sign-message', description: 'Sign a message', hint: 'WALLET_ID --chain evm --msg "hello"' },
               { name: 'export', description: 'Export mnemonic for backup', hint: 'WALLET_ID --confirm' },
               { name: 'api-key', description: 'Create agent API key', hint: 'WALLET_ID --name my-agent' },
@@ -1635,19 +1660,76 @@ async function main() {
         switch (subcommand) {
           case 'create': {
             const isManaged = !!flags.managed
+            const tagRaw = (flags.tag as string | undefined) || undefined
+            const countRaw = flags.count
+            const count = countRaw !== undefined ? parseInt(String(countRaw), 10) : 1
+            if (!Number.isFinite(count) || count < 1) err('--count must be a positive integer', EXIT.BAD_INPUT)
+
+            // Chain filter: --solana / --base. Default (neither) → both chains.
+            const wantSol = !!flags.solana
+            const wantBase = !!flags.base
+            const chains = (wantSol && !wantBase) ? ['solana' as const]
+                         : (wantBase && !wantSol) ? ['base' as const]
+                         : ['solana' as const, 'base' as const]
+
+            // ─── Bulk path ───
+            if (count > 1) {
+              if (isManaged) err('Bulk wallet creation only supports unmanaged wallets — managed wallets need per-wallet passkey setup.', EXIT.BAD_INPUT)
+              if (!tagRaw) err('--tag is required when --count > 1', EXIT.BAD_INPUT)
+              if (count > 500) err('--count must be ≤ 500 per call', EXIT.BAD_INPUT)
+              const prefix = (flags['name-prefix'] as string) || tagRaw
+
+              const { createLocalWalletsBatch } = await import('./vault.js')
+              const { storeSecretsBatch } = await import('./credential-store.js')
+
+              // Progress to stderr so JSON on stdout stays clean
+              if (!AGENT_MODE) process.stderr.write(`creating ${count} wallets under tag "${tagRaw}"...\n`)
+              const results = createLocalWalletsBatch(prefix, count, 'unmanaged', { tag: tagRaw, chains })
+
+              if (!AGENT_MODE) process.stderr.write(`sealing ${count} session secrets in OS credential store...\n`)
+              storeSecretsBatch(results.map(r => ({ account: r.id, secret: r.sessionSecret })))
+
+              log(`wallet create: ${count} wallets under tag "${tagRaw}" (chains=${chains.join(',')})`)
+
+              if (AGENT_MODE) {
+                print({
+                  count: results.length,
+                  tag: tagRaw,
+                  chains,
+                  wallets: results.map(r => ({
+                    id: r.id,
+                    name: r.name,
+                    mode: r.mode,
+                    tag: r.tag,
+                    chains: r.chains,
+                    solana: r.solanaAddress,
+                    base: r.evmAddress,
+                  })),
+                })
+              } else {
+                console.log(`\n  ${t.success}✔${t.reset} Created ${count} wallets under tag ${t.accent}${tagRaw}${t.reset}`)
+                console.log(`  ${t.muted}chains:${t.reset} ${chains.join(', ')}`)
+                console.log(`  ${t.muted}names: ${t.reset}${results[0].name} … ${results[results.length - 1].name}`)
+                console.log(`\n  ${t.muted}List them:    ${t.reset}palmyr wallet list --tag ${tagRaw}`)
+                console.log(`  ${t.muted}Delete all:   ${t.reset}palmyr wallet tag-delete ${tagRaw} --confirm\n`)
+              }
+              break
+            }
+
+            // ─── Single-create path ───
             // Accept --name (primary) or --label (alias)
             const name = (flags.name as string) || (flags.label as string) || 'My Wallet'
             const mode = isManaged ? 'managed' as const : 'unmanaged' as const
 
             // Create locally — no server needed for the key material
             const { createLocalWallet } = await import('./vault.js')
-            const w = createLocalWallet(name, mode)
+            const w = createLocalWallet(name, mode, { tag: tagRaw, chains })
 
             // Store session secret in OS credential store
             const { storeSecret } = await import('./credential-store.js')
             storeSecret(w.id, w.sessionSecret)
 
-            log(`wallet create: ${w.id} (${mode})`)
+            log(`wallet create: ${w.id} (${mode}${tagRaw ? `, tag=${tagRaw}` : ''}, chains=${chains.join(',')})`)
 
             // For managed wallets, register metadata with the server to get a setup link
             let setupLink: string | undefined
@@ -1683,6 +1765,7 @@ async function main() {
                 mode: w.mode,
                 solana: w.solanaAddress,
                 base: w.evmAddress,
+                tag: w.tag,
               }))
               if (setupLink) {
                 console.log(`\n  ${t.accent}Setup link${t.reset} — send to the human who will manage this wallet:`)
@@ -1699,9 +1782,15 @@ async function main() {
             if (!mnemonic) err('--mnemonic "your twelve words..." required')
             const name = (flags.name as string) || (flags.label as string) || 'Imported Wallet'
             const mode = flags.managed ? 'managed' as const : 'unmanaged' as const
+            const tagRaw = (flags.tag as string | undefined) || undefined
+            const wantSol = !!flags.solana
+            const wantBase = !!flags.base
+            const chains = (wantSol && !wantBase) ? ['solana' as const]
+                         : (wantBase && !wantSol) ? ['base' as const]
+                         : ['solana' as const, 'base' as const]
 
             const { importLocalWallet } = await import('./vault.js')
-            const w = importLocalWallet(name, mnemonic, mode)
+            const w = importLocalWallet(name, mnemonic, mode, { tag: tagRaw, chains })
 
             // Store session secret
             const { storeSecret } = await import('./credential-store.js')
@@ -1717,6 +1806,7 @@ async function main() {
                 mode: w.mode,
                 solana: w.solanaAddress,
                 base: w.evmAddress,
+                tag: w.tag,
               }))
             } else {
               print(w)
@@ -1726,7 +1816,9 @@ async function main() {
           case 'list': {
             // List from local vault — no server needed
             const { listVaultWallets } = await import('./vault.js')
-            const wallets = listVaultWallets()
+            const tagFilter = flags.tag as string | undefined
+            let wallets = listVaultWallets()
+            if (tagFilter) wallets = wallets.filter(w => w.tag === tagFilter)
             if (!AGENT_MODE) {
               render(React.createElement(WalletListScreen, {
                 version: VERSION,
@@ -1736,11 +1828,85 @@ async function main() {
                   mode: w.mode,
                   solana: w.solanaAddress,
                   base: w.evmAddress,
+                  tag: w.tag,
                 })),
               }))
             } else {
-              print({ wallets })
+              print({ wallets, ...(tagFilter ? { tag: tagFilter } : {}) })
             }
+            break
+          }
+          case 'tags': {
+            const { listTags } = await import('./vault.js')
+            const tags = listTags()
+            if (AGENT_MODE) {
+              print({ tags })
+            } else {
+              if (tags.length === 0) {
+                console.log(`\n  ${t.muted}No tagged wallets yet.${t.reset}`)
+                console.log(`  ${t.muted}Create some:  ${t.reset}palmyr wallet create --tag demo --count 5\n`)
+              } else {
+                console.log(`\n  ${t.accent}wallet tags${t.reset}`)
+                for (const tg of tags) {
+                  console.log(`  ${t.bold}${tg.name}${t.reset} ${t.muted}·${t.reset} ${tg.count} wallet(s) ${t.muted}·${t.reset} ${tg.chains.join(',')}`)
+                }
+                console.log('')
+              }
+            }
+            break
+          }
+          case 'tag': {
+            const walletId = positional[0] || (flags.id as string)
+            if (!walletId) err('Wallet ID required: palmyr wallet tag <WALLET_ID> <TAG> | --clear', EXIT.BAD_INPUT)
+            const wantClear = !!flags.clear
+            const newTag = positional[1] || (flags.tag as string | undefined)
+            if (!wantClear && !newTag) err('Pass a TAG or --clear', EXIT.BAD_INPUT)
+            if (wantClear && newTag) err('Cannot pass both a TAG and --clear', EXIT.BAD_INPUT)
+
+            const { tagWallet } = await import('./vault.js')
+            const out = tagWallet(walletId, wantClear ? null : newTag!)
+            log(`wallet tag: ${out.id} → ${out.tag ?? '(cleared)'}`)
+            print({ success: true, ...out })
+            break
+          }
+          case 'tag-delete': {
+            const tagArg = positional[0] || (flags.tag as string | undefined)
+            if (!tagArg) err('Tag required: palmyr wallet tag-delete <TAG> --confirm', EXIT.BAD_INPUT)
+            if (!flags.confirm) {
+              err(
+                `This will permanently delete every wallet tagged "${tagArg}" and their session secrets.\n\n` +
+                '  Re-run with --confirm to proceed:\n' +
+                `  palmyr wallet tag-delete ${tagArg} --confirm`,
+                EXIT.BAD_INPUT,
+              )
+            }
+
+            const { walletsByTag, deleteLocalWallet } = await import('./vault.js')
+            const { deleteSecret } = await import('./credential-store.js')
+            const targets = walletsByTag(tagArg)
+            if (targets.length === 0) err(`No wallets found with tag "${tagArg}"`, EXIT.NOT_FOUND)
+
+            const deleted: Array<{ id: string; name: string }> = []
+            const failed: Array<{ id: string; name: string; error: string }> = []
+            for (const w of targets) {
+              try {
+                const out = deleteLocalWallet(w.id)
+                try { deleteSecret(w.id) } catch {}
+                deleted.push(out)
+                if (!AGENT_MODE) process.stderr.write(`deleted ${out.name} (${out.id.slice(0, 8)}...)\n`)
+              } catch (e: any) {
+                failed.push({ id: w.id, name: w.name, error: e?.message || String(e) })
+              }
+            }
+
+            log(`wallet tag-delete: ${deleted.length} deleted, ${failed.length} failed (tag=${tagArg})`)
+            print({
+              success: failed.length === 0,
+              tag: tagArg,
+              deleted: deleted.length,
+              wallets: deleted,
+              ...(failed.length > 0 ? { failed } : {}),
+            })
             break
           }
           case 'info': {
@@ -3635,7 +3801,7 @@ async function main() {
 
             err(`Unknown trading-keystore subcommand: ${sub}. Try: init, unlock, lock, list, status, derive, export`, EXIT.BAD_INPUT)
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, export, addresses, sign-message, api-key, config, use, request-approval, buy, cohort, template, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore, evm-quote`)
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, tags, tag, tag-delete, export, addresses, sign-message, api-key, config, use, request-approval, buy, cohort, template, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore, evm-quote`)
         }
         break
       }

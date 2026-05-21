@@ -22,9 +22,9 @@ export type DomainPricingScreenProps = { version: string; query: string; items: 
 export type DoctorCheck = { name: string; status: 'pass' | 'warn' | 'fail'; detail: string }
 export type DoctorScreenProps = { version: string; checks: DoctorCheck[] }
 export type ConfigScreenProps = { version: string; config: Record<string, string | number | boolean | null | undefined> }
-export type WalletCreateScreenProps = { version: string; id: string; name: string; mode: string; solana: string | null; base: string | null }
-export type WalletStatusScreenProps = { version: string; id: string; name: string; mode: string; solana: string | null; base: string | null }
-export type WalletListScreenProps = { version: string; wallets: Array<{ id: string; name: string; mode: string; solana: string | null; base: string | null }> }
+export type WalletCreateScreenProps = { version: string; id: string; name: string; mode: string; solana: string | null; base: string | null; tag?: string | null }
+export type WalletStatusScreenProps = { version: string; id: string; name: string; mode: string; solana: string | null; base: string | null; tag?: string | null }
+export type WalletListScreenProps = { version: string; wallets: Array<{ id: string; name: string; mode: string; solana: string | null; base: string | null; tag?: string | null }> }
 export type ComputeDeployScreenProps = { version: string; ip: string; id: string; type: string; name: string }
 export type ComputeListScreenProps = { version: string; servers: Array<{ ip: string; type: string; status: string }> }
 export type SuccessScreenProps = { version: string; title: string; subtitle: string; details: Array<{ label: string; value: string }>; footerLeft: string }
@@ -235,11 +235,12 @@ export function DomainPricingScreen(props: DomainPricingScreenProps & ScreenCont
 }
 
 // Shared row builder — one wallet rendered as a consistent block
-function walletRows(w: { id: string; name: string; mode: string; solana: string | null; base: string | null }) {
+function walletRows(w: { id: string; name: string; mode: string; solana: string | null; base: string | null; tag?: string | null }) {
   return [
     { label: 'Name:', value: w.name },
     { label: 'ID:', value: w.id },
     { label: 'Mode:', value: w.mode },
+    ...(w.tag ? [{ label: 'Tag:', value: w.tag }] : []),
     ...(w.solana ? [{ label: 'Solana:', value: w.solana }] : []),
     ...(w.base ? [{ label: 'Base:', value: w.base }] : []),
   ]

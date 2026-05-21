@@ -9,7 +9,7 @@
  * use execFileSync/spawnSync with argument arrays — never shell interpolation.
  */
 import { execFileSync, spawnSync } from 'child_process'
-import { existsSync, mkdirSync, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 
@@ -179,4 +179,61 @@ export function deleteSecret(account: string): void {
     else if (p === 'darwin') deleteMac(account)
     else deleteLinux(account)
   } catch {}
+}
+
+// ─── Batched storage ───
+//
+// One PowerShell process startup is ~300-500ms on Windows. Sealing 100
+// session secrets one at a time stretches `wallet create --count 100` to
+// nearly a minute purely from process overhead. `storeSecretsBatch` seals
+// every secret inside a single powershell.exe invocation by writing a
+// generated .ps1 script (the equivalent ASCII-only `-Command` string blows
+// past Windows' 8191-char arg cap once you hit ~30 wallets). On mac/Linux
+// the per-call cost is small enough that we just loop.
+
+function storeSecretsBatchWindows(items: Array<{ account: string; secret: string }>): void {
+  ensureSecretsDir()
+  const scriptLines: string[] = ['Add-Type -AssemblyName System.Security']
+  for (const item of items) {
+    const escapedPath = dpapiPath(item.account).replace(/\\/g, '\\\\').replace(/'/g, "''")
+    // assertHex already ran on every input, so embedding the secret as a
+    // single-quoted PS literal is injection-safe (hex has no quotes/backticks).
+    scriptLines.push(
+      `$b = [System.Text.Encoding]::UTF8.GetBytes('${item.secret}'); ` +
+      `$e = [System.Security.Cryptography.ProtectedData]::Protect($b, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser); ` +
+      `[System.IO.File]::WriteAllBytes('${escapedPath}', $e)`
+    )
+  }
+  const tmpScript = join(SECRETS_DIR, `.batch-${process.pid}-${Date.now()}.ps1`)
+  writeFileSync(tmpScript, scriptLines.join('\n'), { encoding: 'utf8' })
+  try {
+    execFileSync(
+      'powershell.exe',
+      ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmpScript],
+      { stdio: 'ignore', timeout: 180_000 },
+    )
+  } finally {
+    try { unlinkSync(tmpScript) } catch {}
+  }
+}
+
+export function storeSecretsBatch(items: Array<{ account: string; secret: string }>): void {
+  if (!items || items.length === 0) return
+  for (const item of items) {
+    assertHex(item.account, 'account')
+    assertHex(item.secret, 'secret')
+  }
+  const p = platform()
+  try {
+    if (p === 'win32') return storeSecretsBatchWindows(items)
+    for (const item of items) {
+      if (p === 'darwin') storeMac(item.account, item.secret)
+      else storeLinux(item.account, item.secret)
+    }
+  } catch (err: any) {
+    throw new Error(
+      `Failed to store secrets in OS credential store (${p}): ${err.message}. ` +
+      `On Windows, ensure PowerShell and DPAPI are available.`,
+    )
+  }
 }
