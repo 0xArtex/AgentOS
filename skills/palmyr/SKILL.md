@@ -80,8 +80,20 @@ palmyr domain share --name example.dev --with <wallet>             # Grant anoth
 palmyr domain unshare --name example.dev --from <wallet>
 
 # Wallet
-palmyr wallet create                     # Create local HD wallet (free)
+palmyr wallet create                     # Create local HD wallet — both Solana + Base (free)
 palmyr wallet create --managed           # Same, with passkey-gated spending limits
+palmyr wallet create --solana            # Solana account only (--base for Base/EVM only)
+palmyr wallet list                       # All wallets in vault; --tag <name> filters to one folder
+
+# Wallet foldering — group many wallets under one tag, cascade-delete together.
+# Ideal for demo/cohort/test wallets. Bulk path is unmanaged-only, max 500/call,
+# batched DPAPI seal on Windows (~7s for 100 wallets vs ~60s naive).
+palmyr wallet create --tag palmyr-demo --count 100              # 100 wallets named palmyr-demo-001..-100
+palmyr wallet create --tag agents --count 50 --name-prefix bot  # custom prefix → bot-01..bot-50
+palmyr wallet tag <WALLET_ID> palmyr-demo                       # assign / change tag
+palmyr wallet tag <WALLET_ID> --clear                           # untag
+palmyr wallet tags                                              # list tags with counts + chains
+palmyr wallet tag-delete palmyr-demo --confirm                  # nuke every wallet under the tag
 
 # Trading — any wallet you `create` trades on Solana + Base, autonomously.
 # Funding asset = the suffix on --amount: `0.5sol`/`0.01eth` for native, `10usdc` for USDC.
