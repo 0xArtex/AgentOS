@@ -24,6 +24,24 @@ const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 const BASE_CHAIN_ID = 8453
 
 /**
+ * Build an actionable error message when EVM payment authorization fails because
+ * no usable Base wallet was found. The auto-pick fallback in
+ * buildEvmPaymentAuthorization handles "wallets exist + some have EVM but none
+ * is selected", so by the time we reach this helper we're in one of two states:
+ *   - no vault wallets at all → tell the agent to create one
+ *   - vault wallets exist but none expose an EVM address → tell them to
+ *     re-derive / re-import with the EVM account materialized
+ * The legacy keyfile flow (`palmyr setup --keyfile`) is Solana-only, so it is
+ * deliberately NOT suggested here.
+ */
+function noEvmWalletError(): string {
+  if (!hasVaultWallets()) {
+    return 'Failed to build EVM payment authorization — no wallet configured. Create one with: palmyr wallet create (a single mnemonic produces both Solana + Base addresses).'
+  }
+  return 'Failed to build EVM payment authorization — vault has wallets, but none expose a Base/EVM address. Re-create with: palmyr wallet create (or pass --base on import to materialize the EVM account).'
+}
+
+/**
  * A single PaymentRequirements entry from the 402 response (one per chain).
  * Keeps the full server-supplied object so it can be echoed back verbatim
  * in the PaymentPayload's `accepted` field — the canonical x402 v2 client
@@ -206,15 +224,31 @@ async function buildEvmPaymentAuthorization(
   passphrase?: string,
 ): Promise<{ signature: string; authorization: any; payer: string } | null> {
   const cfg = loadConfig()
-  const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.PALMYR_PAY_WALLET
+  let targetId = walletId || (cfg as any).defaultPayWalletId || process.env.PALMYR_PAY_WALLET
+
+  // Mirror the Solana resolution chain (pay.ts:92-115): if no explicit target,
+  // auto-pick the first vault wallet that has an EVM address. Without this,
+  // a fresh `palmyr wallet create` user hits `no wallet configured` on Base
+  // even though there's an obvious wallet to use — Solana picks it; Base didn't.
+  if (!targetId && hasVaultWallets()) {
+    const firstEvm = listVaultWallets().find(w => w.evmAddress)
+    if (firstEvm) targetId = firstEvm.id
+  }
+
   if (!targetId) return null
 
+  // From here on we have a wallet to try; any failure is a decryption / signing
+  // problem (typically: no OS-keychain session secret + no passphrase). Propagate
+  // it with an actionable hint instead of returning null, which would otherwise
+  // bubble up as the misleading "no wallet configured" message at the call site.
   let evmWallet: any
   try {
     evmWallet = getVaultEvmWallet(targetId, passphrase)
   } catch (err: any) {
-    console.error(`  Vault wallet load failed: ${err.message}`)
-    return null
+    throw new Error(
+      `EVM wallet load failed for ${targetId}: ${err.message}. ` +
+      `Set PALMYR_WALLET_PASSPHRASE=<phrase> in the env, or pass --passphrase <phrase> on the command.`,
+    )
   }
 
   const { ethers } = require('ethers')
@@ -346,7 +380,7 @@ export async function paidStreamRequest(
 
   if (preferredChain === 'base') {
     const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
-    if (!auth) throw new Error('Failed to build EVM payment authorization')
+    if (!auth) throw new Error(noEvmWalletError())
     paymentPayload = buildSpecCompliantPayload({
       payload: { signature: auth.signature, authorization: auth.authorization },
       requirements: selected.requirements,
@@ -457,7 +491,7 @@ export async function paidRequest(
   try {
     if (preferredChain === 'base') {
       const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
-      if (!auth) throw new Error('Failed to build EVM payment authorization — no wallet configured')
+      if (!auth) throw new Error(noEvmWalletError())
 
       paymentPayload = buildSpecCompliantPayload({
         payload: {
@@ -471,7 +505,7 @@ export async function paidRequest(
       payer = auth.payer
     } else {
       const tx = await buildPaymentTransaction(selected.payTo, selected.amount, selected.feePayer, undefined, passphrase)
-      if (!tx) throw new Error('Failed to build Solana payment transaction — no wallet configured')
+      if (!tx) throw new Error('Failed to build Solana payment transaction — no wallet configured. Create one with: palmyr wallet create. Or configure a keyfile: palmyr setup --keyfile /path/to/keypair.json')
 
       paymentPayload = buildSpecCompliantPayload({
         payload: { transaction: tx.transaction },
