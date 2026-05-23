@@ -351,8 +351,78 @@ export class Palmyr {
     return this.request('POST', `/phone/numbers/${phoneId}/send`, { to, body })
   }
 
-  async phoneCall(phoneId: string, to: string, tts?: string): Promise<any> {
-    return this.request('POST', `/phone/numbers/${phoneId}/call`, { to, tts })
+  async phoneCall(
+    phoneId: string,
+    to: string,
+    tts?: string,
+    opts?: { ttsVoice?: string; audioUrl?: string; record?: boolean; timeoutSecs?: number },
+  ): Promise<any> {
+    return this.request('POST', `/phone/numbers/${phoneId}/call`, { to, tts, ...(opts || {}) })
+  }
+
+  // Phone-number-scoped reads & lifecycle
+  async phoneListNumbers(): Promise<any> {
+    return this.request('GET', '/phone/numbers')
+  }
+
+  async phoneMessages(phoneId: string): Promise<any> {
+    return this.request('GET', `/phone/numbers/${phoneId}/messages`)
+  }
+
+  async phoneCalls(phoneId: string): Promise<any> {
+    return this.request('GET', `/phone/numbers/${phoneId}/calls`)
+  }
+
+  async phoneRelease(phoneId: string): Promise<any> {
+    return this.request('DELETE', `/phone/numbers/${phoneId}`)
+  }
+
+  // Call-control-scoped operations
+  async phoneCallInfo(callControlId: string): Promise<any> {
+    return this.request('GET', `/phone/calls/${callControlId}`)
+  }
+
+  async phoneSpeak(callControlId: string, text: string, opts?: { voice?: string; language?: string }): Promise<any> {
+    return this.request('POST', `/phone/calls/${callControlId}/speak`, { text, ...(opts || {}) })
+  }
+
+  async phonePlay(callControlId: string, audioUrl: string): Promise<any> {
+    return this.request('POST', `/phone/calls/${callControlId}/play`, { audioUrl })
+  }
+
+  async phoneDtmf(callControlId: string, digits: string): Promise<any> {
+    return this.request('POST', `/phone/calls/${callControlId}/dtmf`, { digits })
+  }
+
+  async phoneGather(callControlId: string, opts?: {
+    minDigits?: number
+    maxDigits?: number
+    timeoutMillis?: number
+    terminatingDigit?: string
+    prompt?: string
+    promptVoice?: string
+  }): Promise<any> {
+    return this.request('POST', `/phone/calls/${callControlId}/gather`, opts || {})
+  }
+
+  async phoneRecord(callControlId: string, format?: string): Promise<any> {
+    return this.request('POST', `/phone/calls/${callControlId}/record`, format ? { format } : {})
+  }
+
+  async phoneRecordStop(callControlId: string): Promise<any> {
+    return this.request('POST', `/phone/calls/${callControlId}/record/stop`, {})
+  }
+
+  async phoneHangup(callControlId: string): Promise<any> {
+    return this.request('POST', `/phone/calls/${callControlId}/hangup`, {})
+  }
+
+  async phoneAnswer(callControlId: string): Promise<any> {
+    return this.request('POST', `/phone/calls/${callControlId}/answer`, {})
+  }
+
+  async phoneTransfer(callControlId: string, to: string): Promise<any> {
+    return this.request('POST', `/phone/calls/${callControlId}/transfer`, { to })
   }
 
   // ── Email ──
