@@ -377,6 +377,15 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--src-decimals <n>', desc: 'Source token decimals', hint: 'default 18' },
     { flag: '--dst-decimals <n>', desc: 'Dest token decimals', hint: 'default 6 (USDC-like)' },
   ],
+  'pay-preflight': [
+    { flag: '--chain <c>', desc: 'Override the default pay chain', hint: 'solana | base (default: config.defaultPayChain)' },
+    { flag: '--wallet <ID>', desc: 'Override the wallet to check', hint: 'default: config.defaultPayWalletId / PALMYR_PAY_WALLET / auto-pick' },
+    { flag: '--min-usdc <N>', desc: 'Required USDC balance to pass (default 0 — just check the wallet exists)' },
+    { flag: '--passphrase <p>', desc: 'Wallet passphrase if no OS-keychain session secret', hint: 'or PALMYR_WALLET_PASSPHRASE env' },
+    { flag: '(price)', desc: 'Free — one RPC call to read USDC balance' },
+    { flag: '(example)', desc: 'palmyr wallet pay-preflight --chain base --min-usdc 3 --json' },
+    { flag: '(note)', desc: 'Local-only version runs automatically before every paid command (set PALMYR_NO_PREFLIGHT=1 to disable)' },
+  ],
 }
 
 const PHONE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
@@ -2097,6 +2106,7 @@ async function main() {
               { name: 'watch', description: 'Maintain a watchlist of CAs to monitor', hint: 'add <CA> --trigger "..." | list' },
               { name: 'brief', description: 'Show thesis + PnL brief for a position', hint: '<CA>' },
               { name: 'doctor', description: 'Health check for the wallet-trading subsystem', hint: '[--wallet <ref>]' },
+              { name: 'pay-preflight', description: 'Check the x402 pay flow is ready (chain, wallet, signing, USDC balance)', hint: '[--chain solana|base] [--min-usdc N]' },
               { name: 'smoke-test', description: 'End-to-end validation of wallet trading on Solana + Base', hint: '--wallet <ref> [--chain solana|base|all]' },
               { name: 'readiness', description: 'Go/no-go autonomous-trading readiness — sign, gas, quotes, daemon, open positions', hint: '--wallet <ref>' },
               { name: 'live-test', description: 'Execute tiny real round trips on Solana + Base, verify no leftover positions', hint: '--wallet <ref> --budget Nusdc [--chain ...]' },
@@ -3704,6 +3714,55 @@ async function main() {
             }
             console.log()
             if (report.status === 'fail') process.exit(EXIT.GENERAL)
+            break
+          }
+          case 'pay-preflight': {
+            // Five-question readiness check for the x402 pay flow. Local-only
+            // siblings of this same module run automatically before every paid
+            // command (see paidRequest/paidStreamRequest); this command is the
+            // explicit, full-fat version with the RPC USDC balance check.
+            const ppChain = (flags.chain as string | undefined)?.toLowerCase()
+            if (ppChain && ppChain !== 'solana' && ppChain !== 'base') {
+              err(`--chain must be solana or base (got ${ppChain})`, EXIT.BAD_INPUT)
+            }
+            const ppWallet = (flags.wallet as string) || undefined
+            const ppMinUsdcRaw = flags['min-usdc']
+            const ppMinUsdc = typeof ppMinUsdcRaw === 'string' ? Number(ppMinUsdcRaw) : undefined
+            if (ppMinUsdc !== undefined && (!Number.isFinite(ppMinUsdc) || ppMinUsdc < 0)) {
+              err(`--min-usdc must be a non-negative number (got ${String(ppMinUsdcRaw)})`, EXIT.BAD_INPUT)
+            }
+            const { fullPreflight } = await import('./pay-preflight.js')
+            const report = await fullPreflight({
+              ...(ppChain ? { chain: ppChain as 'solana' | 'base' } : {}),
+              ...(ppWallet ? { walletRef: ppWallet } : {}),
+              ...(ppMinUsdc !== undefined ? { minUsdc: ppMinUsdc } : {}),
+              ...(passphrase ? { passphrase } : {}),
+            })
+            if (AGENT_MODE) {
+              print(report)
+              if (!report.ok) process.exit(EXIT.GENERAL)
+              break
+            }
+            // TTY rendering — mirrors the doctor command's layout.
+            console.log()
+            section('Pay preflight')
+            kv('Verdict', report.ok ? `${t.success}ready${t.reset}` : `${t.error}not ready${t.reset}`)
+            kv('Pay chain', report.payChain)
+            kv('Wallet ID', report.walletId || `${t.muted}(none)${t.reset}`)
+            kv('Address', report.walletAddress || `${t.muted}(unknown)${t.reset}`)
+            kv('Can sign', report.canSign ? `${t.success}yes${t.reset}` : `${t.error}no${t.reset}`)
+            if (report.usdc) {
+              const bal = report.usdc.balance
+              kv('USDC balance', bal === null ? `${t.muted}(unknown)${t.reset}` : `${bal.toFixed(6)} USDC`)
+              if (report.usdc.requiredMin > 0) kv('Required min', `${report.usdc.requiredMin.toFixed(6)} USDC`)
+              if (report.usdc.ataStatus) kv('Solana ATA', report.usdc.ataStatus)
+            }
+            if (report.fix) {
+              console.log()
+              console.log(`  ${t.warn}Fix:${t.reset} ${report.fix}`)
+            }
+            console.log()
+            if (!report.ok) process.exit(EXIT.GENERAL)
             break
           }
           case 'smoke-test': {

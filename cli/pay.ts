@@ -24,6 +24,28 @@ const BASE_USDC = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'
 const BASE_CHAIN_ID = 8453
 
 /**
+ * Run the cheap, no-RPC pay preflight before the probe request goes out.
+ *
+ * Catches the two failure modes that don't need the server to discover:
+ *   - no Solana/Base wallet resolvable from config / env / vault
+ *   - wallet exists but cannot decrypt (no keychain secret, wrong passphrase)
+ *
+ * Throws a structured Error with `.preflight` attached so the CLI can render
+ * the full report in agent mode. Skipped entirely when PALMYR_NO_PREFLIGHT=1
+ * (escape hatch for users running tight loops who'd rather eat the late error
+ * than pay a few ms per call).
+ */
+async function preflightOrThrow(passphrase?: string): Promise<void> {
+  if (process.env.PALMYR_NO_PREFLIGHT === '1') return
+  const { localPreflight } = await import('./pay-preflight.js')
+  const report = await localPreflight({ passphrase })
+  if (report.ok) return
+  const err: any = new Error(`Pay preflight failed: ${report.fix || 'wallet not ready'}`)
+  err.preflight = report
+  throw err
+}
+
+/**
  * Build an actionable error message when EVM payment authorization fails because
  * no usable Base wallet was found. The auto-pick fallback in
  * buildEvmPaymentAuthorization handles "wallets exist + some have EVM but none
@@ -351,6 +373,8 @@ export async function paidStreamRequest(
   body?: Record<string, unknown>,
   passphrase?: string,
 ): Promise<{ response: Response; paid: boolean; amountUsdc: number; payer?: string }> {
+  await preflightOrThrow(passphrase)
+
   const probeOpts: RequestInit = {
     method,
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
@@ -443,6 +467,13 @@ export async function paidRequest(
   passphrase?: string,
   attempt: number = 1,
 ): Promise<{ data: any; paid: boolean; txHash?: string }> {
+  // Only preflight on the FIRST attempt — on retry (attempt > 1) we've already
+  // signed once successfully, so re-running the local checks would only burn
+  // a few ms before discovering nothing changed.
+  if (attempt === 1) {
+    await preflightOrThrow(passphrase)
+  }
+
   const opts: RequestInit = {
     method,
     headers: { 'Content-Type': 'application/json' },
