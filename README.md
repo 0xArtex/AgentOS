@@ -1,6 +1,9 @@
 <div align="center">
 
-<img src="public/assets/logo-vertical.svg" alt="Palmyr" width="200">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="public/assets/logo-vertical-on-dark.svg">
+  <img src="public/assets/logo-vertical.svg" alt="Palmyr" width="200">
+</picture>
 
 # Palmyr
 
