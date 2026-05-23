@@ -406,6 +406,89 @@ const PHONE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
     { flag: '(price)', desc: '$0.10 per call placed' },
     { flag: '(example)', desc: 'palmyr phone call --id PN_abc --to +15551234567 --tts "hello"' },
   ],
+  list: [
+    { flag: '(no args)', desc: 'List phone numbers owned by your wallet' },
+    { flag: '(price)', desc: '$0.01 per call' },
+    { flag: '(example)', desc: 'palmyr phone list --json' },
+  ],
+  messages: [
+    { flag: '--id <PHONE_ID>', desc: 'Phone number id to read SMS for (required; positional also accepted)' },
+    { flag: '(price)', desc: '$0.02 per call' },
+    { flag: '(example)', desc: 'palmyr phone messages --id PN_abc' },
+  ],
+  calls: [
+    { flag: '--id <PHONE_ID>', desc: 'Phone number id to list calls for (required; positional also accepted)' },
+    { flag: '(price)', desc: '$0.02 per call' },
+    { flag: '(example)', desc: 'palmyr phone calls --id PN_abc' },
+  ],
+  release: [
+    { flag: '--id <PHONE_ID>', desc: 'Phone number id to release (required; positional also accepted)' },
+    { flag: '(price)', desc: '$0.01 per release (stops monthly Telnyx billing)' },
+    { flag: '(example)', desc: 'palmyr phone release --id PN_abc' },
+  ],
+  'call-info': [
+    { flag: '--call <CALL_ID>', desc: 'Call control id (required; --id and positional also accepted)' },
+    { flag: '(price)', desc: '$0.02 per lookup' },
+    { flag: '(example)', desc: 'palmyr phone call-info --call CC_abc' },
+  ],
+  speak: [
+    { flag: '--call <CALL_ID>', desc: 'Call control id of a live call (required)' },
+    { flag: '--text <text>', desc: 'TTS text to speak (required; --tts alias accepted)' },
+    { flag: '--voice <name>', desc: 'TTS voice (optional, provider default otherwise)' },
+    { flag: '--language <code>', desc: 'TTS language code (optional, e.g. en-US)' },
+    { flag: '(price)', desc: '$0.08 per speak action' },
+    { flag: '(example)', desc: 'palmyr phone speak --call CC_abc --text "please hold"' },
+  ],
+  play: [
+    { flag: '--call <CALL_ID>', desc: 'Call control id of a live call (required)' },
+    { flag: '--url <audio_url>', desc: 'Public audio URL to play (required; --audio-url alias accepted)' },
+    { flag: '(price)', desc: '$0.08 per playback' },
+    { flag: '(example)', desc: 'palmyr phone play --call CC_abc --url https://example.com/hold.mp3' },
+  ],
+  dtmf: [
+    { flag: '--call <CALL_ID>', desc: 'Call control id of a live call (required)' },
+    { flag: '--digits <seq>', desc: 'DTMF digit sequence (required; positional also accepted)', hint: 'e.g. "1234#"' },
+    { flag: '(price)', desc: '$0.02 per DTMF send' },
+    { flag: '(example)', desc: 'palmyr phone dtmf --call CC_abc --digits "1234#"' },
+  ],
+  gather: [
+    { flag: '--call <CALL_ID>', desc: 'Call control id of a live call (required)' },
+    { flag: '--min-digits <N>', desc: 'Minimum digits to collect (optional)' },
+    { flag: '--max-digits <N>', desc: 'Maximum digits to collect (optional)' },
+    { flag: '--timeout <ms>', desc: 'Per-input timeout in milliseconds (optional)' },
+    { flag: '--terminating-digit <d>', desc: 'Digit that ends collection (optional, e.g. "#")' },
+    { flag: '--prompt <text>', desc: 'Optional TTS prompt to play before gathering' },
+    { flag: '--prompt-voice <name>', desc: 'TTS voice for the prompt (optional)' },
+    { flag: '(price)', desc: '$0.08 per gather action' },
+    { flag: '(example)', desc: 'palmyr phone gather --call CC_abc --max-digits 4 --terminating-digit "#" --prompt "Enter PIN"' },
+  ],
+  record: [
+    { flag: '--call <CALL_ID>', desc: 'Call control id of a live call (required)' },
+    { flag: '--format <fmt>', desc: 'Recording format (optional, provider default otherwise)' },
+    { flag: '(price)', desc: '$0.10 per record start' },
+    { flag: '(example)', desc: 'palmyr phone record --call CC_abc --format mp3' },
+  ],
+  'record-stop': [
+    { flag: '--call <CALL_ID>', desc: 'Call control id of a live call (required)' },
+    { flag: '(price)', desc: '$0.02 per stop' },
+    { flag: '(example)', desc: 'palmyr phone record-stop --call CC_abc' },
+  ],
+  hangup: [
+    { flag: '--call <CALL_ID>', desc: 'Call control id of a live call (required)' },
+    { flag: '(price)', desc: '$0.02 per hangup' },
+    { flag: '(example)', desc: 'palmyr phone hangup --call CC_abc' },
+  ],
+  answer: [
+    { flag: '--call <CALL_ID>', desc: 'Call control id of an inbound call (required)' },
+    { flag: '(price)', desc: '$0.02 per answer' },
+    { flag: '(example)', desc: 'palmyr phone answer --call CC_abc' },
+  ],
+  transfer: [
+    { flag: '--call <CALL_ID>', desc: 'Call control id of a live call (required)' },
+    { flag: '--to <+E.164>', desc: 'Destination phone number to bridge into (required)' },
+    { flag: '(price)', desc: '$0.10 per transfer' },
+    { flag: '(example)', desc: 'palmyr phone transfer --call CC_abc --to +15557654321' },
+  ],
 }
 
 const EMAIL_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
@@ -923,8 +1006,22 @@ async function main() {
             commands: [
               { name: 'search', description: 'Search available numbers', hint: '--country US' },
               { name: 'buy', description: 'Buy a phone number', hint: '--country US' },
+              { name: 'list', description: 'List numbers owned by your wallet' },
+              { name: 'release', description: 'Release a phone number', hint: '--id PHONE_ID' },
               { name: 'sms', description: 'Send an SMS', hint: '--id ID --to +1... --body "hi"' },
+              { name: 'messages', description: 'Read SMS messages received on a number', hint: '--id PHONE_ID' },
               { name: 'call', description: 'Place a voice call', hint: '--id ID --to +1... --tts "hello"' },
+              { name: 'calls', description: 'List calls placed/received on a number', hint: '--id PHONE_ID' },
+              { name: 'call-info', description: 'Get details on a single call', hint: '--call CALL_CONTROL_ID' },
+              { name: 'speak', description: 'TTS into a live call', hint: '--call ID --text "..." [--voice V]' },
+              { name: 'play', description: 'Play an audio URL into a live call', hint: '--call ID --url https://...' },
+              { name: 'dtmf', description: 'Send DTMF tones to a live call', hint: '--call ID --digits "1234#"' },
+              { name: 'gather', description: 'Collect DTMF input from caller', hint: '--call ID [--min-digits N --max-digits N --timeout MS --prompt "..."]' },
+              { name: 'record', description: 'Start recording a live call', hint: '--call ID [--format mp3]' },
+              { name: 'record-stop', description: 'Stop recording a live call', hint: '--call ID' },
+              { name: 'hangup', description: 'End a live call', hint: '--call ID' },
+              { name: 'answer', description: 'Answer an inbound call', hint: '--call ID' },
+              { name: 'transfer', description: 'Transfer a live call to another number', hint: '--call ID --to +1...' },
             ],
             fromHome,
           })
@@ -996,7 +1093,110 @@ async function main() {
             render(React.createElement(SuccessScreen, { version: VERSION, title: 'calling', subtitle: to, details: [{ label: 'To', value: to }, { label: 'Call ID', value: data.callControlId || data.id || '' }], footerLeft: 'Call initiated' }))
             break
           }
-          default: err(`Unknown phone command: ${subcommand}. Try: search, buy, sms, call`)
+          case 'list': {
+            const data = await ao.phoneListNumbers()
+            return print(data)
+          }
+          case 'messages': {
+            const id = (flags.id as string) || positional[0]
+            if (!id) err('--id PHONE_ID required')
+            const data = await ao.phoneMessages(id)
+            return print(data)
+          }
+          case 'calls': {
+            const id = (flags.id as string) || positional[0]
+            if (!id) err('--id PHONE_ID required')
+            const data = await ao.phoneCalls(id)
+            return print(data)
+          }
+          case 'release': {
+            const id = (flags.id as string) || positional[0]
+            if (!id) err('--id PHONE_ID required')
+            const data = await ao.phoneRelease(id)
+            return print(data)
+          }
+          case 'call-info': {
+            const callId = (flags.call as string) || (flags.id as string) || positional[0]
+            if (!callId) err('--call CALL_CONTROL_ID required')
+            const data = await ao.phoneCallInfo(callId)
+            return print(data)
+          }
+          case 'speak': {
+            const callId = (flags.call as string) || (flags.id as string)
+            const text = (flags.text as string) || (flags.tts as string)
+            if (!callId || !text) err('--call <id>, --text <text> required')
+            const voice = flags.voice as string | undefined
+            const language = flags.language as string | undefined
+            const data = await ao.phoneSpeak(callId, text, { ...(voice ? { voice } : {}), ...(language ? { language } : {}) })
+            return print(data)
+          }
+          case 'play': {
+            const callId = (flags.call as string) || (flags.id as string)
+            const audioUrl = (flags.url as string) || (flags['audio-url'] as string)
+            if (!callId || !audioUrl) err('--call <id>, --url <https://...> required')
+            const data = await ao.phonePlay(callId, audioUrl)
+            return print(data)
+          }
+          case 'dtmf': {
+            const callId = (flags.call as string) || (flags.id as string)
+            const digits = (flags.digits as string) || positional[0]
+            if (!callId || !digits) err('--call <id>, --digits "1234#" required')
+            const data = await ao.phoneDtmf(callId, digits)
+            return print(data)
+          }
+          case 'gather': {
+            const callId = (flags.call as string) || (flags.id as string)
+            if (!callId) err('--call <id> required')
+            const parseInt0 = (v: unknown) => (typeof v === 'string' ? parseInt(v, 10) : undefined)
+            const opts: {
+              minDigits?: number
+              maxDigits?: number
+              timeoutMillis?: number
+              terminatingDigit?: string
+              prompt?: string
+              promptVoice?: string
+            } = {}
+            const minDigits = parseInt0(flags['min-digits']); if (minDigits !== undefined && Number.isFinite(minDigits)) opts.minDigits = minDigits
+            const maxDigits = parseInt0(flags['max-digits']); if (maxDigits !== undefined && Number.isFinite(maxDigits)) opts.maxDigits = maxDigits
+            const timeoutMillis = parseInt0(flags.timeout); if (timeoutMillis !== undefined && Number.isFinite(timeoutMillis)) opts.timeoutMillis = timeoutMillis
+            if (flags['terminating-digit']) opts.terminatingDigit = flags['terminating-digit'] as string
+            if (flags.prompt) opts.prompt = flags.prompt as string
+            if (flags['prompt-voice']) opts.promptVoice = flags['prompt-voice'] as string
+            const data = await ao.phoneGather(callId, opts)
+            return print(data)
+          }
+          case 'record': {
+            const callId = (flags.call as string) || (flags.id as string)
+            if (!callId) err('--call <id> required')
+            const data = await ao.phoneRecord(callId, flags.format as string | undefined)
+            return print(data)
+          }
+          case 'record-stop': {
+            const callId = (flags.call as string) || (flags.id as string)
+            if (!callId) err('--call <id> required')
+            const data = await ao.phoneRecordStop(callId)
+            return print(data)
+          }
+          case 'hangup': {
+            const callId = (flags.call as string) || (flags.id as string)
+            if (!callId) err('--call <id> required')
+            const data = await ao.phoneHangup(callId)
+            return print(data)
+          }
+          case 'answer': {
+            const callId = (flags.call as string) || (flags.id as string)
+            if (!callId) err('--call <id> required')
+            const data = await ao.phoneAnswer(callId)
+            return print(data)
+          }
+          case 'transfer': {
+            const callId = (flags.call as string) || (flags.id as string)
+            const to = flags.to as string
+            if (!callId || !to) err('--call <id>, --to <+E.164> required')
+            const data = await ao.phoneTransfer(callId, to)
+            return print(data)
+          }
+          default: err(`Unknown phone command: ${subcommand}. Try: search, buy, list, release, sms, messages, call, calls, call-info, speak, play, dtmf, gather, record, record-stop, hangup, answer, transfer`)
         }
         break
       }
