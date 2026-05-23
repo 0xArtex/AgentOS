@@ -274,16 +274,27 @@ app.get("/pricing", (_req, res) => {
     auth: "Your wallet is your identity. Pay via x402 — your wallet address owns the resource.",
     services: {
       phone: {
+        // Source of truth: src/routes/phone.ts requireAuth(price, ...) calls.
+        // Ordered roughly by the CLI subcommand grouping (search → number ops →
+        // call ops). Keep in sync when route prices change — agents read this
+        // endpoint for the canonical per-op price list.
+        search_numbers: "0.00",
+        list_numbers: "0.01",
         provision_number: "3.00",
-        send_sms: "0.05",
+        release_number: "0.01",
         read_messages: "0.02",
+        send_sms: "0.05",
         place_call: "0.10",
+        list_calls: "0.02",
+        call_info: "0.02",
         speak_tts: "0.08",
         play_audio: "0.08",
         send_dtmf: "0.02",
         gather_input: "0.08",
         record_call: "0.10",
+        record_stop: "0.02",
         hangup: "0.02",
+        answer_inbound: "0.02",
         transfer_call: "0.10",
       },
       email: {

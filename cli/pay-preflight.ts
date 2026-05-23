@@ -41,7 +41,7 @@ export interface PayPreflightReport {
   payChain: PayChain
   walletId: string | null
   walletAddress: string | null
-  canSign: boolean
+  canDecrypt: boolean
   /** Populated only by `fullPreflight` (or when checkBalance=true). */
   usdc: {
     balance: number | null
@@ -96,7 +96,7 @@ async function runPreflight(opts: InternalOpts): Promise<PayPreflightReport> {
       payChain,
       walletId: null,
       walletAddress: null,
-      canSign: false,
+      canDecrypt: false,
       usdc: null,
       fix: noWalletFix(payChain),
     }
@@ -107,7 +107,7 @@ async function runPreflight(opts: InternalOpts): Promise<PayPreflightReport> {
   // passphrase) is treated as "cannot sign" — we surface the underlying
   // message in `fix` so the agent knows which knob to turn.
   let walletAddress: string | null = null
-  let canSign = false
+  let canDecrypt = false
   let signError: string | null = null
 
   try {
@@ -118,18 +118,18 @@ async function runPreflight(opts: InternalOpts): Promise<PayPreflightReport> {
       const k = getVaultSolanaKeypair(walletId, opts.passphrase)
       walletAddress = k.publicKey.toBase58()
     }
-    canSign = true
+    canDecrypt = true
   } catch (err: any) {
     signError = err?.message || 'decrypt failed'
   }
 
-  if (!canSign) {
+  if (!canDecrypt) {
     return {
       ok: false,
       payChain,
       walletId,
       walletAddress: null,
-      canSign: false,
+      canDecrypt: false,
       usdc: null,
       fix: `Wallet ${walletId} exists but cannot decrypt (${signError}). Restore the OS credential-store session secret (re-run \`palmyr wallet create\` or the original import on this machine), set PALMYR_WALLET_PASSPHRASE=<phrase> in the env (or pass --passphrase <phrase>), or re-import the mnemonic with \`palmyr wallet import --mnemonic "..."\`.`,
     }
@@ -142,7 +142,7 @@ async function runPreflight(opts: InternalOpts): Promise<PayPreflightReport> {
       payChain,
       walletId,
       walletAddress,
-      canSign: true,
+      canDecrypt: true,
       usdc: null,
       fix: null,
     }
@@ -164,7 +164,7 @@ async function runPreflight(opts: InternalOpts): Promise<PayPreflightReport> {
         ['function balanceOf(address) view returns (uint256)'],
         provider,
       )
-      // Non-null assertion — we returned early above if canSign was false.
+      // Non-null assertion — we returned early above if canDecrypt was false.
       const wei: bigint = await erc20.balanceOf(walletAddress!)
       usdcBalance = Number(wei) / 1e6
     } else {
@@ -226,7 +226,7 @@ async function runPreflight(opts: InternalOpts): Promise<PayPreflightReport> {
     payChain,
     walletId,
     walletAddress,
-    canSign: true,
+    canDecrypt: true,
     usdc: {
       balance: usdcBalance,
       requiredMin: minUsdc,
