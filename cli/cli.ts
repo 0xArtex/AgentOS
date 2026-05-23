@@ -1044,6 +1044,13 @@ async function main() {
           case 'search': {
             const country = flags.country as string || 'US'
             const data = await ao.phoneSearch(country, flags.limit ? parseInt(flags.limit as string) : undefined)
+            // Empty result is a valid response but `{numbers: []}` alone made it
+            // ambiguous whether the API failed or the country has no inventory.
+            // Add a non-breaking `note` field — agents that already key off
+            // `.numbers.length` keep working; new readers get a clear signal.
+            if (data && Array.isArray(data.numbers) && data.numbers.length === 0 && !data.note) {
+              data.note = `No numbers available for ${country}. Try a different country code (US, GB, CA, DE, etc.).`
+            }
             return print(data)
             render(React.createElement(RecordsScreen, {
               version: VERSION,
