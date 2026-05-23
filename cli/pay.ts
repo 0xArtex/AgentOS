@@ -40,7 +40,11 @@ async function preflightOrThrow(passphrase?: string): Promise<void> {
   const { localPreflight } = await import('./pay-preflight.js')
   const report = await localPreflight({ passphrase })
   if (report.ok) return
-  const err: any = new Error(`Pay preflight failed: ${report.fix || 'wallet not ready'}`)
+  // Embed the three identity fields directly in the message — agents reading
+  // the JSON `error` field would otherwise have to also crawl the attached
+  // `.preflight` object, and most error renderers don't pass that through.
+  const tag = `[chain=${report.payChain} wallet=${report.walletId ?? 'none'} canDecrypt=${report.canDecrypt ? 'yes' : 'no'}]`
+  const err: any = new Error(`Pay preflight failed ${tag}: ${report.fix || 'wallet not ready'}`)
   err.preflight = report
   throw err
 }

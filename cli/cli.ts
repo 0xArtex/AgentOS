@@ -3757,7 +3757,7 @@ async function main() {
             kv('Pay chain', report.payChain)
             kv('Wallet ID', report.walletId || `${t.muted}(none)${t.reset}`)
             kv('Address', report.walletAddress || `${t.muted}(unknown)${t.reset}`)
-            kv('Can sign', report.canSign ? `${t.success}yes${t.reset}` : `${t.error}no${t.reset}`)
+            kv('Can decrypt', report.canDecrypt ? `${t.success}yes${t.reset}` : `${t.error}no${t.reset}`)
             if (report.usdc) {
               const bal = report.usdc.balance
               kv('USDC balance', bal === null ? `${t.muted}(unknown)${t.reset}` : `${bal.toFixed(6)} USDC`)
@@ -6607,8 +6607,12 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
       exitCode = EXIT.AUTH_FAIL
       hint = 'Check your API token or session'
     } else if (rawMsg.includes('session secret') || rawMsg.includes('credential store')) {
+      // Don't synthesize a hint here — pay.ts / pay-preflight.ts now throw with
+      // an actionable multi-path message already in `rawMsg` (restore session
+      // secret / set passphrase / re-import). Adding our own "Create a wallet
+      // first" hint on top contradicts that message and pushes agents toward
+      // the wrong fix (recreating a wallet that already exists).
       exitCode = EXIT.NOT_FOUND
-      hint = 'Create a wallet first: palmyr wallet create'
     } else if (rawMsg.includes('not found')) {
       exitCode = EXIT.NOT_FOUND
       const scope = rawMsg.includes('twitter account') ? 'twitter'
