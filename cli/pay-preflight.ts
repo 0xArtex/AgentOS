@@ -131,7 +131,7 @@ async function runPreflight(opts: InternalOpts): Promise<PayPreflightReport> {
       walletAddress: null,
       canSign: false,
       usdc: null,
-      fix: `Cannot decrypt wallet ${walletId} (${signError}). Set PALMYR_WALLET_PASSPHRASE=<phrase> in the env, or pass --passphrase <phrase> on the command.`,
+      fix: `Wallet ${walletId} exists but cannot decrypt (${signError}). Restore the OS credential-store session secret (re-run \`palmyr wallet create\` or the original import on this machine), set PALMYR_WALLET_PASSPHRASE=<phrase> in the env (or pass --passphrase <phrase>), or re-import the mnemonic with \`palmyr wallet import --mnemonic "..."\`.`,
     }
   }
 

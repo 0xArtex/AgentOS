@@ -23,9 +23,29 @@ router.get("/", (_req: Request, res: Response) => {
     },
     services: {
       phone: {
-        provision: { price: isFree ? "FREE" : "$2.00/mo", unit: "per number" },
-        sms: { price: isFree ? "FREE" : "$0.01", unit: "per message" },
-        voice: { price: isFree ? "FREE" : "$0.02", unit: "per minute" },
+        // Mirrors src/routes/phone.ts `requireAuth(price, ...)` values verbatim.
+        // Keep this in sync when route prices change — agents read this endpoint
+        // for the canonical per-op price list, separately from the per-route 402
+        // negotiation. SMS is $0.05, not the old marketing $0.01; provisioning
+        // is a one-time $3.00, not the old "$2.00/mo" subscription framing.
+        search_numbers: { price: "FREE", unit: "per query" },
+        list_numbers: { price: isFree ? "FREE" : "$0.01", unit: "per query" },
+        provision: { price: isFree ? "FREE" : "$3.00", unit: "per number provisioned" },
+        release_number: { price: isFree ? "FREE" : "$0.01", unit: "per release" },
+        messages: { price: isFree ? "FREE" : "$0.02", unit: "per read of an inbox" },
+        sms: { price: isFree ? "FREE" : "$0.05", unit: "per message sent" },
+        list_calls: { price: isFree ? "FREE" : "$0.02", unit: "per query (calls on a number)" },
+        call_info: { price: isFree ? "FREE" : "$0.02", unit: "per call lookup" },
+        call: { price: isFree ? "FREE" : "$0.10", unit: "per outbound call placed" },
+        speak: { price: isFree ? "FREE" : "$0.08", unit: "per TTS on a live call" },
+        play: { price: isFree ? "FREE" : "$0.08", unit: "per audio playback on a live call" },
+        dtmf: { price: isFree ? "FREE" : "$0.02", unit: "per DTMF send" },
+        gather: { price: isFree ? "FREE" : "$0.08", unit: "per gather (collect caller input)" },
+        record: { price: isFree ? "FREE" : "$0.10", unit: "per recording started" },
+        record_stop: { price: isFree ? "FREE" : "$0.02", unit: "per recording stop" },
+        hangup: { price: isFree ? "FREE" : "$0.02", unit: "per hangup" },
+        answer_inbound: { price: isFree ? "FREE" : "$0.02", unit: "per inbound call answer" },
+        transfer: { price: isFree ? "FREE" : "$0.10", unit: "per call transfer" },
       },
       email: {
         provision: { price: isFree ? "FREE" : "$1.00/mo", unit: "per inbox" },

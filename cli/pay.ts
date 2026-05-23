@@ -134,6 +134,7 @@ function resolvePayerKeypair(walletId?: string, passphrase?: string): SolanaKeyp
   const pass = passphrase || process.env.PALMYR_WALLET_PASSPHRASE
 
   // Try the vault first (session secret from OS cred store, falls back to passphrase)
+  let vaultFailed = false
   if (hasVaultWallets()) {
     const targetId = walletId || (cfg as any).defaultPayWalletId || process.env.PALMYR_PAY_WALLET
     try {
@@ -142,8 +143,11 @@ function resolvePayerKeypair(walletId?: string, passphrase?: string): SolanaKeyp
       const first = wallets.find(w => w.solanaAddress)
       if (first) return getVaultSolanaKeypair(first.id, pass)
     } catch (err: any) {
+      // Don't swallow — surface what failed and that we're switching wallets so
+      // the agent isn't surprised when transfers come from a different address
+      // than `palmyr wallet pay-preflight` reported.
       console.error(`  Vault wallet load failed: ${err.message}`)
-      // Fall through to keyfile
+      vaultFailed = true
     }
   }
 
@@ -151,7 +155,14 @@ function resolvePayerKeypair(walletId?: string, passphrase?: string): SolanaKeyp
   const keypairBytes = loadKeypair()
   if (!keypairBytes) return null
   const { Keypair } = require('@solana/web3.js')
-  return Keypair.fromSecretKey(keypairBytes) as SolanaKeypair
+  const keyfileKp = Keypair.fromSecretKey(keypairBytes) as SolanaKeypair
+  if (vaultFailed) {
+    console.error(
+      `  Falling back to legacy keyfile: ${keyfileKp.publicKey.toBase58()}. ` +
+      `Run \`palmyr wallet pay-preflight\` to verify USDC balance + ATA status.`,
+    )
+  }
+  return keyfileKp
 }
 
 /**
@@ -268,8 +279,10 @@ async function buildEvmPaymentAuthorization(
     evmWallet = getVaultEvmWallet(targetId, passphrase)
   } catch (err: any) {
     throw new Error(
-      `EVM wallet load failed for ${targetId}: ${err.message}. ` +
-      `Set PALMYR_WALLET_PASSPHRASE=<phrase> in the env, or pass --passphrase <phrase> on the command.`,
+      `Wallet ${targetId} exists but cannot decrypt (${err.message}). ` +
+      `Restore the OS credential-store session secret (re-run \`palmyr wallet create\` or the original import on this machine), ` +
+      `set PALMYR_WALLET_PASSPHRASE=<phrase> in the env (or pass --passphrase <phrase>), ` +
+      `or re-import the mnemonic with \`palmyr wallet import --mnemonic "..."\`.`,
     )
   }
 
