@@ -378,6 +378,249 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--dst-decimals <n>', desc: 'Dest token decimals', hint: 'default 6 (USDC-like)' },
   ],
 }
+
+const PHONE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
+  search: [
+    { flag: '--country <ISO>', desc: 'Country code', hint: 'default US (e.g. US, GB, AE)' },
+    { flag: '--limit <N>', desc: 'Max results to return' },
+    { flag: '(price)', desc: 'Free — no payment required' },
+    { flag: '(example)', desc: 'palmyr phone search --country US --json' },
+  ],
+  buy: [
+    { flag: '--country <ISO>', desc: 'Country code (required)', hint: 'e.g. US, GB' },
+    { flag: '--area <code>', desc: 'Preferred area code (optional, US only)' },
+    { flag: '(price)', desc: '$3.00 per number provisioned' },
+    { flag: '(example)', desc: 'palmyr phone buy --country US' },
+  ],
+  sms: [
+    { flag: '--id <PHONE_ID>', desc: 'Source phone number id (required)' },
+    { flag: '--to <+E.164>', desc: 'Destination phone number (required)', hint: 'e.g. +15551234567' },
+    { flag: '--body <text>', desc: 'Message body (required)' },
+    { flag: '(price)', desc: '$0.05 per SMS sent' },
+    { flag: '(example)', desc: 'palmyr phone sms --id PN_abc --to +15551234567 --body "hi"' },
+  ],
+  call: [
+    { flag: '--id <PHONE_ID>', desc: 'Source phone number id (required)' },
+    { flag: '--to <+E.164>', desc: 'Destination phone number (required)' },
+    { flag: '--tts <text>', desc: 'Text-to-speech to play on answer (optional)' },
+    { flag: '(price)', desc: '$0.10 per call placed' },
+    { flag: '(example)', desc: 'palmyr phone call --id PN_abc --to +15551234567 --tts "hello"' },
+  ],
+}
+
+const EMAIL_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
+  create: [
+    { flag: '--name <name>', desc: 'Inbox name (required)' },
+    { flag: '--domain <domain>', desc: 'Wallet-owned domain to host the inbox on (optional)', hint: 'default: Palmyr-hosted domain' },
+    { flag: '--wallet <id|name>', desc: 'Wallet to own the inbox (optional)' },
+    { flag: '(price)', desc: '$2.00 per inbox provisioned' },
+    { flag: '(example)', desc: 'palmyr email create --name agent --domain example.com' },
+  ],
+  list: [
+    { flag: '(no args)', desc: 'List inboxes owned by your wallet' },
+    { flag: '(price)', desc: '$0.01 per call' },
+    { flag: '(example)', desc: 'palmyr email list --json' },
+  ],
+  status: [
+    { flag: '<domain>', desc: 'Domain to check (positional or --domain)', hint: 'e.g. example.com' },
+    { flag: '(price)', desc: '$0.01 per call' },
+    { flag: '(example)', desc: 'palmyr email status example.com' },
+  ],
+  register: [
+    { flag: '<domain>', desc: 'Wallet-owned domain to (re-)register with Mailgun (positional or --domain)' },
+    { flag: '(price)', desc: '$0.05 per registration' },
+    { flag: '(example)', desc: 'palmyr email register example.com' },
+  ],
+  read: [
+    { flag: '--id <INBOX_ID>', desc: 'Inbox id (required; positional also accepted)' },
+    { flag: '(price)', desc: '$0.02 per call' },
+    { flag: '(example)', desc: 'palmyr email read --id INB_abc123' },
+  ],
+  send: [
+    { flag: '--id <INBOX_ID>', desc: 'Source inbox id (required)' },
+    { flag: '--to <addr>', desc: 'Destination email (required)' },
+    { flag: '--subject <text>', desc: 'Subject line (required)' },
+    { flag: '--body <text>', desc: 'Message body (required)' },
+    { flag: '(price)', desc: '$0.08 per email sent' },
+    { flag: '(example)', desc: 'palmyr email send --id INB_abc --to user@x.com --subject Hi --body "..."' },
+  ],
+  threads: [
+    { flag: '--id <INBOX_ID>', desc: 'Inbox id (required; positional also accepted)' },
+    { flag: '(price)', desc: '$0.02 per call' },
+    { flag: '(example)', desc: 'palmyr email threads --id INB_abc123' },
+  ],
+}
+
+const COMPUTE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
+  plans: [
+    { flag: '--location <loc>', desc: 'Filter to types deployable in this datacenter (optional)', hint: 'e.g. fsn1, nbg1, hel1, ash, hil' },
+    { flag: '(price)', desc: 'Free — live discovery from Hetzner' },
+    { flag: '(example)', desc: 'palmyr compute plans --location fsn1 --json' },
+  ],
+  locations: [
+    { flag: '(no args)', desc: 'List Hetzner datacenters + per-location server-type availability' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  'install-recipes': [
+    { flag: '(no args)', desc: 'List available agent install recipes (hermes, openclaw, …)' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  'ssh-key': [
+    { flag: 'add <pubkey-file>', desc: 'Upload a key to Hetzner', hint: '[--name "label"]' },
+    { flag: 'list', desc: 'List uploaded Hetzner SSH keys' },
+    { flag: 'delete <id>', desc: 'Remove a Hetzner SSH key' },
+    { flag: '(price)', desc: 'add $0.10 · list $0.01 · delete $0.01' },
+  ],
+  deploy: [
+    { flag: '--type <name>', desc: 'Hetzner server type', hint: 'default cx23' },
+    { flag: '--name <name>', desc: 'Server name', hint: 'default agent-<timestamp>' },
+    { flag: '--location <loc>', desc: 'Hetzner datacenter (optional)', hint: 'e.g. fsn1, nbg1' },
+    { flag: '--install <recipes>', desc: 'Comma-separated install recipes', hint: 'e.g. hermes,openclaw' },
+    { flag: '--no-install', desc: 'Skip cloud-init entirely (vanilla Ubuntu)' },
+    { flag: '--generate-ssh-key', desc: 'GOLDEN PATH (default): generate a fresh keypair locally' },
+    { flag: '--pubkey-file <path>', desc: 'Use an existing public key from disk' },
+    { flag: '--pubkey "ssh-..."', desc: 'Use an inline public key string' },
+    { flag: '--ssh-key <id>', desc: 'Numeric Hetzner key id (already uploaded)' },
+    { flag: '--no-wait', desc: 'Return immediately instead of waiting for SSH-ready' },
+    { flag: '--wait-timeout <s>', desc: 'Override readiness timeout (30–900s)' },
+    { flag: '(price)', desc: '$6.00 per deploy (Hetzner billing flows through)' },
+    { flag: '(example)', desc: 'palmyr compute deploy --type cx23 --install hermes' },
+  ],
+  wait: [
+    { flag: '<name|id>', desc: 'Server (positional, name or numeric id)' },
+    { flag: '--install <recipes>', desc: 'Also gate on the install marker file (e.g. hermes)' },
+    { flag: '--key <path>', desc: 'Path to the private key for SSH verification' },
+    { flag: '--wait-timeout <s>', desc: 'Override readiness timeout (30–900s)' },
+    { flag: '(price)', desc: '$0.01 per readiness poll (server status check)' },
+    { flag: '(example)', desc: 'palmyr compute wait my-vps --install hermes' },
+  ],
+  ssh: [
+    { flag: '<name|id>', desc: 'Server (positional)' },
+    { flag: '(price)', desc: 'Free — local cache lookup only' },
+    { flag: '(example)', desc: 'palmyr compute ssh my-vps' },
+  ],
+  exec: [
+    { flag: '<name|id> -- <cmd> [args...]', desc: 'Run a one-shot command via Palmyr SSH bridge' },
+    { flag: '--timeout <s>', desc: 'Command timeout (1–120s)' },
+    { flag: '(price)', desc: '$0.05 per command' },
+    { flag: '(example)', desc: 'palmyr compute exec my-vps -- systemctl status openclaw' },
+  ],
+  rename: [
+    { flag: '<name|id> <new-name>', desc: 'Rename server (metadata-only, no reboot)' },
+    { flag: '(price)', desc: '$0.01 per rename' },
+  ],
+  'reset-password': [
+    { flag: '<name|id>', desc: 'Rotate the root password (Hetzner-side)' },
+    { flag: '(price)', desc: '$0.10 per action' },
+  ],
+  console: [
+    { flag: '<name|id>', desc: 'Get a noVNC console URL (break-glass)' },
+    { flag: '(price)', desc: '$0.10 per action' },
+  ],
+  reboot: [
+    { flag: '<name|id>', desc: 'Reboot the server' },
+    { flag: '(price)', desc: '$0.10 per action' },
+  ],
+  'setup-ssh': [
+    { flag: '--id <SERVER_ID>', desc: 'Server id (required; positional also accepted)' },
+    { flag: '--pubkey-file <path>', desc: 'Public key file to inject' },
+    { flag: '--pubkey "ssh-..."', desc: 'Inline public key string' },
+    { flag: '(price)', desc: '$0.01 per call' },
+    { flag: '(example)', desc: 'palmyr compute setup-ssh --id 12345 --pubkey-file ~/.ssh/id_ed25519.pub' },
+  ],
+  list: [
+    { flag: '(no args)', desc: 'List your deployed servers' },
+    { flag: '(price)', desc: '$0.01 per call' },
+  ],
+  delete: [
+    { flag: '--id <SERVER_ID>', desc: 'Server id (required; positional also accepted)' },
+    { flag: '(price)', desc: '$0.10 per deletion (Hetzner billing stops on confirm)' },
+  ],
+}
+
+const DOMAIN_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
+  check: [
+    { flag: '--name <domain>', desc: 'Domain or root name (positional also accepted)' },
+    { flag: '(price)', desc: 'Free — availability lookup only' },
+    { flag: '(example)', desc: 'palmyr domain check example.dev' },
+  ],
+  pricing: [
+    { flag: '--name <root>', desc: 'Root name to price across TLDs (positional also accepted)' },
+    { flag: '(price)', desc: 'Free' },
+    { flag: '(example)', desc: 'palmyr domain pricing example' },
+  ],
+  buy: [
+    { flag: '--name <domain>', desc: 'Fully-qualified domain (required, e.g. example.dev)' },
+    { flag: '(price)', desc: 'Dynamic — registrar cost × 1.25 markup (charged via x402)' },
+    { flag: '(example)', desc: 'palmyr domain buy --name example.dev' },
+  ],
+  list: [
+    { flag: '(no args)', desc: 'List domains owned or shared with your wallet' },
+    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+  ],
+  dns: [
+    { flag: '--name <domain>', desc: 'Domain to read DNS for (positional also accepted)' },
+    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+  ],
+  'transfer-ownership': [
+    { flag: '--name <domain>', desc: 'Domain to transfer (required)' },
+    { flag: '--to <wallet>', desc: 'Recipient wallet address (required)' },
+    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+  ],
+  share: [
+    { flag: '--name <domain>', desc: 'Domain to share (required)' },
+    { flag: '--with <wallet>', desc: 'Wallet to grant shared access (required)' },
+    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+  ],
+  unshare: [
+    { flag: '--name <domain>', desc: 'Domain to revoke from (required)' },
+    { flag: '--from <wallet>', desc: 'Wallet to revoke (required)' },
+    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+  ],
+}
+
+const CHAT_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
+  run: [
+    { flag: '"<intent>"', desc: 'Plain-string intent (positional or --intent)' },
+    { flag: '--budget <USDC>', desc: 'Max spend cap (required, positive USDC)' },
+    { flag: '--quality <q>', desc: 'Quality tier', hint: 'fast | cheap | best (default best)' },
+    { flag: '--execute', desc: 'Auto-execute the plan once generated' },
+    { flag: '--auto-approve-under <USDC>', desc: 'Skip approval prompts for steps cheaper than this' },
+    { flag: '(price)', desc: '$0.10 orchestration fee + sum of per-step costs (capped by --budget)' },
+    { flag: '(example)', desc: 'palmyr chat run "launch a sneaker brand" --budget 50' },
+  ],
+  resume: [
+    { flag: '<session_id>', desc: 'Existing session id (positional)' },
+    { flag: '"<follow-up>"', desc: 'Follow-up intent (positional remainder or --intent)' },
+    { flag: '--approve', desc: 'Approve a previously-generated plan' },
+    { flag: '--plan-id <id>', desc: 'Plan id to approve (pair with --approve)' },
+    { flag: '--budget <USDC>', desc: 'Override session budget (default $20)' },
+    { flag: '--execute', desc: 'Auto-execute the new plan' },
+    { flag: '(price)', desc: '$0.10 orchestration fee per new plan + per-step costs' },
+    { flag: '(example)', desc: 'palmyr chat resume sess_abc "now post 3 videos"' },
+  ],
+  status: [
+    { flag: '<session_id>', desc: 'Session id (positional)' },
+    { flag: '(price)', desc: 'Free — session inspection' },
+  ],
+  cancel: [
+    { flag: '<session_id>', desc: 'Session id (positional)' },
+    { flag: '(price)', desc: 'Free — halts execution and refunds remaining escrow' },
+  ],
+  sessions: [
+    { flag: '(no args)', desc: 'List your active i402 sessions' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  capabilities: [
+    { flag: '(no args)', desc: 'List canonical capability classes (e.g. web_search, mint_nft)' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  providers: [
+    { flag: '--capability <name>', desc: 'Filter providers by capability (optional)' },
+    { flag: '(price)', desc: 'Free' },
+    { flag: '(example)', desc: 'palmyr chat providers --capability web_search' },
+  ],
+}
 /**
  * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
  * with the Palmyr aesthetic. In agent mode → flat JSON listing the available
@@ -671,7 +914,7 @@ async function main() {
       }
 
       case 'phone': {
-        if (!subcommand || flags.help) {
+        if (!subcommand || (flags.help && !PHONE_HELP[subcommand])) {
           showMenu({
             command: 'phone',
             title: 'phone',
@@ -685,6 +928,10 @@ async function main() {
             ],
             fromHome,
           })
+          break
+        }
+        if (flags.help && subcommand && PHONE_HELP[subcommand]) {
+          subcommandHelp('phone', subcommand, PHONE_HELP[subcommand])
           break
         }
         switch (subcommand) {
@@ -755,7 +1002,7 @@ async function main() {
       }
 
       case 'email': {
-        if (!subcommand || flags.help) {
+        if (!subcommand || (flags.help && !EMAIL_HELP[subcommand])) {
           showMenu({
             command: 'email',
             title: 'email',
@@ -772,6 +1019,10 @@ async function main() {
             ],
             fromHome,
           })
+          break
+        }
+        if (flags.help && subcommand && EMAIL_HELP[subcommand]) {
+          subcommandHelp('email', subcommand, EMAIL_HELP[subcommand])
           break
         }
         switch (subcommand) {
@@ -858,7 +1109,7 @@ async function main() {
       }
 
       case 'compute': {
-        if (!subcommand || flags.help) {
+        if (!subcommand || (flags.help && !COMPUTE_HELP[subcommand])) {
           showMenu({
             command: 'compute',
             title: 'compute',
@@ -883,6 +1134,10 @@ async function main() {
             ],
             fromHome,
           })
+          break
+        }
+        if (flags.help && subcommand && COMPUTE_HELP[subcommand]) {
+          subcommandHelp('compute', subcommand, COMPUTE_HELP[subcommand])
           break
         }
         switch (subcommand) {
@@ -1439,7 +1694,7 @@ async function main() {
       }
 
       case 'domain': {
-        if (!subcommand || flags.help) {
+        if (!subcommand || (flags.help && !DOMAIN_HELP[subcommand])) {
           showMenu({
             command: 'domain',
             title: 'domain',
@@ -1457,6 +1712,10 @@ async function main() {
             ],
             fromHome,
           })
+          break
+        }
+        if (flags.help && subcommand && DOMAIN_HELP[subcommand]) {
+          subcommandHelp('domain', subcommand, DOMAIN_HELP[subcommand])
           break
         }
         switch (subcommand) {
@@ -3807,7 +4066,7 @@ async function main() {
       }
 
       case 'chat': {
-        if (!subcommand || flags.help) {
+        if (!subcommand || (flags.help && !CHAT_HELP[subcommand])) {
           showMenu({
             command: 'chat',
             title: 'chat',
@@ -3824,6 +4083,10 @@ async function main() {
             ],
             fromHome,
           })
+          break
+        }
+        if (flags.help && subcommand && CHAT_HELP[subcommand]) {
+          subcommandHelp('chat', subcommand, CHAT_HELP[subcommand])
           break
         }
 
