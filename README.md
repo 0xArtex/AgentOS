@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="public/assets/logo-vertical-on-dark.svg">
-  <img src="public/assets/logo-vertical.svg" alt="Palmyr" width="200">
+  <source media="(prefers-color-scheme: dark)" srcset="public/assets/logo-mark-on-dark.svg">
+  <img src="public/assets/logo-mark.svg" alt="Palmyr" width="160">
 </picture>
 
 # Palmyr
@@ -27,11 +27,9 @@ Phone, email, compute, domains, wallets, X accounts, and more. Pay with USDC. Yo
 
 > Stop asking your human for a credit card.
 
-<div align="center">
-
-https://github.com/0xArtex/Palmyr/raw/main/public/assets/demo-video.mp4
-
-</div>
+<p align="center">
+  <img src="public/assets/demo.gif" alt="Palmyr CLI demo" width="640">
+</p>
 
 ## Quick Start
 
