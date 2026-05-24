@@ -740,6 +740,223 @@ const CHAT_HELP: Record<string, Array<{ flag: string; desc: string; hint?: strin
     { flag: '(example)', desc: 'palmyr chat providers --capability web_search' },
   ],
 }
+
+// Help tables for the two social subsystems. Their presence is what gates
+// `--help` from dispatching paid actions — see the `case 'twitter'` and
+// `case 'tiktok'` blocks below. 1.8.3 had no entries here and the
+// `case 'buy'` arm immediately called the $5 paid endpoint when a user
+// (reasonably) ran `palmyr twitter buy --help`. Every entry below MUST
+// flag the price for paid subcommands so future readers can scan it.
+const TWITTER_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
+  import: [
+    { flag: '<username>', desc: 'Twitter handle to import' },
+    { flag: '--credentials-line "..."', desc: 'login:password:email:email_pw:totp_seed:ct0:auth_token format' },
+    { flag: '--username --password ...', desc: 'Alternative: individual flags for each field' },
+    { flag: '(price)', desc: 'Free — local vault only' },
+  ],
+  list: [
+    { flag: '--local', desc: 'Skip server check; show only locally-vaulted accounts' },
+    { flag: '(price)', desc: 'Free local listing + paid lookups when --local is omitted (~$0.001 to enumerate server-side access)' },
+  ],
+  info: [
+    { flag: '<username>', desc: 'Account to inspect' },
+    { flag: '(price)', desc: 'Free — local vault read' },
+  ],
+  rename: [
+    { flag: '<old>', desc: 'Current local handle' },
+    { flag: '--to <new>', desc: 'New handle (after a real-server rename)' },
+    { flag: '(price)', desc: 'Free — local-only metadata update' },
+  ],
+  remove: [
+    { flag: '<username>', desc: 'Account to remove' },
+    { flag: '--confirm', desc: 'Required — local delete is irreversible' },
+    { flag: '(price)', desc: 'Free — local vault only' },
+  ],
+  totp: [
+    { flag: '<username>', desc: 'Account whose current TOTP code to print' },
+    { flag: '(price)', desc: 'Free — local TOTP generation' },
+  ],
+  buy: [
+    { flag: '(no args)', desc: 'Purchase the oldest ready X account from the supplier pool' },
+    { flag: '(price)', desc: '$5 USDC — paid via x402. Account auto-imported into the local vault and session primed.' },
+    { flag: '(example)', desc: 'palmyr twitter buy' },
+  ],
+  login: [
+    { flag: '<username>', desc: 'Force a fresh server-side session (browser runtime)' },
+    { flag: '(price)', desc: '$0.005 USDC' },
+  ],
+  'manual-login': [
+    { flag: '<username>', desc: 'Open a remote browser session you sign in to manually' },
+    { flag: '(price)', desc: 'Variable — server-side browser session cost' },
+  ],
+  session: [
+    { flag: '<username>', desc: 'Inspect cached server-side session status' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  post: [
+    { flag: '<username>', desc: 'Account to post from' },
+    { flag: '--body "..."', desc: 'Tweet body (required)' },
+    { flag: '(price)', desc: '$0.001 USDC per post' },
+  ],
+  reply: [
+    { flag: '<username>', desc: 'Account to reply from' },
+    { flag: '--to <url>', desc: 'Tweet URL to reply to' },
+    { flag: '--body "..."', desc: 'Reply body' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  like: [
+    { flag: '<username>', desc: 'Account doing the like' },
+    { flag: '--tweet <url>', desc: 'Tweet to like' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  retweet: [
+    { flag: '<username>', desc: 'Account doing the retweet' },
+    { flag: '--tweet <url>', desc: 'Tweet to retweet' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  follow: [
+    { flag: '<username>', desc: 'Account doing the follow' },
+    { flag: '--user @handle', desc: 'User to follow' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  unfollow: [
+    { flag: '<username>', desc: 'Account doing the unfollow' },
+    { flag: '--user @handle', desc: 'User to unfollow' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  delete: [
+    { flag: '<username>', desc: 'Account that posted the tweet' },
+    { flag: '--tweet <url>', desc: 'Tweet to delete' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  'list-tweets': [
+    { flag: '<username>', desc: 'Account whose timeline to fetch' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  bio: [
+    { flag: '<username>', desc: 'Account whose bio to update' },
+    { flag: '--text "..."', desc: 'New bio (<=160 chars)' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  name: [
+    { flag: '<username>', desc: 'Account whose display name to update' },
+    { flag: '--display "..."', desc: 'New display name' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  location: [
+    { flag: '<username>', desc: 'Account whose location to update' },
+    { flag: '--location "..."', desc: 'New location string' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  website: [
+    { flag: '<username>', desc: 'Account whose profile website to update' },
+    { flag: '--url https://...', desc: 'New website URL' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  pfp: [
+    { flag: '<username>', desc: 'Account whose avatar to update' },
+    { flag: '--file pic.png', desc: 'Image file (jpeg / png)' },
+    { flag: '(price)', desc: '$0.005 USDC' },
+  ],
+  banner: [
+    { flag: '<username>', desc: 'Account whose banner to update' },
+    { flag: '--file banner.png', desc: 'Image file' },
+    { flag: '(price)', desc: '$0.005 USDC' },
+  ],
+  username: [
+    { flag: '<username>', desc: 'Current account handle' },
+    { flag: '--to <new>', desc: 'New handle' },
+    { flag: '(price)', desc: '$0.005 USDC' },
+  ],
+  transfer: [
+    { flag: '<username>', desc: 'Account to transfer' },
+    { flag: '--to <wallet>', desc: 'Destination wallet address' },
+    { flag: '--confirm', desc: 'Required — rotates password, revokes other sessions' },
+    { flag: '(price)', desc: 'Free for vaulted accounts; ~$0.01 USDC to auto-register an imported-only account first' },
+  ],
+  share: [
+    { flag: '<username>', desc: 'Account to share' },
+    { flag: '--with <wallet>', desc: 'Wallet to grant access to' },
+    { flag: '(price)', desc: 'Free for shared access (no password rotation)' },
+  ],
+  unshare: [
+    { flag: '<username>', desc: 'Account to revoke share on' },
+    { flag: '--from <wallet>', desc: 'Wallet to revoke' },
+    { flag: '--rotate', desc: 'Also rotate password so cached cookies stop working' },
+    { flag: '(price)', desc: 'Free; --rotate runs async like transfer (~30-90s)' },
+  ],
+  claim: [
+    { flag: '(no args)', desc: 'Pull every server-side X account the wallet can access into the local vault' },
+    { flag: '(price)', desc: '~$0.001 USDC per account claimed (creds-decryption fee)' },
+  ],
+}
+
+const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
+  import: [
+    { flag: '<username>', desc: 'TikTok handle to import' },
+    { flag: '--sessionid <s> --csrf <c> --webid <w>', desc: 'Cookies from a logged-in TikTok browser' },
+    { flag: '--credentials-line "..."', desc: 'Marketplace login:pw:email:email_pw format' },
+    { flag: '(price)', desc: 'Free — local vault only' },
+  ],
+  list: [
+    { flag: '(no args)', desc: 'List all local TikTok accounts' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  info: [{ flag: '<username>', desc: 'Show one account' }, { flag: '(price)', desc: 'Free' }],
+  rename: [
+    { flag: '<old>', desc: 'Current local handle' },
+    { flag: '--to <new>', desc: 'New handle' },
+    { flag: '(price)', desc: 'Free — local-only metadata update' },
+  ],
+  remove: [
+    { flag: '<username>', desc: 'Account to delete from local vault' },
+    { flag: '--confirm', desc: 'Required' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  totp: [{ flag: '<username>', desc: 'Print current TOTP code' }, { flag: '(price)', desc: 'Free' }],
+  login: [
+    { flag: '<username>', desc: 'Validate cookies and cache the session' },
+    { flag: '(price)', desc: '$0.005 USDC' },
+  ],
+  session: [{ flag: '<username>', desc: 'Check cached session' }, { flag: '(price)', desc: 'Free' }],
+  post: [
+    { flag: '<username>', desc: 'Account to post from' },
+    { flag: '--file video.mp4', desc: 'Video file' },
+    { flag: '--caption "..."', desc: 'Caption' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  follow: [
+    { flag: '<username>', desc: 'Account doing the follow' },
+    { flag: '--user @handle', desc: 'User to follow' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  like: [
+    { flag: '<username>', desc: 'Account doing the like' },
+    { flag: '--video <url>', desc: 'Video URL to like' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  delete: [
+    { flag: '<username>', desc: 'Account that posted the video' },
+    { flag: '--video <url>', desc: 'Video to delete' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  bio: [
+    { flag: '<username>', desc: 'Account whose bio to update' },
+    { flag: '--text "..."', desc: 'New bio (<=80 chars)' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  name: [
+    { flag: '<username>', desc: 'Account whose display name to update' },
+    { flag: '--display "..."', desc: 'New display name (<=30 chars)' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  pfp: [
+    { flag: '<username>', desc: 'Account whose avatar to update' },
+    { flag: '--file pic.png', desc: 'Image file' },
+    { flag: '(price)', desc: '$0.005 USDC' },
+  ],
+}
+
 /**
  * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
  * with the Palmyr aesthetic. In agent mode → flat JSON listing the available
@@ -4858,7 +5075,12 @@ async function main() {
           return summary
         }
 
-        if (!subcommand) {
+        // Help guard. `palmyr twitter buy --help` MUST never dispatch to the
+        // paid `case 'buy'` below — 1.8.3 had no guard here and a real user
+        // got charged $5 for a help command. Falls back to the top-level menu
+        // when the subcommand has no per-subcommand help entry, so even an
+        // unrecognized `palmyr twitter <whatever> --help` is safe to run.
+        if (!subcommand || (flags.help && !TWITTER_HELP[subcommand])) {
           showMenu({
             command: 'twitter',
             title: 'twitter',
@@ -4882,6 +5104,10 @@ async function main() {
             ],
             fromHome,
           })
+          return
+        }
+        if (flags.help && subcommand && TWITTER_HELP[subcommand]) {
+          subcommandHelp('twitter', subcommand, TWITTER_HELP[subcommand])
           return
         }
 
@@ -6189,7 +6415,9 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
         const sv = await import('./social-vault.js')
         const platform = 'tiktok' as const
 
-        if (!subcommand) {
+        // Same help guard as `twitter` — prevents `--help` from dispatching
+        // a paid subcommand. Same bug class lived here too in 1.8.3.
+        if (!subcommand || (flags.help && !TIKTOK_HELP[subcommand])) {
           showMenu({
             command: 'tiktok',
             title: 'tiktok',
@@ -6214,6 +6442,10 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             ],
             fromHome,
           })
+          return
+        }
+        if (flags.help && subcommand && TIKTOK_HELP[subcommand]) {
+          subcommandHelp('tiktok', subcommand, TIKTOK_HELP[subcommand])
           return
         }
 
