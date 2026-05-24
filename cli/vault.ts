@@ -430,6 +430,30 @@ function encryptWithRawKey(plaintext: string, keyHex: string): EncryptedBlob {
   }
 }
 
+const MIN_PASSPHRASE_LEN = 8
+
+function assertPassphrase(passphrase: string): void {
+  if (typeof passphrase !== 'string' || passphrase.length < MIN_PASSPHRASE_LEN) {
+    throw new Error(`Passphrase must be at least ${MIN_PASSPHRASE_LEN} characters`)
+  }
+}
+
+function encryptWithPassphrase(plaintext: string, passphrase: string): EncryptedBlob {
+  assertPassphrase(passphrase)
+  const iv = randomBytes(12)
+  const salt = randomBytes(32)
+  const key = scryptSync(passphrase, salt, 32)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  let encrypted = cipher.update(plaintext, 'utf8', 'hex')
+  encrypted += cipher.final('hex')
+  return {
+    iv: iv.toString('hex'),
+    salt: salt.toString('hex'),
+    ciphertext: encrypted,
+    tag: cipher.getAuthTag().toString('hex'),
+  }
+}
+
 /**
  * Distinguish "ethers module can't even load" (missing dependency, broken
  * install) from "ethers loaded but threw mid-derivation" (genuinely odd
@@ -512,6 +536,15 @@ export interface LocalWalletResult {
 export interface CreateWalletOpts {
   tag?: string
   chains?: ChainName[]
+  /**
+   * If set, also seal the mnemonic with a scrypt-derived key from this
+   * passphrase. Survives OS-keychain loss (different user, fresh OS,
+   * headless box) — the passphrase becomes a durable fallback that
+   * `PALMYR_WALLET_PASSPHRASE` / `--passphrase` can present at decrypt time.
+   * Without this, the wallet is session-only and lives or dies with the
+   * OS credential store on the machine where it was created.
+   */
+  passphrase?: string
 }
 
 function buildWallet(
@@ -533,6 +566,7 @@ function buildWallet(
     mode,
     accounts,
     session_crypto: encryptWithRawKey(mnemonic, sessionSecret),
+    ...(opts.passphrase ? { owner_crypto: encryptWithPassphrase(mnemonic, opts.passphrase) } : {}),
     key_type: 'mnemonic',
     created_at: new Date().toISOString(),
     chains,
@@ -727,4 +761,42 @@ export function walletsByTag(tag: string): VaultWalletSummary[] {
 export function exportMnemonic(walletId: string): string {
   const file = loadWalletFile(walletId)
   return resolveMnemonic(file)
+}
+
+/**
+ * True iff the wallet has a passphrase-encrypted blob — i.e. survives
+ * OS-keychain loss with the right `PALMYR_WALLET_PASSPHRASE`.
+ */
+export function hasPassphraseFallback(walletId: string): boolean {
+  return !!loadWalletFile(walletId).owner_crypto
+}
+
+/**
+ * Add or rotate the passphrase-fallback blob on an existing wallet.
+ *
+ * The mnemonic is resolved via the standard auth chain (session secret →
+ * existing passphrase), then re-encrypted with `newPassphrase` and the
+ * `owner_crypto` blob is written back to the file atomically.
+ *
+ * Throws if the wallet can't be decrypted right now — there's no way to
+ * add a fallback to a wallet whose key material we can't access.
+ *
+ * Use case: wallet created without a passphrase (`wallet create` pre-1.9 or
+ * without `--passphrase`) → user wants durable recovery on a new box. Run
+ * `wallet rekey <id> --passphrase <phrase>` on the original machine while
+ * the session secret is still resolvable.
+ */
+export function rekeyWallet(walletId: string, newPassphrase: string, currentPassphrase?: string): { id: string; name: string; rotated: boolean } {
+  assertPassphrase(newPassphrase)
+  const hit = findWalletFile(walletId)
+  if (!hit) throw new Error(`Wallet "${walletId}" not found`)
+  if (hit.data.key_type !== 'mnemonic') throw new Error('Rekey only supports mnemonic wallets')
+  const mnemonic = resolveMnemonic(hit.data, currentPassphrase)
+  const rotated = !!hit.data.owner_crypto
+  withLock(hit.path, () => {
+    const fresh = JSON.parse(readFileSync(hit.path, 'utf8')) as WalletFile
+    fresh.owner_crypto = encryptWithPassphrase(mnemonic, newPassphrase)
+    atomicWriteFileSync(hit.path, JSON.stringify(fresh, null, 2))
+  })
+  return { id: hit.data.id, name: hit.data.name, rotated }
 }

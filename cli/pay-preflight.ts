@@ -27,6 +27,7 @@ import {
   listVaultWallets,
   getVaultEvmWallet,
   getVaultSolanaKeypair,
+  hasPassphraseFallback,
 } from './vault.js'
 
 /** Canonical USDC mint / contract for each chain. */
@@ -124,6 +125,15 @@ async function runPreflight(opts: InternalOpts): Promise<PayPreflightReport> {
   }
 
   if (!canDecrypt) {
+    // The passphrase-fallback path only works if `owner_crypto` was written at
+    // create/import time or via `wallet rekey`. Without that, telling the user
+    // to "set PALMYR_WALLET_PASSPHRASE" is misleading — the env var has nothing
+    // to decrypt against and the wallet is session-only.
+    let hasFallback = false
+    try { hasFallback = hasPassphraseFallback(walletId) } catch {}
+    const fix = hasFallback
+      ? `Wallet ${walletId} exists but cannot decrypt (${signError}). Set PALMYR_WALLET_PASSPHRASE=<phrase> in the env (or pass --passphrase <phrase>) — this wallet has a passphrase fallback.`
+      : `Wallet ${walletId} exists but cannot decrypt (${signError}). This wallet is session-only — the OS-keychain secret is gone (different user, fresh OS, headless box, or service account). Recovery paths: (1) re-import the mnemonic with \`palmyr wallet import --mnemonic "..."\` on this machine, or (2) on the ORIGINAL machine where the wallet still decrypts, run \`palmyr wallet rekey ${walletId} --passphrase <phrase>\` to add a durable passphrase fallback, then set PALMYR_WALLET_PASSPHRASE here.`
     return {
       ok: false,
       payChain,
@@ -131,7 +141,7 @@ async function runPreflight(opts: InternalOpts): Promise<PayPreflightReport> {
       walletAddress: null,
       canDecrypt: false,
       usdc: null,
-      fix: `Wallet ${walletId} exists but cannot decrypt (${signError}). Restore the OS credential-store session secret (re-run \`palmyr wallet create\` or the original import on this machine), set PALMYR_WALLET_PASSPHRASE=<phrase> in the env (or pass --passphrase <phrase>), or re-import the mnemonic with \`palmyr wallet import --mnemonic "..."\`.`,
+      fix,
     }
   }
 

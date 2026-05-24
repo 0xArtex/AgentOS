@@ -220,6 +220,7 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--tag <name>', desc: 'Folder-like grouping tag', hint: 'e.g. palmyr-demo — required with --count' },
     { flag: '--count <N>', desc: 'Bulk-create N wallets in one call (1-500)', hint: 'unmanaged only; requires --tag' },
     { flag: '--name-prefix <p>', desc: 'Bulk name prefix; suffixed `-001..-N`', hint: 'default: same as --tag' },
+    { flag: '--passphrase <p>', desc: 'Also seal the mnemonic with this passphrase (≥8 chars) for durable recovery', hint: 'or PALMYR_WALLET_PASSPHRASE env (env preferred — keeps phrase out of shell history)' },
   ],
   import: [
     { flag: '--mnemonic <words>', desc: 'BIP-39 mnemonic phrase (required)' },
@@ -228,6 +229,13 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--solana', desc: 'Materialize the Solana account only' },
     { flag: '--base', desc: 'Materialize the Base/EVM account only' },
     { flag: '--tag <name>', desc: 'Assign a tag at import time' },
+    { flag: '--passphrase <p>', desc: 'Also seal the mnemonic with this passphrase (≥8 chars) for durable recovery', hint: 'or PALMYR_WALLET_PASSPHRASE env (env preferred)' },
+  ],
+  rekey: [
+    { flag: '<WALLET_ID>', desc: 'Wallet ID or name (positional or --id)' },
+    { flag: '--passphrase <p>', desc: 'New passphrase to seal the mnemonic with (≥8 chars)', hint: 'or PALMYR_WALLET_PASSPHRASE env; interactive prompt if neither set' },
+    { flag: '--current-passphrase <p>', desc: 'Existing passphrase, if the wallet was already rekeyed and the OS session secret is gone', hint: 'or PALMYR_WALLET_PASSPHRASE_CURRENT env' },
+    { flag: '(note)', desc: 'Run on the original machine while the OS session secret is still resolvable. Becomes the durable recovery path on any other host.' },
   ],
   tags: [
     { flag: '(no args)', desc: 'List all tags with wallet count, chains, and date range' },
@@ -2097,6 +2105,7 @@ async function main() {
               { name: 'tag-delete', description: 'Cascade-delete every wallet under a tag', hint: 'TAG --confirm' },
               { name: 'sign-message', description: 'Sign a message', hint: 'WALLET_ID --chain evm --msg "hello"' },
               { name: 'export', description: 'Export mnemonic for backup', hint: 'WALLET_ID --confirm' },
+              { name: 'rekey', description: 'Add or rotate the passphrase fallback (durable across OS-keychain loss)', hint: 'WALLET_ID --passphrase <p>' },
               { name: 'api-key', description: 'Create agent API key', hint: 'WALLET_ID --name my-agent' },
               { name: 'config', description: 'Get agent config', hint: 'WALLET_ID' },
               { name: 'use', description: 'Set default pay wallet', hint: 'WALLET_ID' },
@@ -2148,6 +2157,11 @@ async function main() {
                          : (wantBase && !wantSol) ? ['base' as const]
                          : ['solana' as const, 'base' as const]
 
+            // Optional passphrase fallback — seals the mnemonic with scrypt so
+            // PALMYR_WALLET_PASSPHRASE can decrypt on a different machine / user /
+            // headless box where the OS credential-store secret isn't reachable.
+            const passphrase = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+
             // ─── Bulk path ───
             if (count > 1) {
               if (isManaged) err('Bulk wallet creation only supports unmanaged wallets — managed wallets need per-wallet passkey setup.', EXIT.BAD_INPUT)
@@ -2159,13 +2173,13 @@ async function main() {
               const { storeSecretsBatch } = await import('./credential-store.js')
 
               // Progress to stderr so JSON on stdout stays clean
-              if (!AGENT_MODE) process.stderr.write(`creating ${count} wallets under tag "${tagRaw}"...\n`)
-              const results = createLocalWalletsBatch(prefix, count, 'unmanaged', { tag: tagRaw, chains })
+              if (!AGENT_MODE) process.stderr.write(`creating ${count} wallets under tag "${tagRaw}"${passphrase ? ' (+ passphrase fallback)' : ''}...\n`)
+              const results = createLocalWalletsBatch(prefix, count, 'unmanaged', { tag: tagRaw, chains, passphrase })
 
               if (!AGENT_MODE) process.stderr.write(`sealing ${count} session secrets in OS credential store...\n`)
               storeSecretsBatch(results.map(r => ({ account: r.id, secret: r.sessionSecret })))
 
-              log(`wallet create: ${count} wallets under tag "${tagRaw}" (chains=${chains.join(',')})`)
+              log(`wallet create: ${count} wallets under tag "${tagRaw}" (chains=${chains.join(',')}${passphrase ? ', passphrase=set' : ''})`)
 
               if (AGENT_MODE) {
                 print({
@@ -2199,7 +2213,7 @@ async function main() {
 
             // Create locally — no server needed for the key material
             const { createLocalWallet } = await import('./vault.js')
-            const w = createLocalWallet(name, mode, { tag: tagRaw, chains })
+            const w = createLocalWallet(name, mode, { tag: tagRaw, chains, passphrase })
 
             // Store session secret in OS credential store
             const { storeSecret } = await import('./credential-store.js')
@@ -2265,14 +2279,16 @@ async function main() {
                          : (wantBase && !wantSol) ? ['base' as const]
                          : ['solana' as const, 'base' as const]
 
+            const passphrase = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+
             const { importLocalWallet } = await import('./vault.js')
-            const w = importLocalWallet(name, mnemonic, mode, { tag: tagRaw, chains })
+            const w = importLocalWallet(name, mnemonic, mode, { tag: tagRaw, chains, passphrase })
 
             // Store session secret
             const { storeSecret } = await import('./credential-store.js')
             storeSecret(w.id, w.sessionSecret)
 
-            log(`wallet import: ${w.id}`)
+            log(`wallet import: ${w.id}${passphrase ? ' (+ passphrase fallback)' : ''}`)
 
             if (!AGENT_MODE) {
               render(React.createElement(WalletCreateScreen, {
@@ -2554,6 +2570,44 @@ async function main() {
               console.log(`  ${t.muted}${warning}${t.reset}\n`)
             } else {
               print({ mnemonic: mnemonic!, walletId, warning })
+            }
+            break
+          }
+          case 'rekey': {
+            const walletId = positional[0] || (flags.id as string)
+            if (!walletId) err('Wallet ID required: palmyr wallet rekey <WALLET_ID> --passphrase <p>', EXIT.BAD_INPUT)
+
+            // New passphrase: flag → env → interactive prompt (TTY only).
+            let newPass = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+            if (!newPass) {
+              if (!process.stdin.isTTY) err('--passphrase or PALMYR_WALLET_PASSPHRASE required (no TTY for interactive prompt)', EXIT.BAD_INPUT)
+              const { promptNewPassphrase } = await import('./passphrase-prompt.js')
+              newPass = await promptNewPassphrase()
+            }
+
+            // Current passphrase is only needed if the wallet was already
+            // passphrase-sealed and the OS session secret is gone (rare —
+            // typically the rekey runs on the original machine where the
+            // session secret still resolves).
+            const currentPass = (flags['current-passphrase'] as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE_CURRENT || undefined
+
+            const { rekeyWallet } = await import('./vault.js')
+            let result: { id: string; name: string; rotated: boolean }
+            try {
+              result = rekeyWallet(walletId, newPass, currentPass)
+            } catch (e: any) {
+              const code = e.message?.includes('SECURITY') ? EXIT.SECURITY : EXIT.GENERAL
+              err(e.message, code)
+            }
+
+            log(`wallet rekey: ${result!.id} (${result!.rotated ? 'rotated' : 'added'})`)
+
+            if (!AGENT_MODE) {
+              const verb = result!.rotated ? 'Rotated' : 'Added'
+              console.log(`\n  ${t.success}✔${t.reset} ${verb} passphrase fallback on ${t.accent}${result!.name}${t.reset}`)
+              console.log(`  ${t.muted}Wallet now decrypts with PALMYR_WALLET_PASSPHRASE on any machine (in addition to the OS keychain on this one).${t.reset}\n`)
+            } else {
+              print({ success: true, ...result! })
             }
             break
           }
