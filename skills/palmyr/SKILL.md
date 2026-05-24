@@ -17,17 +17,18 @@ Everything an agent needs: phone, email, compute, domains, voice calling, wallet
 ```bash
 npm i -g @palmyr/cli
 
-# Configure your Solana wallet (for x402 payments)
-palmyr setup --keyfile ~/.config/solana/id.json --chain solana
+# Create a local HD wallet — both Solana + Base from one mnemonic, ready for x402 payments
+palmyr wallet create
 
-# Optionally add Base (EVM) wallet too
-palmyr setup --keyfile ./base-key.json --chain base
+# Optional: durable passphrase fallback so the wallet decrypts on any machine
+# (otherwise it lives or dies with the OS keychain on this box)
+PALMYR_WALLET_PASSPHRASE="your-passphrase" palmyr wallet create
 
 # Check everything works
 palmyr status
 ```
 
-The CLI creates `~/.palmyr/` to store config, credentials, data, logs, and memory. Your keyfile is referenced by path — never copied.
+The CLI creates `~/.palmyr/` to store config, credentials, data, logs, and memory. The wallet file at `~/.palmyr/wallet/wallets/<id>.json` is AES-256-GCM encrypted; the session key lives in your OS credential store (DPAPI / Keychain / `secret-tool`) and never on disk in plaintext.
 
 ## CLI Commands
 
