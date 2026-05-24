@@ -57,10 +57,13 @@ export async function promptPassphrase(label = 'Trading keystore passphrase: '):
 /**
  * Prompt twice with confirmation. Used by `init` and any other path that
  * creates / rotates a passphrase. Re-prompts on mismatch up to 3 times.
+ *
+ * `label` controls the prompt copy so each caller can name the artifact
+ * being protected (vault wallet vs trading keystore vs anything else).
  */
-export async function promptNewPassphrase(): Promise<string> {
+export async function promptNewPassphrase(label = 'trading keystore'): Promise<string> {
   for (let attempt = 1; attempt <= 3; attempt++) {
-    const a = await ask('New trading keystore passphrase: ')
+    const a = await ask(`New ${label} passphrase: `)
     if (a.length < 8) {
       process.stdout.write('  passphrase must be at least 8 characters; try again\n')
       continue

@@ -112,17 +112,27 @@ from a single 12-word mnemonic. Wallets are created locally; the seed never leav
 
 ### Creating a wallet
 
-```bash
-# Unmanaged: one command, ready to sign
-palmyr wallet create --name agent-prod
+Wallet creation **requires** a recoverable passphrase fallback (the env var keeps the phrase out of shell history) — or an explicit `--session-only` opt-out for ephemeral wallets you're OK losing on reboot / keyring change / host migration.
 
-# Managed: prints a setup link to send to a human
-palmyr wallet create --name treasury --managed
+```bash
+# Recommended — env-var passphrase fallback (durable across reboots and machines)
+PALMYR_WALLET_PASSPHRASE="your-passphrase" palmyr wallet create --name agent-prod
+
+# Equivalent — flag form (less safe, ends up in shell history)
+palmyr wallet create --name agent-prod --passphrase "your-passphrase"
+
+# Managed: same passphrase rules; also prints a setup link to send to a human
+PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name treasury --managed
 
 # Single-chain: skip the other chain's account
-palmyr wallet create --name sol-only --solana
-palmyr wallet create --name base-only --base
+PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name sol-only --solana
+PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name base-only --base
+
+# OPT OUT — bound to this machine's OS keychain, NOT recoverable from the JSON file alone
+palmyr wallet create --name throwaway --session-only
 ```
+
+On a TTY without env or flag, the CLI prompts twice with confirmation; non-TTY callers (CI, agents) must provide one of the three knobs above or get a clear error.
 
 By default a wallet derives both Solana and Base/EVM accounts. Pass `--solana` or `--base` (not both) to materialize only one side. The mnemonic always derives both — `--solana` / `--base` controls *which addresses are surfaced and stored*, not which keys exist cryptographically.
 
@@ -162,7 +172,9 @@ palmyr wallet import --mnemonic "..." --name from-backup --tag restored --solana
 
 ### Durable recovery — passphrase fallback
 
-By default a wallet is **session-only**: the mnemonic is encrypted with a random session secret stored in your OS credential store (DPAPI / Keychain / `secret-tool`). That secret does not survive a different OS user, a fresh install, or a headless box without an unlocked keyring. Two ways to add a durable scrypt-derived passphrase that decrypts on any machine:
+Wallets created with a passphrase store **two** decryption blobs: one keyed by the OS-keychain session secret (fast, local), one keyed by scrypt(passphrase, salt) (durable). Decryption tries the keychain first, then falls back to `PALMYR_WALLET_PASSPHRASE`. That second blob is what lets the wallet survive a reboot, OS-keychain password change, fresh OS install, or copy to another machine.
+
+Session-only wallets (`--session-only`) **only** have the keychain blob and are NOT recoverable from the JSON file alone. If you have legacy session-only wallets and still have access to the original machine, add a fallback retroactively:
 
 ```bash
 # At create time — env var preferred (keeps the phrase out of shell history)
@@ -426,8 +438,8 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 
 | Command | Network | Notes |
 |---|---|---|
-| `palmyr wallet create [--name N] [--managed] [--solana\|--base] [--tag T] [--count N] [--name-prefix P] [--passphrase P]` | local *(server only if `--managed`)* | New wallet. Stores session secret in OS credential store. `--count > 1` bulk-creates N unmanaged wallets under a required `--tag` (max 500/call, batched DPAPI seal on Windows). `--solana` / `--base` materializes only one chain. `--passphrase` (or `PALMYR_WALLET_PASSPHRASE` env) also seals the mnemonic with scrypt so the wallet survives OS-keychain loss. |
-| `palmyr wallet import --mnemonic "..." [--name N] [--managed] [--solana\|--base] [--tag T] [--passphrase P]` | local | Restore from BIP-39. Same chain / tag / passphrase flags as `create`. |
+| `palmyr wallet create [--name N] [--managed] [--solana\|--base] [--tag T] [--count N] [--name-prefix P] (--passphrase P \| PALMYR_WALLET_PASSPHRASE env \| --session-only)` | local *(server only if `--managed`)* | New wallet. **Requires** either a passphrase (recoverable across reboot / OS-keychain loss / host migration) or explicit `--session-only` opt-out. On TTY without env/flag, prompts twice. Stores keychain secret + (with passphrase) a scrypt-sealed `owner_crypto` blob. `--count > 1` bulk-creates N unmanaged wallets under a required `--tag` (max 500/call, batched DPAPI seal on Windows). |
+| `palmyr wallet import --mnemonic "..." [--name N] [--managed] [--solana\|--base] [--tag T] (--passphrase P \| PALMYR_WALLET_PASSPHRASE env \| --session-only)` | local | Restore from BIP-39. Same passphrase rules as `create` — re-importing on a new machine to recover from keychain loss should always set a passphrase so you don't get trapped again. |
 | `palmyr wallet rekey <ID> --passphrase P` | local | Add (or rotate) the scrypt passphrase fallback on an existing wallet. Wallet must be decryptable right now (session secret still works, or `--current-passphrase` provided). Run on the original machine, then `PALMYR_WALLET_PASSPHRASE` decrypts the wallet anywhere. |
 | `palmyr wallet list [--tag T]` | local | Lists wallets in the local vault. `--tag` filters to one folder. |
 | `palmyr wallet info <ID>` | local | Show one wallet (id, name, addresses, mode, tag). |
@@ -857,7 +869,7 @@ The CLI uses distinct exit codes so scripts and agents can branch on failure mod
 - **Keys never leave the machine.** `wallet create` and `wallet import` never transmit seed material to the server. Even managed wallets register only the wallet ID and the derived public addresses with the server.
 - **Encryption at rest.** The wallet file is AES-256-GCM with the session secret as the key. The session secret is generated on wallet creation and never stored on disk in plaintext.
 - **OS credential store.** Session secrets live in DPAPI (Windows), Keychain (macOS), or `secret-tool` (libsecret on Linux). If none is available the CLI errors rather than falling back to plaintext.
-- **Optional passphrase fallback.** Create with `--passphrase` (or `PALMYR_WALLET_PASSPHRASE` env), or migrate with `wallet rekey`, to add a second AES-256-GCM blob keyed by scrypt(passphrase, random salt). Lets the wallet decrypt on a different machine / user / headless box where the OS keychain isn't reachable. Decryption tries the OS session secret first, then falls back to the env/flag passphrase.
+- **Recoverable by default.** `wallet create` and `wallet import` require a scrypt passphrase fallback (via `--passphrase` or `PALMYR_WALLET_PASSPHRASE`) or an explicit `--session-only` opt-out. The passphrase blob is a second AES-256-GCM ciphertext keyed by scrypt(passphrase, random salt) and lets the wallet decrypt on a different machine / user / headless box where the OS keychain isn't reachable. Decryption tries the OS session secret first, then falls back to the env/flag passphrase. Session-only wallets are bound to this machine's OS keychain — explicit opt-in for ephemeral use only.
 - **Bidirectional vault integrity.** On every load, the CLI checks that every account stored in the wallet file is still derivable from the seed, **and** that every account derivable from the seed is still in the file. Either direction failing returns exit code `7`.
 - **Pre-flight validation.** Endpoints that are easy to fail (bad pubkey for an inbox, malformed E.164 for SMS, unsupported destination country) are validated **before** the x402 paywall, so you don't pay for requests that were never going to succeed.
 - **No `--no-verify`.** Hooks, signatures, and webhooks are always verified.
