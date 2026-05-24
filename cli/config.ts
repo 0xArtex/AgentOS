@@ -60,7 +60,14 @@ export interface PalmyrConfig {
     solana?: WalletConfig
     base?: WalletConfig
   }
-  defaultChain: 'solana' | 'base'
+  /**
+   * Legacy keyfile-flow chain. Only meaningful when at least one entry under
+   * `wallets.*` has a `keyfile`. For vault-only users (`wallet create`), this
+   * field is vestigial — `saveConfig` strips it so it doesn't clutter
+   * `palmyr config` output. The x402 pay path reads `defaultPayChain`, not
+   * this field.
+   */
+  defaultChain?: 'solana' | 'base'
   setupDone?: boolean
   vaultEnabled?: boolean
   apiKey?: string  // Palmyr API key for agent access
@@ -75,7 +82,15 @@ const CONFIG_PATH = join(HOME, 'config.json')
 const DEFAULT_CONFIG: PalmyrConfig = {
   api: 'https://palmyr.ai',
   wallets: {},
-  defaultChain: 'solana',
+}
+
+/**
+ * True iff at least one wallet entry has a legacy keyfile path configured.
+ * Used to decide whether `defaultChain` is still meaningful state.
+ */
+export function hasLegacyKeyfileWallet(config: PalmyrConfig): boolean {
+  const w = config.wallets || {}
+  return !!(w.solana?.keyfile || w.base?.keyfile)
 }
 
 export function loadConfig(): PalmyrConfig {
@@ -96,6 +111,13 @@ export function loadConfig(): PalmyrConfig {
 
 export function saveConfig(config: PalmyrConfig) {
   ensureDirs()
+  // Self-healing: drop the vestigial legacy field on the next write so
+  // vault-only configs stop showing a misleading `defaultChain` next to the
+  // real `defaultPayChain`. Preserved when a keyfile wallet is actually
+  // configured (the only place it's still meaningful, via `getKeyfile`).
+  if (!hasLegacyKeyfileWallet(config) && 'defaultChain' in config) {
+    delete config.defaultChain
+  }
   writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2))
 }
 
