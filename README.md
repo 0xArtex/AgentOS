@@ -36,14 +36,13 @@ Phone, email, compute, domains, wallets, X accounts, and more. Pay with USDC. Yo
 ### CLI
 ```bash
 npm i -g @palmyr/cli
-palmyr setup --keyfile ~/.config/solana/id.json --chain solana
+palmyr wallet create                      # local HD wallet, both Solana + Base, ready to pay
 
 palmyr phone search --country US
 palmyr email create --name my-agent --wallet SOL_PUBKEY
 palmyr compute deploy --type cx23 --json  # auto-key, auto-wait, verified ssh — JSON out
 palmyr compute ssh my-vps                 # drop into the new box
 palmyr domain buy --name myagent.dev
-palmyr wallet create
 palmyr twitter buy                        # $5 USDC → ready X account from the pool
 palmyr twitter post @handle --body "gm"   # post immediately, no setup
 ```
