@@ -85,6 +85,12 @@ palmyr wallet create --managed           # Same, with passkey-gated spending lim
 palmyr wallet create --solana            # Solana account only (--base for Base/EVM only)
 palmyr wallet list                       # All wallets in vault; --tag <name> filters to one folder
 
+# Durable passphrase fallback — default wallets are session-only (encrypted with an
+# OS-keychain secret that DOESN'T survive different user, fresh OS, or headless box).
+# Add a scrypt-derived passphrase blob so PALMYR_WALLET_PASSPHRASE decrypts on any machine:
+PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name agent-prod       # at create time (env preferred over --passphrase)
+palmyr wallet rekey <WALLET_ID> --passphrase "..."                          # migrate existing wallet (run on original machine)
+
 # Wallet foldering — group many wallets under one tag, cascade-delete together.
 # Ideal for demo/cohort/test wallets. Bulk path is unmanaged-only, max 500/call,
 # batched DPAPI seal on Windows (~7s for 100 wallets vs ~60s naive).
