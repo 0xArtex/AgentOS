@@ -6460,13 +6460,19 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
         const { join } = await import('path')
         const vaultDir = process.env.PALMYR_WALLET_PATH || join(homedir(), '.palmyr', 'wallet')
         const { isCredentialStoreAvailable } = await import('./credential-store.js')
+        const { hasLegacyKeyfileWallet } = await import('./config.js')
 
-        const configData = {
+        // `defaultChain` is legacy keyfile-flow state — only show it when a
+        // keyfile wallet is actually configured. The functional field is
+        // `payChain` (renamed from the misleadingly-similar `defaultPayChain`
+        // disk key), which the x402 pay path reads.
+        const showLegacyChain = hasLegacyKeyfileWallet(cfg)
+        const configData: Record<string, string | number | boolean | null | undefined> = {
           api: cfg.api,
-          defaultChain: cfg.defaultChain,
           setupDone: cfg.setupDone,
+          ...(showLegacyChain ? { legacyKeyfileChain: cfg.defaultChain || 'solana' } : {}),
           defaultPayWalletId: (cfg as any).defaultPayWalletId || null,
-          defaultPayChain: (cfg as any).defaultPayChain || 'solana',
+          payChain: (cfg as any).defaultPayChain || 'solana',
           vaultPath: vaultDir,
           credentialStore: isCredentialStoreAvailable() ? 'available' : 'unavailable',
           configPath: join(homedir(), '.palmyr', 'config.json'),

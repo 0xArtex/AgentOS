@@ -803,10 +803,11 @@ Config is stored in `~/.palmyr/config.json`. Environment variables override file
 
 The payment chain is resolved in this order:
 
-1. The `--chain` flag passed to `wallet use`, persisted as `defaultPayChain`.
-2. `PALMYR_PAY_CHAIN` environment variable.
-3. `defaultChain` in config.
-4. `solana` as the final default.
+1. `--chain` flag on the command itself (e.g. `wallet pay-preflight --chain base`).
+2. `defaultPayChain` in `~/.palmyr/config.json` — set by `palmyr wallet use <ID> --chain <chain>`.
+3. `solana` as the final default.
+
+(Earlier versions of this doc listed `PALMYR_PAY_CHAIN` and `defaultChain` as fallbacks — neither is read by the current pay path. `defaultChain` is legacy keyfile-flow state and `saveConfig` strips it from vault-only configs.)
 
 If the server doesn't offer the chosen chain for an endpoint, the CLI errors loudly. There is no silent fallback — the assumption is that an agent should know which chain it pays from.
 
