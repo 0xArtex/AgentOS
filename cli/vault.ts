@@ -786,10 +786,11 @@ export function hasPassphraseFallback(walletId: string): boolean {
  * Throws if the wallet can't be decrypted right now — there's no way to
  * add a fallback to a wallet whose key material we can't access.
  *
- * Use case: wallet created without a passphrase (`wallet create` pre-1.9 or
- * without `--passphrase`) → user wants durable recovery on a new box. Run
- * `wallet rekey <id> --passphrase <phrase>` on the original machine while
- * the session secret is still resolvable.
+ * Use case: a legacy session-only wallet (`wallet create` pre-1.8.3, or
+ * post-1.8.3 with explicit `--session-only`) needs durable recovery on a
+ * new box. Run `wallet rekey <id> --passphrase <phrase>` on the ORIGINAL
+ * machine while the session secret is still resolvable, then copy the
+ * updated wallet JSON elsewhere and set `PALMYR_WALLET_PASSPHRASE` there.
  */
 export function rekeyWallet(walletId: string, newPassphrase: string, currentPassphrase?: string): { id: string; name: string; rotated: boolean } {
   assertPassphrase(newPassphrase)
