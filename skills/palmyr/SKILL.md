@@ -17,18 +17,22 @@ Everything an agent needs: phone, email, compute, domains, voice calling, wallet
 ```bash
 npm i -g @palmyr/cli
 
-# Create a local HD wallet — both Solana + Base from one mnemonic, ready for x402 payments
-palmyr wallet create
-
-# Optional: durable passphrase fallback so the wallet decrypts on any machine
-# (otherwise it lives or dies with the OS keychain on this box)
+# Create a local HD wallet — both Solana + Base from one mnemonic, ready for x402 payments.
+# Set PALMYR_WALLET_PASSPHRASE first so the wallet is recoverable across reboot / OS-keychain
+# loss / host migration. Without it, `wallet create` errors (or prompts on TTY).
 PALMYR_WALLET_PASSPHRASE="your-passphrase" palmyr wallet create
+
+# Opt out (ephemeral wallets only — NOT recoverable from the JSON file alone):
+palmyr wallet create --session-only
 
 # Check everything works
 palmyr status
+palmyr doctor   # flags wallets that need PALMYR_WALLET_PASSPHRASE to decrypt
 ```
 
-The CLI creates `~/.palmyr/` to store config, credentials, data, logs, and memory. The wallet file at `~/.palmyr/wallet/wallets/<id>.json` is AES-256-GCM encrypted; the session key lives in your OS credential store (DPAPI / Keychain / `secret-tool`) and never on disk in plaintext.
+Keep `PALMYR_WALLET_PASSPHRASE` exported in the shell / systemd unit / agent env that runs `palmyr`. Then `pay`, `sign-message`, `export`, and `pay-preflight` decrypt automatically when the OS keychain is unavailable (different user, fresh OS, headless box without a keyring daemon).
+
+The CLI creates `~/.palmyr/` to store config, credentials, data, logs, and memory. The wallet file at `~/.palmyr/wallet/wallets/<id>.json` is AES-256-GCM encrypted; the session key lives in your OS credential store (DPAPI / Keychain / `secret-tool`) and the passphrase blob is scrypt-sealed. Neither key ever lives on disk in plaintext.
 
 ## CLI Commands
 
@@ -81,16 +85,19 @@ palmyr domain share --name example.dev --with <wallet>             # Grant anoth
 palmyr domain unshare --name example.dev --from <wallet>
 
 # Wallet
-palmyr wallet create                     # Create local HD wallet — both Solana + Base (free)
-palmyr wallet create --managed           # Same, with passkey-gated spending limits
-palmyr wallet create --solana            # Solana account only (--base for Base/EVM only)
-palmyr wallet list                       # All wallets in vault; --tag <name> filters to one folder
+# `wallet create` REQUIRES a passphrase fallback OR explicit --session-only opt-out.
+# The passphrase becomes a scrypt-sealed second decryption key so the wallet survives
+# reboot / OS-keychain loss / host migration. Keep PALMYR_WALLET_PASSPHRASE exported
+# (or in a systemd EnvironmentFile) on every machine that will use the wallet.
+PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name agent-prod       # recommended (free)
+PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --managed               # + passkey-gated spending limits
+PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --solana                # Solana only (--base for Base/EVM only)
+palmyr wallet create --session-only                                          # opt out — ephemeral wallets only
+palmyr wallet list                                                            # All wallets in vault; --tag <name> filters to one folder
 
-# Durable passphrase fallback — default wallets are session-only (encrypted with an
-# OS-keychain secret that DOESN'T survive different user, fresh OS, or headless box).
-# Add a scrypt-derived passphrase blob so PALMYR_WALLET_PASSPHRASE decrypts on any machine:
-PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name agent-prod       # at create time (env preferred over --passphrase)
-palmyr wallet rekey <WALLET_ID> --passphrase "..."                          # migrate existing wallet (run on original machine)
+# Migrate an existing session-only wallet to passphrase-backed (run on the
+# original machine while the OS session secret still works):
+palmyr wallet rekey <WALLET_ID> --passphrase "..."
 
 # Wallet foldering — group many wallets under one tag, cascade-delete together.
 # Ideal for demo/cohort/test wallets. Bulk path is unmanaged-only, max 500/call,

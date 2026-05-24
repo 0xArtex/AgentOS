@@ -210,6 +210,23 @@ function subcommandHelp(command: string, subcommand: string, options: Array<{ fl
   console.log()
 }
 
+/**
+ * Loud, single-shot warning printed when `--session-only` was chosen. Goes to
+ * stderr so JSON on stdout stays clean. Caller supplies the write fn so we
+ * route through the right stream in agent vs TTY mode.
+ *
+ * Why this is here: 1.8.2 and earlier defaulted to session-only without
+ * warning. A user lost three wallets to a routine keyring change on a
+ * headless box because the JSON file alone is mathematically useless without
+ * the keychain secret. 1.8.3 makes the choice explicit; this warning is the
+ * reminder for anyone who picks the foot-gun anyway.
+ */
+function emitSessionOnlyWarning(write: (s: string) => void) {
+  write(`\n  ${t.warn}⚠  session-only wallet — NOT recoverable from the JSON file alone.${t.reset}\n`)
+  write(`     Reboot, OS-keychain password change, or host copy permanently breaks decryption.\n`)
+  write(`     Back up the mnemonic externally, or run \`palmyr wallet rekey <id> --passphrase <p>\` later.\n\n`)
+}
+
 // ─── Subcommand help definitions ───
 const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
   create: [
@@ -220,7 +237,8 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--tag <name>', desc: 'Folder-like grouping tag', hint: 'e.g. palmyr-demo — required with --count' },
     { flag: '--count <N>', desc: 'Bulk-create N wallets in one call (1-500)', hint: 'unmanaged only; requires --tag' },
     { flag: '--name-prefix <p>', desc: 'Bulk name prefix; suffixed `-001..-N`', hint: 'default: same as --tag' },
-    { flag: '--passphrase <p>', desc: 'Also seal the mnemonic with this passphrase (≥8 chars) for durable recovery', hint: 'or PALMYR_WALLET_PASSPHRASE env (env preferred — keeps phrase out of shell history)' },
+    { flag: '--passphrase <p>', desc: 'Seal the mnemonic with this passphrase (≥8 chars) for durable recovery across reboot / OS-keychain loss / host migration', hint: 'or PALMYR_WALLET_PASSPHRASE env (env preferred — keeps phrase out of shell history). Interactive prompt on TTY when neither set.' },
+    { flag: '--session-only', desc: 'OPT OUT of the passphrase fallback. Wallet is bound to this machine\'s OS keychain — dies on reboot/keyring loss/migration.', hint: 'use only for ephemeral / throwaway wallets where loss is acceptable' },
   ],
   import: [
     { flag: '--mnemonic <words>', desc: 'BIP-39 mnemonic phrase (required)' },
@@ -229,7 +247,8 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--solana', desc: 'Materialize the Solana account only' },
     { flag: '--base', desc: 'Materialize the Base/EVM account only' },
     { flag: '--tag <name>', desc: 'Assign a tag at import time' },
-    { flag: '--passphrase <p>', desc: 'Also seal the mnemonic with this passphrase (≥8 chars) for durable recovery', hint: 'or PALMYR_WALLET_PASSPHRASE env (env preferred)' },
+    { flag: '--passphrase <p>', desc: 'Seal the mnemonic with this passphrase (≥8 chars) for durable recovery', hint: 'or PALMYR_WALLET_PASSPHRASE env (env preferred). Interactive prompt on TTY when neither set.' },
+    { flag: '--session-only', desc: 'OPT OUT of the passphrase fallback. Wallet is bound to this machine\'s OS keychain.', hint: 'use only for ephemeral / throwaway wallets' },
   ],
   rekey: [
     { flag: '<WALLET_ID>', desc: 'Wallet ID or name (positional or --id)' },
@@ -2157,10 +2176,40 @@ async function main() {
                          : (wantBase && !wantSol) ? ['base' as const]
                          : ['solana' as const, 'base' as const]
 
-            // Optional passphrase fallback — seals the mnemonic with scrypt so
-            // PALMYR_WALLET_PASSPHRASE can decrypt on a different machine / user /
-            // headless box where the OS credential-store secret isn't reachable.
-            const passphrase = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+            // Passphrase resolution — recoverable-by-default.
+            // Three paths:
+            //   1. `--passphrase <p>` or `PALMYR_WALLET_PASSPHRASE` env → seal with scrypt
+            //   2. `--session-only` → explicit opt-out, OS-keychain-only (warned)
+            //   3. nothing + TTY → interactive prompt
+            //   4. nothing + non-TTY → error with the three options
+            // Session-only wallets are recoverable ONLY from this machine's OS
+            // keychain; reboot / keyring change / host migration breaks them
+            // permanently. We pushed agents into that foot-gun in 1.8.2 and
+            // earlier; 1.8.3 forces the choice up front.
+            const sessionOnly = !!flags['session-only']
+            let passphrase = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+            if (passphrase && sessionOnly) {
+              err('Pass either --passphrase / PALMYR_WALLET_PASSPHRASE OR --session-only, not both.', EXIT.BAD_INPUT)
+            }
+            if (!passphrase && !sessionOnly) {
+              if (process.stdin.isTTY) {
+                const { promptNewPassphrase } = await import('./passphrase-prompt.js')
+                if (!AGENT_MODE) process.stderr.write(
+                  '\n  Wallet creation needs a passphrase fallback so the wallet survives a reboot / OS-keychain change / host migration.\n' +
+                  '  (Re-run with --session-only to opt out — ephemeral wallets only.)\n\n'
+                )
+                passphrase = await promptNewPassphrase('vault wallet')
+              } else {
+                err(
+                  'Wallet creation requires a recoverable passphrase fallback OR an explicit opt-out:\n\n' +
+                  '  PALMYR_WALLET_PASSPHRASE="<phrase>" palmyr wallet create [...]   # recommended (env keeps phrase out of shell history)\n' +
+                  '  palmyr wallet create --passphrase "<phrase>" [...]               # equivalent\n' +
+                  '  palmyr wallet create --session-only [...]                        # OPT OUT — wallet dies with this machine\'s OS keychain\n\n' +
+                  'Session-only wallets are NOT recoverable from the JSON file alone — reboot, keyring change, or host copy renders them unusable.',
+                  EXIT.BAD_INPUT,
+                )
+              }
+            }
 
             // ─── Bulk path ───
             if (count > 1) {
@@ -2173,19 +2222,34 @@ async function main() {
               const { storeSecretsBatch } = await import('./credential-store.js')
 
               // Progress to stderr so JSON on stdout stays clean
-              if (!AGENT_MODE) process.stderr.write(`creating ${count} wallets under tag "${tagRaw}"${passphrase ? ' (+ passphrase fallback)' : ''}...\n`)
+              if (!AGENT_MODE) process.stderr.write(`creating ${count} wallets under tag "${tagRaw}"${passphrase ? ' (+ passphrase fallback)' : ' (session-only)'}...\n`)
               const results = createLocalWalletsBatch(prefix, count, 'unmanaged', { tag: tagRaw, chains, passphrase })
 
               if (!AGENT_MODE) process.stderr.write(`sealing ${count} session secrets in OS credential store...\n`)
-              storeSecretsBatch(results.map(r => ({ account: r.id, secret: r.sessionSecret })))
+              // Keychain failure is non-fatal IFF a passphrase fallback was
+              // written — the wallets are still recoverable via the env var.
+              let keychainStoreWarning: string | null = null
+              try {
+                storeSecretsBatch(results.map(r => ({ account: r.id, secret: r.sessionSecret })))
+              } catch (e: any) {
+                if (passphrase) {
+                  keychainStoreWarning = e?.message || 'keychain store failed'
+                  if (!AGENT_MODE) process.stderr.write(`  warning: OS keychain unavailable (${keychainStoreWarning}); wallets remain decryptable via PALMYR_WALLET_PASSPHRASE\n`)
+                } else {
+                  throw e
+                }
+              }
 
-              log(`wallet create: ${count} wallets under tag "${tagRaw}" (chains=${chains.join(',')}${passphrase ? ', passphrase=set' : ''})`)
+              if (sessionOnly && !AGENT_MODE) emitSessionOnlyWarning(process.stderr.write.bind(process.stderr))
+              log(`wallet create: ${count} wallets under tag "${tagRaw}" (chains=${chains.join(',')}, mode=${passphrase ? 'passphrase' : 'session-only'}${keychainStoreWarning ? ', keychain=failed' : ''})`)
 
               if (AGENT_MODE) {
                 print({
                   count: results.length,
                   tag: tagRaw,
                   chains,
+                  recoverable: !!passphrase,
+                  ...(keychainStoreWarning ? { keychainWarning: keychainStoreWarning } : {}),
                   wallets: results.map(r => ({
                     id: r.id,
                     name: r.name,
@@ -2200,6 +2264,7 @@ async function main() {
                 console.log(`\n  ${t.success}✔${t.reset} Created ${count} wallets under tag ${t.accent}${tagRaw}${t.reset}`)
                 console.log(`  ${t.muted}chains:${t.reset} ${chains.join(', ')}`)
                 console.log(`  ${t.muted}names: ${t.reset}${results[0].name} … ${results[results.length - 1].name}`)
+                console.log(`  ${t.muted}recoverable:${t.reset} ${passphrase ? 'yes (passphrase fallback set)' : 'NO — session-only'}`)
                 console.log(`\n  ${t.muted}List them:    ${t.reset}palmyr wallet list --tag ${tagRaw}`)
                 console.log(`  ${t.muted}Delete all:   ${t.reset}palmyr wallet tag-delete ${tagRaw} --confirm\n`)
               }
@@ -2215,11 +2280,23 @@ async function main() {
             const { createLocalWallet } = await import('./vault.js')
             const w = createLocalWallet(name, mode, { tag: tagRaw, chains, passphrase })
 
-            // Store session secret in OS credential store
+            // Store session secret in OS credential store. Keychain failure is
+            // non-fatal when a passphrase fallback was written.
             const { storeSecret } = await import('./credential-store.js')
-            storeSecret(w.id, w.sessionSecret)
+            let keychainStoreWarning: string | null = null
+            try {
+              storeSecret(w.id, w.sessionSecret)
+            } catch (e: any) {
+              if (passphrase) {
+                keychainStoreWarning = e?.message || 'keychain store failed'
+                if (!AGENT_MODE) process.stderr.write(`  warning: OS keychain unavailable (${keychainStoreWarning}); wallet remains decryptable via PALMYR_WALLET_PASSPHRASE\n`)
+              } else {
+                throw e
+              }
+            }
 
-            log(`wallet create: ${w.id} (${mode}${tagRaw ? `, tag=${tagRaw}` : ''}, chains=${chains.join(',')})`)
+            if (sessionOnly && !AGENT_MODE) emitSessionOnlyWarning(process.stderr.write.bind(process.stderr))
+            log(`wallet create: ${w.id} (${mode}${tagRaw ? `, tag=${tagRaw}` : ''}, chains=${chains.join(',')}, mode=${passphrase ? 'passphrase' : 'session-only'}${keychainStoreWarning ? ', keychain=failed' : ''})`)
 
             // For managed wallets, register metadata with the server to get a setup link
             let setupLink: string | undefined
@@ -2263,7 +2340,7 @@ async function main() {
                 console.log(`  ${t.muted}They'll register a passkey and set spending limits. Takes 30 seconds.${t.reset}\n`)
               }
             } else {
-              print({ ...w, setupLink })
+              print({ ...w, setupLink, recoverable: !!passphrase, ...(keychainStoreWarning ? { keychainWarning: keychainStoreWarning } : {}) })
             }
             break
           }
@@ -2279,16 +2356,54 @@ async function main() {
                          : (wantBase && !wantSol) ? ['base' as const]
                          : ['solana' as const, 'base' as const]
 
-            const passphrase = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+            // Same recoverability gate as `create`. Import is even more
+            // commonly run on a "new machine" after losing access on the
+            // original — going session-only here would re-trap the user in
+            // the same hole they're recovering from.
+            const importSessionOnly = !!flags['session-only']
+            let importPassphrase = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+            if (importPassphrase && importSessionOnly) {
+              err('Pass either --passphrase / PALMYR_WALLET_PASSPHRASE OR --session-only, not both.', EXIT.BAD_INPUT)
+            }
+            if (!importPassphrase && !importSessionOnly) {
+              if (process.stdin.isTTY) {
+                const { promptNewPassphrase } = await import('./passphrase-prompt.js')
+                if (!AGENT_MODE) process.stderr.write(
+                  '\n  Import needs a passphrase fallback so the wallet survives a reboot / OS-keychain change / host migration.\n' +
+                  '  (Re-run with --session-only to opt out — ephemeral wallets only.)\n\n'
+                )
+                importPassphrase = await promptNewPassphrase('vault wallet')
+              } else {
+                err(
+                  'Wallet import requires a recoverable passphrase fallback OR an explicit opt-out:\n\n' +
+                  '  PALMYR_WALLET_PASSPHRASE="<phrase>" palmyr wallet import --mnemonic "..."   # recommended\n' +
+                  '  palmyr wallet import --mnemonic "..." --passphrase "<phrase>"               # equivalent\n' +
+                  '  palmyr wallet import --mnemonic "..." --session-only                        # OPT OUT — wallet dies with this machine\'s OS keychain',
+                  EXIT.BAD_INPUT,
+                )
+              }
+            }
 
             const { importLocalWallet } = await import('./vault.js')
-            const w = importLocalWallet(name, mnemonic, mode, { tag: tagRaw, chains, passphrase })
+            const w = importLocalWallet(name, mnemonic, mode, { tag: tagRaw, chains, passphrase: importPassphrase })
 
-            // Store session secret
+            // Store session secret. Keychain failure is non-fatal when a
+            // passphrase fallback was written.
             const { storeSecret } = await import('./credential-store.js')
-            storeSecret(w.id, w.sessionSecret)
+            let importKeychainWarning: string | null = null
+            try {
+              storeSecret(w.id, w.sessionSecret)
+            } catch (e: any) {
+              if (importPassphrase) {
+                importKeychainWarning = e?.message || 'keychain store failed'
+                if (!AGENT_MODE) process.stderr.write(`  warning: OS keychain unavailable (${importKeychainWarning}); wallet remains decryptable via PALMYR_WALLET_PASSPHRASE\n`)
+              } else {
+                throw e
+              }
+            }
 
-            log(`wallet import: ${w.id}${passphrase ? ' (+ passphrase fallback)' : ''}`)
+            if (importSessionOnly && !AGENT_MODE) emitSessionOnlyWarning(process.stderr.write.bind(process.stderr))
+            log(`wallet import: ${w.id} (mode=${importPassphrase ? 'passphrase' : 'session-only'}${importKeychainWarning ? ', keychain=failed' : ''})`)
 
             if (!AGENT_MODE) {
               render(React.createElement(WalletCreateScreen, {
@@ -2301,7 +2416,7 @@ async function main() {
                 tag: w.tag,
               }))
             } else {
-              print(w)
+              print({ ...w, recoverable: !!importPassphrase, ...(importKeychainWarning ? { keychainWarning: importKeychainWarning } : {}) })
             }
             break
           }
@@ -2456,9 +2571,13 @@ async function main() {
             const chain = flags.chain as string
             const msg = flags.msg as string || flags.message as string
             if (!chain || !msg) err('--chain and --msg required')
-            // Sign locally — no server needed
+            // Sign locally — no server needed.
+            // Read the same passphrase channel as pay / export / rekey so a
+            // passphrase-backed wallet signs from any machine the env var
+            // reaches (was missing in 1.8.2 — inconsistent with other commands).
+            const signPass = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
             const { signMessageLocal } = await import('./vault.js')
-            const data = signMessageLocal(walletId, chain, msg)
+            const data = signMessageLocal(walletId, chain, msg, signPass)
             return print({ success: true, ...data })
             render(React.createElement(SuccessScreen, {
               version: VERSION,
@@ -6508,19 +6627,60 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
         const wallets = listVaultWallets()
         checks.push({ name: 'Local wallets', status: wallets.length > 0 ? 'pass' : 'warn', detail: `${wallets.length} wallet(s) found` })
 
-        // 4. Session secrets present for wallets
+        // 4. Decryption readiness for each wallet — tri-state.
+        //
+        //   pass  → wallet has keychain secret, OR has a passphrase fallback
+        //           AND PALMYR_WALLET_PASSPHRASE is set
+        //   warn  → has passphrase fallback but env unset (recoverable, but
+        //           the next command will fail until env is set)
+        //   fail  → session-only AND keychain secret is gone (unrecoverable
+        //           from this machine — needs mnemonic re-import or
+        //           rekey-on-original)
         const { retrieveSecret } = await import('./credential-store.js')
-        let secretsOk = 0, secretsMissing = 0
+        const { hasPassphraseFallback } = await import('./vault.js')
+        const envSet = !!process.env.PALMYR_WALLET_PASSPHRASE
+        let keychainOk = 0
+        let needsEnv = 0
+        let unrecoverable: string[] = []
         for (const w of wallets) {
-          if (retrieveSecret(w.id)) secretsOk++
-          else secretsMissing++
+          if (retrieveSecret(w.id)) {
+            keychainOk++
+            continue
+          }
+          let hasFallback = false
+          try { hasFallback = hasPassphraseFallback(w.id) } catch {}
+          if (hasFallback) {
+            needsEnv++
+          } else {
+            unrecoverable.push(w.name || w.id.slice(0, 8))
+          }
         }
         if (wallets.length > 0) {
-          checks.push({
-            name: 'Session secrets',
-            status: secretsMissing === 0 ? 'pass' : 'fail',
-            detail: secretsMissing === 0 ? `All ${secretsOk} wallet(s) have secrets stored` : `${secretsMissing} wallet(s) missing session secret`,
-          })
+          if (unrecoverable.length > 0) {
+            checks.push({
+              name: 'Wallet decryption',
+              status: 'fail',
+              detail: `${unrecoverable.length} session-only wallet(s) UNRECOVERABLE from this machine — keychain secret missing and no passphrase fallback (${unrecoverable.slice(0, 3).join(', ')}${unrecoverable.length > 3 ? ', …' : ''}). Recover by importing the mnemonic here, or running \`palmyr wallet rekey <id> --passphrase <p>\` on the original machine.`,
+            })
+          } else if (needsEnv > 0 && !envSet) {
+            checks.push({
+              name: 'Wallet decryption',
+              status: 'warn',
+              detail: `${needsEnv} wallet(s) need PALMYR_WALLET_PASSPHRASE to decrypt (keychain secret missing, passphrase fallback present). Set the env var to unblock pay / sign / export.`,
+            })
+          } else if (needsEnv > 0) {
+            checks.push({
+              name: 'Wallet decryption',
+              status: 'pass',
+              detail: `${keychainOk} via OS keychain, ${needsEnv} via PALMYR_WALLET_PASSPHRASE (env set)`,
+            })
+          } else {
+            checks.push({
+              name: 'Wallet decryption',
+              status: 'pass',
+              detail: `All ${keychainOk} wallet(s) have keychain secrets`,
+            })
+          }
         }
 
         // 5. API connectivity

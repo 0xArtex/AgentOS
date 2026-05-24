@@ -283,11 +283,16 @@ export function getVaultEvmWallet(walletId: string, passphrase?: string): any {
 
 /**
  * Sign a message locally — no server needed.
- * Decrypts via session secret from OS credential store, signs with the chain's keypair.
+ *
+ * Decrypts via the standard auth chain: OS-keychain session secret first,
+ * then falls back to `passphrase` (or `PALMYR_WALLET_PASSPHRASE` env when the
+ * caller reads it through). Matches the read path used by `pay` / `export` /
+ * `rekey` so a passphrase-backed wallet signs from any machine the env var
+ * reaches.
  */
-export function signMessageLocal(walletId: string, chain: string, message: string): { signature: string; recoveryId?: number } {
+export function signMessageLocal(walletId: string, chain: string, message: string, passphrase?: string): { signature: string; recoveryId?: number } {
   const file = loadWalletFile(walletId)
-  const mnemonic = resolveMnemonic(file)
+  const mnemonic = resolveMnemonic(file, passphrase)
   const c = chain.toLowerCase()
   const msgBytes = Buffer.from(message, 'utf8')
 
