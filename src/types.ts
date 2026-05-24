@@ -3,7 +3,7 @@ import { Request } from "express";
 // ── x402 Payment ──────────────────────────────────────────────
 
 export interface PaymentProof {
-  /** Solana transaction signature */
+  /** Solana transaction signature OR EVM tx hash */
   signature: string;
   /** Payer wallet address */
   payer: string;
@@ -11,6 +11,13 @@ export interface PaymentProof {
   amountLamports: bigint;
   /** Unix timestamp of verification */
   verifiedAt: number;
+  /**
+   * Which chain settled this payment. Required by the auto-refund path —
+   * if the upstream call fails, treasury sends USDC back on the same chain
+   * from which it was received. Optional only for legacy callers that
+   * existed before the refund path; new handlers should rely on it.
+   */
+  chain?: "solana" | "base";
 }
 
 export interface AuthenticatedRequest extends Request {

@@ -418,6 +418,7 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
         payer: result.payer || "unknown",
         amountLamports: BigInt(Math.round(minUsdc * 1e6)),
         verifiedAt: Date.now(),
+        chain: matchedRequirement.network.startsWith("solana:") ? "solana" : "base",
       };
 
       next();

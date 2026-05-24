@@ -4,6 +4,8 @@ import { AuthenticatedRequest, ProvisionNumberRequest, SendSmsRequest } from "..
 import * as phoneService from "../services/phone";
 import * as voiceService from "../services/voice";
 import { config } from "../config";
+import { checkTelnyxCredit } from "../services/telnyx-balance";
+import { refundAndRespond } from "../services/refund";
 
 
 const router = Router({ mergeParams: true });
@@ -31,7 +33,8 @@ router.get("/numbers/search", async (req: Request, res: Response) => {
 
 /**
  * Pre-flight validation for phone provisioning. Runs BEFORE the paywall to prevent
- * charging users when provisioning will fail (no numbers available, bad country code).
+ * charging users when provisioning will fail (no numbers available, bad country code,
+ * OUR Telnyx account out of credit).
  *
  * Skipped when the request has no payment header — defers to x402 so the CDP Bazaar
  * crawler's empty-body probe gets a 402 (not a 400) and the endpoint is indexable.
@@ -43,6 +46,21 @@ async function preflightProvisionNumber(req: Request, res: Response, next: NextF
   const { country, areaCode } = (req.body || {}) as ProvisionNumberRequest;
   if (!country || typeof country !== "string" || country.length !== 2) {
     res.status(400).json({ error: "Missing Required Field", message: "The 'country' field is required (ISO-2 code, e.g. 'US')" });
+    return;
+  }
+  // Block paid requests when OUR Telnyx account can't actually buy a number.
+  // Catches "Insufficient Funds: User has no credit available: -6.88" before
+  // the x402 settlement drains the caller's USDC. Fails-open if the balance
+  // API itself is unreachable (reactive refund layer is the safety net).
+  // First-month local US is typically $1–2 — gate on $2 here, the helper
+  // multiplies by 2x and clamps to a $5 floor so the effective check is ≥ $5.
+  const credit = await checkTelnyxCredit(2);
+  if (!credit.ok) {
+    res.status(503).json({
+      error: "Service temporarily unavailable",
+      message: credit.reason || "Phone provider account balance too low — no payment was taken.",
+      hint: "Try again later. You have NOT been charged.",
+    });
     return;
   }
   try {
@@ -86,29 +104,33 @@ router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone", {
   category: "communications",
   tags: ["phone", "sms", "voice", "telnyx", "provision"],
 }), async (req: AuthenticatedRequest, res: Response) => {
+  const { country, areaCode } = req.body as ProvisionNumberRequest;
+
+  if (!country) {
+    res.status(400).json({
+      error: "Missing Required Field",
+      message: "The 'country' field is required",
+      hint: "Include 'country' in your request body (e.g., 'US', 'CA', 'GB')",
+    });
+    return;
+  }
+
+  const owner = req.agentId || req.payment?.payer || "unknown";
+
   try {
-    const { country, areaCode } = req.body as ProvisionNumberRequest;
-
-    if (!country) {
-      res.status(400).json({
-        error: "Missing Required Field",
-        message: "The 'country' field is required",
-        hint: "Include 'country' in your request body (e.g., 'US', 'CA', 'GB')",
-      });
-      return;
-    }
-
-    const owner = req.agentId || req.payment?.payer || "unknown";
-
     const number = await phoneService.provisionNumber(country, owner, areaCode);
-
     res.status(201).json(number);
   } catch (err: any) {
+    // Any upstream (Telnyx) failure here = user's USDC is already in
+    // treasury but they got no number. Refund automatically and respond
+    // with the refund tx so the agent can verify. The preflight Telnyx
+    // balance check catches the common case (our account out of credit);
+    // this catches everything else — rate limits, API outages, the rare
+    // race where balance changed between preflight and order.
     console.error("[phone] Provision error:", err);
-    res.status(500).json({
-      error: "Provision Failed",
-      message: err.message || "Failed to provision phone number",
-      hint: "Check your country code and try again",
+    await refundAndRespond(req, res, {
+      reason: `Telnyx provision failed: ${err?.message || String(err)}`,
+      userMessage: "Could not provision phone number — your payment is being refunded.",
     });
   }
 });
@@ -143,14 +165,28 @@ router.get("/numbers/:id/messages", requireAuth(0.02, "general", {
 /**
  * Pre-flight validation for SMS send. Runs BEFORE the paywall so users aren't
  * charged when the send is obviously going to fail (bad inputs, unknown number,
- * deactivated number, or destination country that Telnyx won't accept on our
- * messaging profile).
+ * deactivated number, destination country Telnyx won't accept on our
+ * messaging profile, or our Telnyx account out of credit).
  *
  * Skipped when the request has no payment header so x402 handles discovery probes.
  */
-function preflightSendSms(req: Request, res: Response, next: NextFunction): void {
+async function preflightSendSms(req: Request, res: Response, next: NextFunction): Promise<void> {
   const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
   if (!hasPayment) { next(); return; }
+
+  // Same OUR-balance gate as provision. SMS is cheap upstream (~$0.004 per
+  // outbound), but if our balance is hovering near zero a $5 floor still
+  // bounces correctly — keeps the foot-gun closed across all paid Telnyx
+  // routes without per-route thresholds.
+  const credit = await checkTelnyxCredit(0.05);
+  if (!credit.ok) {
+    res.status(503).json({
+      error: "Service temporarily unavailable",
+      message: credit.reason || "SMS provider account balance too low — no payment was taken.",
+      hint: "Try again later. You have NOT been charged.",
+    });
+    return;
+  }
 
   const { to, body } = (req.body || {}) as SendSmsRequest;
   const phoneNumberId = req.params.id as string;
@@ -240,21 +276,21 @@ router.post("/numbers/:id/send", preflightSendSms, requireAuth(0.05, "general", 
   category: "communications",
   tags: ["phone", "sms", "send", "outbound"],
 }), async (req: AuthenticatedRequest, res: Response) => {
-  try {
-    const { to, body } = req.body as SendSmsRequest;
-    const phoneNumberId = req.params.id as string;
+  const { to, body } = req.body as SendSmsRequest;
+  const phoneNumberId = req.params.id as string;
 
+  try {
     const msg = await phoneService.sendSms(phoneNumberId, to, body);
     res.status(201).json(msg);
   } catch (err: any) {
+    // Same auto-refund pattern as `provision`. Settlement already happened
+    // by the time we're here; whatever Telnyx rejected, the user shouldn't
+    // eat the cost on our behalf.
     console.error("[phone] Send error:", err);
-    // Surface upstream (Telnyx) failures as 502 so the client knows it's not
-    // their fault — but the payment has already settled at this point.
     const upstreamMsg = err?.raw?.errors?.[0]?.title || err?.message || "Failed to send SMS message";
-    res.status(502).json({
-      error: "SMS Send Failed",
-      message: upstreamMsg,
-      hint: "The carrier rejected this message. Payment has already settled — contact support if this was unexpected.",
+    await refundAndRespond(req, res, {
+      reason: `Telnyx SMS send failed: ${upstreamMsg}`,
+      userMessage: "Could not send SMS — your payment is being refunded.",
     });
   }
 });
