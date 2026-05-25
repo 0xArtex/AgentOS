@@ -333,7 +333,15 @@ export class Palmyr {
       const parts: string[] = [String(data.error)]
       if (data.message && data.message !== data.error) parts.push(String(data.message))
       if (data.hint) parts.push(`Hint: ${data.hint}`)
-      throw new Error(parts.join(' — '))
+      const e: any = new Error(parts.join(' — '))
+      // Attach structured fields the server set so callers can branch on
+      // them without re-parsing the message string. Mostly useful for
+      // 503 retry signalling (Retry-After + error_code), but generic enough
+      // to apply to any structured server error.
+      if (data.error_code) e.code = data.error_code
+      if (typeof data.retry_after_seconds === 'number') e.retryAfterSeconds = data.retry_after_seconds
+      e.httpStatus = res.status
+      throw e
     }
     return data
   }

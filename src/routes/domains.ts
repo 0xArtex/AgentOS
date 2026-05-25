@@ -256,13 +256,30 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
     namecheapRequest('namecheap.users.getBalances'),
   ]);
 
+  // 503s here all share the same "try again shortly" shape — agents that
+  // get one should back off rather than immediately retry. 5 minutes is the
+  // empirical floor: registrar balance refills are operator-driven (manual
+  // top-up or scheduled funding), so polling every few seconds is wasted
+  // network. The header is RFC 7231 §7.1.3.
+  const RETRY_AFTER_SECS = 300;
+
   if (checkRes.status === 'rejected') {
     console.error('[domains] Preflight availability check failed:', checkRes.reason);
-    res.status(503).json({ error: 'Registrar unreachable — try again shortly' });
+    res.setHeader('Retry-After', String(RETRY_AFTER_SECS));
+    res.status(503).json({
+      error: 'Registrar unreachable — try again shortly',
+      error_code: 'registrar_unreachable',
+      retry_after_seconds: RETRY_AFTER_SECS,
+      hint: 'Your wallet has NOT been charged. The check ran before x402 settlement.',
+    });
     return;
   }
   if (!checkRes.value.available) {
-    res.status(409).json({ error: 'Domain is not available for registration' });
+    res.status(409).json({
+      error: 'Domain is not available for registration',
+      error_code: 'unavailable',
+      hint: 'Your wallet has NOT been charged.',
+    });
     return;
   }
 
@@ -270,7 +287,16 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
     const avail = balRes.value.availableBalance;
     if (typeof avail === 'number' && avail < basePrice) {
       console.error(`[domains] Registrar balance too low: have ${avail}, need ${basePrice} for ${domain}`);
-      res.status(503).json({ error: 'Registrar temporarily cannot fulfill this registration — try again shortly' });
+      res.setHeader('Retry-After', String(RETRY_AFTER_SECS));
+      res.status(503).json({
+        // Public-safe message: don't leak the exact operator balance, just the
+        // structured signal an agent needs to back off. Operators get the
+        // concrete number from the server log above.
+        error: 'Registrar temporarily cannot fulfill this registration — try again shortly',
+        error_code: 'registrar_balance_low',
+        retry_after_seconds: RETRY_AFTER_SECS,
+        hint: 'Your wallet has NOT been charged. This is an operator-side issue (Namecheap balance below the registration cost) — the operator has been pinged via server logs.',
+      });
       return;
     }
   } else {
