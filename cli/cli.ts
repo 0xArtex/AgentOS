@@ -889,6 +889,69 @@ const TWITTER_HELP: Record<string, Array<{ flag: string; desc: string; hint?: st
     { flag: '(no args)', desc: 'Pull every server-side X account the wallet can access into the local vault' },
     { flag: '(price)', desc: '~$0.001 USDC per account claimed (creds-decryption fee)' },
   ],
+  // Server-backed account registration. Without these entries, `palmyr twitter
+  // register --help` (and friends) fell through to the top-level menu instead
+  // of explaining their flags. Subcommands listed in the parent switch must
+  // always have an entry here so the help guard fires before the case body.
+  thread: [
+    { flag: '<username>', desc: 'Account to post the thread from' },
+    { flag: '--texts \'["...","..."]\'', desc: 'JSON array of tweets (in order)' },
+    { flag: '--file path.json', desc: 'Alternative: read the JSON array from a file' },
+    { flag: '(price)', desc: '$0.005 USDC' },
+  ],
+  register: [
+    { flag: '<username>', desc: 'Account handle' },
+    { flag: '--password <pw>', desc: 'Required if the account is not already in the local vault' },
+    { flag: '--login --email --totp-seed --auth-token --ct0', desc: 'Optional; auto-pulled from local vault when not passed' },
+    { flag: '--country <CC>', desc: 'Optional residency hint stored alongside the encrypted credentials' },
+    { flag: '(price)', desc: 'Free — server tests login + encrypts creds at rest. Enables scheduling.' },
+  ],
+  unregister: [
+    { flag: '<username-or-id>', desc: 'Handle or 32-char hex account id' },
+    { flag: '(price)', desc: 'Free — wipes server-side credentials, account no longer schedulable' },
+  ],
+  registered: [
+    { flag: '(no args)', desc: 'List every server-registered X account this wallet owns' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  schedule: [
+    { flag: '<username>', desc: 'Account to post from (must be `register`-ed)' },
+    { flag: '--at "ISO8601"', desc: 'When to fire (e.g. --at "2026-05-15T14:00:00Z")' },
+    { flag: '--body "..."', desc: 'Text-only post' },
+    { flag: '--texts \'["..."]\' / --file path.json', desc: 'Thread' },
+    { flag: '--image / --video / --media-json', desc: 'Media attachments' },
+    { flag: '--community <id>', desc: 'Post into an X Community' },
+    { flag: '(price)', desc: '$0.001 USDC (text) or $0.005 USDC (thread / media) — paid up front' },
+  ],
+  queue: [
+    { flag: '--status pending|in_progress|completed|failed|cancelled', desc: 'Filter by status' },
+    { flag: '--from / --to "ISO8601"', desc: 'Filter by post-at window' },
+    { flag: '--account-id <id>', desc: 'Filter to one account' },
+    { flag: '--limit <n>', desc: 'Cap result count' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  cancel: [
+    { flag: '<schedule-id>', desc: 'Id from `palmyr twitter queue`' },
+    { flag: '(price)', desc: 'Free — only cancels pending posts; in-flight ones are already settled' },
+  ],
+  status: [
+    { flag: '<username>', desc: 'Account to inspect' },
+    { flag: '(price)', desc: 'Server-side liveness/shadow-ban check (not yet wired — see `palmyr twitter session` for cached login state)' },
+  ],
+  'pool-add': [
+    { flag: '--credentials-line "..."', desc: 'Single account creds (login:pw:email:email_pw[:2fa[:ct0:auth_token]])' },
+    { flag: '--file path.txt', desc: 'Bulk: one credentials-line per row (# = comment)' },
+    { flag: '--price <USDC>', desc: 'Required — what `twitter buy` will charge per account' },
+    { flag: '--country <CC>', desc: 'Optional metadata' },
+    { flag: '--age 1y|2y|3y|...', desc: 'Optional age category metadata' },
+    { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
+    { flag: '(price)', desc: 'Free — server-side seeding by pool operator' },
+  ],
+  'pool-status': [
+    { flag: '(no args)', desc: 'Available / sold / reserved counts in the X account pool' },
+    { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
+    { flag: '(price)', desc: 'Free' },
+  ],
 }
 
 const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
