@@ -231,11 +231,10 @@ function emitSessionOnlyWarning(write: (s: string) => void) {
 const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
   create: [
     { flag: '--name <name>', desc: 'Wallet name', hint: 'default: "My Wallet"' },
-    { flag: '--managed', desc: 'Create managed wallet with human oversight via passkey (single-create only)' },
     { flag: '--solana', desc: 'Materialize the Solana account only', hint: 'default: both chains' },
     { flag: '--base', desc: 'Materialize the Base/EVM account only', hint: 'pair with --solana for both (default)' },
     { flag: '--tag <name>', desc: 'Folder-like grouping tag', hint: 'e.g. palmyr-demo — required with --count' },
-    { flag: '--count <N>', desc: 'Bulk-create N wallets in one call (1-500)', hint: 'unmanaged only; requires --tag' },
+    { flag: '--count <N>', desc: 'Bulk-create N wallets in one call (1-500)', hint: 'requires --tag' },
     { flag: '--name-prefix <p>', desc: 'Bulk name prefix; suffixed `-001..-N`', hint: 'default: same as --tag' },
     { flag: '--passphrase <p>', desc: 'Seal the mnemonic with this passphrase (≥8 chars) for durable recovery across reboot / OS-keychain loss / host migration', hint: 'or PALMYR_WALLET_PASSPHRASE env (env preferred — keeps phrase out of shell history). Interactive prompt on TTY when neither set.' },
     { flag: '--session-only', desc: 'OPT OUT of the passphrase fallback. Wallet is bound to this machine\'s OS keychain — dies on reboot/keyring loss/migration.', hint: 'use only for ephemeral / throwaway wallets where loss is acceptable' },
@@ -243,7 +242,6 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   import: [
     { flag: '--mnemonic <words>', desc: 'BIP-39 mnemonic phrase (required)' },
     { flag: '--name <name>', desc: 'Wallet name', hint: 'default: "Imported Wallet"' },
-    { flag: '--managed', desc: 'Import as managed wallet' },
     { flag: '--solana', desc: 'Materialize the Solana account only' },
     { flag: '--base', desc: 'Materialize the Base/EVM account only' },
     { flag: '--tag <name>', desc: 'Assign a tag at import time' },
@@ -2476,7 +2474,7 @@ async function main() {
             subtitle: 'Non-custodial HD wallet',
             footerLeft: 'Solana + Base wallet operations',
             commands: [
-              { name: 'create', description: 'Create one or many wallets', hint: '[--tag X --count 100] [--solana|--base] [--managed]' },
+              { name: 'create', description: 'Create one or many wallets', hint: '[--tag X --count 100] [--solana|--base]' },
               { name: 'import', description: 'Import from mnemonic', hint: '--mnemonic "..." [--tag X]' },
               { name: 'list', description: 'List all wallets', hint: '[--tag <name>]' },
               { name: 'info', description: 'Wallet details', hint: 'WALLET_ID' },
@@ -2490,7 +2488,6 @@ async function main() {
               { name: 'api-key', description: 'Create agent API key', hint: 'WALLET_ID --name my-agent' },
               { name: 'config', description: 'Get agent config', hint: 'WALLET_ID' },
               { name: 'use', description: 'Set default pay wallet', hint: 'WALLET_ID' },
-              { name: 'request-approval', description: 'Request human approval (managed)', hint: 'WALLET_ID --action limits --daily 100' },
               { name: 'buy', description: 'Open a trading position', hint: 'solana <CA> --amount 0.5sol --thesis "..."' },
               { name: 'cohort', description: 'Split a buy across N derived wallets with jitter (Phase 4c)', hint: 'buy <CHAIN> <CA> --total ... --split N' },
               { name: 'template', description: 'Manage YAML strategy templates', hint: 'list | show <name> | path <name> | delete <name>' },
