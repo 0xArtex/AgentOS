@@ -1781,6 +1781,27 @@ async function main() {
               || (pubkeyFile ? pubkeyFile.replace(/\.pub$/, '').replace('~', homedir()) : undefined)
               || (explicitKeyPath ? explicitKeyPath.replace('~', homedir()) : undefined)
 
+            // --ssh-key <id> uploads a server-side key but doesn't tell us where
+            // the matching private key lives on this machine. Without
+            // --key-path, the SSH readiness gate later silently skips and the
+            // deploy reports `ssh: skipped` while still marking the server as
+            // "ready" — a real foot-gun (dogfood report 2026-05-25 hit this
+            // exact path). Be loud about it now, before anyone pays.
+            if (sshKeyIds && !localKeyPath) {
+              const msg =
+                'Warning: --ssh-key <id> uploaded the public key server-side, ' +
+                'but no matching private key was passed to this CLI. ' +
+                'SSH readiness cannot be verified locally — `compute wait` and the ' +
+                'inline --wait check will skip the SSH gate. Pass ' +
+                '`--key-path /path/to/private_key` (or `--private-key`) to ' +
+                'enable the verification.'
+              if (AGENT_MODE) {
+                process.stderr.write(JSON.stringify({ event: 'warning', code: 'ssh_key_no_local_key', message: msg }) + '\n')
+              } else {
+                process.stderr.write(`\n${msg}\n\n`)
+              }
+            }
+
             // Progress events to stderr — default ON in agent mode so a
             // long deploy isn't a 10-minute silence. Pass --no-progress to
             // opt out. Stdout still gets one final JSON object, so jq
