@@ -20,8 +20,10 @@ const isWalletAddress = (s: string) => typeof s === "string" && (SOL_PUBKEY.test
 // Symbolic x402 fee on owner-write endpoints. The point is the signature, not
 // the dollar amount — paying with USDC cryptographically proves the caller
 // controls the wallet they claim, which the routes use to gate transfer/share.
-// Mirrors the domains.ts pattern.
-const OWNERSHIP_PROOF_USDC = 0.0001;
+// Mirrors the domains.ts pattern. Held at 0.01 USDC because the previous
+// 0.0001 USDC (= 100 atomic units) tripped Coinbase CDP's "invalid_payload"
+// on Base — keep the two constants in lockstep.
+const OWNERSHIP_PROOF_USDC = 0.01;
 
 function callerWallet(req: Request): string | null {
   const r = req as AuthenticatedRequest;

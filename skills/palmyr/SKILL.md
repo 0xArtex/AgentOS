@@ -229,12 +229,12 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Check availability | `GET /domains/check?domain=example.com` | Free |
 | TLD pricing | `GET /domains/pricing?domain=example` | Free |
 | Register domain | `POST /domains/register` | dynamic (25% markup) |
-| List your domains *(owner + shared)* | `GET /domains` | 0.0001 *(ownership proof)* |
-| DNS records | `GET /domains/:domain/dns` | 0.0001 *(ownership proof)* |
-| Update DNS | `POST /domains/:domain/dns` | 0.0001 *(ownership proof; shared wallets allowed)* |
-| Transfer ownership | `POST /domains/:domain/transfer-ownership` | 0.0001 *(ownership proof; clears shared_with)* |
-| Share with another wallet | `POST /domains/:domain/share` | 0.0001 *(ownership proof; owner-only)* |
-| Revoke a shared wallet | `POST /domains/:domain/unshare` | 0.0001 *(ownership proof; owner-only)* |
+| List your domains *(owner + shared)* | `GET /domains` | 0.01 *(ownership proof)* |
+| DNS records | `GET /domains/:domain/dns` | 0.01 *(ownership proof)* |
+| Update DNS | `POST /domains/:domain/dns` | 0.01 *(ownership proof; shared wallets allowed)* |
+| Transfer ownership | `POST /domains/:domain/transfer-ownership` | 0.01 *(ownership proof; clears shared_with)* |
+| Share with another wallet | `POST /domains/:domain/share` | 0.01 *(ownership proof; owner-only)* |
+| Revoke a shared wallet | `POST /domains/:domain/unshare` | 0.01 *(ownership proof; owner-only)* |
 | Pricing | `GET /pricing` | Free |
 | **Wallet** | | |
 | Create wallet | `POST /wallet` | Free |
@@ -254,17 +254,17 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Update avatar | `POST /social/twitter/avatar` | 0.005 |
 | Update banner | `POST /social/twitter/banner` | 0.005 |
 | Change username | `POST /social/twitter/username` | 0.005 |
-| Transfer pool account | `POST /x/accounts/:id/transfer` *(202 with `{ transfer_id }`; poll `GET /transfers/:transfer_id`)* | 0.0001 *(ownership proof; rotation runs in background, atomic when it completes)* |
-| Poll transfer status | `GET /transfers/:id` | 0.0001 *(ownership proof; expected ~6-18 polls per transfer at 5s interval)* |
-| Share pool account | `POST /x/accounts/:id/share` | 0.0001 *(ownership proof; owner-only)* |
-| Revoke shared wallet (pool) | `POST /x/accounts/:id/unshare` *(body: `{ wallet, rotate? }`)* | 0.0001 *(ownership proof; owner-only; `rotate: true` also rotates password)* |
-| List pool accounts owned/shared with you | `GET /x/accounts/mine` | 0.0001 *(ownership proof)* |
-| Transfer registered (BYO) account | `POST /social/twitter/registered/:id/transfer` *(202 with `{ transfer_id }`; poll `GET /transfers/:transfer_id`)* | 0.0001 *(ownership proof; rotation runs in background, atomic when it completes)* |
-| Share registered (BYO) account | `POST /social/twitter/registered/:id/share` | 0.0001 *(ownership proof; owner-only)* |
-| Revoke shared wallet (registered) | `POST /social/twitter/registered/:id/unshare` *(body: `{ wallet, rotate? }`)* | 0.0001 *(ownership proof; owner-only)* |
+| Transfer pool account | `POST /x/accounts/:id/transfer` *(202 with `{ transfer_id }`; poll `GET /transfers/:transfer_id`)* | 0.01 *(ownership proof; rotation runs in background, atomic when it completes)* |
+| Poll transfer status | `GET /transfers/:id` | 0.01 *(ownership proof; expected ~6-18 polls per transfer at 5s interval)* |
+| Share pool account | `POST /x/accounts/:id/share` | 0.01 *(ownership proof; owner-only)* |
+| Revoke shared wallet (pool) | `POST /x/accounts/:id/unshare` *(body: `{ wallet, rotate? }`)* | 0.01 *(ownership proof; owner-only; `rotate: true` also rotates password)* |
+| List pool accounts owned/shared with you | `GET /x/accounts/mine` | 0.01 *(ownership proof)* |
+| Transfer registered (BYO) account | `POST /social/twitter/registered/:id/transfer` *(202 with `{ transfer_id }`; poll `GET /transfers/:transfer_id`)* | 0.01 *(ownership proof; rotation runs in background, atomic when it completes)* |
+| Share registered (BYO) account | `POST /social/twitter/registered/:id/share` | 0.01 *(ownership proof; owner-only)* |
+| Revoke shared wallet (registered) | `POST /social/twitter/registered/:id/unshare` *(body: `{ wallet, rotate? }`)* | 0.01 *(ownership proof; owner-only)* |
 | List registered accounts owned/shared with you | `GET /social/twitter/registered/mine` | 0.001 *(ownership proof; returns decrypted creds)* |
-| Share pool-bought account *(from `palmyr twitter buy`)* | `POST /social/twitter/pool/:id/share` | 0.0001 *(ownership proof; owner-only)* |
-| Revoke shared wallet (pool-bought) | `POST /social/twitter/pool/:id/unshare` | 0.0001 *(ownership proof; owner-only; rotate not yet wired)* |
+| Share pool-bought account *(from `palmyr twitter buy`)* | `POST /social/twitter/pool/:id/share` | 0.01 *(ownership proof; owner-only)* |
+| Revoke shared wallet (pool-bought) | `POST /social/twitter/pool/:id/unshare` | 0.01 *(ownership proof; owner-only; rotate not yet wired)* |
 | List pool-bought accounts owned/shared with you | `GET /social/twitter/pool/mine` | 0.001 *(ownership proof; returns decrypted creds)* |
 | **Skills** | | |
 | Browse catalog | `GET /compute/skills/catalog` | Free |

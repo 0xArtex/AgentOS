@@ -426,11 +426,11 @@ palmyr compute exec my-vps -- bash -c 'cloud-init clean && cloud-init init --all
 | `palmyr domain check --name example.dev` | free | Availability check. |
 | `palmyr domain pricing --name example.dev` | free | TLD pricing. |
 | `palmyr domain buy --name example.dev` | $20.00 | One-year registration. Renewals are charged annually. |
-| `palmyr domain list` | $0.0001 *(ownership proof)* | List domains your wallet owns plus any shared with you. Each row tagged `access: owner | shared`. |
-| `palmyr domain dns --name example.dev` | $0.0001 *(ownership proof)* | View DNS records. Owners and shared wallets allowed. |
-| `palmyr domain transfer-ownership --name example.dev --to <wallet>` | $0.0001 *(ownership proof)* | Hand the domain to another wallet. Clears `shared_with` — the prior owner's collaborators don't travel with the domain. |
-| `palmyr domain share --name example.dev --with <wallet>` | $0.0001 *(ownership proof)* | Grant another wallet shared access (visible in `domain list`, can edit DNS). Owner-only. |
-| `palmyr domain unshare --name example.dev --from <wallet>` | $0.0001 *(ownership proof)* | Revoke a shared wallet's access. Owner-only. |
+| `palmyr domain list` | $0.01 *(ownership proof)* | List domains your wallet owns plus any shared with you. Each row tagged `access: owner | shared`. |
+| `palmyr domain dns --name example.dev` | $0.01 *(ownership proof)* | View DNS records. Owners and shared wallets allowed. |
+| `palmyr domain transfer-ownership --name example.dev --to <wallet>` | $0.01 *(ownership proof)* | Hand the domain to another wallet. Clears `shared_with` — the prior owner's collaborators don't travel with the domain. |
+| `palmyr domain share --name example.dev --with <wallet>` | $0.01 *(ownership proof)* | Grant another wallet shared access (visible in `domain list`, can edit DNS). Owner-only. |
+| `palmyr domain unshare --name example.dev --from <wallet>` | $0.01 *(ownership proof)* | Revoke a shared wallet's access. Owner-only. |
 
 ### Wallet
 
@@ -588,7 +588,7 @@ Local credentials are encrypted with AES-256-GCM (per-account session secret in 
 | `palmyr twitter banner <username> --file path.png` *(or `--url ...`)* | $0.005 | |
 | `palmyr twitter username <username> --to <new-handle>` | $0.005 | Pre-flight validates handle (4–15 chars, `[A-Za-z0-9_]`) before payment. May trigger X's password re-auth modal — handled automatically. |
 | `palmyr twitter transfer <username> --to <wallet> --confirm` | $0.0001 ownership proof + $0.0011 lookup; **adds $0.01 if auto-register runs**; **plus ~$0.001 in poll fees** ($0.0001 × ~10 polls) | Atomically hand the X account to another wallet. End-to-end one-command: looks up the account in both server tables (`x_accounts` + `social_registered_accounts`), auto-registers if only in local vault, then kicks off an async rotation job. Server returns `{ transfer_id }` immediately and the CLI polls `/transfers/:id` every 5s until `completed` or `failed` (rotation takes 30-90s in the background — async so it survives Cloudflare's HTTP timeout). Password is rotated and other sessions revoked before ownership flips, so the local copy of credentials becomes useless. Requires `--confirm`. Local vault entry is removed on success — receiver picks up fresh creds with `palmyr twitter list` (which shows server-only accounts) and/or `palmyr twitter claim`. |
-| `palmyr twitter share <username> --with <wallet>` | $0.0001 *(ownership proof)* | Grant another wallet shared access — same login, no credential rotation. Both wallets see the account via `palmyr twitter claim`. Owner-only. Same pool / registered dispatch as transfer. |
+| `palmyr twitter share <username> --with <wallet>` | $0.01 *(ownership proof)* | Grant another wallet shared access — same login, no credential rotation. Both wallets see the account via `palmyr twitter claim`. Owner-only. Same pool / registered dispatch as transfer. |
 | `palmyr twitter unshare <username> --from <wallet> [--rotate]` | $0.0001 ownership proof + $0.0011 lookup; **with `--rotate`: kicks off async rotation, ~$0.001 in poll fees plus another lookup to sync local vault** | Revoke a wallet's shared access. Without `--rotate`, the wallet is removed from `shared_with` immediately but their previously exported cookies / password remain valid until X-side expiry. With `--rotate`, the unshare is immediate AND the server kicks off an async password rotation (same machinery as transfer — Playwright + polling so it survives Cloudflare's HTTP timeout). On completion, the CLI fetches the new credentials from the appropriate `/mine` endpoint and updates the local vault in place. Owner-only. Same pool / registered dispatch. |
 | `palmyr twitter claim` | $0.0011 *(ownership proof on both `/x/accounts/mine` and `/social/twitter/registered/mine`)* | Pull every X account on the server bound to your wallet (owner or shared) into the local vault, with session cookies pre-warmed. Queries both server tables in parallel. The fast path for a wallet that just received a transferred account. |
 

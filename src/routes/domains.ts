@@ -471,9 +471,14 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
 });
 
 // Ownership proof via x402 micro-payment — the payer's signature on the USDC
-// transfer cryptographically proves they control the owner wallet. 0.0001 USDC
-// keeps the bar symbolic while avoiding zero-amount edge cases.
-const OWNERSHIP_PROOF_USDC = 0.0001;
+// transfer cryptographically proves they control the owner wallet. The amount
+// stays symbolic (one cent), but the previous 0.0001 USDC (= 100 atomic units)
+// fell below Coinbase CDP's enforced minimum and surfaced as
+// `cdp_error: invalid_payload` for every Base-paid call — Solana worked because
+// the SVM verifier doesn't apply that floor. 0.01 USDC matches the "general
+// ops" tier already used by compute reads, which is the cheapest Base amount
+// we've observed CDP accept end-to-end.
+const OWNERSHIP_PROOF_USDC = 0.01;
 const ownerFromRequest = (req: AuthenticatedRequest): string | undefined =>
   req.payment?.payer || req.agentId;
 
