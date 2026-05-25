@@ -125,7 +125,16 @@ export function getMessages(phoneNumberId: string, owner?: string): SmsMessage[]
 
 /**
  * Send an SMS from a provisioned number.
+ *
+ * Hard 25s ceiling on the Telnyx call. Without this, an unresponsive Telnyx
+ * leaves the request hanging until Cloudflare's edge times out and returns
+ * 502 HTML to the client — at which point the CLI shows
+ * "Payment was submitted but server returned 502 ... with non-JSON body" and
+ * the user has no idea whether they were charged. With the timeout we surface
+ * a JSON error fast, which triggers the route's `refundAndRespond` path.
  */
+const TELNYX_SMS_TIMEOUT_MS = 25_000;
+
 export async function sendSms(
   phoneNumberId: string,
   to: string,
@@ -137,12 +146,22 @@ export async function sendSms(
 
   const client = getClient();
 
-  const res = await client.messages.send({
+  const sendPromise = client.messages.send({
     from: number.phoneNumber,
     to,
     text: body,
     messaging_profile_id: config.telnyxMessagingProfileId || undefined,
   } as any);
+
+  const res = await Promise.race([
+    sendPromise,
+    new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`Telnyx SMS send timed out after ${TELNYX_SMS_TIMEOUT_MS / 1000}s`)),
+        TELNYX_SMS_TIMEOUT_MS,
+      ),
+    ),
+  ]);
 
   const msgData = (res as any).data || res;
 
