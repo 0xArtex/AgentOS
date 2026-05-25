@@ -1367,6 +1367,13 @@ export async function unfollowUser(
       return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
     }
 
+    // Profile actions hydrate after domcontentloaded — without waiting for
+    // networkidle, a fast follow→unfollow sequence races the button render
+    // and the `-unfollow` testid isn't in the DOM yet. networkidle is allowed
+    // to time out (long-poll trackers can keep the network busy forever);
+    // best-effort is enough.
+    await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {});
+
     const notFollowing = await page
       .locator('[data-testid$="-follow"]:visible')
       .first()
@@ -1376,8 +1383,44 @@ export async function unfollowUser(
       return { success: true, data: { already_not_following: true } };
     }
 
-    const unfollowButton = page.locator('[data-testid$="-unfollow"]:visible').first();
-    await unfollowButton.waitFor({ state: "visible", timeout: 20000 });
+    // Try the canonical selector first, then fall back to aria-label /
+    // accessible-name variants X has shown across A/B tests. The dogfood
+    // report (2026-05-25) hit a state where `[data-testid$="-unfollow"]`
+    // never appeared after a follow even though the button visibly said
+    // "Following" — covered by the second locator.
+    const primarySelector = '[data-testid$="-unfollow"]:visible';
+    const fallbackSelector =
+      'button[aria-label="Following"]:visible, button[aria-label^="Following @"]:visible, button:has-text("Following"):visible';
+    let unfollowButton = page.locator(primarySelector).first();
+    try {
+      await unfollowButton.waitFor({ state: "visible", timeout: 12000 });
+    } catch {
+      // One reload — handles stale-button race where X hasn't yet swapped
+      // the data-testid on its own.
+      await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+      await page.waitForLoadState("networkidle", { timeout: 8000 }).catch(() => {});
+      unfollowButton = page.locator(primarySelector).first();
+      try {
+        await unfollowButton.waitFor({ state: "visible", timeout: 10000 });
+      } catch {
+        // Last resort: accessible-name match. If even this misses, X has
+        // re-A/B'd the button — capture a screenshot for diagnosis.
+        unfollowButton = page.locator(fallbackSelector).first();
+        try {
+          await unfollowButton.waitFor({ state: "visible", timeout: 8000 });
+        } catch {
+          const shot = await debugShot(page, `unfollow-button-not-found-${handle}`);
+          return {
+            success: false,
+            error:
+              `Unfollow button not found for @${handle} via testid or aria-label ` +
+              `(after one reload). Either we're not actually following them, the page ` +
+              `is still hydrating, or X changed the selectors. Screenshot: ${shot}`,
+            error_code: "UI_TIMEOUT",
+          };
+        }
+      }
+    }
 
     // X may or may not show a confirmation modal depending on viewport /
     // account state. Set up API interception before the first click so we
