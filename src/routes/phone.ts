@@ -374,6 +374,36 @@ router.get("/numbers/:id/calls", requireAuth(0.02, "general"), async (req: Authe
 });
 
 /**
+ * GET /phone/messages/:id — Single SMS message readback (incl. delivery status).
+ * Parallels /phone/calls/:id so agents can poll an outbound SMS through to
+ * `delivered` / `*_failed`. Cheap by design — agents may poll it.
+ */
+router.get("/messages/:id", requireAuth(0.005, "general", {
+  description: "Get one SMS message by id, including delivery_status updated from Telnyx webhooks (queued → sent → delivered, or *_failed).",
+  category: "communications",
+  tags: ["phone", "sms", "message", "delivery", "status"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const msg = phoneService.getMessage(String(req.params.id));
+    if (!msg) {
+      res.status(404).json({ error: "Message Not Found", message: `No SMS message with id ${req.params.id}` });
+      return;
+    }
+    // Owner gate: only the wallet that owns the underlying number can read.
+    // Without this, anyone with a wallet could enumerate message ids.
+    const number = phoneService.getNumber(msg.phoneNumberId);
+    const caller = req.payment?.payer || req.agentId;
+    if (number?.owner && caller && number.owner !== caller) {
+      res.status(403).json({ error: "Forbidden", message: "Message belongs to a phone number you do not own" });
+      return;
+    }
+    res.json(msg);
+  } catch (err: any) {
+    res.status(500).json({ error: "Failed to get message", message: err.message });
+  }
+});
+
+/**
  * GET /phone/calls/:id — Get call details
  * Cost: 0.01 USDC
  */
@@ -569,6 +599,30 @@ router.post("/webhooks/telnyx", (req: Request, res: Response) => {
 
       if (from && to && text) {
         phoneService.handleInboundSms(from, to, text);
+      }
+    }
+
+    // Outbound-SMS lifecycle. Telnyx fires these per recipient:
+    //   message.sent          → handed off to the carrier
+    //   message.finalized     → terminal state (carrier ACK or final error)
+    // The recipient sub-status (`to[i].status`) carries the actual delivery
+    // outcome (delivered / delivery_failed / sending_failed). Map them onto
+    // our SmsMessage.deliveryStatus so `GET /phone/messages/:id` can show it.
+    if (eventType === "message.sent" || eventType === "message.finalized") {
+      const payload = event.payload;
+      const id = payload?.id;
+      const errors = Array.isArray(payload?.errors) ? payload.errors : [];
+      const providerErr = errors[0]?.detail || errors[0]?.title;
+      const recipients = Array.isArray(payload?.to) ? payload.to : [];
+      const recipientStatus: string | undefined = recipients[0]?.status;
+      const status =
+        (recipientStatus === "delivered" && "delivered") ||
+        (recipientStatus === "delivery_failed" && "delivery_failed") ||
+        (recipientStatus === "sending_failed" && "sending_failed") ||
+        (recipientStatus === "sent" && "sent") ||
+        (eventType === "message.sent" ? "sent" : "delivered");
+      if (id) {
+        phoneService.updateOutboundDeliveryStatus(id, status as any, providerErr);
       }
     }
 

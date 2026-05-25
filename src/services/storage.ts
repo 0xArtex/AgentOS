@@ -1,6 +1,21 @@
 import { PhoneNumber, SmsMessage, EmailInbox, EmailMessage, Domain, DnsRecord, Server, ApiKey } from "../types";
 import { db } from "../db";
 
+function rowToSmsMessage(row: any): SmsMessage {
+  return {
+    id: row.id,
+    phoneNumberId: row.phone_number_id,
+    direction: row.direction as "inbound" | "outbound",
+    from: row.from_number,
+    to: row.to_number,
+    body: row.body,
+    timestamp: row.timestamp,
+    ...(row.delivery_status ? { deliveryStatus: row.delivery_status as NonNullable<SmsMessage["deliveryStatus"]> } : {}),
+    ...(row.delivery_updated_at ? { deliveryUpdatedAt: row.delivery_updated_at } : {}),
+    ...(row.provider_error ? { providerError: row.provider_error } : {}),
+  };
+}
+
 /**
  * SQLite-backed storage with a clean interface.
  * Each collection is stored in SQLite tables.
@@ -68,29 +83,52 @@ class Storage {
 
   getSmsMessages(phoneNumberId: string): SmsMessage[] | undefined {
     const stmt = db.prepare(`
-      SELECT * FROM sms_messages 
-      WHERE phone_number_id = ? 
+      SELECT * FROM sms_messages
+      WHERE phone_number_id = ?
       ORDER BY timestamp DESC
     `);
     const rows = stmt.all(phoneNumberId) as any[];
-    
-    return rows.map(row => ({
-      id: row.id,
-      phoneNumberId: row.phone_number_id,
-      direction: row.direction as 'inbound' | 'outbound',
-      from: row.from_number,
-      to: row.to_number,
-      body: row.body,
-      timestamp: row.timestamp
-    }));
+
+    return rows.map(rowToSmsMessage);
+  }
+
+  getSmsMessage(id: string): SmsMessage | undefined {
+    const row = db.prepare(`SELECT * FROM sms_messages WHERE id = ?`).get(id) as any;
+    return row ? rowToSmsMessage(row) : undefined;
   }
 
   pushSmsMessage(phoneNumberId: string, msg: SmsMessage): void {
     const stmt = db.prepare(`
-      INSERT INTO sms_messages (id, phone_number_id, direction, from_number, to_number, body, timestamp)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO sms_messages (id, phone_number_id, direction, from_number, to_number, body, timestamp, delivery_status, delivery_updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(msg.id, phoneNumberId, msg.direction, msg.from, msg.to, msg.body, msg.timestamp);
+    const initialStatus = msg.deliveryStatus
+      || (msg.direction === "inbound" ? "delivered" : "queued");
+    stmt.run(
+      msg.id, phoneNumberId, msg.direction, msg.from, msg.to, msg.body, msg.timestamp,
+      initialStatus, msg.deliveryUpdatedAt || msg.timestamp,
+    );
+  }
+
+  /**
+   * Apply a Telnyx delivery-status update to an outbound message. Returns
+   * true if the row was found. Inbound messages are stored as `delivered`
+   * on insert and shouldn't transition further, so we restrict updates to
+   * outbound rows.
+   */
+  updateSmsDeliveryStatus(
+    id: string,
+    status: NonNullable<SmsMessage["deliveryStatus"]>,
+    providerError?: string,
+  ): boolean {
+    const res = db
+      .prepare(`
+        UPDATE sms_messages
+        SET delivery_status = ?, delivery_updated_at = ?, provider_error = COALESCE(?, provider_error)
+        WHERE id = ? AND direction = 'outbound'
+      `)
+      .run(status, new Date().toISOString(), providerError ?? null, id);
+    return res.changes > 0;
   }
 
   // ── Email ─────────────────────────────────────────────────

@@ -180,6 +180,27 @@ export async function sendSms(
 }
 
 /**
+ * Get a single SMS message by id (regardless of which phone number owns it).
+ * Returns undefined when not found.
+ */
+export function getMessage(id: string): SmsMessage | undefined {
+  return storage.getSmsMessage(id);
+}
+
+/**
+ * Apply a Telnyx-supplied delivery status update to an outbound SMS. No-op
+ * if the id doesn't match (row purged before the webhook arrived, or the
+ * message isn't ours).
+ */
+export function updateOutboundDeliveryStatus(
+  id: string,
+  status: NonNullable<SmsMessage["deliveryStatus"]>,
+  providerError?: string,
+): void {
+  storage.updateSmsDeliveryStatus(id, status, providerError);
+}
+
+/**
  * Handle inbound SMS webhook from Telnyx.
  * Telnyx sends webhooks as { data: { event_type, payload } }
  */
