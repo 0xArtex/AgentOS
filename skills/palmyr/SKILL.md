@@ -90,7 +90,6 @@ palmyr domain unshare --name example.dev --from <wallet>
 # reboot / OS-keychain loss / host migration. Keep PALMYR_WALLET_PASSPHRASE exported
 # (or in a systemd EnvironmentFile) on every machine that will use the wallet.
 PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name agent-prod       # recommended (free)
-PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --managed               # + passkey-gated spending limits
 PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --solana                # Solana only (--base for Base/EVM only)
 palmyr wallet create --session-only                                          # opt out — ephemeral wallets only
 palmyr wallet list                                                            # All wallets in vault; --tag <name> filters to one folder

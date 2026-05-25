@@ -121,9 +121,6 @@ PALMYR_WALLET_PASSPHRASE="your-passphrase" palmyr wallet create --name agent-pro
 # Equivalent — flag form (less safe, ends up in shell history)
 palmyr wallet create --name agent-prod --passphrase "your-passphrase"
 
-# Managed: same passphrase rules; also prints a setup link to send to a human
-PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name treasury --managed
-
 # Single-chain: skip the other chain's account
 PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name sol-only --solana
 PALMYR_WALLET_PASSPHRASE="..." palmyr wallet create --name base-only --base
@@ -135,8 +132,6 @@ palmyr wallet create --name throwaway --session-only
 On a TTY without env or flag, the CLI prompts twice with confirmation; non-TTY callers (CI, agents) must provide one of the three knobs above or get a clear error.
 
 By default a wallet derives both Solana and Base/EVM accounts. Pass `--solana` or `--base` (not both) to materialize only one side. The mnemonic always derives both — `--solana` / `--base` controls *which addresses are surfaced and stored*, not which keys exist cryptographically.
-
-The managed flow returns a one-time URL. The recipient opens it in a browser, registers a WebAuthn passkey, and sets spending limits. From that point on, transactions inside the limit sign instantly; transactions over the limit emit an `approvalUrl` that the human visits to authenticate and approve.
 
 ### Bulk creation with tags
 
@@ -159,7 +154,7 @@ palmyr wallet tags                              # all tags + counts + chains
 palmyr wallet tag-delete palmyr-demo --confirm
 ```
 
-Bulk-create is unmanaged-only (managed wallets need per-wallet passkey setup) and capped at 500 per call. Names auto-suffix `-001..-N` with zero-padding based on count width.
+Bulk-create caps at 500 per call. Names auto-suffix `-001..-N` with zero-padding based on count width.
 
 ### Importing an existing seed
 
@@ -438,8 +433,8 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 
 | Command | Network | Notes |
 |---|---|---|
-| `palmyr wallet create [--name N] [--managed] [--solana\|--base] [--tag T] [--count N] [--name-prefix P] (--passphrase P \| PALMYR_WALLET_PASSPHRASE env \| --session-only)` | local *(server only if `--managed`)* | New wallet. **Requires** either a passphrase (recoverable across reboot / OS-keychain loss / host migration) or explicit `--session-only` opt-out. On TTY without env/flag, prompts twice. Stores keychain secret + (with passphrase) a scrypt-sealed `owner_crypto` blob. `--count > 1` bulk-creates N unmanaged wallets under a required `--tag` (max 500/call, batched DPAPI seal on Windows). |
-| `palmyr wallet import --mnemonic "..." [--name N] [--managed] [--solana\|--base] [--tag T] (--passphrase P \| PALMYR_WALLET_PASSPHRASE env \| --session-only)` | local | Restore from BIP-39. Same passphrase rules as `create` — re-importing on a new machine to recover from keychain loss should always set a passphrase so you don't get trapped again. |
+| `palmyr wallet create [--name N] [--solana\|--base] [--tag T] [--count N] [--name-prefix P] (--passphrase P \| PALMYR_WALLET_PASSPHRASE env \| --session-only)` | local | New wallet. **Requires** either a passphrase (recoverable across reboot / OS-keychain loss / host migration) or explicit `--session-only` opt-out. On TTY without env/flag, prompts twice. Stores keychain secret + (with passphrase) a scrypt-sealed `owner_crypto` blob. `--count > 1` bulk-creates N wallets under a required `--tag` (max 500/call, batched DPAPI seal on Windows). |
+| `palmyr wallet import --mnemonic "..." [--name N] [--solana\|--base] [--tag T] (--passphrase P \| PALMYR_WALLET_PASSPHRASE env \| --session-only)` | local | Restore from BIP-39. Same passphrase rules as `create` — re-importing on a new machine to recover from keychain loss should always set a passphrase so you don't get trapped again. |
 | `palmyr wallet rekey <ID> --passphrase P` | local | Add (or rotate) the scrypt passphrase fallback on an existing wallet. Wallet must be decryptable right now (session secret still works, or `--current-passphrase` provided). Run on the original machine, then `PALMYR_WALLET_PASSPHRASE` decrypts the wallet anywhere. |
 | `palmyr wallet list [--tag T]` | local | Lists wallets in the local vault. `--tag` filters to one folder. |
 | `palmyr wallet info <ID>` | local | Show one wallet (id, name, addresses, mode, tag). |
@@ -451,7 +446,6 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 | `palmyr wallet api-key <ID> [--name N]` | API | Mint an agent API key bound to the wallet. |
 | `palmyr wallet config <ID>` | API | Pull the agent's runtime config. |
 | `palmyr wallet use <ID> [--chain solana\|base]` | local | Set default payer and payment chain. |
-| `palmyr wallet request-approval <ID> [--action limits] [--daily N] [--per-tx N]` | API | Managed wallets only — generate an approval URL for a human. |
 | `palmyr wallet export <ID> --confirm` | local | Print mnemonic. Requires explicit `--confirm`. |
 
 **Trading.** Thesis-tracked positions on Solana + Base persist at `~/.palmyr/trading/` (overridable via `PALMYR_TRADING_PATH`). Swaps route through Jupiter v6 on Solana and ParaSwap on Base. Positions, sells, journal, and watchlist live as JSON / JSONL.
@@ -833,7 +827,6 @@ If the server doesn't offer the chosen chain for an endpoint, the CLI errors lou
 ├── wallet/
 │   ├── wallets/             # Encrypted wallet files (AES-256-GCM)
 │   ├── keys/                # API key metadata
-│   ├── policies/            # Spending policies for managed wallets
 │   └── spends/              # Per-day spend ledgers
 ├── secrets/                 # Windows DPAPI fallback (macOS/Linux use OS keychain)
 ├── data/                    # Local cache of phones, inboxes, servers, domains
@@ -866,7 +859,7 @@ The CLI uses distinct exit codes so scripts and agents can branch on failure mod
 
 ## Security Model
 
-- **Keys never leave the machine.** `wallet create` and `wallet import` never transmit seed material to the server. Even managed wallets register only the wallet ID and the derived public addresses with the server.
+- **Keys never leave the machine.** `wallet create` and `wallet import` never transmit seed material to the server.
 - **Encryption at rest.** The wallet file is AES-256-GCM with the session secret as the key. The session secret is generated on wallet creation and never stored on disk in plaintext.
 - **OS credential store.** Session secrets live in DPAPI (Windows), Keychain (macOS), or `secret-tool` (libsecret on Linux). If none is available the CLI errors rather than falling back to plaintext.
 - **Recoverable by default.** `wallet create` and `wallet import` require a scrypt passphrase fallback (via `--passphrase` or `PALMYR_WALLET_PASSPHRASE`) or an explicit `--session-only` opt-out. The passphrase blob is a second AES-256-GCM ciphertext keyed by scrypt(passphrase, random salt) and lets the wallet decrypt on a different machine / user / headless box where the OS keychain isn't reachable. Decryption tries the OS session secret first, then falls back to the env/flag passphrase. Session-only wallets are bound to this machine's OS keychain — explicit opt-in for ephemeral use only.
@@ -889,7 +882,6 @@ Common issues:
 - **`SECURITY` exit code on any wallet command.** The vault file or its derived accounts have drifted. Restore the wallet file from backup, or re-import from the mnemonic.
 - **`Server did not offer <chain> as option`.** Either the endpoint only supports the other chain, or your `defaultPayChain` is misconfigured. Use `palmyr wallet use <ID> --chain <other>` and retry.
 - **`No session secret found`.** The wallet was created on a different machine, or the OS credential store is unavailable. Re-import the wallet and let the CLI store the secret again.
-- **Managed wallet, `REQUIRES_APPROVAL`.** The transaction exceeded a per-tx or daily limit. Run `palmyr wallet request-approval <ID>` and forward the URL to the human reviewer.
 
 ---
 
