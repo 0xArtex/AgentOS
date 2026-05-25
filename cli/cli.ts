@@ -5220,7 +5220,10 @@ async function main() {
               { name: 'buy',     description: 'Purchase an aged account (requires server supplier config)', hint: '--age 1y --country US' },
               { name: 'login',   description: 'Force a fresh server-side session (requires browser runtime)', hint: '<username>' },
               { name: 'post',    description: 'Post a tweet (requires server browser runtime)', hint: '<username> --body "..."' },
-              { name: 'status',  description: 'Check if the account is alive / shadow-banned', hint: '<username>' },
+              // `status` is not wired yet (Phase 3). Hidden from this menu so
+              // users don't try a command that will only error; `session`
+              // covers the most useful subset (cached server-side login state).
+              { name: 'session', description: 'Inspect cached server-side session for an account', hint: '<username>' },
               { name: 'transfer', description: 'Hand an account to another wallet (rotates password; auto-registers if needed)', hint: '<username> --to <wallet> --confirm' },
               { name: 'share',    description: 'Grant another wallet shared access', hint: '<username> --with <wallet>' },
               { name: 'unshare',  description: 'Revoke a wallet’s shared access', hint: '<username> --from <wallet> [--rotate]' },
@@ -6131,9 +6134,17 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           case 'status': {
+            // `twitter status` was meant to check live shadow-ban / suspension
+            // state via a server-side probe. That's a Phase 3 build (needs a
+            // browser runtime on the server to render the profile). Until
+            // then, point users at `session` for the cached login state and
+            // `info` for vault metadata — together they cover the practical
+            // "is this account still usable from the agent's side" question.
             err(
-              `twitter status: not wired yet. Phase 3 will add it.`,
-              EXIT.GENERAL
+              `twitter status: not wired yet (Phase 3). Closest equivalents available today: ` +
+              `\`palmyr twitter session <username>\` (cached server-side login validity) and ` +
+              `\`palmyr twitter info <username>\` (local vault record).`,
+              EXIT.GENERAL,
             )
           }
 
