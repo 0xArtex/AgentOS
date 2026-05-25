@@ -183,19 +183,34 @@ export async function runWalletLiveTest(opts: LiveTestOpts): Promise<LiveTestRep
     legs.push({ name: 'base-buy', chain: 'base', step: 'buy', status: 'skip', message: 'no EVM address' })
   }
 
-  // Verify no positions left open for this wallet.
+  // Verify no positions left open *for this test*. The previous behaviour was
+  // to fail the test whenever ANY position remained open on the wallet, even
+  // unrelated ones the user opened before live-test ran. The 2026-05-25
+  // dogfood hit exactly that — both Base and Solana legs succeeded but the
+  // final verify fail-flagged a wallet that already had legitimate live
+  // positions from real trading.
+  //
+  // Scope the check to the two test mints (JUP on Solana, WETH on Base): if
+  // those are open at the end, this test leaked. Anything else open is
+  // pre-existing user state, reported separately so the agent gating signal
+  // doesn't lose that info.
   const walletAddrs = [addrs.solanaAddress, addrs.evmAddress].filter((x): x is string => !!x)
-  const remaining = walletAddrs.length > 0
+  const allOpen = walletAddrs.length > 0
     ? listPositions({ walletAddress: walletAddrs, includeClosed: false })
     : []
+  const TEST_MINTS_LOWER = new Set([TEST_MINT_SOLANA.toLowerCase(), TEST_MINT_BASE.toLowerCase()])
+  const leaked = allOpen.filter((p) => TEST_MINTS_LOWER.has(String(p.mint).toLowerCase()))
+  const preExisting = allOpen.filter((p) => !TEST_MINTS_LOWER.has(String(p.mint).toLowerCase()))
   legs.push({
     name: 'verify-no-open-positions',
-    chain: remaining[0]?.chain ?? 'solana',
+    chain: leaked[0]?.chain ?? preExisting[0]?.chain ?? 'solana',
     step: 'verify',
-    status: remaining.length === 0 ? 'pass' : 'fail',
-    message: remaining.length === 0
-      ? undefined
-      : `${remaining.length} position(s) still open after live-test: ${remaining.map((p) => `${p.chain}:${p.mint}`).join(', ')}`,
+    status: leaked.length === 0 ? 'pass' : 'fail',
+    message: leaked.length === 0
+      ? (preExisting.length > 0
+          ? `Test roundtrip cleanly closed. ${preExisting.length} unrelated pre-existing position(s) remain (not from live-test): ${preExisting.map((p) => `${p.chain}:${p.mint}`).join(', ')}`
+          : undefined)
+      : `${leaked.length} live-test position(s) still open: ${leaked.map((p) => `${p.chain}:${p.mint}`).join(', ')}`,
   })
 
   const anyFail = legs.some((l) => l.status === 'fail')
@@ -210,6 +225,6 @@ export async function runWalletLiveTest(opts: LiveTestOpts): Promise<LiveTestRep
     legs,
     totalRealizedUsdc,
     safeForAutonomousTrading,
-    openPositionsAfter: remaining.length,
+    openPositionsAfter: leaked.length,
   }
 }
