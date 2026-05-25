@@ -531,7 +531,7 @@ const EMAIL_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
   create: [
     { flag: '--name <name>', desc: 'Inbox name (required)' },
     { flag: '--domain <domain>', desc: 'Wallet-owned domain to host the inbox on (optional)', hint: 'default: Palmyr-hosted domain' },
-    { flag: '--wallet <id|name>', desc: 'Wallet to own the inbox (optional)' },
+    { flag: '--wallet <id|name|sol_pubkey>', desc: 'Inbox owner — vault id/name (resolves to its Solana address) or a raw Solana pubkey. Omit to use the paying wallet.', hint: 'E2E encryption is Ed25519, so the owner must always be a Solana address — Base addresses cannot own an inbox' },
     { flag: '(price)', desc: '$2.00 per inbox provisioned' },
     { flag: '(example)', desc: 'palmyr email create --name agent --domain example.com' },
   ],
@@ -1488,12 +1488,52 @@ async function main() {
         switch (subcommand) {
           case 'create': {
             const name = flags.name as string || positional[0]
-            const wallet = flags.wallet as string | undefined
+            const walletInput = flags.wallet as string | undefined
             const domain = flags.domain as string | undefined
             if (!name) err('--name required (e.g. palmyr email create --name hello [--domain example.com])')
+            // --wallet accepts three forms: vault id, vault name, or a raw
+            // Solana base58 pubkey. The server only accepts a Solana pubkey
+            // (E2E encryption is Ed25519→X25519), so resolve id/name to a
+            // pubkey here before the request. Raw pubkeys pass through.
+            // Doing this resolution client-side also means a Base-paying user
+            // doesn't need a Solana wallet — their vault already has one
+            // (single mnemonic, both chains), and we can find it without
+            // making the server reach back for client-side keys.
+            let walletAddress: string | undefined
+            if (walletInput) {
+              const looksLikeSolPubkey = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletInput)
+              if (looksLikeSolPubkey) {
+                walletAddress = walletInput
+              } else {
+                const { listVaultWallets } = await import('./vault.js')
+                const wallets = listVaultWallets()
+                const match = wallets.find(w => w.id === walletInput || w.name === walletInput)
+                if (!match) err(`--wallet "${walletInput}" did not match any vault id, name, or look like a Solana pubkey`)
+                if (!match!.solanaAddress) err(`Wallet "${walletInput}" has no Solana address — email inboxes require one (E2E uses Ed25519). Re-create with: palmyr wallet create`)
+                walletAddress = match!.solanaAddress!
+              }
+            } else {
+              // No --wallet: the server would normally default the inbox owner
+              // to the x402 payer. That works for Solana-paid calls but
+              // 400s on Base because the payer is an EVM address. Auto-fill
+              // the *paying wallet's* Solana address here so a single
+              // mnemonic-derived vault wallet works on either pay chain.
+              const cfg = loadConfig() as any
+              const payChain = (cfg.defaultPayChain || 'solana') as 'solana' | 'base'
+              if (payChain === 'base') {
+                const { listVaultWallets } = await import('./vault.js')
+                const wallets = listVaultWallets()
+                const targetId = cfg.defaultPayWalletId || process.env.PALMYR_PAY_WALLET
+                const paying = (targetId && wallets.find(w => w.id === targetId)) || wallets.find(w => w.evmAddress && w.solanaAddress)
+                if (paying?.solanaAddress) walletAddress = paying.solanaAddress
+                // If no Solana address is reachable, fall through and let the
+                // server return its actionable 400 — silent failure would be
+                // worse than a clear error.
+              }
+            }
             const spin = new Spinner()
             spin.start('Creating inbox...')
-            const data = await ao.emailCreate(name, wallet, domain)
+            const data = await ao.emailCreate(name, walletAddress, domain)
             spin.stop('Inbox created', true)
             return print(data)
           }

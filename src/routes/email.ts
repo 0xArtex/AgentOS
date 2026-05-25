@@ -102,6 +102,29 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
       });
       return;
     }
+  } else {
+    // No explicit walletAddress: the route would fall back to req.payment.payer
+    // as the inbox owner / encryption key. That's a Solana pubkey when the
+    // payer is on Solana, but an EVM 0x address when the payer is on Base —
+    // which then 500s deep inside createInbox. Detect EVM-network payments
+    // here so the user gets a clear 400 BEFORE the paywall settles, instead
+    // of paying $2 to find out their pay chain doesn't match the email
+    // crypto.
+    try {
+      const decoded = JSON.parse(Buffer.from(paymentHeader, "base64").toString("utf8"));
+      const network: string | undefined = decoded?.accepted?.network || decoded?.network;
+      if (typeof network === "string" && network.startsWith("eip155:")) {
+        res.status(400).json({
+          error: "Invalid walletAddress",
+          message: "Pass --wallet <vault_id|name|sol_pubkey> when paying on Base — email inboxes are owned by a Solana pubkey (E2E uses Ed25519). The CLI auto-fills this from your paying wallet's Solana address if you use the latest version. Your wallet has NOT been charged.",
+          hint: "Solana-paid calls work without --wallet (the payer is already a Solana pubkey).",
+        });
+        return;
+      }
+    } catch {
+      // Header isn't structured x402 — fall through and let requireAuth
+      // surface the format error.
+    }
   }
 
   // Pre-payment domain ownership check: if the caller is requesting a custom
