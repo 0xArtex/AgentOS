@@ -277,8 +277,20 @@ async function handleEvmPayment(
         payer: verifyResult?.payer,
       };
     } catch (e: any) {
-      console.error("[x402] CDP facilitator error:", e?.message);
-      return { verified: false, settled: false, reason: "cdp_error: " + (e?.message || "unknown") };
+      // @x402/core wraps the facilitator response in a VerifyError whose
+      // `.message` is just `invalidReason`. Surface the rest (invalidMessage,
+      // statusCode, network/amount we sent) so future "invalid_payload" hits
+      // don't require code-spelunking to diagnose.
+      console.error(
+        "[x402] CDP facilitator error:",
+        e?.message,
+        "invalidMessage=", e?.invalidMessage,
+        "statusCode=", e?.statusCode,
+        "network=", matchedRequirement?.network,
+        "amount=", matchedRequirement?.amount,
+      );
+      const detail = e?.invalidMessage ? e.message + ": " + e.invalidMessage : (e?.message || "unknown");
+      return { verified: false, settled: false, reason: "cdp_error: " + detail };
     }
   }
 

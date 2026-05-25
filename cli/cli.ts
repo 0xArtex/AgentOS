@@ -6018,7 +6018,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             //   1. If the account is only in the local vault, auto-register it
             //      with the server (uploads encrypted creds; $0.01 USDC).
             //   2. Server rotates the password and revokes other sessions
-            //      ($0.0001 USDC ownership proof).
+            //      ($0.01 USDC ownership proof).
             //   3. Atomically flips ownership in the DB.
             // Receiver picks up the rotated credentials via `palmyr twitter
             // list` (which now surfaces server-side accounts) and/or `claim`.
