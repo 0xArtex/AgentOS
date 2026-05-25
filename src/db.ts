@@ -59,10 +59,25 @@ export function initDatabase(): void {
       timestamp TEXT NOT NULL,
       FOREIGN KEY (phone_number_id) REFERENCES phone_numbers(id)
     );
-    
+
     CREATE INDEX IF NOT EXISTS idx_sms_messages_phone_number_id ON sms_messages(phone_number_id);
     CREATE INDEX IF NOT EXISTS idx_sms_messages_timestamp ON sms_messages(timestamp);
   `);
+  // delivery_status + provider_error track outbound message lifecycle from
+  // Telnyx webhooks (queued → sending → sent → delivered, or *_failed). Added
+  // in a separate ALTER block so existing DBs upgrade without dropping rows.
+  // SQLite has no IF NOT EXISTS on columns — we probe PRAGMA instead.
+  const smsCols = db.prepare("PRAGMA table_info(sms_messages)").all() as Array<{ name: string }>;
+  const smsColNames = new Set(smsCols.map(c => c.name));
+  if (!smsColNames.has("delivery_status")) {
+    db.exec(`ALTER TABLE sms_messages ADD COLUMN delivery_status TEXT DEFAULT 'queued'`);
+  }
+  if (!smsColNames.has("delivery_updated_at")) {
+    db.exec(`ALTER TABLE sms_messages ADD COLUMN delivery_updated_at TEXT`);
+  }
+  if (!smsColNames.has("provider_error")) {
+    db.exec(`ALTER TABLE sms_messages ADD COLUMN provider_error TEXT`);
+  }
 
   // Email Inboxes table
   db.exec(`

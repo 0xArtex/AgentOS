@@ -48,6 +48,17 @@ export interface SmsMessage {
   to: string;
   body: string;
   timestamp: string;
+  /**
+   * Lifecycle for outbound messages. `queued` is the initial state right
+   * after Telnyx accepts the send; webhook events update it to `sent`,
+   * `delivered`, `sending_failed`, or `delivery_failed`. Inbound messages
+   * are stored with `delivered` since they're already on the device.
+   */
+  deliveryStatus?: "queued" | "sending" | "sent" | "delivered" | "sending_failed" | "delivery_failed";
+  /** ISO 8601 timestamp of the last delivery_status update. */
+  deliveryUpdatedAt?: string;
+  /** Provider-supplied error string when delivery_status is *_failed. */
+  providerError?: string;
 }
 
 export interface ProvisionNumberRequest {

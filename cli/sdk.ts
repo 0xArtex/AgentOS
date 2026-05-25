@@ -369,6 +369,10 @@ export class Palmyr {
     return this.request('GET', `/phone/numbers/${phoneId}/messages`)
   }
 
+  async phoneMessage(messageId: string): Promise<any> {
+    return this.request('GET', `/phone/messages/${messageId}`)
+  }
+
   async phoneCalls(phoneId: string): Promise<any> {
     return this.request('GET', `/phone/numbers/${phoneId}/calls`)
   }

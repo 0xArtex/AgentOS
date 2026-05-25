@@ -452,6 +452,15 @@ const PHONE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
     { flag: '(price)', desc: '$0.02 per call' },
     { flag: '(example)', desc: 'palmyr phone messages --id PN_abc' },
   ],
+  message: [
+    { flag: '--id <MESSAGE_ID>', desc: 'SMS message id (Telnyx-supplied; positional also accepted)' },
+    { flag: '(price)', desc: '$0.005 per readback — cheap so agents can poll until delivery_status is terminal' },
+    { flag: '(example)', desc: 'palmyr phone message <message-id-from-sms-response>' },
+  ],
+  'sms-status': [
+    { flag: '<message-id>', desc: 'Alias for `palmyr phone message <id>` — readback by id' },
+    { flag: '(price)', desc: '$0.005 per readback' },
+  ],
   calls: [
     { flag: '--id <PHONE_ID>', desc: 'Phone number id to list calls for (required; positional also accepted)' },
     { flag: '(price)', desc: '$0.02 per call' },
@@ -1326,6 +1335,7 @@ async function main() {
               { name: 'release', description: 'Release a phone number', hint: '--id PHONE_ID' },
               { name: 'sms', description: 'Send an SMS', hint: '--id ID --to +1... --body "hi"' },
               { name: 'messages', description: 'Read SMS messages received on a number', hint: '--id PHONE_ID' },
+              { name: 'message', description: 'Get one SMS message by id (incl. delivery status)', hint: '--id MESSAGE_ID' },
               { name: 'call', description: 'Place a voice call', hint: '--id ID --to +1... --tts "hello"' },
               { name: 'calls', description: 'List calls placed/received on a number', hint: '--id PHONE_ID' },
               { name: 'call-info', description: 'Get details on a single call', hint: '--call CALL_CONTROL_ID' },
@@ -1424,6 +1434,17 @@ async function main() {
             const id = (flags.id as string) || positional[0]
             if (!id) err('--id PHONE_ID required')
             const data = await ao.phoneMessages(id)
+            return print(data)
+          }
+          case 'message':
+          case 'sms-status': {
+            // Per-message readback. Mirrors `phone call-info` for SMS:
+            // the Telnyx webhook updates delivery_status on the row, and this
+            // endpoint serves it back. Useful when the immediate sms response
+            // is 'queued' and the caller wants to confirm delivery.
+            const messageId = (flags.id as string) || (flags.message as string) || positional[0]
+            if (!messageId) err('Usage: palmyr phone message <message-id>')
+            const data = await ao.phoneMessage(messageId!)
             return print(data)
           }
           case 'calls': {
