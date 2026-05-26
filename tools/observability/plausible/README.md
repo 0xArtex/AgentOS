@@ -97,3 +97,8 @@ docker run --rm -v plausible_event-data:/data -v $PWD:/backup \
   `security.ts` matches the repo.
 - **Empty dashboard** — check Plausible's own logs (`docker logs palmyr-plausible`);
   most often DNS or BASE_URL mismatch between .env and what visitors hit.
+- **Plausible container crash-loops with `AUTHENTICATION_FAILED` against
+  ClickHouse** — you're on a ClickHouse image tag newer than 24.3.x. Pin
+  `plausible_events_db.image` back to `clickhouse/clickhouse-server:24.3.3.42-alpine`,
+  then `docker compose down -v && docker compose up -d` (the `-v` wipes the
+  half-initialised event volume so the older image can re-create it cleanly).
