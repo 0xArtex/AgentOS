@@ -786,8 +786,10 @@ const TWITTER_HELP: Record<string, Array<{ flag: string; desc: string; hint?: st
   ],
   buy: [
     { flag: '(no args)', desc: 'Purchase the oldest ready X account from the supplier pool' },
-    { flag: '(price)', desc: '$5 USDC — paid via x402. Account auto-imported into the local vault and session primed.' },
-    { flag: '(example)', desc: 'palmyr twitter buy' },
+    { flag: '--country <CC>', desc: 'Filter to a specific country (ISO alpha-2: US, GB, DE, …). Run `pool-prices` first to see what is priced.' },
+    { flag: '--age 1y|2y|...', desc: 'Optional age category filter' },
+    { flag: '(price)', desc: '$5 USDC default; per-country amount when --country is passed. Account auto-imported into the local vault.' },
+    { flag: '(example)', desc: 'palmyr twitter buy --country US' },
   ],
   login: [
     { flag: '<username>', desc: 'Force a fresh server-side session (browser runtime)' },
@@ -949,11 +951,50 @@ const TWITTER_HELP: Record<string, Array<{ flag: string; desc: string; hint?: st
   'pool-add': [
     { flag: '--credentials-line "..."', desc: 'Single account creds (login:pw:email:email_pw[:2fa[:ct0:auth_token]])' },
     { flag: '--file path.txt', desc: 'Bulk: one credentials-line per row (# = comment)' },
-    { flag: '--price <USDC>', desc: 'Required — what `twitter buy` will charge per account' },
-    { flag: '--country <CC>', desc: 'Optional metadata' },
+    { flag: '--price <USDC>', desc: 'Required — what `twitter buy` will charge per account (per-account fallback when country has no row in pool-prices)' },
+    { flag: '--country <CC>', desc: 'Optional override; otherwise twitterapi.io detects country at seed time. Admin wins on mismatch (flagged in response).' },
     { flag: '--age 1y|2y|3y|...', desc: 'Optional age category metadata' },
     { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
     { flag: '(price)', desc: 'Free — server-side seeding by pool operator' },
+  ],
+  'pool-prices': [
+    { flag: '(no args)', desc: 'List per-country prices set by the pool admin (public, free).' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  'pool-set-price': [
+    { flag: '--country <CC>', desc: 'ISO 3166-1 alpha-2 country code (US, GB, DE, …)' },
+    { flag: '--price <USDC>', desc: 'USDC amount the `buy --country <CC>` route will charge' },
+    { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  'pool-delete-price': [
+    { flag: '--country <CC>', desc: 'Country code to remove pricing for' },
+    { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  dispute: [
+    { flag: '<account_id>', desc: 'Account id returned by `twitter buy` (the 32-char hex)' },
+    { flag: '--reason suspended|other', desc: 'Default "suspended" — triggers auto-verify via twitterapi.io' },
+    { flag: '--evidence "..."', desc: 'Optional note shown to the admin if the dispute ends up in admin_review' },
+    { flag: '(price)', desc: '$0.01 USDC ownership-proof. 7-day window from purchase.' },
+    { flag: '(example)', desc: 'palmyr twitter dispute abcd1234… --reason suspended' },
+  ],
+  disputes: [
+    { flag: '<dispute_id>', desc: 'Look up the status of a previously filed dispute' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  'pool-disputes': [
+    { flag: '(no args)', desc: 'List every dispute in the system (admin)' },
+    { flag: '--status admin_review|pending|replaced|refunded|rejected', desc: 'Filter by status' },
+    { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  'pool-resolve-dispute': [
+    { flag: '<dispute_id>', desc: 'Id from `pool-disputes`' },
+    { flag: '--action replace|refund|reject', desc: 'replace = grant same-country swap; refund = USDC back to payer; reject = decline' },
+    { flag: '--note "..."', desc: 'Optional admin note appended to the resolution' },
+    { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
+    { flag: '(price)', desc: 'Free' },
   ],
   'pool-status': [
     { flag: '(no args)', desc: 'Available / sold / reserved counts in the X account pool' },
@@ -6060,10 +6101,16 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           case 'buy': {
-            // Agents just say "buy." Server picks the oldest ready account.
+            // Agents say "buy" with an optional --country flag. Country
+            // selects from the admin-curated per-country pool AND determines
+            // the USDC charge (admin sets prices via `pool-set-price`).
+            // Without --country, falls back to the legacy single-tier $5
+            // pool which selects across all countries.
+            const country = ((flags.country as string) || '').trim().toUpperCase() || undefined
+            const ageCategory = (flags.age as string) || (flags['age-category'] as string) || undefined
             let data: any
             try {
-              data = await ao.socialTwitterBuy()
+              data = await ao.socialTwitterBuy(country, ageCategory)
             } catch (e: any) {
               err(`Buy failed: ${e.message}`, EXIT.GENERAL)
             }
@@ -6077,7 +6124,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             const summary = sv.importAccount(platform, account.username, account.credentials, {
               source: 'pool',
               proxy_session_id: account.proxy_session_id,
-              notes: 'Bought from pool',
+              notes: country ? `Bought from pool (country=${country})` : 'Bought from pool',
             })
             sv.saveSession(summary.id, platform, account.cookies || [])
             sv.updateMeta(platform, summary.username, { last_action_at: new Date().toISOString() })
@@ -6085,8 +6132,129 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               success: true,
               platform,
               username: summary.username,
-              hint: `Ready to post — try: palmyr twitter post ${summary.username} --body "gm"`,
+              country: account.country,
+              account_id: account.id,
+              hint: `Ready to post — try: palmyr twitter post ${summary.username} --body "gm". ` +
+                    `If the account is suspended within 7 days, run: palmyr twitter dispute ${account.id}`,
             })
+          }
+
+          case 'pool-prices': {
+            // Public: which countries are priced and what they cost. Run
+            // before `buy --country X` to confirm the country is available.
+            let data: any
+            try {
+              data = await ao.socialTwitterPoolPrices()
+            } catch (e: any) {
+              err(`pool-prices failed: ${e.message}`, EXIT.GENERAL)
+            }
+            return print(data)
+          }
+
+          case 'pool-set-price': {
+            // Admin: set USDC price for a single country code. Idempotent.
+            const { buildAdminHeaders } = await import('./admin-auth.js')
+            const country = ((flags.country as string) || '').trim().toUpperCase()
+            const price = flags.price !== undefined ? Number(flags.price) : NaN
+            if (!country) err('--country <CC> required (ISO 3166-1 alpha-2: US, GB, DE, …)')
+            if (!Number.isFinite(price) || price <= 0) err('--price <USDC> required (positive number)')
+            const path = `/social/twitter/pool/prices/${encodeURIComponent(country)}`
+            const headers = buildAdminHeaders('PUT', path)
+            const res = await fetch(ao.api + path, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', ...headers },
+              body: JSON.stringify({ price_usdc: price }),
+            })
+            const data = await res.json() as any
+            if (!res.ok || !data.success) err(`pool-set-price failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
+            return print(data)
+          }
+
+          case 'pool-delete-price': {
+            // Admin: remove the row for a country. Subsequent `buy --country X`
+            // will return 400 "Country not priced" until set again.
+            const { buildAdminHeaders } = await import('./admin-auth.js')
+            const country = ((flags.country as string) || '').trim().toUpperCase()
+            if (!country) err('--country <CC> required')
+            const path = `/social/twitter/pool/prices/${encodeURIComponent(country)}`
+            const headers = buildAdminHeaders('DELETE', path)
+            const res = await fetch(ao.api + path, { method: 'DELETE', headers })
+            const data = await res.json() as any
+            if (!res.ok) err(`pool-delete-price failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
+            return print(data)
+          }
+
+          case 'dispute': {
+            // Buyer: file a dispute for a pool-bought account that got
+            // suspended. Server auto-verifies via twitterapi.io and either
+            // hands over a same-country replacement, refunds USDC, or queues
+            // for admin review when the signal is ambiguous.
+            const accountId = positional[0] || (flags['account-id'] as string) || (flags.id as string)
+            const reason = ((flags.reason as string) || 'suspended') as 'suspended' | 'other'
+            const evidence = (flags.evidence as string) || (flags.note as string) || undefined
+            if (!accountId) err('<account_id> required (the id returned by `palmyr twitter buy`)')
+            if (reason !== 'suspended' && reason !== 'other') err('--reason must be "suspended" or "other"')
+
+            let data: any
+            try {
+              data = await ao.socialTwitterDispute(accountId!, { reason, evidence })
+            } catch (e: any) {
+              err(`Dispute failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.success) err(`Dispute failed: ${data?.error || 'unknown'}`, EXIT.GENERAL)
+            return print(data)
+          }
+
+          case 'disputes': {
+            // Buyer: list ONE specific dispute by id. Listing all your
+            // disputes isn't supported by the buyer surface today — track
+            // the id printed by `dispute` and call `disputes <id>`.
+            const id = positional[0] || (flags.id as string)
+            if (!id) err('<dispute_id> required')
+            let data: any
+            try {
+              data = await ao.socialTwitterDisputeGet(id!)
+            } catch (e: any) {
+              err(`Get dispute failed: ${e.message}`, EXIT.GENERAL)
+            }
+            return print(data)
+          }
+
+          case 'pool-disputes': {
+            // Admin: list every dispute, optionally filter by status. The
+            // `admin_review` queue is the human-decision backlog.
+            const { buildAdminHeaders } = await import('./admin-auth.js')
+            const status = (flags.status as string) || undefined
+            const path = '/social/twitter/pool/disputes' + (status ? `?status=${encodeURIComponent(status)}` : '')
+            const headers = buildAdminHeaders('GET', path)
+            const res = await fetch(ao.api + path, { headers })
+            const data = await res.json() as any
+            if (!res.ok) err(`pool-disputes failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
+            return print(data)
+          }
+
+          case 'pool-resolve-dispute': {
+            // Admin: resolve an admin_review dispute. action ∈ replace |
+            // refund | reject. `replace` needs same-country stock; `refund`
+            // needs payment provenance on the row (auto-saved at buy time).
+            const { buildAdminHeaders } = await import('./admin-auth.js')
+            const id = positional[0] || (flags.id as string)
+            const action = (flags.action as string) as 'replace' | 'refund' | 'reject' | undefined
+            const note = (flags.note as string) || undefined
+            if (!id) err('<dispute_id> required')
+            if (action !== 'replace' && action !== 'refund' && action !== 'reject') {
+              err('--action must be "replace", "refund", or "reject"')
+            }
+            const path = `/social/twitter/pool/disputes/${encodeURIComponent(id!)}/resolve`
+            const headers = buildAdminHeaders('POST', path)
+            const res = await fetch(ao.api + path, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...headers },
+              body: JSON.stringify({ action, ...(note ? { note } : {}) }),
+            })
+            const data = await res.json() as any
+            if (!res.ok || !data.success) err(`pool-resolve-dispute failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
+            return print(data)
           }
 
           case 'pool-add': {

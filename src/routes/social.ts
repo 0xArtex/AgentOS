@@ -21,6 +21,18 @@ import {
   poolAccountsAccessibleBy,
 } from "../services/social-pool";
 import {
+  setCountryPrice,
+  getCountryPrice,
+  listCountryPrices,
+  deleteCountryPrice,
+} from "../services/country-prices";
+import {
+  createDispute,
+  getDispute,
+  listDisputes,
+  resolveDisputeAdmin,
+} from "../services/disputes";
+import {
   registerAccount,
   unregisterAccount,
   listRegisteredAccounts,
@@ -1076,12 +1088,86 @@ router.delete(
   }
 );
 
-/* ─── Buy: public-facing, paid ─────────────────────────────────────── */
+/* ─── Country pricing — admin sets, public reads ──────────────────────
+   The buy route below resolves the per-request USDC charge from this table
+   so different countries can be priced independently. Admin pubkey (from
+   POOL_ADMIN_WALLETS) is the only thing that can write; reads are public
+   so buyer agents can see what's available before paying. */
+
+router.get("/twitter/pool/prices", (_req: Request, res: Response) => {
+  res.json({ prices: listCountryPrices() });
+});
+
+router.put("/twitter/pool/prices/:country", requirePoolAdmin, (req: Request, res: Response) => {
+  const { price_usdc } = (req.body || {}) as { price_usdc?: number };
+  if (typeof price_usdc !== "number") {
+    res.status(400).json({ error: "price_usdc (number) required in body" });
+    return;
+  }
+  try {
+    const row = setCountryPrice(String(req.params.country || ""), price_usdc);
+    res.json({ success: true, ...row });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete("/twitter/pool/prices/:country", requirePoolAdmin, (req: Request, res: Response) => {
+  const removed = deleteCountryPrice(String(req.params.country || ""));
+  res.json({ success: removed });
+});
+
+/* ─── Buy: public-facing, paid ──────────────────────────────────────────
+   Price is dynamic: if `--country US` is passed, `country_prices.US` is the
+   charge. The pre-middleware below rejects countries with no configured
+   price BEFORE the auth/x402 layer runs, so the buyer never gets stuck on a
+   402 they can't satisfy. Without --country, falls back to the legacy
+   single-tier $5 so existing `palmyr twitter buy` callers keep working. */
+
+const LEGACY_BUY_PRICE_USDC = 5.0;
+
+function readCountryFromRequest(req: Request): string | undefined {
+  const c = (req.body && req.body.country) || (req.query && (req.query as any).country);
+  return typeof c === "string" && c.trim() ? c.trim() : undefined;
+}
+
+function validateBuyCountry(req: Request, res: Response, next: () => void): void {
+  const country = readCountryFromRequest(req);
+  if (!country) {
+    next();
+    return;
+  }
+  if (!/^[A-Za-z]{2}$/.test(country)) {
+    res.status(400).json({
+      error: "Invalid country",
+      message: "country must be a 2-letter ISO 3166-1 alpha-2 code (e.g. US, GB, DE)",
+    });
+    return;
+  }
+  const price = getCountryPrice(country);
+  if (price == null) {
+    res.status(400).json({
+      error: "Country not priced",
+      message: `No price configured for ${country.toUpperCase()}. Run \`GET /social/twitter/pool/prices\` to see available countries.`,
+    });
+    return;
+  }
+  next();
+}
 
 router.post(
   "/twitter/buy",
   requireXEnabled,
-  requireAuth(5.0, "general"),
+  validateBuyCountry,
+  requireAuth(
+    (req: Request) => {
+      const country = readCountryFromRequest(req);
+      if (!country) return LEGACY_BUY_PRICE_USDC;
+      // validateBuyCountry already guaranteed a row exists for this country.
+      return getCountryPrice(country) ?? LEGACY_BUY_PRICE_USDC;
+    },
+    "general",
+  ),
   async (req: AuthenticatedRequest, res: Response) => {
     const { country, age_category } = (req.body || {}) as {
       country?: string;
@@ -1093,17 +1179,129 @@ router.post(
       return;
     }
     try {
+      const paidAmount = req.payment
+        ? Number(req.payment.amountLamports) / 1_000_000
+        : undefined;
       const result = poolBuy({
         platform: "twitter",
-        country,
+        country: country ? country.toUpperCase() : undefined,
         age_category,
         buyer_wallet: buyerWallet,
+        payment: req.payment
+          ? {
+              signature: req.payment.signature,
+              chain: req.payment.chain || "solana",
+              amount_usdc: paidAmount ?? 0,
+            }
+          : undefined,
       });
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Buy failed" });
     }
   }
+);
+
+/* ─── Disputes — buyer files, server auto-verifies via twitterapi.io ──
+   Per the dispute design: confirmed-suspended within 7 days of purchase →
+   try same-country replacement → fall back to USDC refund. Ambiguous
+   detection (API down, location unknown) queues for admin review. */
+
+const DISPUTE_PROOF_USDC = 0.01;
+
+router.post(
+  "/twitter/dispute",
+  requireXEnabled,
+  requireAuth(DISPUTE_PROOF_USDC, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const { account_id, reason, evidence } = (req.body || {}) as {
+      account_id?: string;
+      reason?: "suspended" | "other";
+      evidence?: string;
+    };
+    if (!account_id) {
+      res.status(400).json({ error: "account_id required" });
+      return;
+    }
+    if (reason && reason !== "suspended" && reason !== "other") {
+      res.status(400).json({ error: 'reason must be "suspended" or "other"' });
+      return;
+    }
+    try {
+      const result = await createDispute({
+        account_id,
+        claimant_wallet: wallet,
+        reason: reason || "suspended",
+        evidence,
+      });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Dispute failed" });
+    }
+  },
+);
+
+router.get(
+  "/twitter/dispute/:id",
+  requireXEnabled,
+  requireAuth(0.001, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const wallet = req.payment?.payer || req.agentId;
+    if (!wallet) {
+      res.status(401).json({ error: "Unauthorized" });
+      return;
+    }
+    const dispute = getDispute(String(req.params.id || ""));
+    if (!dispute) {
+      res.status(404).json({ error: "Dispute not found" });
+      return;
+    }
+    // Buyer sees their own disputes; admin sees all (signature is checked
+    // when admin uses the dedicated /pool/disputes list route).
+    if (dispute.claimant_wallet !== wallet) {
+      res.status(403).json({ error: "Not your dispute" });
+      return;
+    }
+    res.json({ dispute });
+  },
+);
+
+// Admin: list every dispute. Pool-admin signature required.
+router.get(
+  "/twitter/pool/disputes",
+  requirePoolAdmin,
+  (req: Request, res: Response) => {
+    const status = (req.query.status as string) || undefined;
+    res.json({ disputes: listDisputes({ status }) });
+  },
+);
+
+// Admin: manually resolve a dispute (overrides auto-verify). Used when the
+// queued admin_review queue needs human judgment.
+router.post(
+  "/twitter/pool/disputes/:id/resolve",
+  requirePoolAdmin,
+  async (req: Request, res: Response) => {
+    const { action, note } = (req.body || {}) as {
+      action?: "replace" | "refund" | "reject";
+      note?: string;
+    };
+    if (action !== "replace" && action !== "refund" && action !== "reject") {
+      res.status(400).json({ error: 'action must be "replace", "refund", or "reject"' });
+      return;
+    }
+    try {
+      const result = await resolveDisputeAdmin(String(req.params.id || ""), action, note);
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Resolve failed" });
+    }
+  },
 );
 
 /* ─── Pool share / unshare / claim ──────────────────────────────────────

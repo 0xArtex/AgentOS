@@ -817,9 +817,60 @@ export function initDatabase(): void {
   // social_registered_accounts; pool rows need it too so post-purchase
   // sharing works the same way.
   const poolCols = db.prepare("PRAGMA table_info(social_account_pool)").all() as Array<{ name: string }>;
-  if (!poolCols.some(c => c.name === 'shared_with')) {
+  const poolColNames = new Set(poolCols.map(c => c.name));
+  if (!poolColNames.has('shared_with')) {
     db.exec("ALTER TABLE social_account_pool ADD COLUMN shared_with TEXT DEFAULT '[]'");
   }
+  // Payment provenance — captured at buy time so disputes can issue refunds
+  // back to the original payer on the original chain. Rows seeded before this
+  // feature shipped won't have these; the dispute service degrades to
+  // admin_review when missing.
+  for (const [col, spec] of [
+    ['payment_signature', 'TEXT'],
+    ['payment_chain', 'TEXT'],
+    ['paid_amount_usdc', 'REAL'],
+    ['detected_location', 'TEXT'],
+  ] as const) {
+    if (!poolColNames.has(col)) db.exec(`ALTER TABLE social_account_pool ADD COLUMN ${col} ${spec}`);
+  }
+
+  // Admin-set per-country prices that `palmyr twitter buy --country US` reads
+  // from. Decouples pricing from per-account sale_price_usdc: one row per
+  // country, the buy route looks it up at request time and the x402 402
+  // response advertises the country-specific amount.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS country_prices (
+      country TEXT PRIMARY KEY,
+      price_usdc REAL NOT NULL CHECK(price_usdc > 0),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+  `);
+
+  // Dispute records for pool-bought accounts. Buyer files a dispute within
+  // the 7-day window; the service auto-verifies via twitterapi.io and either
+  // (a) replaces from same-country stock, (b) refunds the original payer, or
+  // (c) queues for admin review when the signal is ambiguous.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pool_disputes (
+      id TEXT PRIMARY KEY,
+      account_id TEXT NOT NULL,
+      claimant_wallet TEXT NOT NULL,
+      reason TEXT NOT NULL CHECK(reason IN ('suspended', 'other')),
+      evidence TEXT,
+      detection_status TEXT,
+      detection_payload TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'admin_review', 'replaced', 'refunded', 'rejected')),
+      resolution TEXT,
+      replacement_account_id TEXT,
+      refund_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      resolved_at TEXT,
+      FOREIGN KEY (account_id) REFERENCES social_account_pool(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_pool_disputes_account ON pool_disputes(account_id);
+    CREATE INDEX IF NOT EXISTS idx_pool_disputes_claimant ON pool_disputes(claimant_wallet);
+    CREATE INDEX IF NOT EXISTS idx_pool_disputes_status ON pool_disputes(status);
+  `);
 
   // Wallet-registered social accounts — user uploads credentials once, server
   // encrypts them at rest, then re-uses them indefinitely (re-logging in when

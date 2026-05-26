@@ -954,6 +954,27 @@ export class Palmyr {
     })
   }
 
+  // ── Pool country pricing ──
+
+  // Public: which countries are priced and what they cost.
+  async socialTwitterPoolPrices(): Promise<any> {
+    return this.request('GET', '/social/twitter/pool/prices')
+  }
+
+  // ── Disputes (buyer-facing) ──
+
+  async socialTwitterDispute(accountId: string, opts: { reason?: 'suspended' | 'other'; evidence?: string } = {}): Promise<any> {
+    return this.request('POST', '/social/twitter/dispute', {
+      account_id: accountId,
+      reason: opts.reason || 'suspended',
+      ...(opts.evidence ? { evidence: opts.evidence } : {}),
+    })
+  }
+
+  async socialTwitterDisputeGet(id: string): Promise<any> {
+    return this.request('GET', `/social/twitter/dispute/${encodeURIComponent(id)}`)
+  }
+
   // ── TikTok ──
   /**
    * Log a TikTok account in. Two paths:
