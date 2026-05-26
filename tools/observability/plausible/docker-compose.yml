@@ -3,6 +3,7 @@ services:
     image: postgres:16-alpine
     container_name: palmyr-plausible-db
     restart: unless-stopped
+    mem_limit: 256m
     volumes:
       - db-data:/var/lib/postgresql/data
     environment:
@@ -16,6 +17,10 @@ services:
     image: clickhouse/clickhouse-server:24.3-alpine
     container_name: palmyr-plausible-events
     restart: unless-stopped
+    # Hard container cap. The matching soft cap inside ClickHouse lives in
+    # clickhouse-config.xml as <max_server_memory_usage> — without that
+    # ClickHouse can OOM the cgroup before respecting the docker limit.
+    mem_limit: 1g
     volumes:
       - event-data:/var/lib/clickhouse
       - ./clickhouse/clickhouse-config.xml:/etc/clickhouse-server/config.d/logging.xml:ro
@@ -29,6 +34,7 @@ services:
     image: ghcr.io/plausible/community-edition:v3
     container_name: palmyr-plausible
     restart: unless-stopped
+    mem_limit: 512m
     command: sh -c "/entrypoint.sh db createdb && /entrypoint.sh db migrate && /entrypoint.sh run"
     depends_on:
       - plausible_db

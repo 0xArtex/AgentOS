@@ -14,4 +14,16 @@
     <asynchronous_metric_log remove="remove"/>
     <session_log remove="remove"/>
     <part_log remove="remove"/>
+
+    <!-- Soft caps that match the docker `mem_limit: 1g` on this container.
+         ClickHouse defaults to grabbing up to 50% of host RAM and will OOM-kill
+         the cgroup if it discovers more RAM than the container actually has.
+         These keep it inside the budget. -->
+    <max_server_memory_usage>805306368</max_server_memory_usage>           <!-- 768 MB -->
+    <max_concurrent_queries>10</max_concurrent_queries>
+    <mark_cache_size>134217728</mark_cache_size>                           <!-- 128 MB -->
+    <uncompressed_cache_size>67108864</uncompressed_cache_size>            <!-- 64 MB -->
+    <merge_tree>
+        <max_bytes_to_merge_at_max_space_in_pool>1073741824</max_bytes_to_merge_at_max_space_in_pool>
+    </merge_tree>
 </clickhouse>
