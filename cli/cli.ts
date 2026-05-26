@@ -19,6 +19,7 @@ import { render as inkRender } from 'ink'
 import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, ConfigScreen, Dashboard, DoctorScreen, DomainCheckScreen, DomainPricingScreen, ErrorScreen, HealthScreen, MenuScreen, PricingScreen, RecordsScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen, WalletListScreen } from './app.js'
 import { Palmyr } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addNote } from './config.js'
+import { getState as getTelemetryState, setEnabled as setTelemetryEnabled, queuedCount as telemetryQueuedCount, appendEventSync as telemetryAppendEvent, flushQueue as telemetryFlushQueue } from './telemetry.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel, setAgentMode as setUiAgentMode } from './ui.js'
 import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
@@ -1138,6 +1139,7 @@ const TOP_LEVEL_COMMANDS: Array<{ name: string; description: string }> = [
   { name: 'doctor', description: 'Verify system health (cred store, vault, API)' },
   { name: 'pricing', description: 'All service prices' },
   { name: 'health', description: 'API status + version check' },
+  { name: 'telemetry', description: 'on · off · status (opt-in anonymous usage stats)' },
 ]
 
 // ─── Help ───
@@ -1231,6 +1233,23 @@ async function main() {
 
   // No first-time banner — agent-first CLI should never pollute output.
   const url = process.env.PALMYR_API || config.api
+
+  // Opt-in telemetry. If the user has explicitly enabled it, queue this run's
+  // exit-code + duration on shutdown (sync — async work in 'exit' is dropped)
+  // and fire-and-forget any previously-queued events to the API right now.
+  // Both no-ops when telemetry is off. Never blocks the user's command —
+  // the flush races their work and Node exits once both finish.
+  process.on('exit', (code) => {
+    telemetryAppendEvent({
+      cmd: subcommand ? `${command} ${subcommand}` : command,
+      exitCode: code,
+      durationMs: Date.now() - startTime,
+      cliVersion: VERSION,
+      nodeVersion: process.version,
+      platform: process.platform,
+    })
+  })
+  void telemetryFlushQueue(url)
   const token = (flags.token as string) || config.apiKey || process.env.PALMYR_TOKEN || process.env.PALMYR_API_KEY
   const passphrase = (flags.passphrase as string) || process.env.PALMYR_WALLET_PASSPHRASE
   const ao = new Palmyr(url, true, token, passphrase)
@@ -6955,6 +6974,50 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           'The Palmyr server fires them at post_at without any client process.',
           EXIT.BAD_INPUT
         )
+        break
+      }
+
+      case 'telemetry': {
+        // Off by default. Opt-in only. We never auto-enable, never prompt at
+        // startup, never write to stdout outside this command. Captured fields
+        // and storage location are documented in cli/telemetry.ts.
+        const action = (subcommand || 'status').toLowerCase()
+        if (action !== 'on' && action !== 'off' && action !== 'status') {
+          err(`Unknown telemetry action: ${action}. Use: on | off | status`, EXIT.BAD_INPUT)
+        }
+        let state
+        if (action === 'on') state = setTelemetryEnabled(true)
+        else if (action === 'off') state = setTelemetryEnabled(false)
+        else state = getTelemetryState()
+
+        const payload = {
+          enabled: state.enabled,
+          installId: state.installId || null,
+          optedInAt: state.optedInAt || null,
+          queuedEvents: telemetryQueuedCount(),
+          captures: ['cmd', 'exitCode', 'durationMs', 'cliVersion', 'nodeVersion', 'platform'],
+          neverCaptures: ['flag values', 'positional args', 'stdout/stderr', 'wallet addresses', 'phone numbers', 'any user input'],
+        }
+
+        if (AGENT_MODE) {
+          print(payload)
+        } else {
+          const status = state.enabled ? `${t.success}on${t.reset}` : `${t.muted}off${t.reset}`
+          console.log(`Telemetry:  ${status}`)
+          if (state.installId) console.log(`Install ID: ${t.muted}${state.installId}${t.reset}`)
+          if (state.optedInAt) console.log(`Opted in:   ${state.optedInAt}`)
+          if (payload.queuedEvents) console.log(`Queued:     ${payload.queuedEvents} event(s) waiting to send`)
+          console.log('')
+          console.log(`Captures:   ${payload.captures.join(', ')}`)
+          console.log(`Never:      flag values, positional args, stdout, user input`)
+          if (!state.enabled) {
+            console.log('')
+            console.log(`Opt in:     ${t.accent}palmyr telemetry on${t.reset}`)
+          } else {
+            console.log('')
+            console.log(`Opt out:    ${t.accent}palmyr telemetry off${t.reset}  (drops any queued events)`)
+          }
+        }
         break
       }
 
