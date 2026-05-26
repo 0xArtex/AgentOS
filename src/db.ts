@@ -519,6 +519,29 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_request_log_created ON request_log(created_at);
   `);
 
+  // Opt-in CLI telemetry. install_id is generated client-side on opt-in; we
+  // never see who the user is. cmd is "phone search" / "wallet create" — no
+  // flag values, no positional args. See cli/telemetry.ts for the full
+  // capture contract.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cli_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      install_id TEXT NOT NULL,
+      cmd TEXT NOT NULL,
+      exit_code INTEGER,
+      duration_ms INTEGER,
+      cli_version TEXT,
+      node_version TEXT,
+      platform TEXT,
+      client_ts TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cli_events_install ON cli_events(install_id);
+    CREATE INDEX IF NOT EXISTS idx_cli_events_cmd ON cli_events(cmd);
+    CREATE INDEX IF NOT EXISTS idx_cli_events_created ON cli_events(created_at);
+  `);
+
   // Registered Agents table
   db.exec(`
     CREATE TABLE IF NOT EXISTS registered_agents (

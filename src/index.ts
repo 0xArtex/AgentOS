@@ -62,6 +62,7 @@ import webhookRoutes from "./routes/webhooks";
 import submissionReadyRoutes from "./routes/submission-ready";
 import agentRoutes from "./routes/agents";
 import statsRoutes from "./routes/stats";
+import telemetryRoutes from "./routes/telemetry";
 import messageRoutes from "./routes/messages";
 import agentToolkitRouter from "./routes/agent-toolkit";
 import bootstrapRouter from "./routes/bootstrap";
@@ -246,6 +247,9 @@ app.use("/agents", agentRoutes);
 
 // ── Platform Stats (free) ────────────────────────────────────
 app.use("/stats", statsRoutes);
+
+// ── Opt-in CLI telemetry (free, no auth) ─────────────────────
+app.use("/telemetry", telemetryRoutes);
 
 // ── Agent Messaging (free during hackathon) ──────────────────
 app.use("/messages", messageRoutes);
