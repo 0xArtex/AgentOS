@@ -141,7 +141,13 @@ palmyr wallet template list | show <name> | path <name>
 palmyr wallet buy <chain> <CA> --template <name> --thesis "..." --wallet <name>
 
 # Twitter / X
-palmyr twitter buy                                       # Buy a ready X account ($5)
+palmyr twitter buy                                       # Buy a ready X account ($5 default; per-country pricing applies if --country is set)
+palmyr twitter buy --country GB                          # Filter by RESIDENCY (X "Account based in"). Price = country_prices.GB.
+palmyr twitter buy --country GB --registered-country GB  # Also require registration FROM that country (X "Connected via")
+palmyr twitter buy --platform android                    # Require android-registered (also ios | web)
+palmyr twitter buy --max-renames 0                       # Only never-renamed handles
+palmyr twitter pool-prices                               # See all country prices + source multipliers (call first to know what's priced)
+palmyr twitter dispute <account_id> --reason suspended   # 7-day dispute window — auto-replaces or refunds if X suspended the account ($0.01 ownership proof)
 palmyr twitter import <username> --credentials-line "..."# Import your own (free)
 palmyr twitter login <username>                          # Cache session ($0.005)
 palmyr twitter post <username> --body "gm"               # Post tweet ($0.001)

@@ -836,7 +836,14 @@ export function initDatabase(): void {
     ['payment_chain', 'TEXT'],
     ['paid_amount_usdc', 'REAL'],
     ['detected_location', 'TEXT'],
-    ['source', 'TEXT'],                     // 'web' | 'mobile' | other lowercased / NULL
+    // `source` stores the raw "Connected via" string from twitterapi.io
+    // (e.g. "United Kingdom Android App"). It encodes BOTH the country the
+    // account was registered from AND the platform — we parse those into
+    // the two columns below at seed time, but keep the raw value for audit
+    // and exact-match filtering when needed.
+    ['source', 'TEXT'],
+    ['registered_country', 'TEXT'],         // ISO alpha-2 parsed from source
+    ['registered_platform', 'TEXT'],        // 'android' | 'ios' | 'web' | NULL
     ['username_change_count', 'INTEGER'],   // 0 = never renamed
     ['account_based_in', 'TEXT'],           // free-text "United States, California"
     ['location_accurate', 'INTEGER'],       // 0/1 from twitterapi.io
@@ -844,10 +851,10 @@ export function initDatabase(): void {
   ] as const) {
     if (!poolColNames.has(col)) db.exec(`ALTER TABLE social_account_pool ADD COLUMN ${col} ${spec}`);
   }
-  // Index supporting the most-common filter combo: country + source +
-  // username_change_count. Status comes first since every buy starts with
-  // status='ready'.
+  // Indexes supporting the most-common filter combos. Status comes first
+  // since every buy starts with status='ready'.
   db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_filters ON social_account_pool(status, platform, country, source, username_change_count);`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_registration ON social_account_pool(status, platform, registered_country, registered_platform);`);
 
   // Admin-set per-country prices that `palmyr twitter buy --country US` reads
   // from. Decouples pricing from per-account sale_price_usdc: one row per

@@ -99,8 +99,12 @@ export interface PoolAddResult {
   detected_country?: string | null;
   /** Free-text location string from X as returned by twitterapi.io. Stored for admin context. */
   detected_location?: string | null;
-  /** Registration source from about_profile.source — drives the `--source` buy filter. */
+  /** Raw "Connected via" string — e.g. "United Kingdom Android App". */
   detected_source?: string | null;
+  /** ISO alpha-2 parsed out of source — country the account was registered from. */
+  detected_registered_country?: string | null;
+  /** 'android' | 'ios' | 'web' — platform the account was registered on. */
+  detected_registered_platform?: string | null;
   /** Number of @handle renames recorded by X. 0 = never renamed. */
   detected_username_change_count?: number | null;
   /** about_profile.account_based_in free-text — preferred over location_raw for country derivation. */
@@ -162,6 +166,8 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
   let detectedCountry: string | null = null;
   let detectedLocation: string | null = null;
   let detectedSource: string | null = null;
+  let detectedRegisteredCountry: string | null = null;
+  let detectedRegisteredPlatform: string | null = null;
   let detectedChanges: number | null = null;
   let detectedAccountBasedIn: string | null = null;
   let detectedLocationAccurate: boolean | null = null;
@@ -172,6 +178,8 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
       detectedCountry = info.country;
       detectedLocation = info.location_raw;
       detectedSource = info.source;
+      detectedRegisteredCountry = info.registered_country;
+      detectedRegisteredPlatform = info.registered_platform;
       detectedChanges = info.username_change_count;
       detectedAccountBasedIn = info.account_based_in;
       detectedLocationAccurate = info.location_accurate;
@@ -199,8 +207,9 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
       proxy_session_id, credentials_encrypted, cookies_encrypted,
       acquired_cost_usdc, sale_price_usdc, status, created_at, tested_at, notes,
       detected_location,
-      source, username_change_count, account_based_in, location_accurate, affiliate_username
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      source, registered_country, registered_platform,
+      username_change_count, account_based_in, location_accurate, affiliate_username
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     req.platform,
@@ -217,6 +226,8 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
     req.notes || null,
     detectedLocation,
     detectedSource,
+    detectedRegisteredCountry,
+    detectedRegisteredPlatform,
     detectedChanges,
     detectedAccountBasedIn,
     detectedLocationAccurate == null ? null : (detectedLocationAccurate ? 1 : 0),
@@ -231,6 +242,8 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
     detected_country: detectedCountry,
     detected_location: detectedLocation,
     detected_source: detectedSource,
+    detected_registered_country: detectedRegisteredCountry,
+    detected_registered_platform: detectedRegisteredPlatform,
     detected_username_change_count: detectedChanges,
     detected_account_based_in: detectedAccountBasedIn,
     detected_location_accurate: detectedLocationAccurate,
@@ -245,12 +258,25 @@ export interface PoolBuyRequest {
   country?: string;
   age_category?: string;
   /**
-   * Registration source filter — accepts 'web', 'mobile', or any value
-   * matching the lowercased `source` column. Skipped when omitted.
-   * Rows seeded before this feature have source=NULL and won't match a
-   * source-filtered buy; agents should run pool-status first to see stock.
+   * Registration source filter — exact (lowercased) match against the
+   * raw `source` column. The raw value is X's full "Connected via" string
+   * (e.g. "united kingdom android app"). Most callers should use the
+   * cleaner `registered_country` + `registered_platform` filters below
+   * instead of trying to match the full string; this flag is kept for
+   * power-user exact filtering and source_multiplier-based pricing.
    */
   source?: string;
+  /**
+   * ISO alpha-2 country code the account was registered FROM (parsed from
+   * the X "Connected via" string). Distinct from `country`, which is X's
+   * `account_based_in` residency signal. They can differ — e.g. a user
+   * physically in BR with a UK-registered Twitter account.
+   */
+  registered_country?: string;
+  /**
+   * 'android' | 'ios' | 'web' — platform the account was registered on.
+   */
+  registered_platform?: "android" | "ios" | "web";
   /**
    * Cap on username_change_count. e.g. `max_username_changes: 0` selects
    * accounts that have never been renamed. Rows seeded before this feature
@@ -282,6 +308,8 @@ export interface PoolBuyResult {
     country: string | null;
     age_category: string | null;
     source: string | null;
+    registered_country: string | null;
+    registered_platform: string | null;
     username_change_count: number | null;
     account_based_in: string | null;
     proxy_session_id: string;
@@ -306,6 +334,8 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
   // fails on NULL), which is the correct behavior: an agent asking for
   // `--source web` shouldn't get an unverified row.
   const sourceFilter = req.source ? req.source.toLowerCase() : null;
+  const regCountryFilter = req.registered_country ? req.registered_country.toUpperCase() : null;
+  const regPlatformFilter = req.registered_platform ? req.registered_platform.toLowerCase() : null;
   const maxChanges = typeof req.max_username_changes === "number" ? req.max_username_changes : null;
   const tx = db.transaction(() => {
     const row = db
@@ -315,6 +345,8 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
            AND (? IS NULL OR country = ?)
            AND (? IS NULL OR age_category = ?)
            AND (? IS NULL OR source = ?)
+           AND (? IS NULL OR registered_country = ?)
+           AND (? IS NULL OR registered_platform = ?)
            AND (? IS NULL OR username_change_count <= ?)
          ORDER BY created_at ASC
          LIMIT 1`
@@ -327,6 +359,10 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
         req.age_category || null,
         sourceFilter,
         sourceFilter,
+        regCountryFilter,
+        regCountryFilter,
+        regPlatformFilter,
+        regPlatformFilter,
         maxChanges,
         maxChanges,
       ) as { id: string } | undefined;
@@ -361,6 +397,8 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
         (req.country ? ` for country=${req.country}` : "") +
         (req.age_category ? `, age=${req.age_category}` : "") +
         (req.source ? `, source=${req.source}` : "") +
+        (req.registered_country ? `, registered_country=${req.registered_country}` : "") +
+        (req.registered_platform ? `, platform=${req.registered_platform}` : "") +
         (typeof req.max_username_changes === "number" ? `, max_renames=${req.max_username_changes}` : ""),
     };
   }
@@ -383,6 +421,8 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
       country: full.country,
       age_category: full.age_category,
       source: full.source ?? null,
+      registered_country: full.registered_country ?? null,
+      registered_platform: full.registered_platform ?? null,
       username_change_count: full.username_change_count ?? null,
       account_based_in: full.account_based_in ?? null,
       proxy_session_id: full.proxy_session_id,
@@ -399,6 +439,8 @@ export interface PoolStatusResult {
   dead: number;
   by_country: Record<string, { ready: number; sold: number }>;
   by_source: Record<string, { ready: number; sold: number }>;
+  by_registered_country: Record<string, { ready: number; sold: number }>;
+  by_registered_platform: Record<string, { ready: number; sold: number }>;
   by_username_changes: { never_renamed: { ready: number; sold: number }; renamed: { ready: number; sold: number }; unknown: { ready: number; sold: number } };
   recent_sales: Array<{ username: string; country: string | null; source: string | null; sold_to_wallet: string; sold_at: string }>;
 }
@@ -440,6 +482,36 @@ export function poolStatus(): PoolStatusResult {
     const k = r.source || "?";
     if (!by_source[k]) by_source[k] = { ready: 0, sold: 0 };
     (by_source[k] as any)[r.status] = r.n;
+  }
+
+  const byRegCountryRows = db
+    .prepare(
+      `SELECT registered_country, status, COUNT(*) as n
+       FROM social_account_pool
+       WHERE status IN ('ready','sold')
+       GROUP BY registered_country, status`
+    )
+    .all() as Array<{ registered_country: string | null; status: string; n: number }>;
+  const by_registered_country: Record<string, { ready: number; sold: number }> = {};
+  for (const r of byRegCountryRows) {
+    const k = r.registered_country || "?";
+    if (!by_registered_country[k]) by_registered_country[k] = { ready: 0, sold: 0 };
+    (by_registered_country[k] as any)[r.status] = r.n;
+  }
+
+  const byRegPlatformRows = db
+    .prepare(
+      `SELECT registered_platform, status, COUNT(*) as n
+       FROM social_account_pool
+       WHERE status IN ('ready','sold')
+       GROUP BY registered_platform, status`
+    )
+    .all() as Array<{ registered_platform: string | null; status: string; n: number }>;
+  const by_registered_platform: Record<string, { ready: number; sold: number }> = {};
+  for (const r of byRegPlatformRows) {
+    const k = r.registered_platform || "?";
+    if (!by_registered_platform[k]) by_registered_platform[k] = { ready: 0, sold: 0 };
+    (by_registered_platform[k] as any)[r.status] = r.n;
   }
 
   const byChangesRows = db
@@ -489,6 +561,8 @@ export function poolStatus(): PoolStatusResult {
     dead: counts.dead,
     by_country,
     by_source,
+    by_registered_country,
+    by_registered_platform,
     by_username_changes,
     recent_sales,
   };

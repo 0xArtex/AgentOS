@@ -44,8 +44,16 @@ export interface UserInfo {
   account_based_in: string | null;
   /** twitterapi.io's own location confidence flag. */
   location_accurate: boolean | null;
-  /** 'web' | 'mobile' | other-lowercased; null when about_profile is absent. */
+  /**
+   * Raw "Connected via" string from X — e.g. "United Kingdom Android App",
+   * "iPhone", "Twitter Web App". Encodes country-of-registration AND
+   * platform together; parsed into the next two fields.
+   */
   source: AccountSource | null;
+  /** ISO alpha-2 parsed out of source ("United Kingdom Android App" → GB). */
+  registered_country: string | null;
+  /** 'android' | 'ios' | 'web' — parsed from source. null if no match. */
+  registered_platform: "android" | "ios" | "web" | null;
   /** Org handle this account is affiliated with, if any. */
   affiliate_username: string | null;
   /** Number of times the @handle has been renamed (0 = never). */
@@ -109,6 +117,7 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
     const source: string | null = about?.source
       ? String(about.source).toLowerCase().trim() || null
       : null;
+    const { country: registered_country, platform: registered_platform } = parseRegistration(source);
     const affiliate_username: string | null = about?.affiliate_username || null;
     // twitterapi.io returns count as a string — parse defensively, treat
     // anything non-numeric as null (no signal) rather than 0 (no renames).
@@ -131,6 +140,8 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
       account_based_in,
       location_accurate,
       source,
+      registered_country,
+      registered_platform,
       affiliate_username,
       username_change_count,
     };
@@ -149,9 +160,52 @@ function emptyUserInfo(username: string, status: AccountStatus): UserInfo {
     account_based_in: null,
     location_accurate: null,
     source: null,
+    registered_country: null,
+    registered_platform: null,
     affiliate_username: null,
     username_change_count: null,
   };
+}
+
+/**
+ * Split twitterapi.io's `about_profile.source` into a country code + platform.
+ *
+ * Real-world examples seen in prod (all lowercased here):
+ *   "united kingdom android app"  → { country: "GB", platform: "android" }
+ *   "argentina android app"        → { country: "AR", platform: "android" }
+ *   "russian federation android app" → { country: "RU", platform: "android" }
+ *   "iphone"                       → { country: null, platform: "ios" }
+ *   "twitter web app"              → { country: null, platform: "web" }
+ *   "tweetdeck web app"            → { country: null, platform: "web" }
+ *   "web"                          → { country: null, platform: "web" }
+ *   null / ""                      → { country: null, platform: null }
+ *
+ * Anything unrecognised returns nulls — the row stays seedable but won't
+ * match `--registered-country` / `--platform` filters until admin tags it.
+ */
+export function parseRegistration(source: string | null): {
+  country: string | null;
+  platform: "android" | "ios" | "web" | null;
+} {
+  if (!source) return { country: null, platform: null };
+  const lower = source.toLowerCase();
+
+  let platform: "android" | "ios" | "web" | null = null;
+  if (/\bandroid\b/.test(lower)) platform = "android";
+  else if (/\b(iphone|ipad|ios)\b/.test(lower)) platform = "ios";
+  else if (/\b(web|tweetdeck)\b/.test(lower)) platform = "web";
+
+  // Strip every platform/app/marketing token, leaving the country fragment.
+  // Order-insensitive — `replace(/\b…\b/g, "")` removes each match wherever
+  // it lands. "twitter" is intentionally stripped so "Twitter Web App"
+  // parses to platform=web, country=null instead of trying to map "twitter".
+  const countryPart = lower
+    .replace(/\b(android|ios|iphone|ipad|tablet|web|app|tweetdeck|mobile|twitter|x)\b/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const country = countryPart ? parseLocationToCountryCode(countryPart) : null;
+  return { country, platform };
 }
 
 /**
