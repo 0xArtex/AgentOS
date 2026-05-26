@@ -23,6 +23,7 @@ import {
   createDecipheriv,
 } from "crypto";
 import { loginTwitter } from "./social-login";
+import { getUserInfo } from "./twitter-api";
 
 interface EncryptedBlob {
   iv: string;
@@ -94,6 +95,14 @@ export interface PoolAddResult {
   cookies_captured?: number;
   error?: string;
   login_error_code?: string;
+  /** Country resolved by twitterapi.io profile lookup (may be null when API key is unset or location is ambiguous). */
+  detected_country?: string | null;
+  /** Free-text location string from X as returned by twitterapi.io. Stored for admin context. */
+  detected_location?: string | null;
+  /** Final country saved to the row — admin override wins over detection. */
+  country?: string | null;
+  /** Present when admin-provided country disagrees with detection; non-fatal but flagged for review. */
+  country_mismatch?: { admin: string; detected: string };
 }
 
 export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
@@ -132,6 +141,32 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
   }
 
   const cookies = loginResult.cookies || [];
+
+  // Country detection via twitterapi.io — runs AFTER the seed login confirms
+  // the account is alive. Returns null when TWITTER_API_IO_KEY is unset or
+  // the location isn't resolvable to an ISO code; the admin's --country flag
+  // is the fallback. When both are present and disagree, admin wins but we
+  // surface the mismatch so the operator can investigate.
+  let detectedCountry: string | null = null;
+  let detectedLocation: string | null = null;
+  try {
+    const info = await getUserInfo(req.username);
+    if (info) {
+      detectedCountry = info.country;
+      detectedLocation = info.location_raw;
+    }
+  } catch (e: any) {
+    console.warn(`[pool] country detection threw for @${req.username}:`, e?.message || e);
+  }
+
+  const adminCountry = req.country ? req.country.toUpperCase() : null;
+  let finalCountry: string | null = adminCountry || detectedCountry;
+  let mismatch: { admin: string; detected: string } | undefined;
+  if (adminCountry && detectedCountry && adminCountry !== detectedCountry) {
+    mismatch = { admin: adminCountry, detected: detectedCountry };
+    finalCountry = adminCountry; // explicit admin override wins
+  }
+
   const credsBlob = encrypt(JSON.stringify(req.credentials));
   const cookiesBlob = encrypt(JSON.stringify(cookies));
   const now = new Date().toISOString();
@@ -140,13 +175,14 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
     `INSERT INTO social_account_pool (
       id, platform, username, country, age_category,
       proxy_session_id, credentials_encrypted, cookies_encrypted,
-      acquired_cost_usdc, sale_price_usdc, status, created_at, tested_at, notes
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?)`
+      acquired_cost_usdc, sale_price_usdc, status, created_at, tested_at, notes,
+      detected_location
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?)`
   ).run(
     id,
     req.platform,
     req.username,
-    req.country || null,
+    finalCountry,
     req.age_category || null,
     proxySessionId,
     credsBlob,
@@ -155,7 +191,8 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
     req.sale_price_usdc,
     now,
     now,
-    req.notes || null
+    req.notes || null,
+    detectedLocation
   );
 
   return {
@@ -163,6 +200,10 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
     id,
     proxy_session_id: proxySessionId,
     cookies_captured: cookies.length,
+    detected_country: detectedCountry,
+    detected_location: detectedLocation,
+    country: finalCountry,
+    ...(mismatch ? { country_mismatch: mismatch } : {}),
   };
 }
 
@@ -171,6 +212,18 @@ export interface PoolBuyRequest {
   country?: string;
   age_category?: string;
   buyer_wallet: string;
+  /**
+   * x402 payment provenance — captured at buy time so the dispute service can
+   * refund the original payer on the original chain when a same-country
+   * replacement isn't available. Omit during legacy code paths that don't
+   * have payment context (the dispute service degrades to admin_review when
+   * these columns are NULL).
+   */
+  payment?: {
+    signature: string;
+    chain: "solana" | "base";
+    amount_usdc: number;
+  };
 }
 
 export interface PoolBuyResult {
@@ -219,10 +272,19 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
     const now = new Date().toISOString();
     const result = db
       .prepare(
-        `UPDATE social_account_pool SET status='sold', sold_to_wallet=?, sold_at=?
+        `UPDATE social_account_pool
+         SET status='sold', sold_to_wallet=?, sold_at=?,
+             payment_signature=?, payment_chain=?, paid_amount_usdc=?
          WHERE id=? AND status='ready'`
       )
-      .run(req.buyer_wallet, now, row.id);
+      .run(
+        req.buyer_wallet,
+        now,
+        req.payment?.signature ?? null,
+        req.payment?.chain ?? null,
+        req.payment?.amount_usdc ?? null,
+        row.id,
+      );
     if (result.changes !== 1) return null; // Lost the race
     return row.id;
   });
