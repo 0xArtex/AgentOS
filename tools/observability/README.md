@@ -180,6 +180,62 @@ ORDER BY total_usdc DESC
 LIMIT 25;
 ```
 
+### CLI command mix (opt-in telemetry)
+```sql
+SELECT cmd,
+       COUNT(*) AS runs,
+       COUNT(DISTINCT install_id) AS unique_installs,
+       ROUND(AVG(duration_ms)) AS avg_ms,
+       SUM(CASE WHEN exit_code != 0 THEN 1 ELSE 0 END) AS errors
+FROM cli_events
+WHERE created_at > datetime('now', '-30 days')
+GROUP BY cmd
+ORDER BY runs DESC
+LIMIT 25;
+```
+
+### CLI installs that ran but never paid (top of funnel)
+```sql
+SELECT c.install_id,
+       MIN(c.created_at) AS first_run,
+       MAX(c.created_at) AS last_run,
+       COUNT(*) AS commands_run,
+       (SELECT GROUP_CONCAT(DISTINCT cmd) FROM cli_events WHERE install_id = c.install_id) AS commands
+FROM cli_events c
+WHERE c.install_id NOT IN (
+  -- agents that have ever paid via x402 — install_id and agent_id are
+  -- different identifiers but a heavy CLI user is almost always also the
+  -- agent_id payer, so this is a soft join not a hard one
+  SELECT DISTINCT agent_id FROM request_log WHERE payment_type = 'x402' AND agent_id IS NOT NULL
+)
+GROUP BY c.install_id
+ORDER BY commands_run DESC
+LIMIT 25;
+```
+
+### SKILL.md fetches by agent kind (last 30 days)
+```sql
+SELECT agent_kind,
+       COUNT(*) AS fetches,
+       MIN(created_at) AS first_seen,
+       MAX(created_at) AS last_seen
+FROM skill_fetches
+WHERE created_at > datetime('now', '-30 days')
+GROUP BY agent_kind
+ORDER BY fetches DESC;
+```
+
+### Daily SKILL.md fetches (split by agent kind)
+```sql
+SELECT date(created_at) AS day,
+       agent_kind,
+       COUNT(*) AS fetches
+FROM skill_fetches
+WHERE created_at > datetime('now', '-30 days')
+GROUP BY day, agent_kind
+ORDER BY day, fetches DESC;
+```
+
 ## Caveats
 
 - **SQLite WAL is fine for reads.** Metabase opens the DB read-only via the

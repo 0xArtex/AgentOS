@@ -1,1 +1,0 @@
-/root/Palmyr/skills/palmyr/SKILL.md

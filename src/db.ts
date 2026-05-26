@@ -542,6 +542,24 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_cli_events_created ON cli_events(created_at);
   `);
 
+  // Who's pulling SKILL.md? Agent attribution for the docs-fetch traffic.
+  // agent_kind is coarse-bucketed by src/utils/agent-classifier.ts from the
+  // raw User-Agent. We store the raw UA too (capped) so new buckets can be
+  // back-filled later from the same data.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS skill_fetches (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      source TEXT NOT NULL,
+      user_agent TEXT,
+      agent_kind TEXT,
+      referer TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_skill_fetches_created ON skill_fetches(created_at);
+    CREATE INDEX IF NOT EXISTS idx_skill_fetches_kind ON skill_fetches(agent_kind);
+  `);
+
   // Registered Agents table
   db.exec(`
     CREATE TABLE IF NOT EXISTS registered_agents (

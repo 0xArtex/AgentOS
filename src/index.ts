@@ -47,7 +47,8 @@ import swaggerUi from "swagger-ui-express";
 import { config } from "./config";
 import { swaggerSpec } from "./swagger";
 import "./db"; // Initialize database
-import { DATA_DIR } from "./db";
+import { DATA_DIR, db } from "./db";
+import { classifyAgent } from "./utils/agent-classifier";
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
 import socialRoutes from "./routes/social";
@@ -341,24 +342,36 @@ app.get("/pricing", (_req, res) => {
   });
 
 });
-// ── Skill documentation for OpenClaw agents ─────────────────
+// ── Skill documentation for agents ───────────────────────────
+// Previously a 35-byte broken stub at public/skill.md was intercepting this
+// route via express.static — agents fetching palmyr.ai/skill.md got a path
+// string instead of the actual skill. Stub removed; handler now actually runs.
 app.get("/skill.md", (req, res) => {
   const fs = require('fs');
   const path = require('path');
-  // Single source of truth: the skill folder. Falls back to public/ for legacy.
-  const candidates = [
-    path.join(__dirname, '..', 'skills', 'palmyr', 'SKILL.md'),
-    path.join(__dirname, '..', 'public', 'skill.md'),
-  ];
-  const skillPath = candidates.find((p) => fs.existsSync(p));
-  if (skillPath) {
-    res.setHeader('Content-Type', 'text/markdown');
-    res.send(fs.readFileSync(skillPath, 'utf-8'));
-  } else {
+  const skillPath = path.join(__dirname, '..', 'skills', 'palmyr', 'SKILL.md');
+  if (!fs.existsSync(skillPath)) {
     res.status(404).send('# skill.md not found');
+    return;
   }
-
-
+  // Log who's pulling the skill — agent attribution for marketing. Never
+  // blocks the response on failure.
+  try {
+    const ua = (req.headers['user-agent'] as string | undefined) || null;
+    const rawReferer = req.headers['referer'] || req.headers['referrer'] || null;
+    const referer = Array.isArray(rawReferer) ? rawReferer[0] : (rawReferer as string | null);
+    db.prepare(
+      `INSERT INTO skill_fetches (source, user_agent, agent_kind, referer)
+       VALUES (?, ?, ?, ?)`
+    ).run(
+      'skill.md',
+      ua ? ua.slice(0, 512) : null,
+      classifyAgent(ua),
+      referer ? referer.slice(0, 512) : null,
+    );
+  } catch {}
+  res.setHeader('Content-Type', 'text/markdown');
+  res.send(fs.readFileSync(skillPath, 'utf-8'));
 });
 // ── Stream Overlay Stats ──────────────────────────────────────
 app.get("/overlay-stats", async (_req, res) => {
