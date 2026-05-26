@@ -199,25 +199,27 @@ describe("twitter-api getUserInfo — about_profile", () => {
     }
   });
 
-  it("tolerates missing about_profile (older response shape)", async () => {
+  it("returns null country when about_profile is missing (no fallback to spoofable location)", async () => {
+    // Sellers spoof the user-typed `location` field to look American. The
+    // ONLY trusted residency signal is about_profile.account_based_in.
+    // When that's absent we report country=null so admin can override
+    // explicitly rather than silently inheriting a fake.
     process.env.TWITTER_API_IO_KEY = "test_key";
     const original = global.fetch;
     (global as any).fetch = async () =>
       new Response(
         JSON.stringify({
-          data: { location: "Berlin, Germany" },
+          data: { location: "USA" }, // spoofed user-typed value — must be ignored
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );
     try {
       const info = await getUserInfo("bob");
       assert.ok(info);
-      assert.equal(info!.country, "DE");
+      assert.equal(info!.country, null);
       assert.equal(info!.account_based_in, null);
       assert.equal(info!.source, null);
       assert.equal(info!.username_change_count, null);
-      assert.equal(info!.location_accurate, null);
-      assert.equal(info!.affiliate_username, null);
     } finally {
       global.fetch = original;
       delete process.env.TWITTER_API_IO_KEY;

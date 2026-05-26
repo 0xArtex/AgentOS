@@ -482,14 +482,21 @@ async function withMockedFetch(mock: MockedTwitterApi, fn: () => Promise<void>):
     // x402 facilitator) should NOT route through this mock, but the dispute
     // happy-path tests above don't exercise those.
     if (typeof url === "string" && url.includes("api.twitterapi.io")) {
-      if (mock.status === "not_found") {
+      // user_about doesn't have a per-account suspension flag — X removes
+      // suspended profiles, so the signal is HTTP 404. The mock follows
+      // that contract: 'suspended' and 'not_found' both map to 404.
+      if (mock.status === "not_found" || mock.status === "suspended") {
         return new Response("", { status: 404 });
       }
       const body = {
         data: {
-          location: mock.location_raw,
-          suspended: mock.status === "suspended",
+          about_profile: {
+            account_based_in: mock.location_raw,
+            source: "Web",
+            username_changes: { count: "0" },
+          },
         },
+        status: "success",
       };
       return new Response(JSON.stringify(body), {
         status: 200,

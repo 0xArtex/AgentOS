@@ -53,9 +53,26 @@ export interface UserInfo {
 }
 
 /**
- * Fetch profile metadata + suspension state. Returns null when the API is
- * unreachable / the key is missing — callers must treat null as "no signal"
- * (NOT as "active") and route to admin review.
+ * Fetch about-profile + status via twitterapi.io's `/twitter/user_about`.
+ *
+ * That endpoint is the authoritative source for `account_based_in` — the
+ * residency country X surfaces in the "About this account" panel. The older
+ * `location` field on a user's profile is free-text the user types
+ * themselves (sellers often spoof it to "USA"), so we DELIBERATELY ignore
+ * it for country derivation. account_based_in is the only signal we trust.
+ *
+ * Status mapping:
+ *   200 with data    → "active"
+ *   200 with status=error → "unknown" (treat as no signal — admin review)
+ *   404              → "not_found" (suspended or deleted — dispute service
+ *                      handles both the same way)
+ *   any other        → null (no signal)
+ *
+ * The endpoint does NOT include a suspension flag in 200 responses — X
+ * removes suspended profiles entirely, so a 404 is the signal. This is why
+ * the dispute service treats not_found identically to suspended.
+ *
+ * Docs: https://docs.twitterapi.io/api-reference/endpoint/get_user_about
  */
 export async function getUserInfo(username: string): Promise<UserInfo | null> {
   const key = apiKey();
@@ -64,8 +81,8 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
   const handle = username.replace(/^@/, "");
 
   try {
-    const url = `${BASE}/twitter/user/info?userName=${encodeURIComponent(handle)}`;
-    const res = await fetch(url, { headers: { "x-api-key": key } });
+    const url = `${BASE}/twitter/user_about?userName=${encodeURIComponent(handle)}`;
+    const res = await fetch(url, { headers: { "X-API-Key": key } });
 
     if (res.status === 404) {
       return emptyUserInfo(handle, "not_found");
@@ -76,29 +93,17 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
     }
 
     const body = await res.json() as any;
-    // twitterapi.io's user/info endpoint returns the user object either at
-    // top-level or under `.data` depending on plan tier; accept both.
+    // user_about wraps the payload in { data, status, msg }. status='error'
+    // means the call succeeded HTTP-wise but the API can't service this
+    // handle (e.g. plan-tier limit) — treat as no signal.
+    if (body?.status === "error") {
+      console.warn(`[twitter-api] ${handle} returned status=error:`, body?.msg);
+      return null;
+    }
     const data = body?.data || body;
-
-    // Suspension flag — across response shapes we've seen, any of these can
-    // appear. Conservative OR-fold so we don't miss a real signal.
-    const isSuspended =
-      data?.suspended === true ||
-      data?.is_suspended === true ||
-      data?.status === "suspended" ||
-      String(data?.account_status || "").toLowerCase() === "suspended";
-
-    // about_profile is the newer expanded shape with richer signals. May be
-    // absent on accounts/plan-tiers that don't surface it — every field
-    // below has to tolerate undefined.
     const about = data?.about_profile || {};
-    const account_based_in: string | null =
-      about?.account_based_in || null;
-    const location_raw: string | null =
-      data?.location ||
-      data?.profile_location?.full_name ||
-      data?.user?.location ||
-      null;
+
+    const account_based_in: string | null = about?.account_based_in || null;
     const location_accurate: boolean | null =
       typeof about?.location_accurate === "boolean" ? about.location_accurate : null;
     const source: string | null = about?.source
@@ -116,9 +121,13 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
 
     return {
       username: handle,
-      country: parseLocationToCountryCode(account_based_in || location_raw),
-      location_raw,
-      status: isSuspended ? "suspended" : "active",
+      // Country derives ONLY from account_based_in. We used to fall back to
+      // the user-set `location` field but that's spoofable — accounts sold
+      // as "American" typed "USA" into their profile location while X's
+      // about_profile correctly reports their real country.
+      country: parseLocationToCountryCode(account_based_in),
+      location_raw: account_based_in,
+      status: "active",
       account_based_in,
       location_accurate,
       source,
