@@ -13,7 +13,7 @@ services:
     # Pinned to the version Plausible CE v3 was tested against. ClickHouse
     # 24.4+ changed the default-user auth behaviour and Plausible's connector
     # (which talks as `default` with no password) crashes with AUTHENTICATION_FAILED.
-    image: clickhouse/clickhouse-server:24.3.3.42-alpine
+    image: clickhouse/clickhouse-server:24.3-alpine
     container_name: palmyr-plausible-events
     restart: unless-stopped
     volumes:
