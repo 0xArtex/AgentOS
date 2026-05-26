@@ -3,6 +3,9 @@ services:
     image: metabase/metabase:v0.51.6
     container_name: palmyr-metabase
     restart: unless-stopped
+    # 768 MB hard cap for the container, 512 MB max JVM heap. Without this the
+    # JVM happily takes 25%+ of host RAM and starves the rest of the stack.
+    mem_limit: 768m
     # Bind to localhost only. Access in prod via SSH tunnel:
     #   ssh -L 3030:localhost:3030 user@vps
     # Then open http://localhost:3030 in your browser.
@@ -14,6 +17,9 @@ services:
       # postgres if multi-user editing or backup matters.
       MB_DB_FILE: /metabase-data/metabase.db
       JAVA_TIMEZONE: UTC
+      # Cap JVM heap. Picked up by the Metabase image's entrypoint and prepended
+      # to the JVM args — survives image upgrades better than MB_JAVA_OPTS.
+      JAVA_TOOL_OPTIONS: "-Xmx512m -Xms256m"
       # Avoid the "anonymous usage tracking" call-home — we eat our own dogfood.
       MB_ANON_TRACKING_ENABLED: "false"
     volumes:
