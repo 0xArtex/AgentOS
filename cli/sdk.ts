@@ -950,12 +950,19 @@ export class Palmyr {
   async socialTwitterBuy(
     country?: string,
     ageCategory?: string,
-    opts: { source?: string; maxUsernameChanges?: number } = {},
+    opts: {
+      source?: string
+      registeredCountry?: string
+      registeredPlatform?: 'android' | 'ios' | 'web'
+      maxUsernameChanges?: number
+    } = {},
   ): Promise<any> {
     return this.request('POST', '/social/twitter/buy', {
       ...(country ? { country } : {}),
       ...(ageCategory ? { age_category: ageCategory } : {}),
       ...(opts.source ? { source: opts.source } : {}),
+      ...(opts.registeredCountry ? { registered_country: opts.registeredCountry } : {}),
+      ...(opts.registeredPlatform ? { registered_platform: opts.registeredPlatform } : {}),
       ...(typeof opts.maxUsernameChanges === 'number' ? { max_username_changes: opts.maxUsernameChanges } : {}),
     })
   }

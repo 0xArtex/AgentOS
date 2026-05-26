@@ -1210,13 +1210,27 @@ function validateBuyFilters(req: Request, res: Response, next: () => void): void
       return;
     }
   }
-  // Source is filter-only when no multiplier exists (defaults to 1.0); the
-  //400 here is reserved for malformed values, not unconfigured ones.
-  const source = readSourceFromRequest(req);
-  if (source && !/^[a-z0-9_-]{2,16}$/.test(source)) {
+  // Source is the legacy raw-string filter — kept for source_multiplier
+  // pricing. New filters below cover the common "registered in X" /
+  // "android vs ios" cases more cleanly.
+  const source = readBodyOrQuery(req, "source");
+  if (source && source.length > 64) {
+    res.status(400).json({ error: "Invalid source", message: "source string too long" });
+    return;
+  }
+  const registeredCountry = readBodyOrQuery(req, "registered_country");
+  if (registeredCountry && !/^[A-Za-z]{2}$/.test(registeredCountry)) {
     res.status(400).json({
-      error: "Invalid source",
-      message: "source must be a short lowercase identifier (e.g. 'web', 'mobile')",
+      error: "Invalid registered_country",
+      message: "registered_country must be a 2-letter ISO 3166-1 alpha-2 code (e.g. GB)",
+    });
+    return;
+  }
+  const registeredPlatform = readBodyOrQuery(req, "registered_platform");
+  if (registeredPlatform && !/^(android|ios|web)$/i.test(registeredPlatform)) {
+    res.status(400).json({
+      error: "Invalid registered_platform",
+      message: "registered_platform must be one of: android, ios, web",
     });
     return;
   }
@@ -1242,10 +1256,19 @@ router.post(
   validateBuyFilters,
   requireAuth(resolveBuyPrice, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
-    const { country, age_category, source, max_username_changes } = (req.body || {}) as {
+    const {
+      country,
+      age_category,
+      source,
+      registered_country,
+      registered_platform,
+      max_username_changes,
+    } = (req.body || {}) as {
       country?: string;
       age_category?: string;
       source?: string;
+      registered_country?: string;
+      registered_platform?: string;
       max_username_changes?: number | string;
     };
     const buyerWallet = req.payment?.payer || req.agentId;
@@ -1262,6 +1285,10 @@ router.post(
         country: country ? country.toUpperCase() : undefined,
         age_category,
         source: source ? String(source).toLowerCase() : undefined,
+        registered_country: registered_country ? String(registered_country).toUpperCase() : undefined,
+        registered_platform: registered_platform
+          ? (String(registered_platform).toLowerCase() as "android" | "ios" | "web")
+          : undefined,
         max_username_changes:
           max_username_changes == null || max_username_changes === ""
             ? undefined

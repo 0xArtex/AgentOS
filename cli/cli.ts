@@ -786,12 +786,14 @@ const TWITTER_HELP: Record<string, Array<{ flag: string; desc: string; hint?: st
   ],
   buy: [
     { flag: '(no args)', desc: 'Purchase the oldest ready X account from the supplier pool. Default for every filter below is random.' },
-    { flag: '--country <CC>', desc: 'Filter to a specific country (ISO alpha-2: US, GB, DE, …). Run `pool-prices` first to see what is priced.' },
-    { flag: '--source web|mobile', desc: 'Filter by registration source from X about-profile. Multiplies country price by source multiplier (default 1.0).' },
-    { flag: '--max-renames N', desc: 'Cap username-change count. --max-renames 0 = never renamed. NULL on row means unknown → does not match.' },
+    { flag: '--country <CC>', desc: 'Filter by RESIDENCY (X about_profile.account_based_in). ISO alpha-2 — US, GB, DE, …. Run `pool-prices` to see what is priced.' },
+    { flag: '--registered-country <CC>', desc: 'Filter by REGISTRATION country — where the X account was created from (parsed from X "Connected via" string). May differ from --country.' },
+    { flag: '--platform android|ios|web', desc: 'Filter by registration platform (also parsed from X "Connected via" string).' },
+    { flag: '--max-renames N', desc: 'Cap username-change count. --max-renames 0 = never renamed. Rows with unknown rename count do not match.' },
+    { flag: '--source "raw string"', desc: 'Power-user: exact-match against the lowercased raw "Connected via" string. Used for fine-grained source_multiplier pricing.' },
     { flag: '--age 1y|2y|...', desc: 'Optional age category filter' },
     { flag: '(price)', desc: '$5 USDC default; country_price * source_multiplier when filters are passed.' },
-    { flag: '(example)', desc: 'palmyr twitter buy --country US --source web --max-renames 0' },
+    { flag: '(example)', desc: 'palmyr twitter buy --country GB --registered-country GB --platform android --max-renames 0' },
   ],
   login: [
     { flag: '<username>', desc: 'Force a fresh server-side session (browser runtime)' },
@@ -6114,17 +6116,28 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           case 'buy': {
-            // Agents say "buy" with optional --country / --source / --max-renames.
-            // Each filter is independent (default: random across that
-            // dimension). Pricing = country_price * source_multiplier:
-            //   - --country US               → country_prices.US (e.g. $8)
-            //   - --source web               → multiplied by web's row in
-            //                                  source_multipliers (e.g. 1.2)
-            //   - --max-renames 0            → filter only, no price impact
-            // Without --country, falls back to the legacy $5 flat rate.
+            // Agents say "buy" with optional filters. Each is independent
+            // (default: random across that dimension).
+            //
+            //   --country GB              account_based_in = United Kingdom (residency)
+            //   --registered-country GB   X's "Connected via …" country
+            //   --platform android|ios|web   X's "Connected via" platform
+            //   --max-renames 0           never-renamed accounts only
+            //   --source "raw string"     exact-match on the raw "Connected via" string (power user)
+            //
+            // Pricing = country_price * source_multiplier (multiplier
+            // defaults to 1.0 when no source row exists). Without --country,
+            // falls back to the legacy $5 flat rate.
             const country = ((flags.country as string) || '').trim().toUpperCase() || undefined
             const ageCategory = (flags.age as string) || (flags['age-category'] as string) || undefined
             const source = ((flags.source as string) || '').trim().toLowerCase() || undefined
+            const registeredCountry =
+              ((flags['registered-country'] as string) || '').trim().toUpperCase() || undefined
+            const platformFlag = ((flags.platform as string) || '').trim().toLowerCase() || undefined
+            if (platformFlag && !['android', 'ios', 'web'].includes(platformFlag)) {
+              err('--platform must be one of: android, ios, web')
+            }
+            const registeredPlatform = platformFlag as 'android' | 'ios' | 'web' | undefined
             const maxRenamesRaw = flags['max-renames']
             const maxUsernameChanges =
               maxRenamesRaw === undefined || maxRenamesRaw === ''
@@ -6135,7 +6148,12 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             }
             let data: any
             try {
-              data = await ao.socialTwitterBuy(country, ageCategory, { source, maxUsernameChanges })
+              data = await ao.socialTwitterBuy(country, ageCategory, {
+                source,
+                registeredCountry,
+                registeredPlatform,
+                maxUsernameChanges,
+              })
             } catch (e: any) {
               err(`Buy failed: ${e.message}`, EXIT.GENERAL)
             }
@@ -6148,6 +6166,8 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // pre-seasoned at pool-add time.
             const filterTags = [
               country && `country=${country}`,
+              registeredCountry && `registered_country=${registeredCountry}`,
+              registeredPlatform && `platform=${registeredPlatform}`,
               source && `source=${source}`,
               maxUsernameChanges !== undefined && `max_renames=${maxUsernameChanges}`,
             ].filter(Boolean).join(', ')
@@ -6163,6 +6183,8 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               platform,
               username: summary.username,
               country: account.country,
+              registered_country: account.registered_country,
+              registered_platform: account.registered_platform,
               source: account.source,
               username_change_count: account.username_change_count,
               account_based_in: account.account_based_in,

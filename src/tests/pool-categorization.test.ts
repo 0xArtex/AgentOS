@@ -29,7 +29,7 @@ import {
   deleteSourceMultiplier,
 } from "../services/source-multipliers";
 import { poolBuy, poolStatus } from "../services/social-pool";
-import { getUserInfo } from "../services/twitter-api";
+import { getUserInfo, parseRegistration } from "../services/twitter-api";
 import { getCountryPrice, setCountryPrice } from "../services/country-prices";
 import { randomBytes, createCipheriv } from "crypto";
 
@@ -67,19 +67,24 @@ function insertReady(args: {
   country: string | null;
   source: string | null;
   username_change_count: number | null;
+  registered_country?: string | null;
+  registered_platform?: string | null;
 }) {
   db.prepare(`
     INSERT INTO social_account_pool (
-      id, platform, username, country, source, username_change_count,
+      id, platform, username, country, source,
+      registered_country, registered_platform, username_change_count,
       proxy_session_id, credentials_encrypted, cookies_encrypted,
       sale_price_usdc, status, created_at, tested_at
-    ) VALUES (?, 'twitter', ?, ?, ?, ?, ?, ?, ?, 5.0, 'ready',
+    ) VALUES (?, 'twitter', ?, ?, ?, ?, ?, ?, ?, ?, ?, 5.0, 'ready',
               datetime('now', 'utc'), datetime('now', 'utc'))
   `).run(
     args.id,
     args.username,
     args.country,
     args.source,
+    args.registered_country ?? null,
+    args.registered_platform ?? null,
     args.username_change_count,
     args.id,
     FAKE_CREDS_BLOB,
@@ -364,5 +369,132 @@ describe("poolStatus — breakdowns by source and rename count", () => {
     assert.equal(s.by_username_changes.never_renamed.ready, 1);
     assert.equal(s.by_username_changes.renamed.ready, 2);
     assert.equal(s.by_username_changes.unknown.ready, 1);
+  });
+
+  it("breakdowns by registered_country and registered_platform", () => {
+    insertReady({
+      id: "1", username: "a", country: "AR", source: "united kingdom android app",
+      registered_country: "GB", registered_platform: "android", username_change_count: 0,
+    });
+    insertReady({
+      id: "2", username: "b", country: "BR", source: "brazil android app",
+      registered_country: "BR", registered_platform: "android", username_change_count: 0,
+    });
+    insertReady({
+      id: "3", username: "c", country: "BR", source: "iphone",
+      registered_country: null, registered_platform: "ios", username_change_count: 0,
+    });
+    const s = poolStatus();
+    assert.equal(s.by_registered_country.GB?.ready, 1);
+    assert.equal(s.by_registered_country.BR?.ready, 1);
+    assert.equal(s.by_registered_country["?"]?.ready, 1);
+    assert.equal(s.by_registered_platform.android?.ready, 2);
+    assert.equal(s.by_registered_platform.ios?.ready, 1);
+  });
+});
+
+/* ─── parseRegistration ────────────────────────────────────────────── */
+
+describe("parseRegistration — source → country + platform", () => {
+  it("parses country + platform from full string", () => {
+    assert.deepEqual(parseRegistration("united kingdom android app"), { country: "GB", platform: "android" });
+    assert.deepEqual(parseRegistration("argentina android app"), { country: "AR", platform: "android" });
+    assert.deepEqual(parseRegistration("russian federation android app"), { country: "RU", platform: "android" });
+    assert.deepEqual(parseRegistration("brazil android app"), { country: "BR", platform: "android" });
+  });
+
+  it("platform-only strings (no country fragment)", () => {
+    assert.deepEqual(parseRegistration("iphone"), { country: null, platform: "ios" });
+    assert.deepEqual(parseRegistration("twitter web app"), { country: null, platform: "web" });
+    assert.deepEqual(parseRegistration("tweetdeck web app"), { country: null, platform: "web" });
+    assert.deepEqual(parseRegistration("web"), { country: null, platform: "web" });
+  });
+
+  it("null / empty / whitespace input → nulls", () => {
+    assert.deepEqual(parseRegistration(null), { country: null, platform: null });
+    assert.deepEqual(parseRegistration(""), { country: null, platform: null });
+  });
+
+  it("handles unknown country fragments by returning null country, keeping platform", () => {
+    const r = parseRegistration("atlantis android app");
+    assert.equal(r.platform, "android");
+    assert.equal(r.country, null);
+  });
+
+  it("ios variants", () => {
+    assert.equal(parseRegistration("germany iphone")?.platform, "ios");
+    assert.equal(parseRegistration("germany iphone")?.country, "DE");
+    assert.equal(parseRegistration("ipad")?.platform, "ios");
+  });
+});
+
+/* ─── poolBuy registered-* filters ─────────────────────────────────── */
+
+describe("poolBuy — registered_country and registered_platform filters", () => {
+  it("--registered-country GB picks accounts registered from UK regardless of residency", () => {
+    insertReady({
+      id: "a", username: "alice", country: "AR", source: "united kingdom android app",
+      registered_country: "GB", registered_platform: "android", username_change_count: 0,
+    });
+    insertReady({
+      id: "b", username: "bob", country: "GB", source: "argentina android app",
+      registered_country: "AR", registered_platform: "android", username_change_count: 0,
+    });
+    const r = poolBuy({ platform: "twitter", buyer_wallet: BUYER, registered_country: "GB" });
+    assert.equal(r.success, true);
+    assert.equal(r.account?.id, "a");
+    assert.equal(r.account?.registered_country, "GB");
+  });
+
+  it("--platform android excludes ios rows", () => {
+    insertReady({
+      id: "android-1", username: "a", country: "US", source: "iphone",
+      registered_country: null, registered_platform: "ios", username_change_count: 0,
+    });
+    insertReady({
+      id: "android-2", username: "b", country: "US", source: "united states android app",
+      registered_country: "US", registered_platform: "android", username_change_count: 0,
+    });
+    const r = poolBuy({ platform: "twitter", buyer_wallet: BUYER, registered_platform: "android" });
+    assert.equal(r.success, true);
+    assert.equal(r.account?.id, "android-2");
+  });
+
+  it("country + registered_country + platform combine (all three must match)", () => {
+    // GB-resident, GB-registered, android
+    insertReady({
+      id: "match", username: "perfect", country: "GB", source: "united kingdom android app",
+      registered_country: "GB", registered_platform: "android", username_change_count: 0,
+    });
+    // GB-resident, but ios-registered → doesn't match --platform android
+    insertReady({
+      id: "wrong-platform", username: "ios", country: "GB", source: "united kingdom iphone",
+      registered_country: "GB", registered_platform: "ios", username_change_count: 0,
+    });
+    // android, but residency=US → doesn't match --country GB
+    insertReady({
+      id: "wrong-country", username: "us", country: "US", source: "united kingdom android app",
+      registered_country: "GB", registered_platform: "android", username_change_count: 0,
+    });
+
+    const r = poolBuy({
+      platform: "twitter",
+      buyer_wallet: BUYER,
+      country: "GB",
+      registered_country: "GB",
+      registered_platform: "android",
+    });
+    assert.equal(r.success, true);
+    assert.equal(r.account?.id, "match");
+  });
+
+  it("rows with NULL registered_country do NOT match a --registered-country filter", () => {
+    insertReady({
+      id: "legacy", username: "old", country: "US", source: null,
+      registered_country: null, registered_platform: null, username_change_count: null,
+    });
+    const r = poolBuy({ platform: "twitter", buyer_wallet: BUYER, registered_country: "US" });
+    assert.equal(r.success, false);
+    assert.match(r.error || "", /registered_country=US/);
   });
 });
