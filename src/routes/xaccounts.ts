@@ -59,46 +59,30 @@ function serializeAccount(account: XAccount, includeSecrets: boolean) {
 }
 
 /**
- * POST /x/accounts — Purchase an X account from the pool
- * 
- * x402 payment: $5.00 USDC
- * 
- * Returns: account credentials (username, email, password, cookies, auth_token)
+ * POST /x/accounts — DEPRECATED. Was the original $5-flat-rate buy route
+ * backed by the x_accounts table. Superseded by POST /social/twitter/buy
+ * which supports per-country pricing, source filters, rename-history
+ * filters, and the dispute/replacement flow.
+ *
+ * Hard cutover: returns 410 Gone so callers fail loudly instead of silently
+ * paying $5 for a non-country-tagged account from a stale pool. The
+ * surrounding ownership routes (GET /x/accounts/mine, transfer, share,
+ * admin endpoints) still operate on the x_accounts table so already-bought
+ * legacy accounts keep working.
  */
-router.post("/accounts", async (req: Request, res: Response) => {
-  try {
-    const buyerWallet = (req as any).payerAddress || req.body.wallet || "unknown";
-
-    const account = await xAccountService.purchaseAccount(buyerWallet);
-
-    if (!account) {
-      res.status(503).json({
-        error: "No Accounts Available",
-        message: "All X accounts in the pool are currently sold or reserved. Check back soon.",
-      });
-      return;
-    }
-
-    res.json({
-      id: account.id,
-      username: account.username,
-      email: account.email,
-      password: account.password,
-      cookies: JSON.parse(account.cookies),
-      auth_token: account.auth_token,
-      profile: {
-        name: account.profile_name,
-        bio: account.profile_bio,
-        image: account.profile_image,
-      },
-      warmed: account.warmed,
-      age_days: account.age_days,
-      status: "ready",
-      message: `X account @${account.username} is yours. Login with the email/password or import the cookies.`,
-    });
-  } catch (error: any) {
-    res.status(500).json({ error: "Purchase Failed", message: error.message });
-  }
+router.post("/accounts", (_req: Request, res: Response) => {
+  res.status(410).json({
+    error: "Gone",
+    code: "endpoint_deprecated",
+    message:
+      "POST /x/accounts has been retired. Use POST /social/twitter/buy " +
+      "(CLI: `palmyr twitter buy [--country US] [--source web] [--max-renames 0]`).",
+    successor: {
+      route: "POST /social/twitter/buy",
+      cli: "palmyr twitter buy",
+      pricing: "GET /social/twitter/pool/prices",
+    },
+  });
 });
 
 /**
