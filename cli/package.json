@@ -1,6 +1,6 @@
 {
   "name": "@palmyr/cli",
-  "version": "1.8.5",
+  "version": "1.9.0",
   "description": "CLI for Palmyr — everything your AI agent needs. Phone, email, compute, domains, wallets, and more.",
   "type": "module",
   "main": "./dist/sdk.js",
