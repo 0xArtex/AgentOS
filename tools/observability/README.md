@@ -1,4 +1,19 @@
-# Observability — Metabase over Palmyr's SQLite
+# Observability
+
+The Palmyr stack ships its own self-hosted observability, on-brand with the
+"no SaaS" posture. Two pieces:
+
+| Tool | What it covers | Where |
+|------|----------------|-------|
+| **Metabase** (this directory) | API + CLI events from `agentos.db` (request_log, cli_events, etc.) | `tools/observability/` |
+| **Plausible** | palmyr.ai web pageviews, referrers, UTM | `tools/observability/plausible/` |
+
+Both run on the VPS in Docker, both bind to localhost only, both are reached
+over a Cloudflare Tunnel + SSH tunnel for the admin UI.
+
+---
+
+## Metabase over Palmyr's SQLite
 
 Self-hosted Metabase pointed at the live `request_log` (and friends) in `agentos.db`.
 Gives us drag-and-drop dashboards over the data we already collect — no new

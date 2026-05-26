@@ -11,12 +11,15 @@ import hpp from "hpp";
  * - SQL injection detection
  */
 
-// Helmet with API-friendly config
+// Helmet with API-friendly config.
+// `https://plausible.palmyr.ai` is the self-hosted analytics tracker — needed
+// in scriptSrc to load /js/script.js and in connectSrc for the pageview POSTs.
+// Setup lives in tools/observability/plausible/.
 export const securityHeaders = helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://plausible.palmyr.ai"],
       scriptSrcAttr: ["'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:"],
