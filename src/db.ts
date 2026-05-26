@@ -825,14 +825,29 @@ export function initDatabase(): void {
   // back to the original payer on the original chain. Rows seeded before this
   // feature shipped won't have these; the dispute service degrades to
   // admin_review when missing.
+  //
+  // Richer about_profile fields come from twitterapi.io's expanded user/info
+  // response. We store them flat (one column each) so buy filters and
+  // pool-status breakdowns can use plain SQL — keeping with the "strings >
+  // structured objects, flat > nested" rule. source/username_change_count
+  // back the new --source and --max-renames buy filters.
   for (const [col, spec] of [
     ['payment_signature', 'TEXT'],
     ['payment_chain', 'TEXT'],
     ['paid_amount_usdc', 'REAL'],
     ['detected_location', 'TEXT'],
+    ['source', 'TEXT'],                     // 'web' | 'mobile' | other lowercased / NULL
+    ['username_change_count', 'INTEGER'],   // 0 = never renamed
+    ['account_based_in', 'TEXT'],           // free-text "United States, California"
+    ['location_accurate', 'INTEGER'],       // 0/1 from twitterapi.io
+    ['affiliate_username', 'TEXT'],         // org account handle, if any
   ] as const) {
     if (!poolColNames.has(col)) db.exec(`ALTER TABLE social_account_pool ADD COLUMN ${col} ${spec}`);
   }
+  // Index supporting the most-common filter combo: country + source +
+  // username_change_count. Status comes first since every buy starts with
+  // status='ready'.
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_filters ON social_account_pool(status, platform, country, source, username_change_count);`);
 
   // Admin-set per-country prices that `palmyr twitter buy --country US` reads
   // from. Decouples pricing from per-account sale_price_usdc: one row per
@@ -842,6 +857,17 @@ export function initDatabase(): void {
     CREATE TABLE IF NOT EXISTS country_prices (
       country TEXT PRIMARY KEY,
       price_usdc REAL NOT NULL CHECK(price_usdc > 0),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+  `);
+
+  // Per-source multipliers applied on top of country_prices when a buy
+  // request specifies --source. Final charge = country_price * multiplier.
+  // Sources without a row (or buys without --source) implicitly use 1.0.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS source_multipliers (
+      source TEXT PRIMARY KEY,
+      multiplier REAL NOT NULL CHECK(multiplier > 0),
       updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
     );
   `);

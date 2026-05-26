@@ -27,11 +27,29 @@ function apiKey(): string | null {
 
 export type AccountStatus = "active" | "suspended" | "not_found" | "unknown";
 
+/**
+ * Source the X account is registered from — drives the `--source` filter at
+ * buy time. twitterapi.io returns this in `about_profile.source` as e.g.
+ * 'Web' or 'Mobile'; we lowercase to keep the column case-stable.
+ */
+export type AccountSource = "web" | "mobile" | string;
+
 export interface UserInfo {
   username: string;
   country: string | null;          // ISO 3166-1 alpha-2 when derivable
-  location_raw: string | null;     // X-reported location string, free-form
+  location_raw: string | null;     // X-reported free-form location string
   status: AccountStatus;
+  // ─── from twitterapi.io's about_profile (newer expanded response) ───
+  /** Free-text "United States, California" — prefer this over location_raw for the country derivation. */
+  account_based_in: string | null;
+  /** twitterapi.io's own location confidence flag. */
+  location_accurate: boolean | null;
+  /** 'web' | 'mobile' | other-lowercased; null when about_profile is absent. */
+  source: AccountSource | null;
+  /** Org handle this account is affiliated with, if any. */
+  affiliate_username: string | null;
+  /** Number of times the @handle has been renamed (0 = never). */
+  username_change_count: number | null;
 }
 
 /**
@@ -50,7 +68,7 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
     const res = await fetch(url, { headers: { "x-api-key": key } });
 
     if (res.status === 404) {
-      return { username: handle, country: null, location_raw: null, status: "not_found" };
+      return emptyUserInfo(handle, "not_found");
     }
     if (!res.ok) {
       console.warn(`[twitter-api] ${handle} → HTTP ${res.status}`);
@@ -70,22 +88,61 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
       data?.status === "suspended" ||
       String(data?.account_status || "").toLowerCase() === "suspended";
 
+    // about_profile is the newer expanded shape with richer signals. May be
+    // absent on accounts/plan-tiers that don't surface it — every field
+    // below has to tolerate undefined.
+    const about = data?.about_profile || {};
+    const account_based_in: string | null =
+      about?.account_based_in || null;
     const location_raw: string | null =
       data?.location ||
       data?.profile_location?.full_name ||
       data?.user?.location ||
       null;
+    const location_accurate: boolean | null =
+      typeof about?.location_accurate === "boolean" ? about.location_accurate : null;
+    const source: string | null = about?.source
+      ? String(about.source).toLowerCase().trim() || null
+      : null;
+    const affiliate_username: string | null = about?.affiliate_username || null;
+    // twitterapi.io returns count as a string — parse defensively, treat
+    // anything non-numeric as null (no signal) rather than 0 (no renames).
+    const rawCount = about?.username_changes?.count;
+    const parsedCount = rawCount == null ? null : Number(rawCount);
+    const username_change_count: number | null =
+      typeof parsedCount === "number" && Number.isFinite(parsedCount) && parsedCount >= 0
+        ? Math.floor(parsedCount)
+        : null;
 
     return {
       username: handle,
-      country: parseLocationToCountryCode(location_raw),
+      country: parseLocationToCountryCode(account_based_in || location_raw),
       location_raw,
       status: isSuspended ? "suspended" : "active",
+      account_based_in,
+      location_accurate,
+      source,
+      affiliate_username,
+      username_change_count,
     };
   } catch (e: any) {
     console.warn(`[twitter-api] ${handle} threw:`, e?.message || e);
     return null;
   }
+}
+
+function emptyUserInfo(username: string, status: AccountStatus): UserInfo {
+  return {
+    username,
+    country: null,
+    location_raw: null,
+    status,
+    account_based_in: null,
+    location_accurate: null,
+    source: null,
+    affiliate_username: null,
+    username_change_count: null,
+  };
 }
 
 /**
