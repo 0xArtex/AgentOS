@@ -1,0 +1,27 @@
+services:
+  metabase:
+    image: metabase/metabase:v0.51.6
+    container_name: palmyr-metabase
+    restart: unless-stopped
+    # Bind to localhost only. Access in prod via SSH tunnel:
+    #   ssh -L 3030:localhost:3030 user@vps
+    # Then open http://localhost:3030 in your browser.
+    # Don't expose publicly unless you also put a reverse proxy with auth in front.
+    ports:
+      - "127.0.0.1:3030:3000"
+    environment:
+      # Metabase's own metadata store. H2 is fine for our scale; switch to
+      # postgres if multi-user editing or backup matters.
+      MB_DB_FILE: /metabase-data/metabase.db
+      JAVA_TIMEZONE: UTC
+      # Avoid the "anonymous usage tracking" call-home — we eat our own dogfood.
+      MB_ANON_TRACKING_ENABLED: "false"
+    volumes:
+      - metabase-data:/metabase-data
+      # Palmyr's SQLite + WAL + SHM files. Read-only — Metabase only queries,
+      # never writes. PALMYR_DATA_DIR matches the same env var the API uses
+      # (see src/db.ts). Falls back to repo-relative ./data for local dev.
+      - ${PALMYR_DATA_DIR:-../../data}:/palmyr-data:ro
+
+volumes:
+  metabase-data:
