@@ -7,9 +7,14 @@
     </profiles>
     <!-- ClickHouse 24.3+ requires explicit auth config for the `default` user.
          Plausible connects as `default` with no password — declare that
-         explicitly via <no_password/>, or the connector hits AUTHENTICATION_FAILED. -->
+         explicitly via <no_password/>, or the connector hits AUTHENTICATION_FAILED.
+
+         replace="replace" forces this overlay to FULLY replace the base
+         users.xml entry. Without it ClickHouse merges, ending up with both
+         <password> and <no_password> on the same user, which is a fatal
+         "must be only one auth field" config error. -->
     <users>
-        <default>
+        <default replace="replace">
             <profile>default</profile>
             <quota>default</quota>
             <networks>
