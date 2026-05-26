@@ -5,4 +5,18 @@
             <log_query_threads>0</log_query_threads>
         </default>
     </profiles>
+    <!-- ClickHouse 24.3+ requires explicit auth config for the `default` user.
+         Plausible connects as `default` with no password — declare that
+         explicitly via <no_password/>, or the connector hits AUTHENTICATION_FAILED. -->
+    <users>
+        <default>
+            <profile>default</profile>
+            <quota>default</quota>
+            <networks>
+                <ip>::/0</ip>
+            </networks>
+            <no_password/>
+            <access_management>0</access_management>
+        </default>
+    </users>
 </clickhouse>
