@@ -99,6 +99,16 @@ export interface PoolAddResult {
   detected_country?: string | null;
   /** Free-text location string from X as returned by twitterapi.io. Stored for admin context. */
   detected_location?: string | null;
+  /** Registration source from about_profile.source — drives the `--source` buy filter. */
+  detected_source?: string | null;
+  /** Number of @handle renames recorded by X. 0 = never renamed. */
+  detected_username_change_count?: number | null;
+  /** about_profile.account_based_in free-text — preferred over location_raw for country derivation. */
+  detected_account_based_in?: string | null;
+  /** about_profile.location_accurate flag. */
+  detected_location_accurate?: boolean | null;
+  /** about_profile.affiliate_username (org handle), if any. */
+  detected_affiliate_username?: string | null;
   /** Final country saved to the row — admin override wins over detection. */
   country?: string | null;
   /** Present when admin-provided country disagrees with detection; non-fatal but flagged for review. */
@@ -142,21 +152,33 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
 
   const cookies = loginResult.cookies || [];
 
-  // Country detection via twitterapi.io — runs AFTER the seed login confirms
-  // the account is alive. Returns null when TWITTER_API_IO_KEY is unset or
-  // the location isn't resolvable to an ISO code; the admin's --country flag
-  // is the fallback. When both are present and disagree, admin wins but we
-  // surface the mismatch so the operator can investigate.
+  // Profile detection via twitterapi.io — runs AFTER the seed login confirms
+  // the account is alive. Country, source, rename history, and the richer
+  // about_profile fields all come from one round-trip. Returns null when
+  // TWITTER_API_IO_KEY is unset or the API is unreachable; the admin's
+  // --country flag remains the country fallback, other dimensions stay
+  // NULL and rows seeded under that path simply won't match `--source` or
+  // `--max-renames` filtered buys.
   let detectedCountry: string | null = null;
   let detectedLocation: string | null = null;
+  let detectedSource: string | null = null;
+  let detectedChanges: number | null = null;
+  let detectedAccountBasedIn: string | null = null;
+  let detectedLocationAccurate: boolean | null = null;
+  let detectedAffiliate: string | null = null;
   try {
     const info = await getUserInfo(req.username);
     if (info) {
       detectedCountry = info.country;
       detectedLocation = info.location_raw;
+      detectedSource = info.source;
+      detectedChanges = info.username_change_count;
+      detectedAccountBasedIn = info.account_based_in;
+      detectedLocationAccurate = info.location_accurate;
+      detectedAffiliate = info.affiliate_username;
     }
   } catch (e: any) {
-    console.warn(`[pool] country detection threw for @${req.username}:`, e?.message || e);
+    console.warn(`[pool] profile detection threw for @${req.username}:`, e?.message || e);
   }
 
   const adminCountry = req.country ? req.country.toUpperCase() : null;
@@ -176,8 +198,9 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
       id, platform, username, country, age_category,
       proxy_session_id, credentials_encrypted, cookies_encrypted,
       acquired_cost_usdc, sale_price_usdc, status, created_at, tested_at, notes,
-      detected_location
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?)`
+      detected_location,
+      source, username_change_count, account_based_in, location_accurate, affiliate_username
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     req.platform,
@@ -192,7 +215,12 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
     now,
     now,
     req.notes || null,
-    detectedLocation
+    detectedLocation,
+    detectedSource,
+    detectedChanges,
+    detectedAccountBasedIn,
+    detectedLocationAccurate == null ? null : (detectedLocationAccurate ? 1 : 0),
+    detectedAffiliate,
   );
 
   return {
@@ -202,6 +230,11 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
     cookies_captured: cookies.length,
     detected_country: detectedCountry,
     detected_location: detectedLocation,
+    detected_source: detectedSource,
+    detected_username_change_count: detectedChanges,
+    detected_account_based_in: detectedAccountBasedIn,
+    detected_location_accurate: detectedLocationAccurate,
+    detected_affiliate_username: detectedAffiliate,
     country: finalCountry,
     ...(mismatch ? { country_mismatch: mismatch } : {}),
   };
@@ -211,6 +244,20 @@ export interface PoolBuyRequest {
   platform: "twitter";
   country?: string;
   age_category?: string;
+  /**
+   * Registration source filter — accepts 'web', 'mobile', or any value
+   * matching the lowercased `source` column. Skipped when omitted.
+   * Rows seeded before this feature have source=NULL and won't match a
+   * source-filtered buy; agents should run pool-status first to see stock.
+   */
+  source?: string;
+  /**
+   * Cap on username_change_count. e.g. `max_username_changes: 0` selects
+   * accounts that have never been renamed. Rows seeded before this feature
+   * have username_change_count=NULL and won't match any --max-renames buy
+   * (NULL fails the `<=` comparison).
+   */
+  max_username_changes?: number;
   buyer_wallet: string;
   /**
    * x402 payment provenance — captured at buy time so the dispute service can
@@ -234,6 +281,9 @@ export interface PoolBuyResult {
     username: string;
     country: string | null;
     age_category: string | null;
+    source: string | null;
+    username_change_count: number | null;
+    account_based_in: string | null;
     proxy_session_id: string;
     credentials: PoolCredentials;
     cookies: any[];
@@ -250,6 +300,13 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
   }
 
   // Atomically reserve: find the oldest matching 'ready' row and flip it.
+  // Filters that are undefined skip via the `? IS NULL` short-circuit. For
+  // source and max_username_changes, NULL on the row means "unknown" — those
+  // rows DON'T match when a filter is specified (the explicit comparison
+  // fails on NULL), which is the correct behavior: an agent asking for
+  // `--source web` shouldn't get an unverified row.
+  const sourceFilter = req.source ? req.source.toLowerCase() : null;
+  const maxChanges = typeof req.max_username_changes === "number" ? req.max_username_changes : null;
   const tx = db.transaction(() => {
     const row = db
       .prepare(
@@ -257,6 +314,8 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
          WHERE platform = ? AND status = 'ready'
            AND (? IS NULL OR country = ?)
            AND (? IS NULL OR age_category = ?)
+           AND (? IS NULL OR source = ?)
+           AND (? IS NULL OR username_change_count <= ?)
          ORDER BY created_at ASC
          LIMIT 1`
       )
@@ -265,7 +324,11 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
         req.country || null,
         req.country || null,
         req.age_category || null,
-        req.age_category || null
+        req.age_category || null,
+        sourceFilter,
+        sourceFilter,
+        maxChanges,
+        maxChanges,
       ) as { id: string } | undefined;
     if (!row) return null;
 
@@ -296,7 +359,9 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
       error:
         `No matching accounts in pool` +
         (req.country ? ` for country=${req.country}` : "") +
-        (req.age_category ? `, age=${req.age_category}` : ""),
+        (req.age_category ? `, age=${req.age_category}` : "") +
+        (req.source ? `, source=${req.source}` : "") +
+        (typeof req.max_username_changes === "number" ? `, max_renames=${req.max_username_changes}` : ""),
     };
   }
 
@@ -317,6 +382,9 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
       username: full.username,
       country: full.country,
       age_category: full.age_category,
+      source: full.source ?? null,
+      username_change_count: full.username_change_count ?? null,
+      account_based_in: full.account_based_in ?? null,
       proxy_session_id: full.proxy_session_id,
       credentials,
       cookies,
@@ -330,7 +398,9 @@ export interface PoolStatusResult {
   sold: number;
   dead: number;
   by_country: Record<string, { ready: number; sold: number }>;
-  recent_sales: Array<{ username: string; country: string | null; sold_to_wallet: string; sold_at: string }>;
+  by_source: Record<string, { ready: number; sold: number }>;
+  by_username_changes: { never_renamed: { ready: number; sold: number }; renamed: { ready: number; sold: number }; unknown: { ready: number; sold: number } };
+  recent_sales: Array<{ username: string; country: string | null; source: string | null; sold_to_wallet: string; sold_at: string }>;
 }
 
 export function poolStatus(): PoolStatusResult {
@@ -357,9 +427,48 @@ export function poolStatus(): PoolStatusResult {
     (by_country[k] as any)[r.status] = r.n;
   }
 
+  const bySourceRows = db
+    .prepare(
+      `SELECT source, status, COUNT(*) as n
+       FROM social_account_pool
+       WHERE status IN ('ready','sold')
+       GROUP BY source, status`
+    )
+    .all() as Array<{ source: string | null; status: string; n: number }>;
+  const by_source: Record<string, { ready: number; sold: number }> = {};
+  for (const r of bySourceRows) {
+    const k = r.source || "?";
+    if (!by_source[k]) by_source[k] = { ready: 0, sold: 0 };
+    (by_source[k] as any)[r.status] = r.n;
+  }
+
+  const byChangesRows = db
+    .prepare(
+      `SELECT
+         CASE
+           WHEN username_change_count IS NULL THEN 'unknown'
+           WHEN username_change_count = 0 THEN 'never_renamed'
+           ELSE 'renamed'
+         END AS bucket,
+         status,
+         COUNT(*) as n
+       FROM social_account_pool
+       WHERE status IN ('ready','sold')
+       GROUP BY bucket, status`
+    )
+    .all() as Array<{ bucket: string; status: string; n: number }>;
+  const by_username_changes = {
+    never_renamed: { ready: 0, sold: 0 },
+    renamed: { ready: 0, sold: 0 },
+    unknown: { ready: 0, sold: 0 },
+  };
+  for (const r of byChangesRows) {
+    (by_username_changes as any)[r.bucket][r.status] = r.n;
+  }
+
   const recent_sales = (db
     .prepare(
-      `SELECT username, country, sold_to_wallet, sold_at
+      `SELECT username, country, source, sold_to_wallet, sold_at
        FROM social_account_pool
        WHERE status='sold'
        ORDER BY sold_at DESC
@@ -368,6 +477,7 @@ export function poolStatus(): PoolStatusResult {
     .all() as any[]).map((r) => ({
     username: r.username,
     country: r.country,
+    source: r.source,
     sold_to_wallet: r.sold_to_wallet,
     sold_at: r.sold_at,
   }));
@@ -378,6 +488,8 @@ export function poolStatus(): PoolStatusResult {
     sold: counts.sold,
     dead: counts.dead,
     by_country,
+    by_source,
+    by_username_changes,
     recent_sales,
   };
 }

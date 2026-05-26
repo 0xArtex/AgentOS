@@ -785,11 +785,13 @@ const TWITTER_HELP: Record<string, Array<{ flag: string; desc: string; hint?: st
     { flag: '(price)', desc: 'Free — local TOTP generation' },
   ],
   buy: [
-    { flag: '(no args)', desc: 'Purchase the oldest ready X account from the supplier pool' },
+    { flag: '(no args)', desc: 'Purchase the oldest ready X account from the supplier pool. Default for every filter below is random.' },
     { flag: '--country <CC>', desc: 'Filter to a specific country (ISO alpha-2: US, GB, DE, …). Run `pool-prices` first to see what is priced.' },
+    { flag: '--source web|mobile', desc: 'Filter by registration source from X about-profile. Multiplies country price by source multiplier (default 1.0).' },
+    { flag: '--max-renames N', desc: 'Cap username-change count. --max-renames 0 = never renamed. NULL on row means unknown → does not match.' },
     { flag: '--age 1y|2y|...', desc: 'Optional age category filter' },
-    { flag: '(price)', desc: '$5 USDC default; per-country amount when --country is passed. Account auto-imported into the local vault.' },
-    { flag: '(example)', desc: 'palmyr twitter buy --country US' },
+    { flag: '(price)', desc: '$5 USDC default; country_price * source_multiplier when filters are passed.' },
+    { flag: '(example)', desc: 'palmyr twitter buy --country US --source web --max-renames 0' },
   ],
   login: [
     { flag: '<username>', desc: 'Force a fresh server-side session (browser runtime)' },
@@ -951,8 +953,8 @@ const TWITTER_HELP: Record<string, Array<{ flag: string; desc: string; hint?: st
   'pool-add': [
     { flag: '--credentials-line "..."', desc: 'Single account creds (login:pw:email:email_pw[:2fa[:ct0:auth_token]])' },
     { flag: '--file path.txt', desc: 'Bulk: one credentials-line per row (# = comment)' },
-    { flag: '--price <USDC>', desc: 'Required — what `twitter buy` will charge per account (per-account fallback when country has no row in pool-prices)' },
-    { flag: '--country <CC>', desc: 'Optional override; otherwise twitterapi.io detects country at seed time. Admin wins on mismatch (flagged in response).' },
+    { flag: '--price <USDC>', desc: 'Required — per-account sale_price_usdc (legacy fallback when no country price row exists)' },
+    { flag: '--country <CC>', desc: 'Optional override; twitterapi.io detects country + source + rename count from about_profile at seed time. Admin wins on country mismatch (flagged in response).' },
     { flag: '--age 1y|2y|3y|...', desc: 'Optional age category metadata' },
     { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
     { flag: '(price)', desc: 'Free — server-side seeding by pool operator' },
@@ -969,6 +971,17 @@ const TWITTER_HELP: Record<string, Array<{ flag: string; desc: string; hint?: st
   ],
   'pool-delete-price': [
     { flag: '--country <CC>', desc: 'Country code to remove pricing for' },
+    { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  'pool-set-source-multiplier': [
+    { flag: '--source web|mobile|<id>', desc: 'Source identifier (matches the `source` column populated by twitterapi.io)' },
+    { flag: '--multiplier <number>', desc: 'Positive scaling factor applied on top of country price when --source is passed at buy time. 1.0 = no change.' },
+    { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  'pool-delete-source-multiplier': [
+    { flag: '--source <id>', desc: 'Source identifier to remove the multiplier for (buy still works, just reverts to multiplier=1.0)' },
     { flag: '(auth)', desc: 'Admin-signed call — requires PALMYR_ADMIN_KEY' },
     { flag: '(price)', desc: 'Free' },
   ],
@@ -6101,16 +6114,28 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           case 'buy': {
-            // Agents say "buy" with an optional --country flag. Country
-            // selects from the admin-curated per-country pool AND determines
-            // the USDC charge (admin sets prices via `pool-set-price`).
-            // Without --country, falls back to the legacy single-tier $5
-            // pool which selects across all countries.
+            // Agents say "buy" with optional --country / --source / --max-renames.
+            // Each filter is independent (default: random across that
+            // dimension). Pricing = country_price * source_multiplier:
+            //   - --country US               → country_prices.US (e.g. $8)
+            //   - --source web               → multiplied by web's row in
+            //                                  source_multipliers (e.g. 1.2)
+            //   - --max-renames 0            → filter only, no price impact
+            // Without --country, falls back to the legacy $5 flat rate.
             const country = ((flags.country as string) || '').trim().toUpperCase() || undefined
             const ageCategory = (flags.age as string) || (flags['age-category'] as string) || undefined
+            const source = ((flags.source as string) || '').trim().toLowerCase() || undefined
+            const maxRenamesRaw = flags['max-renames']
+            const maxUsernameChanges =
+              maxRenamesRaw === undefined || maxRenamesRaw === ''
+                ? undefined
+                : Number(maxRenamesRaw)
+            if (maxUsernameChanges !== undefined && (!Number.isFinite(maxUsernameChanges) || maxUsernameChanges < 0)) {
+              err('--max-renames must be a non-negative integer (e.g. 0 = never renamed)')
+            }
             let data: any
             try {
-              data = await ao.socialTwitterBuy(country, ageCategory)
+              data = await ao.socialTwitterBuy(country, ageCategory, { source, maxUsernameChanges })
             } catch (e: any) {
               err(`Buy failed: ${e.message}`, EXIT.GENERAL)
             }
@@ -6121,10 +6146,15 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // Auto-import into the local vault + prime the session cache so
             // the buyer can post immediately with the cookies the admin
             // pre-seasoned at pool-add time.
+            const filterTags = [
+              country && `country=${country}`,
+              source && `source=${source}`,
+              maxUsernameChanges !== undefined && `max_renames=${maxUsernameChanges}`,
+            ].filter(Boolean).join(', ')
             const summary = sv.importAccount(platform, account.username, account.credentials, {
               source: 'pool',
               proxy_session_id: account.proxy_session_id,
-              notes: country ? `Bought from pool (country=${country})` : 'Bought from pool',
+              notes: filterTags ? `Bought from pool (${filterTags})` : 'Bought from pool',
             })
             sv.saveSession(summary.id, platform, account.cookies || [])
             sv.updateMeta(platform, summary.username, { last_action_at: new Date().toISOString() })
@@ -6133,6 +6163,9 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               platform,
               username: summary.username,
               country: account.country,
+              source: account.source,
+              username_change_count: account.username_change_count,
+              account_based_in: account.account_based_in,
               account_id: account.id,
               hint: `Ready to post — try: palmyr twitter post ${summary.username} --body "gm". ` +
                     `If the account is suspended within 7 days, run: palmyr twitter dispute ${account.id}`,
@@ -6181,6 +6214,41 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             const res = await fetch(ao.api + path, { method: 'DELETE', headers })
             const data = await res.json() as any
             if (!res.ok) err(`pool-delete-price failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
+            return print(data)
+          }
+
+          case 'pool-set-source-multiplier': {
+            // Admin: scale the country price for buys filtered by a given
+            // source ('web', 'mobile', …). e.g. mult=1.2 → web buys cost
+            // 20% more than the base country price.
+            const { buildAdminHeaders } = await import('./admin-auth.js')
+            const source = ((flags.source as string) || '').trim().toLowerCase()
+            const mult = flags.multiplier !== undefined ? Number(flags.multiplier) : NaN
+            if (!source) err('--source <name> required (e.g. web, mobile)')
+            if (!Number.isFinite(mult) || mult <= 0) err('--multiplier <number> required (positive)')
+            const path = `/social/twitter/pool/source-multipliers/${encodeURIComponent(source)}`
+            const headers = buildAdminHeaders('PUT', path)
+            const res = await fetch(ao.api + path, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', ...headers },
+              body: JSON.stringify({ multiplier: mult }),
+            })
+            const data = await res.json() as any
+            if (!res.ok || !data.success) err(`pool-set-source-multiplier failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
+            return print(data)
+          }
+
+          case 'pool-delete-source-multiplier': {
+            // Admin: drop the multiplier for a source. Subsequent `buy
+            // --source X` reverts to using 1.0 (filter only, no price scaling).
+            const { buildAdminHeaders } = await import('./admin-auth.js')
+            const source = ((flags.source as string) || '').trim().toLowerCase()
+            if (!source) err('--source <name> required')
+            const path = `/social/twitter/pool/source-multipliers/${encodeURIComponent(source)}`
+            const headers = buildAdminHeaders('DELETE', path)
+            const res = await fetch(ao.api + path, { method: 'DELETE', headers })
+            const data = await res.json() as any
+            if (!res.ok) err(`pool-delete-source-multiplier failed: ${data.error || `HTTP ${res.status}`}`, EXIT.GENERAL)
             return print(data)
           }
 

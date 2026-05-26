@@ -947,16 +947,24 @@ export class Palmyr {
     })
   }
 
-  async socialTwitterBuy(country?: string, ageCategory?: string): Promise<any> {
+  async socialTwitterBuy(
+    country?: string,
+    ageCategory?: string,
+    opts: { source?: string; maxUsernameChanges?: number } = {},
+  ): Promise<any> {
     return this.request('POST', '/social/twitter/buy', {
       ...(country ? { country } : {}),
       ...(ageCategory ? { age_category: ageCategory } : {}),
+      ...(opts.source ? { source: opts.source } : {}),
+      ...(typeof opts.maxUsernameChanges === 'number' ? { max_username_changes: opts.maxUsernameChanges } : {}),
     })
   }
 
-  // ── Pool country pricing ──
+  // ── Pool country pricing + source multipliers ──
 
-  // Public: which countries are priced and what they cost.
+  // Public: prices per country + multipliers per source. Final charge for a
+  // buy with both --country and --source is country_price * source_multiplier
+  // (multiplier defaults to 1.0 when no row exists for the source).
   async socialTwitterPoolPrices(): Promise<any> {
     return this.request('GET', '/social/twitter/pool/prices')
   }

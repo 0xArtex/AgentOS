@@ -27,6 +27,12 @@ import {
   deleteCountryPrice,
 } from "../services/country-prices";
 import {
+  setSourceMultiplier,
+  getSourceMultiplier,
+  listSourceMultipliers,
+  deleteSourceMultiplier,
+} from "../services/source-multipliers";
+import {
   createDispute,
   getDispute,
   listDisputes,
@@ -1095,7 +1101,10 @@ router.delete(
    so buyer agents can see what's available before paying. */
 
 router.get("/twitter/pool/prices", (_req: Request, res: Response) => {
-  res.json({ prices: listCountryPrices() });
+  res.json({
+    prices: listCountryPrices(),
+    source_multipliers: listSourceMultipliers(),
+  });
 });
 
 router.put("/twitter/pool/prices/:country", requirePoolAdmin, (req: Request, res: Response) => {
@@ -1117,6 +1126,30 @@ router.delete("/twitter/pool/prices/:country", requirePoolAdmin, (req: Request, 
   res.json({ success: removed });
 });
 
+/* ─── Source multipliers — admin sets, public reads ─────────────────────
+   When a buy specifies --source <s>, server multiplies the country price by
+   source_multipliers[s] (defaults to 1.0 if no row exists). Lets admin tag
+   web vs mobile as different price tiers without maintaining an N×M matrix. */
+
+router.put("/twitter/pool/source-multipliers/:source", requirePoolAdmin, (req: Request, res: Response) => {
+  const { multiplier } = (req.body || {}) as { multiplier?: number };
+  if (typeof multiplier !== "number") {
+    res.status(400).json({ error: "multiplier (number) required in body" });
+    return;
+  }
+  try {
+    const row = setSourceMultiplier(String(req.params.source || ""), multiplier);
+    res.json({ success: true, ...row });
+  } catch (e: any) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+router.delete("/twitter/pool/source-multipliers/:source", requirePoolAdmin, (req: Request, res: Response) => {
+  const removed = deleteSourceMultiplier(String(req.params.source || ""));
+  res.json({ success: removed });
+});
+
 /* ─── Buy: public-facing, paid ──────────────────────────────────────────
    Price is dynamic: if `--country US` is passed, `country_prices.US` is the
    charge. The pre-middleware below rejects countries with no configured
@@ -1126,31 +1159,79 @@ router.delete("/twitter/pool/prices/:country", requirePoolAdmin, (req: Request, 
 
 const LEGACY_BUY_PRICE_USDC = 5.0;
 
-function readCountryFromRequest(req: Request): string | undefined {
-  const c = (req.body && req.body.country) || (req.query && (req.query as any).country);
-  return typeof c === "string" && c.trim() ? c.trim() : undefined;
+function readBodyOrQuery(req: Request, key: string): string | undefined {
+  const v = (req.body && (req.body as any)[key]) || (req.query && (req.query as any)[key]);
+  return typeof v === "string" && v.trim() ? v.trim() : undefined;
 }
 
-function validateBuyCountry(req: Request, res: Response, next: () => void): void {
+function readCountryFromRequest(req: Request): string | undefined {
+  return readBodyOrQuery(req, "country");
+}
+
+function readSourceFromRequest(req: Request): string | undefined {
+  const s = readBodyOrQuery(req, "source");
+  return s ? s.toLowerCase() : undefined;
+}
+
+function readMaxRenamesFromRequest(req: Request): number | undefined {
+  const raw =
+    (req.body && (req.body as any).max_username_changes) ??
+    (req.query && (req.query as any).max_username_changes);
+  if (raw == null || raw === "") return undefined;
+  const n = Number(raw);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : undefined;
+}
+
+function resolveBuyPrice(req: Request): number {
   const country = readCountryFromRequest(req);
-  if (!country) {
-    next();
-    return;
+  const source = readSourceFromRequest(req);
+  const base = country ? (getCountryPrice(country) ?? LEGACY_BUY_PRICE_USDC) : LEGACY_BUY_PRICE_USDC;
+  const mult = source ? (getSourceMultiplier(source) ?? 1.0) : 1.0;
+  // Round to 6 decimals so the x402 amount (lamports = price * 1e6) stays an
+  // integer even when multiplier introduces fractional cents.
+  return Math.round(base * mult * 1_000_000) / 1_000_000;
+}
+
+function validateBuyFilters(req: Request, res: Response, next: () => void): void {
+  const country = readCountryFromRequest(req);
+  if (country) {
+    if (!/^[A-Za-z]{2}$/.test(country)) {
+      res.status(400).json({
+        error: "Invalid country",
+        message: "country must be a 2-letter ISO 3166-1 alpha-2 code (e.g. US, GB, DE)",
+      });
+      return;
+    }
+    if (getCountryPrice(country) == null) {
+      res.status(400).json({
+        error: "Country not priced",
+        message: `No price configured for ${country.toUpperCase()}. Run \`GET /social/twitter/pool/prices\` to see available countries.`,
+      });
+      return;
+    }
   }
-  if (!/^[A-Za-z]{2}$/.test(country)) {
+  // Source is filter-only when no multiplier exists (defaults to 1.0); the
+  //400 here is reserved for malformed values, not unconfigured ones.
+  const source = readSourceFromRequest(req);
+  if (source && !/^[a-z0-9_-]{2,16}$/.test(source)) {
     res.status(400).json({
-      error: "Invalid country",
-      message: "country must be a 2-letter ISO 3166-1 alpha-2 code (e.g. US, GB, DE)",
+      error: "Invalid source",
+      message: "source must be a short lowercase identifier (e.g. 'web', 'mobile')",
     });
     return;
   }
-  const price = getCountryPrice(country);
-  if (price == null) {
-    res.status(400).json({
-      error: "Country not priced",
-      message: `No price configured for ${country.toUpperCase()}. Run \`GET /social/twitter/pool/prices\` to see available countries.`,
-    });
-    return;
+  const maxRenamesRaw =
+    (req.body && (req.body as any).max_username_changes) ??
+    (req.query && (req.query as any).max_username_changes);
+  if (maxRenamesRaw != null && maxRenamesRaw !== "") {
+    const n = Number(maxRenamesRaw);
+    if (!Number.isFinite(n) || n < 0) {
+      res.status(400).json({
+        error: "Invalid max_username_changes",
+        message: "max_username_changes must be a non-negative integer",
+      });
+      return;
+    }
   }
   next();
 }
@@ -1158,20 +1239,14 @@ function validateBuyCountry(req: Request, res: Response, next: () => void): void
 router.post(
   "/twitter/buy",
   requireXEnabled,
-  validateBuyCountry,
-  requireAuth(
-    (req: Request) => {
-      const country = readCountryFromRequest(req);
-      if (!country) return LEGACY_BUY_PRICE_USDC;
-      // validateBuyCountry already guaranteed a row exists for this country.
-      return getCountryPrice(country) ?? LEGACY_BUY_PRICE_USDC;
-    },
-    "general",
-  ),
+  validateBuyFilters,
+  requireAuth(resolveBuyPrice, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
-    const { country, age_category } = (req.body || {}) as {
+    const { country, age_category, source, max_username_changes } = (req.body || {}) as {
       country?: string;
       age_category?: string;
+      source?: string;
+      max_username_changes?: number | string;
     };
     const buyerWallet = req.payment?.payer || req.agentId;
     if (!buyerWallet) {
@@ -1186,6 +1261,11 @@ router.post(
         platform: "twitter",
         country: country ? country.toUpperCase() : undefined,
         age_category,
+        source: source ? String(source).toLowerCase() : undefined,
+        max_username_changes:
+          max_username_changes == null || max_username_changes === ""
+            ? undefined
+            : Number(max_username_changes),
         buyer_wallet: buyerWallet,
         payment: req.payment
           ? {
