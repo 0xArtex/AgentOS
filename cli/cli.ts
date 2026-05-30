@@ -1027,7 +1027,7 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   connect: [
     { flag: '<username>', desc: 'Log in once via your real browser; auto-captures the session' },
-    { flag: '--country <iso-2>', desc: 'Required when first creating the account (e.g. --country us)' },
+    { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
     { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
     { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
     { flag: '--force', desc: 'Re-capture even if a fresh session is already cached' },
@@ -6862,7 +6862,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             subtitle: 'Automated TikTok account management',
             footerLeft: 'Start with `connect`: log in once in your own browser, then post / follow / like — all server-side.',
             commands: [
-              { name: 'connect', description: 'Log in once via your own browser — opens TikTok, you sign in (incl. captcha/2FA), and Palmyr auto-captures the session into the local vault. Auto-creates the account. This is the easy path.', hint: '<username> --country us' },
+              { name: 'connect', description: 'Log in once via your own browser — opens TikTok, you sign in (incl. captcha/2FA), and Palmyr auto-captures the session into the local vault. Auto-creates the account and infers the country from your browser. This is the easy path.', hint: '<username>' },
               { name: 'import',  description: 'Manual fallback to `connect`: save a BYO account from a marketplace --credentials-line "login:pw:email:email_pw", or paste cookies from DevTools → Application → Cookies → .tiktok.com via --sessionid.', hint: '--credentials-line "..." OR <username> --sessionid ... --csrf ... --webid ...' },
               { name: 'list',    description: 'List all local TikTok accounts' },
               { name: 'info',    description: 'Show one account', hint: '<username>' },
@@ -7058,21 +7058,16 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // (no keystroke), and always terminates with structured JSON.
             const username = positional[0] || (flags.username as string)
             if (!username) err('<username> required')
-            const country = (flags.country as string)?.toLowerCase()
+            // --country is optional: if omitted we infer it from the real
+            // browser during login (locale/timezone). Explicit flag overrides.
+            const explicitCountry = (flags.country as string)?.toLowerCase()
 
-            // Resolve or auto-create the local account (one command, not two).
             let acc = sv.getAccount(platform, username)
-            if (!acc) {
-              if (!country) {
-                err('--country <iso-2> required to create the account (e.g. --country us). Drives the proxy exit + browser locale for later server-side ops.', EXIT.BAD_INPUT)
-              }
-              acc = sv.importAccount(platform, username, { login: username, password: 'unknown' }, { source: 'connect', country })
-              process.stderr.write(`[connect] created local account ${username} (${acc.id})\n`)
-            }
 
-            // Idempotent: a fresh session already cached → return fast, no browser.
-            // Lets an agent call `connect` defensively before a run.
-            if (!flags.force) {
+            // Idempotent: an existing account with a fresh cached session returns
+            // fast, no browser. (New accounts have no session yet.) Lets an agent
+            // call `connect` defensively before a run.
+            if (acc && !flags.force) {
               const existing = sv.loadSession(acc.id)
               if (existing && existing.cookies?.length) {
                 const ageH = sv.sessionAgeHours(acc.id) ?? 999
@@ -7091,7 +7086,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             const { connectTikTok } = await import('./tiktok-connect.js')
             const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : 300
             const result = await connectTikTok({
-              country: country || sv.getCountry(platform, username),
+              country: explicitCountry || acc?.country,
               timeoutMs: timeoutSec * 1000,
               browserPath: flags['browser-path'] as string | undefined,
               onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
@@ -7103,9 +7098,33 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 details.remedy =
                   `No Chrome/Edge/Brave found. Install one, pass --browser-path <path>, or import cookies manually: ` +
                   `open tiktok.com (logged in) → DevTools → Application → Cookies → .tiktok.com, then ` +
-                  `palmyr tiktok import ${username} --country ${country || 'us'} --sessionid <sessionid> --csrf <tt_csrf_token> --webid <tt_webid_v2>`
+                  `palmyr tiktok import ${username} --country us --sessionid <sessionid> --csrf <tt_csrf_token> --webid <tt_webid_v2>`
               }
               err(`connect failed: ${result.error || result.reason}`, EXIT.GENERAL, details)
+            }
+
+            // Country precedence: existing account keeps its stored value;
+            // otherwise explicit flag > detected-from-browser > env default > us.
+            // Agents never have to know or pass it.
+            const resolvedCountry =
+              acc?.country ||
+              explicitCountry ||
+              result.detectedCountry ||
+              process.env.PALMYR_DEFAULT_COUNTRY?.toLowerCase() ||
+              'us'
+            const countrySource = acc?.country
+              ? 'account'
+              : explicitCountry
+                ? 'flag'
+                : result.detectedCountry
+                  ? 'detected'
+                  : 'default'
+
+            // Auto-create the account now that the country is known (one command,
+            // not import-then-connect).
+            if (!acc) {
+              acc = sv.importAccount(platform, username, { login: username, password: 'unknown' }, { source: 'connect', country: resolvedCountry })
+              process.stderr.write(`[connect] created local account ${username} (${acc.id}) [country: ${resolvedCountry}, ${countrySource}]\n`)
             }
 
             // Persist into the same encrypted session cache that post/follow/like read.
@@ -7115,6 +7134,8 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             return print({
               success: true, platform, username, connected: true,
               browser: result.browser,
+              country: resolvedCountry,
+              country_source: countrySource,
               cookies_captured: result.cookiesCaptured,
               sessionid_present: true,
               next: `palmyr tiktok post ${username} --file video.mp4 --caption "..."`,
