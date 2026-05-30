@@ -1025,6 +1025,14 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--credentials-line "..."', desc: 'Marketplace login:pw:email:email_pw format' },
     { flag: '(price)', desc: 'Free — local vault only' },
   ],
+  connect: [
+    { flag: '<username>', desc: 'Log in once via your real browser; auto-captures the session' },
+    { flag: '--country <iso-2>', desc: 'Required when first creating the account (e.g. --country us)' },
+    { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
+    { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
+    { flag: '--force', desc: 'Re-capture even if a fresh session is already cached' },
+    { flag: '(price)', desc: 'Free — local, no server call' },
+  ],
   list: [
     { flag: '(no args)', desc: 'List all local TikTok accounts' },
     { flag: '(price)', desc: 'Free' },
@@ -6852,9 +6860,10 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             command: 'tiktok',
             title: 'tiktok',
             subtitle: 'Automated TikTok account management',
-            footerLeft: 'BYO: export sessionid from a logged-in TikTok browser, import, then post / follow / like.',
+            footerLeft: 'Start with `connect`: log in once in your own browser, then post / follow / like — all server-side.',
             commands: [
-              { name: 'import',  description: 'Save a BYO TikTok account. Pass --credentials-line "login:pw:email:email_pw" from a marketplace, or extract cookies from DevTools → Application → Cookies → .tiktok.com and pass --sessionid.', hint: '--credentials-line "..." OR <username> --sessionid ... --csrf ... --webid ...' },
+              { name: 'connect', description: 'Log in once via your own browser — opens TikTok, you sign in (incl. captcha/2FA), and Palmyr auto-captures the session into the local vault. Auto-creates the account. This is the easy path.', hint: '<username> --country us' },
+              { name: 'import',  description: 'Manual fallback to `connect`: save a BYO account from a marketplace --credentials-line "login:pw:email:email_pw", or paste cookies from DevTools → Application → Cookies → .tiktok.com via --sessionid.', hint: '--credentials-line "..." OR <username> --sessionid ... --csrf ... --webid ...' },
               { name: 'list',    description: 'List all local TikTok accounts' },
               { name: 'info',    description: 'Show one account', hint: '<username>' },
               { name: 'rename',  description: 'Update the local handle', hint: '<old> --to <new>' },
@@ -7038,6 +7047,77 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               username,
               code: code(creds.totp_seed!),
               expires_in_seconds: secondsUntilNextCode(),
+            })
+          }
+
+          case 'connect': {
+            // Real-browser login. Launches the operator's own Chrome/Edge,
+            // they sign in (solving any captcha/2FA themselves), and we harvest
+            // the session via CDP — no headless form-driving, no captcha solver.
+            // Agent-smooth: auto-provisions the account, auto-detects login
+            // (no keystroke), and always terminates with structured JSON.
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const country = (flags.country as string)?.toLowerCase()
+
+            // Resolve or auto-create the local account (one command, not two).
+            let acc = sv.getAccount(platform, username)
+            if (!acc) {
+              if (!country) {
+                err('--country <iso-2> required to create the account (e.g. --country us). Drives the proxy exit + browser locale for later server-side ops.', EXIT.BAD_INPUT)
+              }
+              acc = sv.importAccount(platform, username, { login: username, password: 'unknown' }, { source: 'connect', country })
+              process.stderr.write(`[connect] created local account ${username} (${acc.id})\n`)
+            }
+
+            // Idempotent: a fresh session already cached → return fast, no browser.
+            // Lets an agent call `connect` defensively before a run.
+            if (!flags.force) {
+              const existing = sv.loadSession(acc.id)
+              if (existing && existing.cookies?.length) {
+                const ageH = sv.sessionAgeHours(acc.id) ?? 999
+                if (ageH < 12) {
+                  return print({
+                    success: true, platform, username, connected: true, already: true,
+                    cookies: existing.cookies.length,
+                    age_hours: Number(ageH.toFixed(2)),
+                    captured_at: existing.captured_at,
+                    hint: 'Session is fresh. Pass --force to re-capture.',
+                  })
+                }
+              }
+            }
+
+            const { connectTikTok } = await import('./tiktok-connect.js')
+            const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : 300
+            const result = await connectTikTok({
+              country: country || sv.getCountry(platform, username),
+              timeoutMs: timeoutSec * 1000,
+              browserPath: flags['browser-path'] as string | undefined,
+              onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
+            })
+
+            if (!result.success) {
+              const details: Record<string, unknown> = { platform, username, reason: result.reason }
+              if (result.reason === 'no_local_browser') {
+                details.remedy =
+                  `No Chrome/Edge/Brave found. Install one, pass --browser-path <path>, or import cookies manually: ` +
+                  `open tiktok.com (logged in) → DevTools → Application → Cookies → .tiktok.com, then ` +
+                  `palmyr tiktok import ${username} --country ${country || 'us'} --sessionid <sessionid> --csrf <tt_csrf_token> --webid <tt_webid_v2>`
+              }
+              err(`connect failed: ${result.error || result.reason}`, EXIT.GENERAL, details)
+            }
+
+            // Persist into the same encrypted session cache that post/follow/like read.
+            sv.saveSession(acc.id, platform, result.cookies || [])
+            sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+
+            return print({
+              success: true, platform, username, connected: true,
+              browser: result.browser,
+              cookies_captured: result.cookiesCaptured,
+              sessionid_present: true,
+              next: `palmyr tiktok post ${username} --file video.mp4 --caption "..."`,
             })
           }
 
