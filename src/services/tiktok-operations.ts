@@ -15,6 +15,7 @@ import { openAuthenticatedSession } from "./social-runtime";
 import { fetchSsrfSafe } from "./email";
 import { randomUUID } from "crypto";
 import { checkRateLimit, recordAction } from "./social-rate-limit";
+import { resolveElement, axSnapshot } from "./social-selectors";
 
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;   // 100 MB — covers up to ~90s @ typical bitrate
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;    // 10 MB
@@ -130,6 +131,24 @@ async function debugShot(page: any, tag: string): Promise<string | undefined> {
     await page.screenshot({ path: shotPath, fullPage: true });
     return shotPath;
   } catch { return undefined; }
+}
+
+/**
+ * Richer failure capture: screenshot + the page's interactive accessibility
+ * tree. The element list shows exactly what TikTok rendered when a selector
+ * missed, turning an opaque UI_TIMEOUT into a visible, fixable rotation (and the
+ * same data a vision fallback would act on). Returned under `data` so it travels
+ * back to the agent in the op result.
+ */
+async function captureUiState(
+  page: any,
+  tag: string,
+): Promise<{ diag_screenshot?: string; interactive_elements?: Array<{ role: string; name: string }> }> {
+  const [diag_screenshot, interactive_elements] = await Promise.all([
+    debugShot(page, tag),
+    axSnapshot(page),
+  ]);
+  return { diag_screenshot, interactive_elements };
 }
 
 /* ─── API response interceptor ─────────────────────────────────────────── */
@@ -263,17 +282,31 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
       timeout: 60000,
     });
 
-    // Upload the file — TikTok's upload page uses a visible + hidden input.
+    // Upload the file. The <input type=file> is plain HTML (not a rotating
+    // test-id); TikTok renders both a visible and a hidden one — take the first.
     const fileInput = page.locator('input[type="file"]').first();
     await fileInput.setInputFiles(video.filePath);
 
-    // Wait for the upload progress to complete and the caption box to appear.
-    const captionBox = page.locator('[data-e2e="upload-editor-caption"], [contenteditable="true"]').first();
-    try {
-      await captionBox.waitFor({ state: "visible", timeout: 90000 });
-    } catch {
-      return { success: false, error: "Upload editor never appeared — video rejected at upload step", error_code: "UPLOAD_FAILED" };
+    // Wait for the upload to finish and the caption editor to render. Resolve it
+    // resiliently: the data-e2e id is tried first (up to 90s, to absorb the
+    // upload), then durable aria / role / contenteditable fallbacks if it rotated.
+    const caption = await resolveElement(page, [
+      { name: "data-e2e", build: (p) => p.locator('[data-e2e="upload-editor-caption"]') },
+      { name: "aria-label", build: (p) => p.locator('[aria-label*="aption" i], [aria-label*="escription" i]') },
+      { name: "role-textbox", build: (p) => p.getByRole("textbox") },
+      { name: "contenteditable", build: (p) => p.locator('div[contenteditable="true"]') },
+    ], { firstTimeoutMs: 90000, perStrategyMs: 6000 });
+    if (!caption) {
+      const diag = await captureUiState(page, "upload-editor-missing");
+      return {
+        success: false,
+        error: "Upload editor never appeared — video rejected at upload, or the caption-editor selector rotated.",
+        error_code: "UPLOAD_FAILED",
+        data: diag as any,
+      };
     }
+    const captionBox = caption.locator;
+    console.log(`[tiktok] caption editor resolved via ${caption.strategy}`);
 
     // Clear any auto-filled caption, type the user's caption.
     await captionBox.click();
@@ -295,24 +328,39 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
         .click({ timeout: 2000 }).catch(() => {});
     }
 
+    // Resolve the Post button up front, so a rotated selector returns a clean
+    // UI_TIMEOUT with diagnostics instead of an opaque throw mid-submit.
+    const post = await resolveElement(page, [
+      { name: "data-e2e", build: (p) => p.locator('[data-e2e="post_video_button"]') },
+      { name: "role-name", build: (p) => p.getByRole("button", { name: /^post$/i }) },
+      { name: "text", build: (p) => p.locator('button:has-text("Post")') },
+    ], { perStrategyMs: 8000 });
+    if (!post) {
+      const diag = await captureUiState(page, "post-button-missing");
+      return {
+        success: false,
+        error: "Post button not found — the editor may not be ready, or the selector rotated.",
+        error_code: "UI_TIMEOUT",
+        data: diag as any,
+      };
+    }
+    console.log(`[tiktok] post button resolved via ${post.strategy}`);
+
     // Submit — intercept TikTok's /aweme/v1/web/aweme/post/ API call.
     const result = await submitAndAwaitTikTokApi(
       page,
-      async () => {
-        const postBtn = page.locator('[data-e2e="post_video_button"], button:has-text("Post")').first();
-        await postBtn.click({ timeout: 10000 });
-      },
+      async () => { await post.locator.click({ timeout: 10000 }); },
       /\/aweme\/v\d+\/(web\/)?aweme\/post/,
       60000,
     );
 
     if (!result) {
-      const shot = await debugShot(page, "no-post-api");
+      const diag = await captureUiState(page, "no-post-api");
       return {
         success: false,
         error: "No post API call observed after clicking Post — UI flow may have changed",
         error_code: "UI_TIMEOUT",
-        data: { diag_screenshot: shot } as any,
+        data: diag as any,
       };
     }
 
@@ -374,25 +422,27 @@ export async function followUser(req: TikTokFollowRequest): Promise<TikTokOpResu
   try {
     await page.goto(`https://www.tiktok.com/@${handle}`, { waitUntil: "domcontentloaded", timeout: 45000 });
 
-    const followBtn = page
-      .locator('[data-e2e="follow-button"]:has-text("Follow"), button:has-text("Follow"):not(:has-text("Following"))')
-      .first();
-
-    try {
-      await followBtn.waitFor({ state: "visible", timeout: 15000 });
-    } catch {
-      const shot = await debugShot(page, "follow-btn-missing");
+    // Resolve the Follow button resiliently. Every strategy excludes the
+    // "Following" state so we never accidentally click-to-unfollow.
+    const follow = await resolveElement(page, [
+      { name: "data-e2e", build: (p) => p.locator('[data-e2e="follow-button"]:has-text("Follow"):not(:has-text("Following"))') },
+      { name: "role-name", build: (p) => p.getByRole("button", { name: /^follow$/i }) },
+      { name: "text", build: (p) => p.locator('button:has-text("Follow"):not(:has-text("Following"))') },
+    ], { perStrategyMs: 6000 });
+    if (!follow) {
+      const diag = await captureUiState(page, "follow-btn-missing");
       return {
         success: false,
-        error: `Follow button not found on @${handle}'s profile. Already following, or profile is private / nonexistent.`,
+        error: `Follow button not found on @${handle}'s profile. Already following, profile is private / nonexistent, or the selector rotated.`,
         error_code: "NOT_FOUND",
-        data: { diag_screenshot: shot } as any,
+        data: diag as any,
       };
     }
+    console.log(`[tiktok] follow button resolved via ${follow.strategy}`);
 
     const result = await submitAndAwaitTikTokApi(
       page,
-      async () => { await followBtn.click({ timeout: 10000 }); },
+      async () => { await follow.locator.click({ timeout: 10000 }); },
       /\/aweme\/v\d+\/(web\/)?commit\/follow\/user|\/passport\/web\/user\/follow/,
       20000,
     );
@@ -446,16 +496,20 @@ export async function likeVideo(req: TikTokLikeRequest): Promise<TikTokOpResult<
   try {
     await page.goto(req.video_url, { waitUntil: "domcontentloaded", timeout: 45000 });
 
-    const likeBtn = page.locator('[data-e2e="like-icon"], button[aria-label*="Like"]').first();
-    try {
-      await likeBtn.waitFor({ state: "visible", timeout: 15000 });
-    } catch {
-      return { success: false, error: "Like button not found", error_code: "UI_TIMEOUT" };
+    const like = await resolveElement(page, [
+      { name: "data-e2e", build: (p) => p.locator('[data-e2e="like-icon"]') },
+      { name: "aria-label", build: (p) => p.locator('button[aria-label*="ike" i]') },
+      { name: "role-name", build: (p) => p.getByRole("button", { name: /like/i }) },
+    ], { perStrategyMs: 6000 });
+    if (!like) {
+      const diag = await captureUiState(page, "like-btn-missing");
+      return { success: false, error: "Like button not found (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
     }
+    console.log(`[tiktok] like button resolved via ${like.strategy}`);
 
     const result = await submitAndAwaitTikTokApi(
       page,
-      async () => { await likeBtn.click({ timeout: 10000 }); },
+      async () => { await like.locator.click({ timeout: 10000 }); },
       /\/aweme\/v\d+\/(web\/)?commit\/item\/digg/,
       15000,
     );
@@ -505,19 +559,31 @@ export async function deleteVideo(req: TikTokDeleteRequest): Promise<TikTokOpRes
   try {
     await page.goto(req.video_url, { waitUntil: "domcontentloaded", timeout: 45000 });
 
-    // Open the more-actions menu (three dots / share), then click Delete.
-    const moreBtn = page.locator('[data-e2e="browse-video-desc-share-button"], [aria-label*="More"]').first();
-    await moreBtn.click({ timeout: 10000 }).catch(() => {});
+    // Open the more-actions menu (three dots / share), resiliently.
+    const more = await resolveElement(page, [
+      { name: "data-e2e", build: (p) => p.locator('[data-e2e="browse-video-desc-share-button"]') },
+      { name: "aria-label", build: (p) => p.locator('[aria-label*="More" i], [aria-label*="ption" i]') },
+      { name: "role-name", build: (p) => p.getByRole("button", { name: /more|options/i }) },
+    ], { perStrategyMs: 6000 });
+    if (more) await more.locator.click({ timeout: 10000 }).catch(() => {});
 
-    const deleteOption = page.locator('text=/^Delete$/').first();
-    await deleteOption.waitFor({ state: "visible", timeout: 8000 });
+    const del = await resolveElement(page, [
+      { name: "menuitem", build: (p) => p.getByRole("menuitem", { name: /^delete$/i }) },
+      { name: "role-button", build: (p) => p.getByRole("button", { name: /^delete$/i }) },
+      { name: "text", build: (p) => p.locator('text=/^Delete$/') },
+    ], { perStrategyMs: 6000 });
+    if (!del) {
+      const diag = await captureUiState(page, "delete-option-missing");
+      return { success: false, error: "Delete option not found in the video menu (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+    }
 
     const result = await submitAndAwaitTikTokApi(
       page,
       async () => {
-        await deleteOption.click();
-        // TikTok shows a confirmation modal — click the confirm Delete.
-        const confirmBtn = page.locator('button:has-text("Delete"):visible').last();
+        await del.locator.click();
+        // TikTok shows a confirmation modal — click the confirm Delete. Use
+        // .last() so we hit the modal's button, not the menu item we just clicked.
+        const confirmBtn = page.locator('button:has-text("Delete"):visible, [role="button"]:has-text("Delete"):visible').last();
         await confirmBtn.click({ timeout: 5000 }).catch(() => {});
       },
       /\/aweme\/v\d+\/(web\/)?aweme\/delete|\/passport\/web\/item\/delete/,
@@ -579,9 +645,16 @@ export async function updateProfile(req: TikTokProfileRequest): Promise<TikTokOp
     await page.goto("https://www.tiktok.com/setting", { waitUntil: "domcontentloaded", timeout: 45000 });
 
     if (req.display_name !== undefined) {
-      const nameInput = page.locator('input[name="nickName"], input[data-e2e="edit-profile-nickname"]').first();
+      const name = await resolveElement(page, [
+        { name: "attr", build: (p) => p.locator('input[name="nickName"], input[data-e2e="edit-profile-nickname"]') },
+        { name: "role-name", build: (p) => p.getByRole("textbox", { name: /name|nickname/i }) },
+      ], { perStrategyMs: 8000 });
+      if (!name) {
+        const diag = await captureUiState(page, "name-input-missing");
+        return { success: false, error: "Display-name input not found (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+      }
+      const nameInput = name.locator;
       try {
-        await nameInput.waitFor({ state: "visible", timeout: 15000 });
         await nameInput.click();
         await page.keyboard.press("Control+A");
         await page.keyboard.press("Delete");
@@ -590,8 +663,12 @@ export async function updateProfile(req: TikTokProfileRequest): Promise<TikTokOp
         const result = await submitAndAwaitTikTokApi(
           page,
           async () => {
-            const saveBtn = page.locator('button:has-text("Save"):visible').first();
-            await saveBtn.click({ timeout: 5000 });
+            const save = await resolveElement(page, [
+              { name: "role-name", build: (p) => p.getByRole("button", { name: /^save$/i }) },
+              { name: "text", build: (p) => p.locator('button:has-text("Save"):visible') },
+            ], { perStrategyMs: 5000 });
+            if (!save) throw new Error("Save button not found");
+            await save.locator.click({ timeout: 5000 });
           },
           /\/passport\/web\/user\/update|\/aweme\/v\d+\/(web\/)?user\/update/,
           15000,
@@ -607,9 +684,16 @@ export async function updateProfile(req: TikTokProfileRequest): Promise<TikTokOp
     }
 
     if (req.bio !== undefined) {
-      const bioInput = page.locator('textarea[name="signature"], [data-e2e="edit-profile-bio"]').first();
+      const bio = await resolveElement(page, [
+        { name: "attr", build: (p) => p.locator('textarea[name="signature"], [data-e2e="edit-profile-bio"]') },
+        { name: "role-name", build: (p) => p.getByRole("textbox", { name: /bio|signature/i }) },
+      ], { perStrategyMs: 8000 });
+      if (!bio) {
+        const diag = await captureUiState(page, "bio-input-missing");
+        return { success: false, error: "Bio input not found (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+      }
+      const bioInput = bio.locator;
       try {
-        await bioInput.waitFor({ state: "visible", timeout: 15000 });
         await bioInput.click();
         await page.keyboard.press("Control+A");
         await page.keyboard.press("Delete");
@@ -618,8 +702,12 @@ export async function updateProfile(req: TikTokProfileRequest): Promise<TikTokOp
         const result = await submitAndAwaitTikTokApi(
           page,
           async () => {
-            const saveBtn = page.locator('button:has-text("Save"):visible').first();
-            await saveBtn.click({ timeout: 5000 });
+            const save = await resolveElement(page, [
+              { name: "role-name", build: (p) => p.getByRole("button", { name: /^save$/i }) },
+              { name: "text", build: (p) => p.locator('button:has-text("Save"):visible') },
+            ], { perStrategyMs: 5000 });
+            if (!save) throw new Error("Save button not found");
+            await save.locator.click({ timeout: 5000 });
           },
           /\/passport\/web\/user\/update|\/aweme\/v\d+\/(web\/)?user\/update/,
           15000,
@@ -677,17 +765,26 @@ export async function updateAvatar(req: TikTokAvatarRequest): Promise<TikTokOpRe
   try {
     await page.goto("https://www.tiktok.com/setting", { waitUntil: "domcontentloaded", timeout: 45000 });
 
-    const fileInput = page.locator('input[type="file"][accept*="image"]').first();
-    await fileInput.waitFor({ state: "attached", timeout: 15000 });
-    await fileInput.setInputFiles(image.filePath);
+    // The avatar file input — prefer the image-scoped one, fall back to any.
+    const avatarInput = await resolveElement(page, [
+      { name: "image-input", build: (p) => p.locator('input[type="file"][accept*="image"]') },
+      { name: "any-input", build: (p) => p.locator('input[type="file"]') },
+    ], { state: "attached", perStrategyMs: 15000 });
+    if (!avatarInput) {
+      const diag = await captureUiState(page, "avatar-input-missing");
+      return { success: false, error: "Avatar file input not found (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+    }
+    await avatarInput.locator.setInputFiles(image.filePath);
 
-    // Wait for the crop modal, accept it.
-    const confirm = page.locator('button:has-text("Apply"), button:has-text("Save"), button:has-text("Confirm")').first();
-    await confirm.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+    // Wait for the crop modal's accept button (best-effort; some variants auto-apply).
+    const confirm = await resolveElement(page, [
+      { name: "role-name", build: (p) => p.getByRole("button", { name: /apply|save|confirm/i }) },
+      { name: "text", build: (p) => p.locator('button:has-text("Apply"), button:has-text("Save"), button:has-text("Confirm")') },
+    ], { perStrategyMs: 15000 });
 
     const result = await submitAndAwaitTikTokApi(
       page,
-      async () => { await confirm.click({ timeout: 10000 }).catch(() => {}); },
+      async () => { if (confirm) await confirm.locator.click({ timeout: 10000 }).catch(() => {}); },
       /\/passport\/web\/user\/update|\/aweme\/v\d+\/(web\/)?user\/(update|avatar)/,
       20000,
     );
