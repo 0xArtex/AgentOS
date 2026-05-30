@@ -58,6 +58,10 @@ export interface ConnectResult {
   sessionidPresent?: boolean;
   /** Which browser we drove (chrome/edge/brave/chromium/custom). */
   browser?: string;
+  /** Country inferred from the real browser env — locale region, then timezone. Undefined if undetectable. */
+  detectedCountry?: string;
+  detectedLocale?: string;
+  detectedTimezone?: string;
   reason?:
     | "no_local_browser"
     | "launch_failed"
@@ -189,6 +193,46 @@ function normalizeCookie(c: any): HarvestedCookie {
 
 function isTikTokCookie(domain: string): boolean {
   return domain.replace(/^\./, "").toLowerCase().endsWith("tiktok.com");
+}
+
+/**
+ * Timezone → ISO country, mirroring the server's COUNTRY_PROFILES set (plus the
+ * extra US/CA/AU zones a single capital-city entry misses). Only consulted when
+ * the browser locale has no region subtag, so it doesn't need to be exhaustive.
+ */
+const TZ_COUNTRY: Record<string, string> = {
+  "America/New_York": "us", "America/Chicago": "us", "America/Denver": "us",
+  "America/Los_Angeles": "us", "America/Phoenix": "us", "America/Anchorage": "us",
+  "America/Toronto": "ca", "America/Vancouver": "ca", "America/Edmonton": "ca",
+  "Europe/London": "gb", "Europe/Dublin": "ie",
+  "Australia/Sydney": "au", "Australia/Melbourne": "au", "Australia/Perth": "au", "Australia/Brisbane": "au",
+  "Pacific/Auckland": "nz",
+  "Europe/Berlin": "de", "Europe/Vienna": "at", "Europe/Zurich": "ch",
+  "Europe/Paris": "fr", "Europe/Brussels": "be", "Europe/Amsterdam": "nl",
+  "Europe/Madrid": "es", "Europe/Rome": "it", "Europe/Lisbon": "pt",
+  "Europe/Warsaw": "pl", "Europe/Prague": "cz", "Europe/Stockholm": "se",
+  "Europe/Oslo": "no", "Europe/Copenhagen": "dk", "Europe/Helsinki": "fi",
+  "Europe/Athens": "gr", "Europe/Bucharest": "ro", "Europe/Budapest": "hu",
+  "Europe/Istanbul": "tr", "Europe/Moscow": "ru", "Europe/Kyiv": "ua",
+  "America/Sao_Paulo": "br", "America/Mexico_City": "mx", "America/Argentina/Buenos_Aires": "ar",
+  "Asia/Tokyo": "jp", "Asia/Seoul": "kr", "Asia/Kolkata": "in", "Asia/Jakarta": "id",
+  "Asia/Manila": "ph", "Asia/Bangkok": "th", "Asia/Ho_Chi_Minh": "vn", "Asia/Singapore": "sg",
+  "Asia/Kuala_Lumpur": "my", "Asia/Dubai": "ae", "Asia/Riyadh": "sa", "Asia/Jerusalem": "il",
+  "Africa/Johannesburg": "za",
+};
+
+/**
+ * Infer the account's country from the live browser. Locale region subtag is
+ * the primary signal (e.g. `en-US` → us, `pt-BR` → br) since modern browsers
+ * almost always include it; timezone is the fallback when they don't.
+ */
+function countryFromBrowser(locale?: string, timezone?: string): string | undefined {
+  if (locale) {
+    const m = locale.match(/[-_]([A-Za-z]{2})(?:$|[-_])/);
+    if (m) return m[1].toLowerCase();
+  }
+  if (timezone && TZ_COUNTRY[timezone]) return TZ_COUNTRY[timezone];
+  return undefined;
 }
 
 /* ─── Minimal CDP client over a single page target ───────────────────────── */
@@ -370,14 +414,42 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
           );
           if (sessionid) {
             const harvested = ttCookies.map(normalizeCookie);
+
+            // Infer the account's country from the real browser env so the
+            // operator/agent never has to supply --country. Best-effort: if the
+            // eval fails, the caller falls back to its own default.
+            let detectedLocale: string | undefined;
+            let detectedTimezone: string | undefined;
+            try {
+              const ev = await cdp.send("Runtime.evaluate", {
+                expression:
+                  "JSON.stringify({l:navigator.language,t:Intl.DateTimeFormat().resolvedOptions().timeZone})",
+                returnByValue: true,
+              });
+              const v = ev?.result?.value;
+              if (typeof v === "string") {
+                const parsed = JSON.parse(v);
+                detectedLocale = typeof parsed.l === "string" ? parsed.l : undefined;
+                detectedTimezone = typeof parsed.t === "string" ? parsed.t : undefined;
+              }
+            } catch {
+              /* detection is best-effort */
+            }
+
             result = {
               success: true,
               cookies: harvested,
               cookiesCaptured: harvested.length,
               sessionidPresent: true,
               browser: browser.name,
+              detectedLocale,
+              detectedTimezone,
+              detectedCountry: countryFromBrowser(detectedLocale, detectedTimezone),
             };
-            progress(`captured ${harvested.length} cookies (sessionid present).`);
+            progress(
+              `captured ${harvested.length} cookies (sessionid present)` +
+                (result.detectedCountry ? `; detected country: ${result.detectedCountry}.` : "."),
+            );
             break;
           }
         } catch {
