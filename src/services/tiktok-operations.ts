@@ -11,11 +11,12 @@
  * TikTok mirrors Twitter's shape but with a tighter rate-limit stance:
  * every op goes through `checkRateLimit()` before the browser even boots.
  */
-import { openAuthenticatedSession } from "./social-runtime";
+import { openAuthenticatedSession, profileForCountry } from "./social-runtime";
 import { fetchSsrfSafe } from "./email";
 import { randomUUID } from "crypto";
 import { checkRateLimit, recordAction } from "./social-rate-limit";
 import { resolveElement, axSnapshot } from "./social-selectors";
+import { wallClockInTz, pad2, type WallClock } from "./schedule-time";
 
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;   // 100 MB — covers up to ~90s @ typical bitrate
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;    // 10 MB
@@ -34,6 +35,7 @@ export interface TikTokOpResult<T = any> {
     | "UI_TIMEOUT"
     | "LAUNCH_FAILED"
     | "CAPTCHA_CHALLENGE"
+    | "SCHEDULE_FAILED"
     | "UNKNOWN";
   retry_after_ms?: number;
 }
@@ -233,6 +235,83 @@ function gate(accountId: string, operation: string): TikTokOpResult | null {
   return null;
 }
 
+/* ─── Native schedule (TikTok Studio) ──────────────────────────────────── */
+
+/**
+ * Drive TikTok Studio's native "Schedule" control on the upload page. On success
+ * the post is handed to TikTok to publish at `when` — no Palmyr worker, fires
+ * even if our server is down.
+ *
+ * Safety invariant: we set the time + date fields and VERIFY them by reading the
+ * input values back. If the toggle/fields can't be found or don't accept our
+ * values (e.g. a calendar-only widget), we return { ok:false } and the caller
+ * ABORTS before submitting — so a broken schedule never silently posts "now".
+ *
+ * Best-effort against a UI we can't pin from here: selectors are resilient and a
+ * failure carries AX diagnostics so the real widget can be seen and refined.
+ */
+async function applySchedule(page: any, when: WallClock): Promise<{ ok: boolean; error?: string }> {
+  // 1. Switch "When to post" to Schedule.
+  const toggle = await resolveElement(page, [
+    { name: "role-radio", build: (p) => p.getByRole("radio", { name: /schedule/i }) },
+    { name: "text", build: (p) => p.locator('label:has-text("Schedule"), [role="radio"]:has-text("Schedule")') },
+  ], { perStrategyMs: 6000 });
+  if (!toggle) return { ok: false, error: "schedule toggle not found" };
+  await toggle.locator.click({ timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(800);
+
+  // 2. Time field (HH:MM, 24h). Type, then verify it stuck.
+  const timeStr = `${pad2(when.h)}:${pad2(when.mi)}`;
+  const time = await resolveElement(page, [
+    { name: "aria", build: (p) => p.locator('input[aria-label*="time" i]') },
+    { name: "placeholder", build: (p) => p.locator('input[placeholder*="time" i], input[placeholder="HH:MM"]') },
+  ], { perStrategyMs: 5000 });
+  if (!time) return { ok: false, error: "time field not found" };
+  try {
+    await time.locator.click();
+    await page.keyboard.press("Control+A");
+    await page.keyboard.press("Delete");
+    await time.locator.pressSequentially(timeStr, { delay: 40 });
+    await page.keyboard.press("Enter");
+  } catch (e: any) {
+    return { ok: false, error: `time field not editable: ${e.message}` };
+  }
+  const tval = await time.locator.inputValue().catch(() => null);
+  if (!tval || !tval.includes(pad2(when.h)) || !tval.includes(pad2(when.mi))) {
+    return { ok: false, error: `time field did not accept ${timeStr} (read back "${tval}")` };
+  }
+
+  // 3. Date field. Calendar formats vary by locale, so try a few typed forms and
+  //    verify the year + day landed.
+  const date = await resolveElement(page, [
+    { name: "aria", build: (p) => p.locator('input[aria-label*="date" i]') },
+    { name: "placeholder", build: (p) => p.locator('input[placeholder*="date" i], input[placeholder*="-"], input[placeholder*="/"]') },
+  ], { perStrategyMs: 5000 });
+  if (!date) return { ok: false, error: "date field not found" };
+  const candidates = [
+    `${when.y}-${pad2(when.mo)}-${pad2(when.d)}`,
+    `${pad2(when.mo)}/${pad2(when.d)}/${when.y}`,
+    `${pad2(when.d)}/${pad2(when.mo)}/${when.y}`,
+  ];
+  let dateOk = false;
+  for (const cand of candidates) {
+    try {
+      await date.locator.click();
+      await page.keyboard.press("Control+A");
+      await page.keyboard.press("Delete");
+      await date.locator.pressSequentially(cand, { delay: 40 });
+      await page.keyboard.press("Enter");
+    } catch {
+      continue;
+    }
+    const dval = await date.locator.inputValue().catch(() => null);
+    if (dval && dval.includes(String(when.y)) && dval.includes(pad2(when.d))) { dateOk = true; break; }
+  }
+  if (!dateOk) return { ok: false, error: "date field did not accept a typed date (calendar-only widget?)" };
+
+  return { ok: true };
+}
+
 /* ─── Operations ───────────────────────────────────────────────────────── */
 
 export interface TikTokPostRequest extends TikTokOpRequest, VideoInput {
@@ -245,14 +324,42 @@ export interface TikTokPostRequest extends TikTokOpRequest, VideoInput {
   allow_duet?: boolean;
   /** Allow stitch. Default true. */
   allow_stitch?: boolean;
+  /**
+   * ISO-8601 datetime. When set, drive TikTok Studio's NATIVE schedule control
+   * so TikTok itself publishes at this instant (no Palmyr-side worker). Must be
+   * ~15 min to ~10 days out — TikTok's own window. The instant is rendered into
+   * the account's timezone before being typed into the picker.
+   */
+  schedule_at?: string;
 }
 
-export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<{ video_url?: string; video_id?: string }>> {
+export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<{ video_url?: string; video_id?: string; scheduled_at?: string }>> {
   const blocked = gate(req.account_id, "post");
   if (blocked) return blocked;
 
   if (!req.caption || req.caption.length > 4000) {
     return { success: false, error: "caption must be 1-4000 chars", error_code: "INVALID_INPUT" };
+  }
+
+  // Validate the native-schedule window up front, before the expensive browser
+  // launch. TikTok requires roughly 15 min to 10 days of lead time.
+  let scheduleWhen: WallClock | undefined;
+  if (req.schedule_at) {
+    const at = new Date(req.schedule_at);
+    if (isNaN(at.getTime())) {
+      return { success: false, error: "schedule_at must be a valid ISO-8601 datetime", error_code: "INVALID_INPUT" };
+    }
+    const now = Date.now();
+    if (at.getTime() < now + 15 * 60 * 1000) {
+      return { success: false, error: "schedule_at must be at least ~15 minutes in the future (TikTok's minimum)", error_code: "INVALID_INPUT" };
+    }
+    if (at.getTime() > now + 10 * 24 * 60 * 60 * 1000) {
+      return { success: false, error: "schedule_at must be within ~10 days (TikTok's maximum)", error_code: "INVALID_INPUT" };
+    }
+    // The picker interprets entered values in the browser session's timezone,
+    // which openAuthenticatedSession derives from the account country — so
+    // render the absolute instant into that same zone.
+    scheduleWhen = wallClockInTz(at, profileForCountry(req.country).timezoneId);
   }
 
   let video: { filePath: string; cleanup: () => void };
@@ -328,25 +435,43 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
         .click({ timeout: 2000 }).catch(() => {});
     }
 
-    // Resolve the Post button up front, so a rotated selector returns a clean
+    // If a native schedule was requested, set it now — and ABORT before
+    // submitting if it can't be applied, so a broken schedule never posts "now".
+    if (scheduleWhen) {
+      const sched = await applySchedule(page, scheduleWhen);
+      if (!sched.ok) {
+        const diag = await captureUiState(page, "schedule-setup-failed");
+        return {
+          success: false,
+          error: `Could not set TikTok's native schedule (${sched.error}). Aborted before posting to avoid publishing immediately — see diagnostics.interactive_elements for the actual scheduler UI.`,
+          error_code: "SCHEDULE_FAILED",
+          data: diag as any,
+        };
+      }
+      console.log(`[tiktok] native schedule applied for ${req.schedule_at}`);
+    }
+
+    // Resolve the submit button up front (its label is "Schedule" when a
+    // schedule is set, "Post" otherwise), so a rotated selector returns a clean
     // UI_TIMEOUT with diagnostics instead of an opaque throw mid-submit.
     const post = await resolveElement(page, [
       { name: "data-e2e", build: (p) => p.locator('[data-e2e="post_video_button"]') },
-      { name: "role-name", build: (p) => p.getByRole("button", { name: /^post$/i }) },
-      { name: "text", build: (p) => p.locator('button:has-text("Post")') },
+      { name: "role-name", build: (p) => p.getByRole("button", { name: /^(post|schedule)$/i }) },
+      { name: "text", build: (p) => p.locator('button:has-text("Schedule"), button:has-text("Post")') },
     ], { perStrategyMs: 8000 });
     if (!post) {
       const diag = await captureUiState(page, "post-button-missing");
       return {
         success: false,
-        error: "Post button not found — the editor may not be ready, or the selector rotated.",
+        error: "Submit button not found — the editor may not be ready, or the selector rotated.",
         error_code: "UI_TIMEOUT",
         data: diag as any,
       };
     }
-    console.log(`[tiktok] post button resolved via ${post.strategy}`);
+    console.log(`[tiktok] submit button resolved via ${post.strategy}`);
 
-    // Submit — intercept TikTok's /aweme/v1/web/aweme/post/ API call.
+    // Submit — intercept TikTok's /aweme/v1/web/aweme/post/ API call (the same
+    // endpoint carries scheduled creates, with a schedule_time in the payload).
     const result = await submitAndAwaitTikTokApi(
       page,
       async () => { await post.locator.click({ timeout: 10000 }); },
@@ -382,6 +507,9 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
       data: {
         video_id: aweme.aweme_id || aweme.id,
         video_url: aweme.share_url || aweme.video_url,
+        // For a scheduled create TikTok holds the post (no public URL yet) — the
+        // requested instant is the meaningful confirmation.
+        ...(req.schedule_at ? { scheduled_at: req.schedule_at } : {}),
       },
     };
   } catch (e: any) {
