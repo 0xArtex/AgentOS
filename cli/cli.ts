@@ -1060,6 +1060,13 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--caption "..."', desc: 'Caption' },
     { flag: '(price)', desc: '$0.001 USDC' },
   ],
+  schedule: [
+    { flag: '<username>', desc: 'Account to post from' },
+    { flag: '--at <iso8601>', desc: 'When TikTok publishes it — ~15 min to ~10 days out' },
+    { flag: '--file video.mp4 | --url <https>', desc: 'Video' },
+    { flag: '--caption "..."', desc: 'Caption' },
+    { flag: '(price)', desc: "Same as post — uses TikTok's own scheduler" },
+  ],
   follow: [
     { flag: '<username>', desc: 'Account doing the follow' },
     { flag: '--user @handle', desc: 'User to follow' },
@@ -6872,6 +6879,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               { name: 'login',   description: 'Validate cookies and cache the session', hint: '<username>' },
               { name: 'session', description: 'Check cached session status', hint: '<username>' },
               { name: 'post',    description: 'Post a video', hint: '<username> --file video.mp4 --caption "..."' },
+              { name: 'schedule', description: "Schedule a video via TikTok's own scheduler (~15 min to ~10 days out) — fires even if your machine and our server are off.", hint: '<username> --at 2026-06-03T18:00Z --file v.mp4 --caption "..."' },
               { name: 'follow',  description: 'Follow a TikTok user', hint: '<username> --user @handle' },
               { name: 'like',    description: 'Like a video', hint: '<username> --video https://...' },
               { name: 'delete',  description: 'Delete a video', hint: '<username> --video https://...' },
@@ -7224,6 +7232,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           case 'post':
+          case 'schedule':
           case 'follow':
           case 'like':
           case 'delete':
@@ -7243,7 +7252,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
             let data: any
             try {
-              if (subcommand === 'post') {
+              if (subcommand === 'post' || subcommand === 'schedule') {
                 const caption = (flags.caption as string) || (flags.body as string) || (flags.text as string)
                 if (!caption) err('--caption "..." required')
                 const filePath = (flags.file as string) || (flags.path as string)
@@ -7261,7 +7270,21 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                   media.video_url = videoUrl
                 }
                 const privacy = flags.privacy !== undefined ? Number(flags.privacy) as 0 | 1 | 2 : undefined
-                data = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy }, psid, country)
+                // `schedule` is `post` with a future time — drives TikTok's own
+                // scheduler. Validate the window client-side for fast feedback;
+                // the server re-checks and renders it into the account timezone.
+                let schedule_at: string | undefined
+                if (subcommand === 'schedule') {
+                  const at = (flags.at as string) || (flags.when as string)
+                  if (!at) err('--at <iso8601> required (e.g. --at 2026-06-03T18:00:00Z)')
+                  const when = new Date(at)
+                  if (isNaN(when.getTime())) err('--at must be a valid ISO-8601 datetime (e.g. 2026-06-03T18:00:00Z)', EXIT.BAD_INPUT)
+                  const ms = when.getTime() - Date.now()
+                  if (ms < 15 * 60 * 1000) err('--at must be at least ~15 minutes in the future (TikTok minimum)', EXIT.BAD_INPUT)
+                  if (ms > 10 * 24 * 60 * 60 * 1000) err('--at must be within ~10 days (TikTok maximum)', EXIT.BAD_INPUT)
+                  schedule_at = when.toISOString()
+                }
+                data = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy, schedule_at }, psid, country)
               } else if (subcommand === 'follow') {
                 const target = (flags.user as string) || (flags.target as string)
                 if (!target) err('--user <@handle> required')

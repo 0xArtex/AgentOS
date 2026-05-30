@@ -1033,7 +1033,7 @@ export class Palmyr {
     cookies: any[],
     caption: string,
     media: { video_base64?: string; video_url?: string },
-    opts?: { privacy?: 0 | 1 | 2; allow_comments?: boolean; allow_duet?: boolean; allow_stitch?: boolean },
+    opts?: { privacy?: 0 | 1 | 2; allow_comments?: boolean; allow_duet?: boolean; allow_stitch?: boolean; schedule_at?: string },
     proxySessionId?: string,
     country?: string,
   ): Promise<any> {

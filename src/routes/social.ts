@@ -1625,12 +1625,12 @@ router.post(
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
-    const { caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch } = req.body as any;
+    const { caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch, schedule_at } = req.body as any;
     if (!caption) { res.status(400).json({ error: "caption is required" }); return; }
     if (!video_base64 && !video_url) { res.status(400).json({ error: "video_base64 or video_url is required" }); return; }
     try {
       const result = await tiktokPostVideo({
-        ...common, caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch,
+        ...common, caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch, schedule_at,
       });
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
