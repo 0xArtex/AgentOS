@@ -47,6 +47,12 @@ export interface ConnectOptions {
   timeoutMs?: number;
   /** Explicit browser binary; overrides auto-detection and PALMYR_BROWSER_PATH. */
   browserPath?: string;
+  /**
+   * Launch the browser with --no-sandbox. Auto-enabled when running as root on
+   * Linux (Chromium refuses to start the sandbox as root and exits instantly);
+   * set explicitly for other headless / CI environments.
+   */
+  noSandbox?: boolean;
   /** Human-facing progress lines. Caller routes these to stderr so stdout stays clean JSON. */
   onProgress?: (msg: string) => void;
 }
@@ -355,12 +361,21 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
     return { success: false, reason: "launch_failed", error: `could not create temp profile: ${e.message}` };
   }
 
+  // Chromium won't start its sandbox as root and exits immediately — and many
+  // container / CI / agent shells run as root. Detect that (or an explicit
+  // opt-in) and drop the sandbox so the browser actually launches. On a normal
+  // non-root desktop the sandbox stays on.
+  const isRootPosix =
+    process.platform !== "win32" && typeof process.getuid === "function" && process.getuid() === 0;
+  const noSandbox = opts.noSandbox === true || isRootPosix;
+
   const args = [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userDataDir}`,
     "--no-first-run",
     "--no-default-browser-check",
     "--new-window",
+    ...(noSandbox ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
     "https://www.tiktok.com/login/phone-or-email/email",
   ];
 
@@ -375,6 +390,7 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
   let childExited = false;
   child.on("exit", () => (childExited = true));
 
+  if (noSandbox) progress("launched with --no-sandbox (root / headless environment detected).");
   progress(`opened ${browser.name} — log in to TikTok (solve any captcha / 2FA yourself).`);
   progress("capturing automatically the moment you're signed in… (window will close on success)");
 
@@ -386,7 +402,13 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
     while (Date.now() < deadline) {
       // The human closed the window before finishing → don't hang out the clock.
       if (childExited) {
-        result = { success: false, reason: "aborted", error: "browser closed before a session was captured", browser: browser.name };
+        result = {
+          success: false,
+          reason: "aborted",
+          error:
+            "browser closed before a session was captured. On a headless / root box the browser can exit instantly — ensure a display is available (e.g. xvfb) and the sandbox is off (auto on root Linux, or pass --no-sandbox).",
+          browser: browser.name,
+        };
         break;
       }
 

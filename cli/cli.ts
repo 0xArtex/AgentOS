@@ -1030,6 +1030,7 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
     { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
     { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
+    { flag: '--no-sandbox', desc: 'Launch without the browser sandbox (auto on root Linux; for headless/CI)' },
     { flag: '--force', desc: 'Re-capture even if a fresh session is already cached' },
     { flag: '(price)', desc: 'Free — local, no server call' },
   ],
@@ -7097,6 +7098,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               country: explicitCountry || acc?.country,
               timeoutMs: timeoutSec * 1000,
               browserPath: flags['browser-path'] as string | undefined,
+              noSandbox: !!flags['no-sandbox'],
               onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
             })
 
