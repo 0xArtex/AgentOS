@@ -94,27 +94,14 @@ export async function dial(
   // Store call record
   storage.setCall(record.id, record);
 
-  // If TTS requested, queue it to play after answer (handled via webhook)
-  if (opts?.tts) {
+  // Queue post-answer actions as ONE composite record — there is a single
+  // storage slot per callControlId, so writing tts/audio/record separately let
+  // the last one clobber the others (e.g. tts+record dropped the TTS).
+  if (opts?.tts || opts?.audioUrl || opts?.record) {
     storage.setCallPendingAction(record.callControlId, {
-      type: "tts",
-      text: opts.tts,
-      voice: opts.ttsVoice || "female",
-    });
-  }
-
-  // If audio URL, queue it
-  if (opts?.audioUrl) {
-    storage.setCallPendingAction(record.callControlId, {
-      type: "audio",
-      url: opts.audioUrl,
-    });
-  }
-
-  // If recording requested, queue it
-  if (opts?.record) {
-    storage.setCallPendingAction(record.callControlId, {
-      type: "record",
+      tts: opts.tts ? { text: opts.tts, voice: opts.ttsVoice || "female" } : undefined,
+      audioUrl: opts.audioUrl,
+      record: !!opts.record,
     });
   }
 
@@ -260,16 +247,17 @@ export async function handleCallEvent(event: any): Promise<void> {
         call.answeredAt = new Date().toISOString();
         storage.setCall(call.id, call);
 
-        // Execute pending actions (TTS, audio, record)
+        // Execute every queued sub-action (TTS, then audio, then record).
         const pending = storage.getCallPendingAction(callControlId);
         if (pending) {
           try {
-            if (pending.type === "tts") {
-              await speakText(callControlId, pending.text, pending.voice);
-            } else if (pending.type === "audio") {
-              await playAudio(callControlId, pending.url);
+            if (pending.tts) {
+              await speakText(callControlId, pending.tts.text, pending.tts.voice);
             }
-            if (pending.type === "record" || pending.record) {
+            if (pending.audioUrl) {
+              await playAudio(callControlId, pending.audioUrl);
+            }
+            if (pending.record) {
               await startRecording(callControlId);
             }
           } catch (e: any) {
