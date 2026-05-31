@@ -156,13 +156,16 @@ export interface IngestResult {
   registered: number;
   skipped_unknown_capability: number;
   errors: string[];
+  /** Every provider id seen in the fetched catalog (used to prune disappeared rows without a second fetch). */
+  fetchedIds: string[];
 }
 
 /**
- * Ingest a catalog: fetch, filter, upsert into i402_providers.
- * Existing providers with the same ID get their metadata refreshed but keep
- * observed metrics (success_rate, etc.) because registerProvider uses
- * INSERT OR IGNORE.
+ * Ingest a catalog: fetch, filter, register into i402_providers.
+ * Existing providers with the same ID are left untouched — registerProvider
+ * uses INSERT OR IGNORE, so neither metadata (endpoint, cost, latency) nor
+ * observed metrics (success_rate, etc.) are refreshed on collision. To pick up
+ * upstream changes a federated row must be pruned/deleted and re-ingested.
  */
 export async function ingestCatalog(adapter: FederatedCatalogAdapter): Promise<IngestResult> {
   const result: IngestResult = {
@@ -171,6 +174,7 @@ export async function ingestCatalog(adapter: FederatedCatalogAdapter): Promise<I
     registered: 0,
     skipped_unknown_capability: 0,
     errors: [],
+    fetchedIds: [],
   };
 
   let specs: FederatedProviderSpec[] = [];
@@ -183,6 +187,7 @@ export async function ingestCatalog(adapter: FederatedCatalogAdapter): Promise<I
   result.fetched = specs.length;
 
   for (const spec of specs) {
+    result.fetchedIds.push(spec.id);
     if (!CAPABILITY_CLASSES[spec.capability]) {
       result.skipped_unknown_capability++;
       continue;
@@ -254,14 +259,11 @@ export async function refreshFederatedCatalogs(): Promise<IngestResult[]> {
     // Prune: only disable providers we've seen before but didn't see this round.
     // We can't easily prune on a failed fetch without thinking the whole catalog disappeared.
     if (r.errors.length === 0) {
-      const currentIds = new Set<string>();
-      try {
-        const specs = await am.fetch();
-        for (const s of specs) currentIds.add(s.id);
-        pruneDisappeared("agentic_market", currentIds);
-      } catch {
-        // swallow — pruning is best-effort
-      }
+      // Reuse the ids just ingested instead of re-fetching the catalog — a
+      // second fetch doubles the round-trip and can flap the registry if the
+      // catalog changes between the two reads (a provider registered in pass 1
+      // but absent in pass 2 would be wrongly disabled).
+      pruneDisappeared("agentic_market", new Set(r.fetchedIds));
     }
   }
   return results;

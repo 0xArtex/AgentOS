@@ -747,41 +747,6 @@ export function seedPalmyrPrimitives(): void {
   db.prepare(`DELETE FROM i402_providers WHERE source = 'agentos'`).run();
   db.prepare(`DELETE FROM i402_providers WHERE auth_scheme NOT IN ('x402-solana', 'x402-base')`).run();
 
-  // (Intentionally unreachable — preserved in case a future iteration wants to
-  //  selectively keep rows rather than wholesale wipe.)
-  const _keepOnlyListed = `
-    DELETE FROM i402_providers
-     WHERE source = 'agentos'
-       AND id NOT IN (
-         'palmyr.provision_phone', 'palmyr.release_phone', 'palmyr.send_sms', 'palmyr.read_sms',
-         'palmyr.start_voice_call', 'palmyr.list_calls', 'palmyr.get_call_details',
-         'palmyr.voice_speak', 'palmyr.voice_play', 'palmyr.voice_dtmf', 'palmyr.voice_gather',
-         'palmyr.voice_record_start', 'palmyr.voice_record_stop', 'palmyr.voice_hangup',
-         'palmyr.voice_answer', 'palmyr.voice_transfer',
-         'palmyr.provision_email_inbox', 'palmyr.send_email', 'palmyr.read_email',
-         'palmyr.list_email_threads', 'palmyr.read_email_thread',
-         'palmyr.register_domain', 'palmyr.list_domains', 'palmyr.get_domain',
-         'palmyr.dns_read', 'palmyr.dns_write',
-         'palmyr.transfer_domain_ownership', 'palmyr.transfer_domain_out',
-         'palmyr.create_ssh_key', 'palmyr.list_ssh_keys', 'palmyr.delete_ssh_key',
-         'palmyr.deploy_vps', 'palmyr.list_vps', 'palmyr.get_vps',
-         'palmyr.vps_action', 'palmyr.vps_resize', 'palmyr.vps_delete',
-         'palmyr.install_skill', 'palmyr.install_skills_bulk', 'palmyr.remove_skill',
-         'palmyr.configure_openclaw', 'palmyr.configure_vps_wallet',
-         'palmyr.twitter_post', 'palmyr.twitter_post_thread', 'palmyr.twitter_post_media', 'palmyr.twitter_reply',
-         'palmyr.twitter_like', 'palmyr.twitter_retweet', 'palmyr.twitter_follow',
-         'palmyr.twitter_unfollow', 'palmyr.twitter_delete_post',
-         'palmyr.twitter_update_profile', 'palmyr.twitter_update_avatar',
-         'palmyr.twitter_update_banner', 'palmyr.twitter_change_username',
-         'palmyr.twitter_buy_account', 'palmyr.twitter_list_my_tweets',
-         'palmyr.tiktok_post', 'palmyr.tiktok_follow',
-         'palmyr.tiktok_like', 'palmyr.tiktok_delete_post',
-         'palmyr.tiktok_update_profile', 'palmyr.tiktok_update_avatar',
-         'palmyr.issue_api_key',
-         'palmyr.x_post', 'palmyr.tiktok_post_legacy', 'palmyr.x_account'
-       )`;
-  void _keepOnlyListed;
-
   // Build a provider row from a capability + endpoint. Endpoints with path
   // parameters use {field_name} placeholders; the client substitutes them at
   // execution time from the step's input. Fields consumed by substitution are
