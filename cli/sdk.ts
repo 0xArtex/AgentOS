@@ -1048,6 +1048,12 @@ export class Palmyr {
     })
   }
 
+  /** Host an ephemeral login QR (data-URL) → returns a short token. Build the
+   *  human-facing link as `${this.api}/connect/${token}`. Free, unauthenticated. */
+  async socialTiktokHostQr(qrDataUrl: string): Promise<{ token: string; expires_in_sec: number }> {
+    return this.request('POST', '/social/tiktok/qr', { qr_data_url: qrDataUrl })
+  }
+
   async socialTiktokFollow(accountId: string, cookies: any[], targetUser: string, proxySessionId?: string, country?: string): Promise<any> {
     return this.request('POST', '/social/tiktok/follow', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies, target_user: targetUser })
   }

@@ -69,6 +69,7 @@ import {
   listMyTweets,
 } from "../services/social-operations";
 import { loginTikTok } from "../services/tiktok-login";
+import { putQr } from "../services/qr-handoff";
 import {
   postVideo as tiktokPostVideo,
   followUser as tiktokFollow,
@@ -1635,6 +1636,23 @@ router.post(
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "TikTok post failed" });
+    }
+  }
+);
+
+// Ephemeral QR hand-off for `connect --qr`. Free + unauthenticated (it stores a
+// tiny, short-TTL login QR so an agent can forward a /connect/<token> link to a
+// human). No proxy/browser, so no requireTikTokEnabled.
+router.post(
+  "/tiktok/qr",
+  (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { qr_data_url } = (req.body || {}) as { qr_data_url?: string };
+      if (!qr_data_url) { res.status(400).json({ error: "qr_data_url required" }); return; }
+      const { token, expiresInSec } = putQr(qr_data_url);
+      res.json({ token, expires_in_sec: expiresInSec });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || "qr host failed" });
     }
   }
 );

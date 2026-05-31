@@ -7095,18 +7095,29 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
             const { connectTikTok } = await import('./tiktok-connect.js')
             const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : 300
+            let hostedLink: string | undefined
             const result = await connectTikTok({
               country: explicitCountry || acc?.country,
               timeoutMs: timeoutSec * 1000,
               browserPath: flags['browser-path'] as string | undefined,
               noSandbox: !!flags['no-sandbox'],
               qr: !!flags.qr,
+              onQr: async (dataUrl) => {
+                // Host the QR so the agent gets a clean link to forward. Best-effort:
+                // if the server lacks the endpoint, the PNG/data-URL still work.
+                try {
+                  const hosted = await ao.socialTiktokHostQr(dataUrl)
+                  hostedLink = `${ao.api.replace(/\/+$/, '')}/connect/${hosted.token}`
+                  process.stderr.write(`[connect] QR link (send to a human): ${hostedLink}\n`)
+                } catch { /* hosting optional */ }
+              },
               onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
             })
 
             if (!result.success) {
               const details: Record<string, unknown> = { platform, username, reason: result.reason }
               if (result.qrPngPath) details.qr_png_path = result.qrPngPath
+              if (hostedLink) details.qr_link = hostedLink
               if (result.reason === 'no_local_browser') {
                 details.remedy =
                   `No Chrome/Edge/Brave found. Install one, pass --browser-path <path>, or import cookies manually: ` +
@@ -7152,6 +7163,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               cookies_captured: result.cookiesCaptured,
               sessionid_present: true,
               ...(result.qrPngPath ? { qr_png_path: result.qrPngPath } : {}),
+              ...(hostedLink ? { qr_link: hostedLink } : {}),
               next: `palmyr tiktok post ${username} --file video.mp4 --caption "..."`,
             })
           }

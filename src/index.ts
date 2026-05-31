@@ -206,6 +206,16 @@ app.get("/version", (_req, res) => {
   res.json(getVersion());
 
 });
+// ── TikTok connect QR hand-off page (public, unauthenticated) ──
+// A human opens /connect/<token> to scan the login QR an agent forwarded them.
+import { getQr, renderQrPage, renderExpiredPage } from "./services/qr-handoff";
+app.get("/connect/:token", (req, res) => {
+  const dataUrl = getQr(req.params.token);
+  res.set("Content-Type", "text/html; charset=utf-8");
+  res.set("Cache-Control", "no-store");
+  res.status(dataUrl ? 200 : 404).send(dataUrl ? renderQrPage(dataUrl) : renderExpiredPage());
+});
+
 // ── API Documentation ─────────────────────────────────────────
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
