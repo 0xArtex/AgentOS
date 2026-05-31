@@ -99,6 +99,8 @@ interface SvmVerifyResult {
   isValid: boolean;
   invalidReason?: string;
   payer: string;
+  /** Actual transferred amount in USDC base units (may exceed the required minimum). */
+  amount?: bigint;
   transaction?: VersionedTransaction;
 }
 
@@ -244,7 +246,7 @@ export async function verifySvmPayment(
     return { isValid: false, invalidReason: 'multiple_transfers_not_allowed', payer: transferPayer };
   }
 
-  return { isValid: true, payer: transferPayer, transaction: tx };
+  return { isValid: true, payer: transferPayer, amount, transaction: tx };
 }
 
 function findAccountIndex(accountKeys: any, address: string): number {
