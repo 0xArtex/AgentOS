@@ -11,6 +11,30 @@ import { refundAndRespond } from "../services/refund";
 const router = Router({ mergeParams: true });
 
 /**
+ * Returns true (and sends a 403) when `phoneNumberId` is owned by a wallet
+ * other than the caller. A missing number/owner is NOT a mismatch — the
+ * provider call stays the final authority, so we never lock out legitimate
+ * control of an inbound call whose local record isn't there yet.
+ */
+function denyIfNotNumberOwner(req: AuthenticatedRequest, res: Response, phoneNumberId: string | undefined): boolean {
+  if (!phoneNumberId) return false;
+  const number = phoneService.getNumber(phoneNumberId);
+  const caller = req.payment?.payer || req.agentId;
+  if (number?.owner && caller && number.owner !== caller) {
+    res.status(403).json({ error: "Forbidden", message: "This resource belongs to a phone number you do not own" });
+    return true;
+  }
+  return false;
+}
+
+/** Owner gate for call-control routes keyed on a Telnyx callControlId. */
+function denyIfNotCallOwner(req: AuthenticatedRequest, res: Response, callControlId: string): boolean {
+  const call = voiceService.getCallByControlId(callControlId);
+  if (!call) return false; // unknown call — let the provider be the authority
+  return denyIfNotNumberOwner(req, res, call.phoneNumberId);
+}
+
+/**
  * GET /phone/numbers/search — Search available numbers (free, no auth)
  */
 router.get("/numbers/search", async (req: Request, res: Response) => {
@@ -66,8 +90,7 @@ async function preflightProvisionNumber(req: Request, res: Response, next: NextF
   try {
     // Confirm at least one number is available for this country/areaCode before charging
     const available = await phoneService.searchNumbers(country, { areaCode, limit: 10 });
-    const usable = available.filter(n => n.type !== "toll_free" && n.type !== "tollfree");
-    if (usable.length === 0 && available.length === 0) {
+    if (available.length === 0) {
       res.status(404).json({
         error: "No numbers available",
         message: `No numbers available in ${country}${areaCode ? ` (area code ${areaCode})` : ""}`,
@@ -301,7 +324,18 @@ router.post("/numbers/:id/send", preflightSendSms, requireAuth(0.05, "general", 
  */
 router.delete("/numbers/:id", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    await phoneService.deleteNumber(req.params.id as string);
+    const number = phoneService.getNumber(String(req.params.id));
+    if (!number) {
+      res.status(404).json({ error: "Phone Number Not Found", message: `No phone number with ID ${req.params.id}` });
+      return;
+    }
+    // Releasing a number is destructive and irreversible — only the owner may.
+    const caller = req.payment?.payer || req.agentId;
+    if (number.owner && caller && number.owner !== caller) {
+      res.status(403).json({ error: "Forbidden", message: "You do not own this phone number" });
+      return;
+    }
+    await phoneService.deleteNumber(String(req.params.id));
     res.json({ success: true, message: "Phone number released" });
   } catch (err: any) {
     res.status(404).json({
@@ -366,6 +400,7 @@ router.post("/numbers/:id/call", requireAuth(0.10, "general", {
  */
 router.get("/numbers/:id/calls", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotNumberOwner(req, res, String(req.params.id))) return;
     const calls = voiceService.listCalls(String(req.params.id));
     res.json({ calls, count: calls.length });
   } catch (err: any) {
@@ -414,6 +449,7 @@ router.get("/calls/:id", requireAuth(0.02, "general", { discoverable: false }), 
       res.status(404).json({ error: "Call not found" });
       return;
     }
+    if (denyIfNotNumberOwner(req, res, call.phoneNumberId)) return;
     res.json(call);
   } catch (err: any) {
     res.status(500).json({ error: "Failed to get call", message: err.message });
@@ -426,6 +462,7 @@ router.get("/calls/:id", requireAuth(0.02, "general", { discoverable: false }), 
  */
 router.post("/calls/:callControlId/speak", requireAuth(0.08, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
     const { text, voice, language } = req.body as { text: string; voice?: string; language?: string };
     if (!text) {
       res.status(400).json({ error: "Missing 'text' field" });
@@ -444,6 +481,7 @@ router.post("/calls/:callControlId/speak", requireAuth(0.08, "general"), async (
  */
 router.post("/calls/:callControlId/play", requireAuth(0.08, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
     const { audioUrl } = req.body as { audioUrl: string };
     if (!audioUrl) {
       res.status(400).json({ error: "Missing 'audioUrl' field" });
@@ -462,6 +500,7 @@ router.post("/calls/:callControlId/play", requireAuth(0.08, "general", { discove
  */
 router.post("/calls/:callControlId/dtmf", requireAuth(0.02, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
     const { digits } = req.body as { digits: string };
     if (!digits) {
       res.status(400).json({ error: "Missing 'digits' field", hint: "e.g. '1234#'" });
@@ -480,6 +519,7 @@ router.post("/calls/:callControlId/dtmf", requireAuth(0.02, "general", { discove
  */
 router.post("/calls/:callControlId/gather", requireAuth(0.08, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
     const { minDigits, maxDigits, timeoutMillis, terminatingDigit, prompt, promptVoice } = req.body as any;
     await voiceService.gatherDtmf(String(req.params.callControlId), {
       minDigits, maxDigits, timeoutMillis, terminatingDigit, prompt, promptVoice,
@@ -496,6 +536,7 @@ router.post("/calls/:callControlId/gather", requireAuth(0.08, "general"), async 
  */
 router.post("/calls/:callControlId/record", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
     const { format } = req.body as { format?: string };
     await voiceService.startRecording(String(req.params.callControlId), format);
     res.json({ success: true, message: "Recording started" });
@@ -510,6 +551,7 @@ router.post("/calls/:callControlId/record", requireAuth(0.10, "general"), async 
  */
 router.post("/calls/:callControlId/record/stop", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
     await voiceService.stopRecording(String(req.params.callControlId));
     res.json({ success: true, message: "Recording stopped" });
   } catch (err: any) {
@@ -523,6 +565,7 @@ router.post("/calls/:callControlId/record/stop", requireAuth(0.02, "general"), a
  */
 router.post("/calls/:callControlId/hangup", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
     await voiceService.hangup(String(req.params.callControlId));
     res.json({ success: true, message: "Call ended" });
   } catch (err: any) {
@@ -536,6 +579,7 @@ router.post("/calls/:callControlId/hangup", requireAuth(0.02, "general"), async 
  */
 router.post("/calls/:callControlId/answer", requireAuth(0.02, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
     await voiceService.answer(String(req.params.callControlId));
     res.json({ success: true, message: "Call answered" });
   } catch (err: any) {
@@ -549,6 +593,7 @@ router.post("/calls/:callControlId/answer", requireAuth(0.02, "general", { disco
  */
 router.post("/calls/:callControlId/transfer", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
     const { to } = req.body as { to: string };
     if (!to) {
       res.status(400).json({ error: "Missing 'to' field" });
@@ -620,7 +665,7 @@ router.post("/webhooks/telnyx", (req: Request, res: Response) => {
         (recipientStatus === "delivery_failed" && "delivery_failed") ||
         (recipientStatus === "sending_failed" && "sending_failed") ||
         (recipientStatus === "sent" && "sent") ||
-        (eventType === "message.sent" ? "sent" : "delivered");
+        (eventType === "message.sent" ? "sent" : (providerErr ? "delivery_failed" : "delivered"));
       if (id) {
         phoneService.updateOutboundDeliveryStatus(id, status as any, providerErr);
       }
