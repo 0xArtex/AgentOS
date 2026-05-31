@@ -807,34 +807,7 @@ app.listen(config.port, () => {
   console.log(`   Email:    *@${config.emailDomain}`);
   console.log(`   i402:     reference implementation wired at /chat`);
 });
-import agentSimulationRoute from "./routes/agent-simulation";
-import hackathonImpactRoute from "./routes/hackathon-impact";
-app.use(agentSimulationRoute);
-app.use(hackathonImpactRoute);
-import agentCollaborationRoute from "./routes/agent-collaboration";
-// removed duplicate
-app.use("/api/agent-collaboration", agentCollaborationRoute);
-
-import agentLogsRoute from "./routes/agent-logs";
-import agentReputationRoute from "./routes/agent-reputation";
-import agentFleetRoute from "./routes/agent-fleet";
-app.use("/api/agent-logs", agentLogsRoute);
-app.use("/api/agent-fleet", agentFleetRoute);
-app.use("/api/agent-reputation", agentReputationRoute);
-
-
-// moved up
-
-// moved to top
-import demoVideoRoute from "./routes/demo-video";import judgeWalkthroughRoute from "./routes/judge-walkthrough";app.use("/api/demo-video", demoVideoRoute);app.use("/api/judge-walkthrough", judgeWalkthroughRoute);
-
-import communityBoardRoute from "./routes/community-board";app.use("/api", communityBoardRoute);
-
-import agentDiagnosticsRoute from "./routes/agent-diagnostics";app.use("/api/agent-diagnostics", agentDiagnosticsRoute);
-import communityRoute from "./routes/community";app.use("/api/community", communityRoute);
-
 export default app;
-import postmortemRoute from "./routes/postmortem";app.use("/api/post-mortem", postmortemRoute);
 app.use(builderStatusRouter);
 
 import builderStatsRoute from "./routes/builder-stats";app.use("/api/builder-stats", builderStatsRoute);
