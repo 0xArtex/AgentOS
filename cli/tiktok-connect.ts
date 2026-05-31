@@ -457,6 +457,7 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
     "--no-default-browser-check",
     "--new-window",
     "--disable-blink-features=AutomationControlled",
+    "--window-size=1280,800", // realistic, non-zero geometry (a headless tell)
     ...(noSandbox ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
     landingUrl,
   ];
