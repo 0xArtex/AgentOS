@@ -54,10 +54,11 @@ export interface ConnectOptions {
    */
   noSandbox?: boolean;
   /**
-   * Use TikTok's QR login instead of a typed login. Runs headless, renders the
-   * login QR, surfaces it (PNG + data-URL) for a human to scan with the TikTok
-   * app, then captures the session. No captcha, no display, no password — the
-   * agent→human handoff path.
+   * Use TikTok's QR login instead of a typed login. Opens a real (headed)
+   * browser on the QR page — headed because TikTok refuses QR-auth into a
+   * headless session — extracts the QR (PNG + data-URL) for a human to scan with
+   * the TikTok app, then captures the session. No captcha, no password. On a
+   * headless server, run under a virtual display (xvfb).
    */
   qr?: boolean;
   /**
@@ -438,18 +439,24 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
     process.platform !== "win32" && typeof process.getuid === "function" && process.getuid() === 0;
   const noSandbox = opts.noSandbox === true || isRootPosix;
 
-  // QR mode runs headless (nobody views this browser — the human scans the QR
-  // we extract) and lands on TikTok's QR-login page. Typed login stays headed.
+  // QR mode lands on TikTok's QR-login page; typed login on the form page.
   const landingUrl = opts.qr
     ? "https://www.tiktok.com/login/qrcode"
     : "https://www.tiktok.com/login/phone-or-email/email";
 
+  // Always run HEADED. TikTok refuses to authorize a login into a headless
+  // session — headless Chrome's UA literally contains "HeadlessChrome", which it
+  // detects and rejects ("Couldn't log in. Try another login method"). A headed
+  // window presents a normal Chrome UA with no automation tells. On a server,
+  // run under a virtual display (xvfb). --disable-blink-features keeps
+  // navigator.webdriver clean across Chrome versions.
   const args = [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userDataDir}`,
     "--no-first-run",
     "--no-default-browser-check",
-    ...(opts.qr ? ["--headless=new"] : ["--new-window"]),
+    "--new-window",
+    "--disable-blink-features=AutomationControlled",
     ...(noSandbox ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
     landingUrl,
   ];
@@ -467,7 +474,7 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
 
   if (noSandbox) progress("launched with --no-sandbox (root / headless environment detected).");
   if (opts.qr) {
-    progress(`opened ${browser.name} (headless) — fetching TikTok's login QR…`);
+    progress(`opened ${browser.name} — fetching TikTok's login QR (a window opens; scan from it or the saved image)…`);
   } else {
     progress(`opened ${browser.name} — log in to TikTok (solve any captcha / 2FA yourself).`);
     progress("capturing automatically the moment you're signed in… (window will close on success)");
