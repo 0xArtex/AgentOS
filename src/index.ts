@@ -76,7 +76,7 @@ import { requestLogger } from "./middleware/requestLog";
 import { cors } from "./middleware/cors";
 import { requestTimeout } from "./middleware/timeout";
 import { rateLimit } from "./middleware/rateLimit";
-import { securityHeaders, paramPollution, sqlInjectionGuard, sanitizeInputs, bodySizeLimit, bruteForceProtection } from "./middleware/security";
+import { securityHeaders, paramPollution, sqlInjectionGuard, sanitizeInputs, bruteForceProtection } from "./middleware/security";
 import activityRoutes from "./routes/activity";
 import onboardingRoutes from "./routes/onboarding";
 import analyticsRoutes from "./routes/analytics";
@@ -142,9 +142,13 @@ const VIDEO_UPLOAD_ROUTES = new Set([
   "/social/scheduled/media",
 ]);
 app.use((req, res, next) => {
-  const limit = VIDEO_UPLOAD_ROUTES.has(req.path)
+  // Express is non-strict by default, so /social/twitter/post-media/ (trailing
+  // slash) still hits the handler — normalize it before the Set lookup so the
+  // upload tier isn't silently downgraded to 100kb and 413'd.
+  const p = req.path.length > 1 && req.path.endsWith("/") ? req.path.slice(0, -1) : req.path;
+  const limit = VIDEO_UPLOAD_ROUTES.has(p)
     ? "150mb"
-    : IMAGE_UPLOAD_ROUTES.has(req.path)
+    : IMAGE_UPLOAD_ROUTES.has(p)
       ? "15mb"
       : "100kb";
   return express.json({ limit })(req, res, next);
@@ -580,7 +584,6 @@ import pingRoute from "./routes/ping";
 app.use("/api/ping", pingRoute);
 app.use("/api/starter-kit", starterKitRoute);
 app.use("/api/partner-workflows", partnerWorkflowsRoute);
-app.use("/api/partner-workflows", partnerWorkflowsRoute);
 app.use("/ping", pingRoute);
 app.use("/api/live-status", liveStatusRoute);
 app.use("/api", finalCountdownRoute);
@@ -818,7 +821,6 @@ import agentFleetRoute from "./routes/agent-fleet";
 app.use("/api/agent-logs", agentLogsRoute);
 app.use("/api/agent-fleet", agentFleetRoute);
 app.use("/api/agent-reputation", agentReputationRoute);
-app.use(whyUsRouter);
 
 
 // moved up

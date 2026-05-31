@@ -20,7 +20,9 @@ export function errorHandler(err: any, _req: Request, res: Response, _next: Next
   if (err.type === "entity.too.large") {
     res.status(413).json({
       error: "Payload Too Large",
-      message: "Request body exceeds the 1MB limit",
+      message: err.limit
+        ? `Request body exceeds the ${Math.round(err.limit / 1024)}KB limit for this endpoint`
+        : "Request body exceeds the size limit for this endpoint",
       hint: "Reduce the size of your request body",
     });
     return;
