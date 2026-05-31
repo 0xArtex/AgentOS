@@ -1027,6 +1027,7 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   connect: [
     { flag: '<username>', desc: 'Log in once via your real browser; auto-captures the session' },
+    { flag: '--qr', desc: 'Headless QR login: get a QR to hand a human to scan with the TikTok app (no display/captcha)' },
     { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
     { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
     { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
@@ -7099,11 +7100,13 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               timeoutMs: timeoutSec * 1000,
               browserPath: flags['browser-path'] as string | undefined,
               noSandbox: !!flags['no-sandbox'],
+              qr: !!flags.qr,
               onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
             })
 
             if (!result.success) {
               const details: Record<string, unknown> = { platform, username, reason: result.reason }
+              if (result.qrPngPath) details.qr_png_path = result.qrPngPath
               if (result.reason === 'no_local_browser') {
                 details.remedy =
                   `No Chrome/Edge/Brave found. Install one, pass --browser-path <path>, or import cookies manually: ` +
@@ -7148,6 +7151,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               country_source: countrySource,
               cookies_captured: result.cookiesCaptured,
               sessionid_present: true,
+              ...(result.qrPngPath ? { qr_png_path: result.qrPngPath } : {}),
               next: `palmyr tiktok post ${username} --file video.mp4 --caption "..."`,
             })
           }

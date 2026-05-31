@@ -21,7 +21,7 @@
  * structured result it can branch on.
  */
 import { spawn, type ChildProcess } from "child_process";
-import { existsSync, mkdtempSync, rmSync } from "fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { createServer } from "net";
@@ -53,6 +53,13 @@ export interface ConnectOptions {
    * set explicitly for other headless / CI environments.
    */
   noSandbox?: boolean;
+  /**
+   * Use TikTok's QR login instead of a typed login. Runs headless, renders the
+   * login QR, surfaces it (PNG + data-URL) for a human to scan with the TikTok
+   * app, then captures the session. No captcha, no display, no password — the
+   * agent→human handoff path.
+   */
+  qr?: boolean;
   /** Human-facing progress lines. Caller routes these to stderr so stdout stays clean JSON. */
   onProgress?: (msg: string) => void;
 }
@@ -68,6 +75,9 @@ export interface ConnectResult {
   detectedCountry?: string;
   detectedLocale?: string;
   detectedTimezone?: string;
+  /** QR-login mode: saved QR PNG path + its data-URL, for relaying to a human to scan. */
+  qrPngPath?: string;
+  qrDataUrl?: string;
   reason?:
     | "no_local_browser"
     | "launch_failed"
@@ -324,6 +334,60 @@ async function findPageTarget(port: number): Promise<string | null> {
   }
 }
 
+/**
+ * Extract TikTok's login QR from `/login/qrcode`. The QR is a same-origin
+ * <canvas> inside [data-e2e="qr-code"] (verified against the live page), so
+ * `canvas.toDataURL()` works; fall back to a CDP element screenshot if the
+ * canvas is ever tainted or swapped for an <img>. Polls until it renders.
+ */
+async function extractTikTokQr(cdp: CdpSession): Promise<{ dataUrl?: string }> {
+  for (let i = 0; i < 12; i++) {
+    try {
+      const ev = await cdp.send("Runtime.evaluate", {
+        expression:
+          `(()=>{const c=document.querySelector('[data-e2e="qr-code"] canvas')||document.querySelector('canvas');` +
+          `if(!c||!c.width)return '';try{return c.toDataURL('image/png');}catch(e){return 'TAINTED';}})()`,
+        returnByValue: true,
+      });
+      const v = ev?.result?.value;
+      if (typeof v === "string" && v.startsWith("data:image")) return { dataUrl: v };
+    } catch {
+      /* retry */
+    }
+    await sleep(1000);
+  }
+  // Fallback: screenshot the QR element region.
+  try {
+    const boxEv = await cdp.send("Runtime.evaluate", {
+      expression:
+        `(()=>{const e=document.querySelector('[data-e2e="qr-code"]')||document.querySelector('canvas');` +
+        `if(!e)return '';const r=e.getBoundingClientRect();return JSON.stringify({x:r.x,y:r.y,w:r.width,h:r.height});})()`,
+      returnByValue: true,
+    });
+    const v = boxEv?.result?.value;
+    if (typeof v === "string" && v) {
+      const b = JSON.parse(v);
+      if (b.w > 0) {
+        const shot = await cdp.send("Page.captureScreenshot", {
+          format: "png",
+          clip: { x: b.x, y: b.y, width: b.w, height: b.h, scale: 1 },
+        });
+        if (shot?.data) return { dataUrl: "data:image/png;base64," + shot.data };
+      }
+    }
+  } catch {
+    /* give up — caller reports no QR */
+  }
+  return {};
+}
+
+function saveQrPng(dataUrl: string): string {
+  const b64 = dataUrl.split(",")[1] || "";
+  const path = join(tmpdir(), `palmyr-tiktok-qr-${Date.now()}.png`);
+  writeFileSync(path, Buffer.from(b64, "base64"));
+  return path;
+}
+
 /* ─── Main entry ─────────────────────────────────────────────────────────── */
 
 export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectResult> {
@@ -369,14 +433,20 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
     process.platform !== "win32" && typeof process.getuid === "function" && process.getuid() === 0;
   const noSandbox = opts.noSandbox === true || isRootPosix;
 
+  // QR mode runs headless (nobody views this browser — the human scans the QR
+  // we extract) and lands on TikTok's QR-login page. Typed login stays headed.
+  const landingUrl = opts.qr
+    ? "https://www.tiktok.com/login/qrcode"
+    : "https://www.tiktok.com/login/phone-or-email/email";
+
   const args = [
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userDataDir}`,
     "--no-first-run",
     "--no-default-browser-check",
-    "--new-window",
+    ...(opts.qr ? ["--headless=new"] : ["--new-window"]),
     ...(noSandbox ? ["--no-sandbox", "--disable-dev-shm-usage"] : []),
-    "https://www.tiktok.com/login/phone-or-email/email",
+    landingUrl,
   ];
 
   let child: ChildProcess;
@@ -391,11 +461,17 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
   child.on("exit", () => (childExited = true));
 
   if (noSandbox) progress("launched with --no-sandbox (root / headless environment detected).");
-  progress(`opened ${browser.name} — log in to TikTok (solve any captcha / 2FA yourself).`);
-  progress("capturing automatically the moment you're signed in… (window will close on success)");
+  if (opts.qr) {
+    progress(`opened ${browser.name} (headless) — fetching TikTok's login QR…`);
+  } else {
+    progress(`opened ${browser.name} — log in to TikTok (solve any captcha / 2FA yourself).`);
+    progress("capturing automatically the moment you're signed in… (window will close on success)");
+  }
 
   const deadline = Date.now() + timeoutMs;
   let cdp: CdpSession | null = null;
+  let qrPngPath: string | undefined;
+  let qrDataUrl: string | undefined;
   let result: ConnectResult = { success: false, reason: "login_timeout", error: "timed out waiting for login", browser: browser.name };
 
   try {
@@ -421,6 +497,7 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
           try {
             cdp = await CdpSession.connect(wsUrl);
             await cdp.send("Network.enable");
+            if (opts.qr) { try { await cdp.send("Page.enable"); } catch { /* screenshot fallback only */ } }
           } catch {
             cdp = null;
           }
@@ -428,6 +505,18 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
       }
 
       if (cdp && !cdp.closed) {
+        // QR mode: surface the QR once, as soon as it renders, so the agent can
+        // forward it to a human while we keep polling for the scan.
+        if (opts.qr && !qrDataUrl) {
+          const { dataUrl } = await extractTikTokQr(cdp);
+          if (dataUrl) {
+            qrDataUrl = dataUrl;
+            try { qrPngPath = saveQrPng(dataUrl); } catch { /* path optional */ }
+            progress("QR ready — forward it to a human to scan with the TikTok app; I capture the session automatically once they confirm.");
+            if (qrPngPath) progress(`QR image saved: ${qrPngPath}`);
+          }
+        }
+
         try {
           const { cookies } = await cdp.send("Network.getAllCookies");
           const ttCookies: any[] = (cookies || []).filter((c: any) => isTikTokCookie(c.domain));
@@ -482,6 +571,10 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
 
       await sleep(2000);
     }
+    // Carry the QR artifacts onto whatever we return (incl. timeout) so the
+    // caller always has the QR that was generated.
+    if (qrPngPath && !result.qrPngPath) result.qrPngPath = qrPngPath;
+    if (qrDataUrl && !result.qrDataUrl) result.qrDataUrl = qrDataUrl;
   } finally {
     if (cdp) cdp.close();
     if (!childExited) {
