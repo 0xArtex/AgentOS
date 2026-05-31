@@ -60,6 +60,11 @@ export interface ConnectOptions {
    * agent→human handoff path.
    */
   qr?: boolean;
+  /**
+   * Called once with the QR data-URL the moment it's extracted (QR mode), so the
+   * caller can host it / relay a link while connect keeps waiting for the scan.
+   */
+  onQr?: (dataUrl: string) => void | Promise<void>;
   /** Human-facing progress lines. Caller routes these to stderr so stdout stays clean JSON. */
   onProgress?: (msg: string) => void;
 }
@@ -514,6 +519,7 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
             try { qrPngPath = saveQrPng(dataUrl); } catch { /* path optional */ }
             progress("QR ready — forward it to a human to scan with the TikTok app; I capture the session automatically once they confirm.");
             if (qrPngPath) progress(`QR image saved: ${qrPngPath}`);
+            try { await opts.onQr?.(dataUrl); } catch { /* hosting is optional; PNG/data-URL still work */ }
           }
         }
 
