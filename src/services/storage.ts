@@ -169,6 +169,12 @@ class Storage {
     return row?.id;
   }
 
+  getEmailInboxByAddress(address: string): string | undefined {
+    const stmt = db.prepare('SELECT id FROM email_inboxes WHERE address = ? LIMIT 1');
+    const row = stmt.get(address.toLowerCase()) as any;
+    return row?.id;
+  }
+
   hasEmailLocalPart(localPart: string): boolean {
     const stmt = db.prepare('SELECT 1 FROM email_inboxes WHERE local_part = ? LIMIT 1');
     return Boolean(stmt.get(localPart));
@@ -484,21 +490,6 @@ class Storage {
       active: Boolean(row.active),
       createdAt: row.created_at
     }));
-  }
-
-  // ── Used Payments (for transaction deduplication) ─────────
-
-  isPaymentUsed(signature: string): boolean {
-    const stmt = db.prepare('SELECT 1 FROM used_payments WHERE signature = ? LIMIT 1');
-    return Boolean(stmt.get(signature));
-  }
-
-  markPaymentUsed(signature: string, payer: string, amountLamports: bigint, endpoint: string): void {
-    const stmt = db.prepare(`
-      INSERT INTO used_payments (signature, payer, amount_lamports, verified_at, endpoint)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    stmt.run(signature, payer, amountLamports.toString(), new Date().toISOString(), endpoint);
   }
 
   // ── Voice Calls ────────────────────────────────────────────

@@ -15,7 +15,7 @@ const router = Router();
  * POST /email/provision — Create an email inbox
  * Cost: 1.00 USDC (or free during hackathon)
  */
-router.post("/provision", requireAuth(2.0, "email", {
+router.post("/provision", validateInboxInputs, requireAuth(2.0, "email", {
   description: "Create an end-to-end encrypted email inbox at {name}@palmyr.ai, keyed to your Solana wallet.",
   category: "communications",
   tags: ["email", "inbox", "e2e", "encryption", "provision"],
@@ -467,7 +467,7 @@ router.get("/inboxes/:id/messages", x402(0.02, {
           timestamp: msg.timestamp,
           encrypted: true,
           e2e: true,
-          decryptionNote: "E2E encrypted with your wallet's public key. Decrypt client-side using nacl.box.open with your Solana private key (Ed25519→X25519).",
+          decryptionNote: "E2E encrypted with your wallet's public key. Strip the 'w:' prefix, base64-decode, then split bytes: ephemeralPub=[0:32], nonce=[32:56], ciphertext=[56:]. Convert your Ed25519 secret key to X25519 and call nacl.box.open(ciphertext, nonce, ephemeralPub, yourX25519SecretKey).",
         };
       }
 
@@ -694,7 +694,6 @@ router.get("/attachments/:attachmentId", x402(0.02), async (req: AuthenticatedRe
 router.post("/webhooks", x402(0.02, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { inboxId, url, events } = req.body;
-    if (!emailService.isSsrfSafe(url)) { res.status(400).json({ error: "Invalid webhook URL. Must be HTTPS and not target internal networks." }); return; }
     if (!inboxId || !url) { res.status(400).json({ error: "inboxId and url required" }); return; }
     if (!emailService.isSsrfSafe(url)) { res.status(400).json({ error: "Invalid webhook URL. Must be HTTPS and not target private/internal networks." }); return; }
 
