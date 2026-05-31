@@ -54,14 +54,6 @@ function initLastSeen(): void {
   }
 }
 
-function getNewDeposit(walletId: string, chain: string, currentBalance: number): number {
-  const key = `${walletId}:${chain}`;
-  const lastCredited = _lastSeen.get(key) || 0;
-  // Only credit if balance is higher than what we've already credited (minus sweeps)
-  // Simple approach: if balance > 0 and we haven't credited this exact balance recently
-  return currentBalance; // We'll use the record check below
-}
-
 function wasAlreadyCredited(walletId: string, chain: string, amount: number): boolean {
   const key = `${walletId}:${chain}`;
   const lastSeen = _lastSeen.get(key) || 0;
@@ -115,9 +107,13 @@ async function checkSolanaDeposits(): Promise<void> {
             recordCredit(w.id, "solana", amount);
             console.log(`💰 [deposit-monitor] Credited $${delta.toFixed(6)} USDC to user ${w.user_id} (Solana)`);
 
-            // Sweep to treasury
+            // Sweep to treasury. On a successful sweep the on-chain balance
+            // returns to ~0, so reset the in-memory snapshot — otherwise a later
+            // deposit of the SAME amount would equal _lastSeen and be silently
+            // skipped (the user would never be credited for the redeposit).
             if (amount >= SWEEP_MIN_USDC) {
-              await sweepSolanaUsdc(w.derivation_index, pubkey, amount);
+              const swept = await sweepSolanaUsdc(w.derivation_index, pubkey, amount);
+              if (swept) _lastSeen.set(key, 0);
             }
           } catch (e: any) {
             if (e.message?.includes("Duplicate")) continue;
@@ -137,7 +133,7 @@ async function checkSolanaDeposits(): Promise<void> {
   }
 }
 
-async function sweepSolanaUsdc(derivationIndex: number, fromPubkey: PublicKey, amount: number): Promise<void> {
+async function sweepSolanaUsdc(derivationIndex: number, fromPubkey: PublicKey, amount: number): Promise<boolean> {
   try {
     const keypair = getSolanaKeypair(derivationIndex);
     const fromAta = getAssociatedTokenAddressSync(SOL_USDC_MINT, fromPubkey);
@@ -156,10 +152,12 @@ async function sweepSolanaUsdc(derivationIndex: number, fromPubkey: PublicKey, a
 
     const sig = await solConn.sendRawTransaction(tx.serialize());
     console.log(`📤 [deposit-monitor] Swept $${amount} USDC to treasury (Solana): ${sig}`);
+    return true;
   } catch (e: any) {
     // Sweep failures are non-critical — funds are safe, just not swept yet
     // Common reason: deposit wallet has no SOL for gas
     console.warn(`[deposit-monitor] Sweep failed (Solana): ${e.message}`);
+    return false;
   }
 }
 
@@ -244,9 +242,11 @@ async function checkBaseDeposits(): Promise<void> {
       });
 
       const result = await resp.json() as any;
-      _lastBlock.set(blockKey, currentBlock + 1);
 
-      if (!result.result || !Array.isArray(result.result)) continue;
+      if (!result.result || !Array.isArray(result.result)) {
+        _lastBlock.set(blockKey, currentBlock + 1);
+        continue;
+      }
 
       for (const log of result.result) {
         const txHash = log.transactionHash;
@@ -270,6 +270,9 @@ async function checkBaseDeposits(): Promise<void> {
           console.error(`[deposit-monitor] Credit failed for ${w.user_id}:`, e.message);
         }
       }
+      // Advance the cursor only after every log in range is credited. A re-scan
+      // after a mid-loop throw is safe — deposit() dedups on base_${txHash}.
+      _lastBlock.set(blockKey, currentBlock + 1);
     } catch (e: any) {
       console.error(`[deposit-monitor] Base check failed for ${w.evm_address}:`, e.message);
     }

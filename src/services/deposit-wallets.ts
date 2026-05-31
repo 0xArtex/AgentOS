@@ -37,11 +37,14 @@ const ENC_PREFIX = "enc:v1:";
 function getMasterKey(): Buffer {
   const hex = process.env[MASTER_KEY_ENV];
   if (!hex || !/^[0-9a-fA-F]{64}$/.test(hex)) {
-    if (process.env.NODE_ENV === "production") {
-      throw new Error(`${MASTER_KEY_ENV} must be a 64-char hex string (32 bytes) in production`);
+    // Custodial deposit wallets: never silently fall back to a publicly-known
+    // all-zero key just because NODE_ENV isn't 'production'. A staging/preview
+    // deploy with NODE_ENV unset would otherwise encrypt session secrets under a
+    // known key (≈ plaintext). Require an explicit opt-in for the insecure dev key.
+    if (process.env.ALLOW_INSECURE_DEPOSIT_KEY !== "1") {
+      throw new Error(`${MASTER_KEY_ENV} must be a 64-char hex string (32 bytes). Set ALLOW_INSECURE_DEPOSIT_KEY=1 only for local dev.`);
     }
-    // Dev fallback: derive a dummy key from a fixed seed so local testing works.
-    // Never reach here in prod (guarded above).
+    // Local-dev opt-in only: fixed seed so testing works. Never set this flag in any deployed env.
     return Buffer.from("00".repeat(32), "hex");
   }
   return Buffer.from(hex, "hex");

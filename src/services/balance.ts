@@ -30,13 +30,19 @@ export function deposit(userId: string, amount: number, referenceId: string, des
     if (dup) throw new Error("Duplicate deposit: already credited");
   }
 
-  db.prepare(
-    "UPDATE balances SET balance_usdc = balance_usdc + ?, total_deposited = total_deposited + ?, updated_at = datetime('now') WHERE user_id = ?"
-  ).run(amount, amount, userId);
+  // Credit the balance and write the ledger row atomically — if the ledger
+  // INSERT throws (disk full, constraint), the balance update must roll back
+  // too, otherwise we'd credit funds with no audit record.
+  const apply = db.transaction(() => {
+    db.prepare(
+      "UPDATE balances SET balance_usdc = balance_usdc + ?, total_deposited = total_deposited + ?, updated_at = datetime('now') WHERE user_id = ?"
+    ).run(amount, amount, userId);
 
-  db.prepare(
-    "INSERT INTO balance_transactions (id, user_id, type, amount_usdc, description, reference_id, created_at) VALUES (?, ?, 'deposit', ?, ?, ?, datetime('now'))"
-  ).run(crypto.randomUUID(), userId, amount, description, referenceId);
+    db.prepare(
+      "INSERT INTO balance_transactions (id, user_id, type, amount_usdc, description, reference_id, created_at) VALUES (?, ?, 'deposit', ?, ?, ?, datetime('now'))"
+    ).run(crypto.randomUUID(), userId, amount, description, referenceId);
+  });
+  apply();
 
   return getBalance(userId);
 }
