@@ -1027,7 +1027,7 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   connect: [
     { flag: '<username>', desc: 'Log in once via your real browser; auto-captures the session' },
-    { flag: '--qr', desc: 'Headless QR login: get a QR to hand a human to scan with the TikTok app (no display/captcha)' },
+    { flag: '--qr', desc: 'QR login: opens a window with a login QR for a human to scan with the TikTok app (no password/captcha)' },
     { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
     { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
     { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
