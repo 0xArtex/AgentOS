@@ -212,9 +212,15 @@ export async function runWalletDoctor(opts: DoctorOpts): Promise<DoctorReport> {
     checks.push({ name: 'walletResolution', status: 'skip', message: 'pass --wallet <ref> to check derivation' })
   }
 
-  // Parallelise the network probes — they take 100–500ms each.
+  // Parallelise the network probes — they take 100–500ms each. Probe the SAME
+  // Solana RPC the trading path uses (SOLANA_RPC_URL / config rpcUrl) so the
+  // doctor doesn't false-alarm on a rate-limited public endpoint the user never
+  // trades through. Base has no general-path override, so the public default
+  // stands.
+  const { loadTradingConfig } = await import('./wallet-trading.js')
+  const solRpc = process.env.SOLANA_RPC_URL?.trim() || loadTradingConfig().rpcUrl
   const [sol, base, jup, para] = await Promise.all([
-    checkSolanaRpc(),
+    checkSolanaRpc(solRpc),
     checkBaseRpc(),
     checkJupiterReachable(),
     checkParaswapReachable(),

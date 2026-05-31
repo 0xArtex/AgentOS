@@ -165,7 +165,10 @@ function findById(id: string): SocialAccountFile | undefined {
 
 function writeAccount(account: SocialAccountFile): void {
   ensureDirs()
-  writeFileSync(accountPath(account.id), JSON.stringify(account, null, 2))
+  // 0o600 to match saveSession — the account blob carries the AES-GCM
+  // cred_crypto ciphertext plus username/proxy metadata; don't leave it
+  // world-readable.
+  writeFileSync(accountPath(account.id), JSON.stringify(account, null, 2), { mode: 0o600 })
 }
 
 // ─── Public API ────────────────────────────────────────────────────────────
