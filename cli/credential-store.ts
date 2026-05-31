@@ -44,7 +44,7 @@ function storeWindows(account: string, secret: string): void {
   const outPath = dpapiPath(account)
   const script = [
     'Add-Type -AssemblyName System.Security',
-    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('${secret}')`,
+    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('${secret.replace(/'/g, "''")}')`,
     '$enc = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)',
     `[System.IO.File]::WriteAllBytes('${outPath.replace(/\\/g, '\\\\').replace(/'/g, "''")}', $enc)`,
   ].join('; ')
