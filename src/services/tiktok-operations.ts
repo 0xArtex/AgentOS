@@ -305,7 +305,11 @@ async function applySchedule(page: any, when: WallClock): Promise<{ ok: boolean;
       continue;
     }
     const dval = await date.locator.inputValue().catch(() => null);
-    if (dval && dval.includes(String(when.y)) && dval.includes(pad2(when.d))) { dateOk = true; break; }
+    // Verify year + MONTH + day all landed. Omitting month let a locale that
+    // transposes MM/DD vs DD/MM still pass (includes(year)&&includes(day)) and
+    // silently schedule to the wrong month. Every candidate contains pad2(month),
+    // so a correctly-accepted date still passes — this only adds false-negatives.
+    if (dval && dval.includes(String(when.y)) && dval.includes(pad2(when.mo)) && dval.includes(pad2(when.d))) { dateOk = true; break; }
   }
   if (!dateOk) return { ok: false, error: "date field did not accept a typed date (calendar-only widget?)" };
 
@@ -432,6 +436,14 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
     }
     if (req.allow_comments === false) {
       await page.locator('[data-e2e="upload-switch-comment"], label:has-text("Comment")').first()
+        .click({ timeout: 2000 }).catch(() => {});
+    }
+    if (req.allow_duet === false) {
+      await page.locator('[data-e2e="upload-switch-duet"], label:has-text("Duet")').first()
+        .click({ timeout: 2000 }).catch(() => {});
+    }
+    if (req.allow_stitch === false) {
+      await page.locator('[data-e2e="upload-switch-stitch"], label:has-text("Stitch")').first()
         .click({ timeout: 2000 }).catch(() => {});
     }
 

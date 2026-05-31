@@ -299,6 +299,26 @@ export function getDueScheduled(now: Date = new Date(), limit: number = 50): Sch
 }
 
 /**
+ * Requeue orphaned items: rows left 'in_progress' by a worker that died (OOM /
+ * deploy / restart) before writing a terminal status. Without this they are
+ * stuck forever and the prepaid post never fires. The stale threshold is safely
+ * longer than any single dispatch; the worker is single-process and dispatches
+ * sequentially, so this can never race a live in-flight dispatch. attempted_at
+ * is ISO-8601, so lexicographic '<' against an ISO cutoff is correct.
+ */
+export function recoverStaleInProgress(staleMs: number = 15 * 60_000): number {
+  const cutoff = new Date(Date.now() - staleMs).toISOString();
+  const res = db
+    .prepare(
+      `UPDATE scheduled_social_posts
+       SET status='pending'
+       WHERE status='in_progress' AND attempted_at IS NOT NULL AND attempted_at < ?`
+    )
+    .run(cutoff);
+  return res.changes;
+}
+
+/**
  * Claim a scheduled item — atomic flip from 'pending' to 'in_progress'.
  * Returns true if claimed (worker may now dispatch), false if another worker
  * grabbed it first or if the item was cancelled.

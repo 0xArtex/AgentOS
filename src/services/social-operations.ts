@@ -1471,10 +1471,6 @@ export async function unfollowUser(
       // No modal — the initial click fired the API directly (or nothing happened).
     }
 
-    // Diagnostic screenshot ~1s after the final click in case the API
-    // never fires.
-    setTimeout(() => { debugShot(page, `unfollow-post-click-modal-${modalAppeared}`); }, 1500);
-
     const resp = await responsePromise;
     const apiResult = resp
       ? await (async () => {
