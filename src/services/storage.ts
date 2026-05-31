@@ -372,11 +372,14 @@ class Storage {
   // ── Compute ────────────────────────────────────────────────
 
   setServer(id: string, server: Server): void {
+    // INSERT OR REPLACE wipes the whole row, so carry the openclaw_configured
+    // flag forward from any existing row — getServer/serverAction/resize/rename
+    // all re-save via this path and would otherwise reset a configured box to 0.
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO servers (id, name, server_type, image, status, ipv4, ipv6, owner, price_monthly, created_at, root_password)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO servers (id, name, server_type, image, status, ipv4, ipv6, owner, price_monthly, created_at, root_password, openclaw_configured)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT openclaw_configured FROM servers WHERE id = ?), 0))
     `);
-    stmt.run(id, server.name, server.serverType, server.image, server.status, server.ipv4, server.ipv6, server.owner, server.priceMonthly, server.createdAt, server.rootPassword);
+    stmt.run(id, server.name, server.serverType, server.image, server.status, server.ipv4, server.ipv6, server.owner, server.priceMonthly, server.createdAt, server.rootPassword, id);
   }
 
   getServer(id: string): Server | undefined {

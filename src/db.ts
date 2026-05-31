@@ -416,6 +416,10 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_servers_owner ON servers(owner);
   `);
 
+  // Migration: configure-openclaw flips this flag. Added after the original
+  // CREATE TABLE shipped, so guard against the 'duplicate column' on re-run.
+  try { db.exec("ALTER TABLE servers ADD COLUMN openclaw_configured INTEGER DEFAULT 0"); } catch {}
+
   // API Keys table
   db.exec(`
     CREATE TABLE IF NOT EXISTS api_keys (

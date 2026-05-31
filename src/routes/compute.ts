@@ -1,11 +1,31 @@
-import { Router, Response } from "express";
+import { Router, Response, NextFunction } from "express";
 import { requireAuth } from "../middleware/auth";
 import { rateLimit } from "../middleware/rateLimit";
 import { AuthenticatedRequest, ServerAction } from "../types";
 import * as computeService from "../services/compute";
+import { refundAndRespond } from "../services/refund";
 import { db } from "../db";
 
 const router = Router();
+
+/**
+ * Ownership guard for /servers/:id routes. Runs AFTER requireAuth so the
+ * caller's identity (req.agentId / req.payment.payer) is resolved exactly as it
+ * was at create time (POST /servers stores that same expression as `owner`).
+ * 404s — not 403s — on mismatch so we don't leak that a server ID exists.
+ * Without this any paying wallet could exec on / read root passwords of /
+ * push wallet keys to / delete another tenant's server by guessing its ID.
+ */
+function requireServerOwner(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+  const caller = req.agentId || req.payment?.payer || "unknown";
+  const serverId = String(req.params.id);
+  const row = db.prepare("SELECT owner FROM servers WHERE id = ?").get(serverId) as { owner?: string } | undefined;
+  if (!row || row.owner !== caller) {
+    res.status(404).json({ error: "Server Not Found", message: `No server with ID ${serverId}` });
+    return;
+  }
+  next();
+}
 
 const PLATFORM_KEY = '/root/.ssh/id_ed25519_platform';
 
@@ -433,10 +453,12 @@ router.post("/servers", validateCreateServerBody, requireAuth(6.0, 'server'), ra
     });
   } catch (err: any) {
     console.error("[compute] Create error:", err);
-    res.status(500).json({
-      error: "Server Creation Failed",
-      message: err.message || "Failed to create server",
-      hint: "GET /compute/plans for valid server types"
+    // The $6 was already settled on-chain by requireAuth before this handler
+    // ran, but Hetzner never provisioned the box — refund the payer instead of
+    // pocketing the payment. Same pattern as phone-number provision failure.
+    await refundAndRespond(req, res, {
+      reason: `Hetzner provision failed: ${err?.message || String(err)}`,
+      userMessage: "Could not provision server — your payment is being refunded.",
     });
   }
 });
@@ -459,7 +481,7 @@ router.get("/servers", requireAuth(0.01, 'general'), async (req: AuthenticatedRe
  * GET /compute/servers/:id — Get server details + live status
  * Cost: 0.01 USDC
  */
-router.get("/servers/:id", requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/servers/:id", requireAuth(0.01, 'general'), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const server = await computeService.getServer(String(req.params.id));
     res.json(server);
@@ -484,7 +506,7 @@ router.get("/servers/:id", requireAuth(0.01, 'general'), async (req: Authenticat
  *
  * Cost: 0.10 USDC
  */
-router.post("/servers/:id/actions", requireAuth(0.10, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/actions", requireAuth(0.10, 'general'), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { action, image } = req.body as { action: string; image?: string };
     const validActions: ServerAction[] = ["reboot", "poweron", "poweroff", "rebuild", "reset", "reset_password", "request_console"];
@@ -553,7 +575,7 @@ router.post("/servers/:id/actions", requireAuth(0.10, 'general'), async (req: Au
  * service-side before being passed to ssh as a single remote-shell argument,
  * so user input never interpolates into our own shell.
  */
-router.post("/servers/:id/exec", rateLimit(20, 60_000), requireAuth(0.05, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/exec", rateLimit(20, 60_000), requireAuth(0.05, 'general'), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { command, args, timeoutSec } = req.body as { command?: unknown; args?: unknown; timeoutSec?: unknown };
@@ -608,7 +630,7 @@ router.post("/servers/:id/exec", rateLimit(20, 60_000), requireAuth(0.05, 'gener
  * POST /compute/servers/:id/setup-ssh — Inject user's public key, disable password auth, delete root password from DB
  * This is the "zero access" handoff: after this, only the user can SSH in.
  */
-router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { publicKey } = req.body as { publicKey: string };
@@ -656,7 +678,7 @@ router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general', { discoverabl
 /**
  * GET /compute/servers/:id/verify — Verify OpenClaw installation on server
  */
-router.get("/servers/:id/verify", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/servers/:id/verify", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const row = db.prepare("SELECT ipv4, root_password FROM servers WHERE id = ?").get(serverId) as any;
@@ -711,7 +733,7 @@ router.get("/servers/:id/verify", requireAuth(0.01, 'general', { discoverable: f
  * POST /compute/servers/:id/configure-openclaw — Configure OpenClaw on the VPS
  * Writes openclaw.json config and sets up the Anthropic API key
  */
-router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const {
@@ -888,7 +910,7 @@ WantedBy=multi-user.target`;
 /**
  * POST /compute/servers/:id/remove-openclaw-config — Remove channel or model config
  */
-router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { remove } = req.body; // 'channel' or 'model'
@@ -945,7 +967,7 @@ router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general', 
 /**
  * POST /compute/servers/:id/install-skill — Install a skill on the VPS
  */
-router.post("/servers/:id/install-skill", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/install-skill", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { skillName, skillUrl } = req.body; // skillUrl = clawhub URL or git repo
@@ -1011,7 +1033,7 @@ router.post("/servers/:id/install-skill", requireAuth(0.01, 'general', { discove
 /**
  * POST /compute/servers/:id/install-skills-bulk — Install multiple skills at once
  */
-router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { skills } = req.body as { skills: string[] };
@@ -1095,7 +1117,7 @@ router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general', { d
 /**
  * POST /compute/servers/:id/remove-skill — Remove a skill from the VPS
  */
-router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { skillName } = req.body;
@@ -1219,7 +1241,7 @@ router.get("/skills/catalog", async (_req: AuthenticatedRequest, res: Response) 
 /**
  * POST /compute/servers/:id/configure-wallet — Push wallet addresses to VPS
  */
-router.post("/servers/:id/configure-wallet", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/configure-wallet", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { baseWallet, solanaWallet, baseAgent, solanaAgent, basePrivateKey, solanaPrivateKey } = req.body;
@@ -1314,7 +1336,7 @@ agentwallet send --wallet $AGENT_BASE_WALLET --to <recipient> --amount <amount> 
 /**
  * POST /compute/servers/:id/pairing-approve — Approve a pairing code on the VPS
  */
-router.post("/servers/:id/pairing-approve", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/pairing-approve", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { code, channel: chan } = req.body;
@@ -1425,7 +1447,7 @@ router.get("/skills/:slug/security", async (req: AuthenticatedRequest, res: Resp
 /**
  * POST /compute/servers/:id/install-clawhub-skills — Install skills from ClawHub via clawhub CLI
  */
-router.post("/servers/:id/install-clawhub-skills", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/install-clawhub-skills", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const { slugs } = req.body as { slugs: string[] };
@@ -1469,7 +1491,7 @@ router.post("/servers/:id/install-clawhub-skills", requireAuth(0.01, 'general', 
 /**
  * POST /compute/servers/:id/remove-all-skills — Remove all skills from the VPS
  */
-router.post("/servers/:id/remove-all-skills", requireAuth(0.01, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/remove-all-skills", requireAuth(0.01, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const serverId = String(req.params.id);
     const row = db.prepare("SELECT ipv4 FROM servers WHERE id = ?").get(serverId) as any;
@@ -1491,7 +1513,7 @@ router.post("/servers/:id/remove-all-skills", requireAuth(0.01, 'general', { dis
  * POST /compute/servers/:id/resize — Resize server (change plan)
  * Cost: 0.10 USDC (+ price difference on next billing)
  */
-router.post("/servers/:id/resize", requireAuth(0.10, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers/:id/resize", requireAuth(0.10, 'general', { discoverable: false }), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { serverType, upgradeDisk } = req.body as { serverType: string; upgradeDisk?: boolean };
 
@@ -1537,7 +1559,7 @@ function validateRenameBody(req: AuthenticatedRequest, res: Response, next: any)
   next();
 }
 
-router.put("/servers/:id", validateRenameBody, requireAuth(0.01, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.put("/servers/:id", validateRenameBody, requireAuth(0.01, 'general'), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name } = req.body as { name: string };
     const updated = await computeService.renameServer(String(req.params.id), name);
@@ -1562,7 +1584,7 @@ router.put("/servers/:id", validateRenameBody, requireAuth(0.01, 'general'), asy
  * DELETE /compute/servers/:id — Destroy server permanently
  * Cost: 0.05 USDC
  */
-router.delete("/servers/:id", requireAuth(0.10, 'general'), async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/servers/:id", requireAuth(0.10, 'general'), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     await computeService.deleteServer(String(req.params.id));
     res.json({ deleted: true, id: String(req.params.id), message: "Server permanently destroyed." });
