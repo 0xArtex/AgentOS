@@ -253,7 +253,10 @@ async function setPrivacy(page: any, privacy: 1 | 2): Promise<{ ok: boolean; val
     return { ok: false, error: "audience option not found in the dropdown" };
   }
   await opt.locator.click({ timeout: 4000 }).catch(() => {});
-  await page.waitForTimeout(600);
+  // Wait for the dropdown to close before reading back — a fixed sleep races the
+  // value update under latency.
+  await page.locator('[role="option"]').first().waitFor({ state: "detached", timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(200);
   const shown = await readValue();
   return { ok: wanted.test(shown), value: shown.slice(0, 40) };
 }
@@ -907,11 +910,15 @@ export async function deleteVideo(req: TikTokDeleteRequest): Promise<TikTokOpRes
     const confirm = page.locator('button:has-text("Delete"):visible, [role="button"]:has-text("Delete"):visible').last();
     await confirm.click({ timeout: 6000 });
 
-    // Success = the row's title link detaches from the manager.
-    const gone = await titleLink.waitFor({ state: "detached", timeout: 12000 }).then(() => true).catch(() => false);
-    if (!gone) {
-      const diag = await captureUiState(page, "delete-not-confirmed");
-      return { success: false, error: "Clicked delete but the post is still listed — confirmation may not have registered.", error_code: "UI_TIMEOUT", data: diag as any };
+    // The row detaching is the first signal — but a row can also detach from a
+    // re-sort/repaginate, so reload and re-confirm the post is genuinely gone.
+    await titleLink.waitFor({ state: "detached", timeout: 12000 }).catch(() => {});
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+    await page.locator('input[placeholder*="Search for post" i], a[href*="/video/"]').first().waitFor({ timeout: 15000 }).catch(() => {});
+    const stillThere = await page.locator(`a[href*="/video/${videoId}"]`).first().isVisible({ timeout: 5000 }).catch(() => false);
+    if (stillThere) {
+      const diag = await captureUiState(page, "delete-still-present");
+      return { success: false, error: "Clicked delete but the post still appears in the content manager.", error_code: "UI_TIMEOUT", data: diag as any };
     }
 
     recordAction(req.account_id, "tiktok", "delete");
@@ -1039,28 +1046,44 @@ export async function updateProfile(req: TikTokProfileRequest): Promise<TikTokOp
       return { success: false, error: "No profile fields were updated", error_code: "UI_TIMEOUT" };
     }
 
-    // Save; success = the modal dismisses (its Save button detaches).
-    const save = page.locator('[data-e2e="edit-profile-save"], button:has-text("Save"):visible').first();
-    await save.click({ timeout: 8000 });
-    const closed = await page.locator('[data-e2e="edit-profile-save"]').first()
-      .waitFor({ state: "detached", timeout: 12000 }).then(() => true).catch(() => false);
-    if (!closed) {
-      const diag = await captureUiState(page, "profile-save-stuck");
-      return { success: false, error: "Clicked Save but the Edit-profile modal didn't close — TikTok may have rejected the value.", error_code: "UI_TIMEOUT", data: diag as any };
+    // If the requested value(s) already match, TikTok keeps Save disabled — that
+    // is a no-op success (we're already in the desired state).
+    const save = page.locator('[data-e2e="edit-profile-save"]').first();
+    await save.waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
+    await page.waitForTimeout(500); // let the button's enabled-state settle after fill
+    if (await save.isDisabled().catch(() => false)) {
+      recordAction(req.account_id, "tiktok", "profile");
+      console.log(`[tiktok] profile values already current (Save disabled) — ${updated.join(", ")}`);
+      return { success: true, data: { updated } };
     }
 
-    // Read-back guard: TikTok closes the modal even when it silently rejects a
-    // nickname change (it limits nickname edits to roughly once a week). Don't
-    // report success if the profile title didn't actually change.
+    // Save. A bio TikTok dislikes is rejected INLINE (the modal stays open), so
+    // the modal-stays-open check catches bad-bio rejections directly.
+    await save.click({ timeout: 8000 });
+    const closed = await save.waitFor({ state: "detached", timeout: 12000 }).then(() => true).catch(() => false);
+    if (!closed) {
+      const diag = await captureUiState(page, "profile-save-stuck");
+      return { success: false, error: "Clicked Save but the Edit-profile modal didn't close — TikTok rejected the value.", error_code: "UI_TIMEOUT", data: diag as any };
+    }
+
+    // Read-back guard for the DISPLAY NAME only: TikTok SILENTLY rejects a
+    // nickname change when it's on cooldown (~once a week) — the modal closes
+    // regardless, so the only tell is the title not changing. (Bio rejections are
+    // inline, caught above, so bio needs no read-back.) Resilient to the profile's
+    // flaky loads: judge only once the title actually renders; if it never does,
+    // trust the closed modal rather than false-failing.
     if (req.display_name !== undefined) {
       const want = req.display_name.trim().toLowerCase();
-      let applied = false;
-      for (let i = 0; i < 6; i++) {
-        const title = ((await page.locator('[data-e2e="user-title"]').first().textContent({ timeout: 3000 }).catch(() => "")) || "").trim();
-        if (title && title.toLowerCase() === want) { applied = true; break; }
-        await page.waitForTimeout(800);
+      let verdict: "applied" | "mismatch" | "unknown" = "unknown";
+      for (let attempt = 0; attempt < 2 && verdict === "unknown"; attempt++) {
+        for (let i = 0; i < 6; i++) {
+          const title = ((await page.locator('[data-e2e="user-title"]').first().textContent({ timeout: 3000 }).catch(() => "")) || "").trim();
+          if (title) { verdict = title.toLowerCase() === want ? "applied" : "mismatch"; break; }
+          await page.waitForTimeout(700);
+        }
+        if (verdict === "unknown") await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
       }
-      if (!applied) {
+      if (verdict === "mismatch") {
         const toast = ((await page.locator('[class*="Toast" i], [role="alert"]').first().textContent({ timeout: 1500 }).catch(() => "")) || "").trim();
         return {
           success: false,
@@ -1115,6 +1138,10 @@ export async function updateAvatar(req: TikTokAvatarRequest): Promise<TikTokOpRe
       return { success: false, error: "Could not open the Edit-profile modal (session may be logged out).", error_code: "UI_TIMEOUT", data: diag as any };
     }
 
+    // Snapshot the current avatar URL (profile renders behind the modal) so we
+    // can confirm it actually changed after save.
+    const beforeSrc = await page.locator('[data-e2e="user-avatar"] img').first().getAttribute("src").catch(() => null);
+
     // The modal's hidden file input — setInputFiles works without clicking the
     // edit-icon first.
     const fileInput = page.locator('input[type="file"]').first();
@@ -1145,6 +1172,25 @@ export async function updateAvatar(req: TikTokAvatarRequest): Promise<TikTokOpRe
     if (!closed) {
       const diag = await captureUiState(page, "avatar-save-stuck");
       return { success: false, error: "Uploaded the avatar but the modal didn't close after Save.", error_code: "UI_TIMEOUT", data: diag as any };
+    }
+
+    // Read-back guard: the modal closes even if the crop step was skipped or the
+    // upload was silently dropped. Reload for the server-canonical avatar and
+    // confirm the URL changed. Only fail on a positively-unchanged avatar; if the
+    // (flaky) profile never renders the img, trust the closed modal.
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+    let verdict: "changed" | "same" | "unknown" = "unknown";
+    for (let i = 0; i < 8; i++) {
+      const nowSrc = await page.locator('[data-e2e="user-avatar"] img').first().getAttribute("src").catch(() => null);
+      if (nowSrc) {
+        if (nowSrc !== beforeSrc) { verdict = "changed"; break; }
+        verdict = "same"; // rendered but still the old URL — keep polling for propagation
+      }
+      await page.waitForTimeout(900);
+    }
+    if (verdict === "same") {
+      const diag = await captureUiState(page, "avatar-not-applied");
+      return { success: false, error: "Avatar upload did not take — the profile photo is unchanged after save.", error_code: "UI_TIMEOUT", data: diag as any };
     }
 
     recordAction(req.account_id, "tiktok", "profile");

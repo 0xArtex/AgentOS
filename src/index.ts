@@ -213,6 +213,7 @@ app.get("/version", (_req, res) => {
 // ── TikTok connect QR hand-off page (public, unauthenticated) ──
 // A human opens /connect/<token> to scan the login QR an agent forwarded them.
 import { getQr, renderQrPage, renderExpiredPage } from "./services/qr-handoff";
+import { warnIfSelfHosted } from "./services/self-hosted";
 app.get("/connect/:token", (req, res) => {
   const dataUrl = getQr(req.params.token);
   res.set("Content-Type", "text/html; charset=utf-8");
@@ -806,6 +807,7 @@ app.listen(config.port, () => {
   console.log(`   Network:  Solana (${config.solanaRpcUrl})`);
   console.log(`   Email:    *@${config.emailDomain}`);
   console.log(`   i402:     reference implementation wired at /chat`);
+  warnIfSelfHosted();
 });
 export default app;
 app.use(builderStatusRouter);

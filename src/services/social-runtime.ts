@@ -6,6 +6,8 @@
  * residential proxy, the UA/locale/timezone fingerprint.
  */
 
+import { isSelfHosted } from "./self-hosted";
+
 type Browser = any;
 type BrowserContext = any;
 type Page = any;
@@ -186,7 +188,7 @@ export async function openAuthenticatedSession(
   try {
     proxy = buildProxyConfig(sessionKey, { country: opts.country });
   } catch (e) {
-    if (process.env.PALMYR_SELF_HOSTED === "1") proxy = undefined;
+    if (isSelfHosted()) proxy = undefined;
     else throw e;
   }
 
