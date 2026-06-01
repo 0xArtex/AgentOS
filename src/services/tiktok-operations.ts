@@ -145,12 +145,21 @@ async function debugShot(page: any, tag: string): Promise<string | undefined> {
 async function captureUiState(
   page: any,
   tag: string,
-): Promise<{ diag_screenshot?: string; interactive_elements?: Array<{ role: string; name: string }> }> {
+): Promise<{ diag_screenshot?: string; interactive_elements?: Array<{ role: string; name: string }>; controls?: string }> {
   const [diag_screenshot, interactive_elements] = await Promise.all([
     debugShot(page, tag),
     axSnapshot(page),
   ]);
-  return { diag_screenshot, interactive_elements };
+  // Rich control dump (data-e2e / aria-label / tag / text) — more complete than
+  // the AX tree for pinning a rotated selector. Logged to the server console.
+  const controls: string = await page.evaluate(`(()=>{
+    const els=[...document.querySelectorAll('button,[role="button"],[data-e2e],input,textarea')].filter(e=>e.getClientRects().length>0);
+    const seen=new Set(); const out=[];
+    for(const e of els){ const t=(e.textContent||'').trim().slice(0,24); const de=e.getAttribute('data-e2e'); const al=e.getAttribute('aria-label'); if(!de&&!al&&!t)continue; const k=e.tagName+'|'+de+'|'+al+'|'+t; if(seen.has(k))continue; seen.add(k); out.push((de?'@'+de:'')+(al?' [al='+al+']':'')+' <'+e.tagName.toLowerCase()+(e.name?' name='+e.name:'')+'> '+t); if(out.length>=45)break; }
+    return out.join('  ||  ');
+  })()`).catch(() => "");
+  if (controls) console.log("[tiktok] " + tag + " controls: " + controls);
+  return { diag_screenshot, interactive_elements, controls };
 }
 
 /**
@@ -551,50 +560,6 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
     await captionBox.pressSequentially(req.caption, { delay: 15 });
     await page.waitForTimeout(500);
 
-    // Diagnostic: capture the editor (incl. the "Who can view" privacy control)
-    // and return WITHOUT posting, so we can pin selectors without publishing.
-    if (process.env.TIKTOK_DRYRUN === "1" && scheduleWhen) {
-      await page.evaluate(`(()=>{const r=document.querySelector('input[name="postSchedule"][value="schedule"]');if(r)r.click();})()`).catch(() => {});
-      await page.waitForTimeout(900);
-      await page.locator('button:has-text("Allow")').first().click({ timeout: 3000 }).catch(() => {});
-      await page.waitForTimeout(1200);
-      // open the time scroll-picker by clicking the time field
-      const fields = page.locator("input.TUXTextInputCore-input");
-      const c = await fields.count().catch(() => 0);
-      let timeF: any = null;
-      for (let i = 0; i < c; i++) { const v = String((await fields.nth(i).inputValue().catch(() => "")) || ""); if (/^\d{1,2}:\d{2}/.test(v)) timeF = fields.nth(i); }
-      if (timeF) { await timeF.click().catch(() => {}); await page.waitForTimeout(900); }
-      const tpDump: string = await page.evaluate(`(()=>{
-        const tp=document.querySelector('[class*="timepicker" i]');
-        if(!tp) return JSON.stringify({timepicker:false});
-        const lists=[...tp.querySelectorAll('[class*="option-list" i],[class*="scroll" i]')].filter(l=>l.getClientRects().length>0).map(l=>({cls:String(l.className).slice(0,50),n:l.children.length,first:[...l.children].slice(0,3).map(ch=>({tag:ch.tagName,cls:String(ch.className).slice(0,36),text:(ch.textContent||'').trim().slice(0,6)}))}));
-        const leaves=[...tp.querySelectorAll('*')].filter(e=>e.children.length===0&&/^\d{2}$/.test((e.textContent||'').trim())).slice(0,5).map(e=>({tag:e.tagName,cls:String(e.className).slice(0,40),text:e.textContent.trim()}));
-        return JSON.stringify({timepicker:true, lists:lists.slice(0,4), leaves});
-      })()`).catch((e: any)=>JSON.stringify({err:String(e?.message||e)}));
-      const diag = await captureUiState(page, "dryrun-timepicker");
-      console.log("[tiktok] DRYRUN timepicker: " + tpDump);
-      console.log("[tiktok] DRYRUN screenshot: " + diag.diag_screenshot);
-      return { success: false, error: "DRYRUN: timepicker dumped", error_code: "INVALID_INPUT", data: diag as any };
-    }
-    if (process.env.TIKTOK_DRYRUN === "1") {
-      const label = page.getByText(/Who can see this post/i).first();
-      const row = label.locator('xpath=ancestor::*[.//button[@role="combobox" and @aria-haspopup="dialog"]][1]');
-      const trig = row.locator('button[role="combobox"][aria-haspopup="dialog"]').first();
-      const beforeVal = String((await row.textContent().catch(() => "")) || "").replace(/who can see this post/i, "").trim().slice(0, 60);
-      await trig.click({ timeout: 4000 }).catch(() => {});
-      await page.waitForTimeout(900);
-      const dump: string = await page.evaluate(`(()=>{
-        const dlgs=[...document.querySelectorAll('[role="dialog"],[role="listbox"],[role="menu"]')].filter(d=>d.getClientRects().length>0);
-        const opts=[];
-        for(const d of dlgs){ for(const o of d.querySelectorAll('[role="option"],[role="menuitem"],[role="menuitemradio"],li,button,div')){ const t=(o.textContent||'').trim(); if(t&&t.length<60&&!opts.find(x=>x.text===t)) opts.push({tag:o.tagName,role:o.getAttribute('role'),text:t.slice(0,60)}); } }
-        return JSON.stringify({dialogs:dlgs.length, options:opts.slice(0,20)});
-      })()`).catch((e: any)=>JSON.stringify({err:String(e?.message||e)}));
-      const diag = await captureUiState(page, "dryrun-privacy-open");
-      console.log("[tiktok] DRYRUN before_value: " + beforeVal);
-      console.log("[tiktok] DRYRUN privacy_dialog: " + dump);
-      return { success: false, error: "DRYRUN: privacy dialog dumped", error_code: "INVALID_INPUT", data: diag as any };
-    }
-
     // Set the native schedule FIRST — doing it after the privacy dropdown leaves
     // the page in a state where the Schedule radio won't engage. ABORT before
     // submitting if it can't be applied, so a broken schedule never posts "now".
@@ -759,8 +724,9 @@ export async function followUser(req: TikTokFollowRequest): Promise<TikTokOpResu
     const follow = await resolveElement(page, [
       { name: "data-e2e", build: (p) => p.locator('[data-e2e="follow-button"]:has-text("Follow"):not(:has-text("Following"))') },
       { name: "role-name", build: (p) => p.getByRole("button", { name: /^follow$/i }) },
-      { name: "text", build: (p) => p.locator('button:has-text("Follow"):not(:has-text("Following"))') },
-    ], { perStrategyMs: 6000 });
+      { name: "text-exact", build: (p) => p.getByText(/^Follow$/) },
+      { name: "text", build: (p) => p.locator('button:has-text("Follow"):not(:has-text("Following")), [role="button"]:has-text("Follow"):not(:has-text("Following"))') },
+    ], { perStrategyMs: 8000 });
     if (!follow) {
       const diag = await captureUiState(page, "follow-btn-missing");
       return {
@@ -780,7 +746,17 @@ export async function followUser(req: TikTokFollowRequest): Promise<TikTokOpResu
     );
 
     if (!result) {
-      return { success: false, error: "No follow API call observed after click", error_code: "UI_TIMEOUT" };
+      // API endpoint may differ — confirm by the button flipping out of "Follow"
+      // (to Following / Friends / Requested).
+      const flipped = await page.locator('[data-e2e="follow-button"]:has-text("Following"), [data-e2e="follow-button"]:has-text("Friends"), [data-e2e="follow-button"]:has-text("Requested")')
+        .first().isVisible({ timeout: 4000 }).catch(() => false);
+      if (flipped) {
+        recordAction(req.account_id, "tiktok", "follow");
+        console.log("[tiktok] follow confirmed via button flip");
+        return { success: true, data: { followed: true } };
+      }
+      const diag = await captureUiState(page, "follow-no-confirm");
+      return { success: false, error: "No follow confirmation observed after click (no API, button didn't flip).", error_code: "UI_TIMEOUT", data: diag as any };
     }
     if (!result.ok) {
       return {
@@ -842,11 +818,14 @@ export async function likeVideo(req: TikTokLikeRequest): Promise<TikTokOpResult<
     const result = await submitAndAwaitTikTokApi(
       page,
       async () => { await like.locator.click({ timeout: 10000 }); },
-      /\/aweme\/v\d+\/(web\/)?commit\/item\/digg/,
+      /commit\/item\/digg|\/digg(\/|\?|$)/i,
       15000,
     );
 
-    if (!result) return { success: false, error: "No like API call observed", error_code: "UI_TIMEOUT" };
+    if (!result) {
+      const diag = await captureUiState(page, "like-no-api");
+      return { success: false, error: "No like API call observed (digg endpoint not seen).", error_code: "UI_TIMEOUT", data: diag as any };
+    }
     if (!result.ok) {
       return {
         success: false,
@@ -887,57 +866,112 @@ export async function deleteVideo(req: TikTokDeleteRequest): Promise<TikTokOpRes
     return { success: false, error: `Failed to open session: ${e.message}`, error_code: "LAUNCH_FAILED" };
   }
 
+  const videoId = idMatch[1];
   const { page, close } = session;
   try {
-    await page.goto(req.video_url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    // Deletion lives in the TikTok Studio post manager — NOT the public
+    // /video/ watch page, whose "..." menu only has player options + Report.
+    await page.goto("https://www.tiktok.com/tiktokstudio/content", { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.locator('input[placeholder*="Search for post" i], a[href*="/video/"]').first().waitFor({ timeout: 20000 }).catch(() => {});
 
-    // Open the more-actions menu (three dots / share), resiliently.
-    const more = await resolveElement(page, [
-      { name: "data-e2e", build: (p) => p.locator('[data-e2e="browse-video-desc-share-button"]') },
-      { name: "aria-label", build: (p) => p.locator('[aria-label*="More" i], [aria-label*="ption" i]') },
-      { name: "role-name", build: (p) => p.getByRole("button", { name: /more|options/i }) },
-    ], { perStrategyMs: 6000 });
-    if (more) await more.locator.click({ timeout: 10000 }).catch(() => {});
-
-    const del = await resolveElement(page, [
-      { name: "menuitem", build: (p) => p.getByRole("menuitem", { name: /^delete$/i }) },
-      { name: "role-button", build: (p) => p.getByRole("button", { name: /^delete$/i }) },
-      { name: "text", build: (p) => p.locator('text=/^Delete$/') },
-    ], { perStrategyMs: 6000 });
-    if (!del) {
-      const diag = await captureUiState(page, "delete-option-missing");
-      return { success: false, error: "Delete option not found in the video menu (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+    // Match the post's row by the video id carried in its title link.
+    const titleLink = page.locator(`a[href*="/video/${videoId}"]`).first();
+    if (!(await titleLink.isVisible({ timeout: 8000 }).catch(() => false))) {
+      const diag = await captureUiState(page, "delete-row-missing");
+      return { success: false, error: `Post ${videoId} not found in the content manager (already deleted, or on a later page).`, error_code: "NOT_FOUND", data: diag as any };
     }
 
-    const result = await submitAndAwaitTikTokApi(
-      page,
-      async () => {
-        await del.locator.click();
-        // TikTok shows a confirmation modal — click the confirm Delete. Use
-        // .last() so we hit the modal's button, not the menu item we just clicked.
-        const confirmBtn = page.locator('button:has-text("Delete"):visible, [role="button"]:has-text("Delete"):visible').last();
-        await confirmBtn.click({ timeout: 5000 }).catch(() => {});
-      },
-      /\/aweme\/v\d+\/(web\/)?aweme\/delete|\/passport\/web\/item\/delete/,
-      15000,
-    );
+    // Row = nearest ancestor that also holds the privacy (TUXButton) control;
+    // the "..." more-trigger is the last (icon-only) button in that row.
+    const row = titleLink.locator('xpath=ancestor::*[.//button[contains(@class,"TUXButton")]][1]');
+    const moreBtn = row.locator("button").last();
+    await moreBtn.click({ timeout: 8000 });
+    await page.waitForTimeout(800);
 
-    if (!result) return { success: false, error: "No delete API call observed", error_code: "UI_TIMEOUT" };
-    if (!result.ok) {
-      return {
-        success: false,
-        error: result.errorMessage || `HTTP ${result.status}`,
-        error_code: mapTikTokError(result.status, result.statusCode),
-      };
+    // Popup menu (Pin to top / Download / Delete) — the red "Delete" raises a
+    // confirm dialog (it does NOT delete on its own).
+    const menuDelete = await resolveElement(page, [
+      { name: "menuitem", build: (p) => p.getByRole("menuitem", { name: /^delete$/i }) },
+      { name: "text", build: (p) => p.getByText(/^Delete$/) },
+    ], { perStrategyMs: 5000 });
+    if (!menuDelete) {
+      const diag = await captureUiState(page, "delete-menu-missing");
+      return { success: false, error: "Delete not found in the post's '...' menu (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+    }
+    await menuDelete.locator.click({ timeout: 5000 });
+    await page.waitForTimeout(800);
+
+    // Confirm dialog → the LAST visible "Delete" button actually performs it
+    // (the menu item we just clicked is now hidden, so :visible scopes us to
+    // the dialog button).
+    const confirm = page.locator('button:has-text("Delete"):visible, [role="button"]:has-text("Delete"):visible').last();
+    await confirm.click({ timeout: 6000 });
+
+    // Success = the row's title link detaches from the manager.
+    const gone = await titleLink.waitFor({ state: "detached", timeout: 12000 }).then(() => true).catch(() => false);
+    if (!gone) {
+      const diag = await captureUiState(page, "delete-not-confirmed");
+      return { success: false, error: "Clicked delete but the post is still listed — confirmation may not have registered.", error_code: "UI_TIMEOUT", data: diag as any };
     }
 
     recordAction(req.account_id, "tiktok", "delete");
+    console.log(`[tiktok] deleted post ${videoId} via Studio content manager`);
     return { success: true, data: { deleted: true } };
   } catch (e: any) {
     return { success: false, error: e.message || String(e), error_code: "UNKNOWN" };
   } finally {
     await close();
   }
+}
+
+/**
+ * Reach the logged-in user's own profile (via the left-nav profile link — no
+ * username needed) and open the "Edit profile" modal. Bio, display name and
+ * avatar all live behind this single modal (TikTok moved them off /setting).
+ * Returns true once the modal's Save button is present.
+ */
+async function openEditProfileModal(page: any): Promise<boolean> {
+  // Resolve our own profile URL from the nav link, then navigate to it
+  // directly — more reliable than clicking, which the SPA can race or an
+  // overlay can intercept.
+  if (!/tiktok\.com\/@[\w.]/.test(String(page.url()))) {
+    await page.goto("https://www.tiktok.com/foryou", { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+    const navLink = page.locator('a[data-e2e="nav-profile"]').first();
+    // waitFor (not isVisible) so we poll until the SPA nav hydrates.
+    await navLink.waitFor({ state: "visible", timeout: 15000 }).catch(() => {});
+    // The href hydrates from a bare "/@" placeholder to "/@<username>" a beat
+    // after the link appears — poll until a real username is present, else the
+    // direct navigation 404s.
+    let href: string | null = null;
+    for (let i = 0; i < 12; i++) {
+      href = await navLink.getAttribute("href").catch(() => null);
+      if (href && /\/@[\w.]+/.test(href)) break;
+      await page.waitForTimeout(700);
+    }
+    if (href && /\/@[\w.]+/.test(href)) {
+      const url = href.startsWith("http") ? href : `https://www.tiktok.com${href}`;
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+    } else {
+      // Fallback: let the SPA navigate (it knows the username internally).
+      await navLink.click().catch(() => {});
+      await page.waitForTimeout(2000);
+    }
+  }
+  // The profile can transiently render "Something went wrong" or a bare splash
+  // on first load — reload-and-retry a few times before giving up.
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const entrance = page.locator('[data-e2e="edit-profile-entrance"]').first();
+    if (await entrance.waitFor({ state: "visible", timeout: 12000 }).then(() => true).catch(() => false)) {
+      await entrance.click({ timeout: 8000 }).catch(() => {});
+      if (await page.locator('[data-e2e="edit-profile-save"]').first()
+        .waitFor({ state: "visible", timeout: 10000 }).then(() => true).catch(() => false)) {
+        return true;
+      }
+    }
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 45000 }).catch(() => {});
+    await page.waitForTimeout(2500);
+  }
+  return false;
 }
 
 export interface TikTokProfileRequest extends TikTokOpRequest {
@@ -974,91 +1008,70 @@ export async function updateProfile(req: TikTokProfileRequest): Promise<TikTokOp
   const { page, close } = session;
   const updated: string[] = [];
   try {
-    await page.goto("https://www.tiktok.com/setting", { waitUntil: "domcontentloaded", timeout: 45000 });
+    // Name + bio share one "Edit profile" modal on the profile page.
+    const opened = await openEditProfileModal(page);
+    if (!opened) {
+      const diag = await captureUiState(page, "edit-profile-entrance-missing");
+      return { success: false, error: "Could not open the Edit-profile modal (session may be logged out).", error_code: "UI_TIMEOUT", data: diag as any };
+    }
 
     if (req.display_name !== undefined) {
-      const name = await resolveElement(page, [
-        { name: "attr", build: (p) => p.locator('input[name="nickName"], input[data-e2e="edit-profile-nickname"]') },
-        { name: "role-name", build: (p) => p.getByRole("textbox", { name: /name|nickname/i }) },
-      ], { perStrategyMs: 8000 });
-      if (!name) {
+      const nameInput = page.locator('input[data-e2e="edit-profile-name"], input[placeholder="Name" i]').first();
+      if (!(await nameInput.isVisible({ timeout: 6000 }).catch(() => false))) {
         const diag = await captureUiState(page, "name-input-missing");
-        return { success: false, error: "Display-name input not found (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+        return { success: false, error: "Name input not found in the Edit-profile modal.", error_code: "UI_TIMEOUT", data: diag as any };
       }
-      const nameInput = name.locator;
-      try {
-        await nameInput.click();
-        await page.keyboard.press("Control+A");
-        await page.keyboard.press("Delete");
-        await nameInput.pressSequentially(req.display_name, { delay: 30 });
-
-        const result = await submitAndAwaitTikTokApi(
-          page,
-          async () => {
-            const save = await resolveElement(page, [
-              { name: "role-name", build: (p) => p.getByRole("button", { name: /^save$/i }) },
-              { name: "text", build: (p) => p.locator('button:has-text("Save"):visible') },
-            ], { perStrategyMs: 5000 });
-            if (!save) throw new Error("Save button not found");
-            await save.locator.click({ timeout: 5000 });
-          },
-          /\/passport\/web\/user\/update|\/aweme\/v\d+\/(web\/)?user\/update/,
-          15000,
-        );
-
-        if (result?.ok) updated.push("display_name");
-        else if (result?.errorMessage) {
-          return { success: false, error: `Display name: ${result.errorMessage}`, error_code: mapTikTokError(result.status, result.statusCode) };
-        }
-      } catch (e: any) {
-        return { success: false, error: `Failed to update display name: ${e.message}`, error_code: "UI_TIMEOUT" };
-      }
+      await nameInput.fill(req.display_name);
+      updated.push("display_name");
     }
 
     if (req.bio !== undefined) {
-      const bio = await resolveElement(page, [
-        { name: "attr", build: (p) => p.locator('textarea[name="signature"], [data-e2e="edit-profile-bio"]') },
-        { name: "role-name", build: (p) => p.getByRole("textbox", { name: /bio|signature/i }) },
-      ], { perStrategyMs: 8000 });
-      if (!bio) {
+      const bioInput = page.locator('textarea[data-e2e="edit-profile-bio-input"], textarea[placeholder="Bio" i]').first();
+      if (!(await bioInput.isVisible({ timeout: 6000 }).catch(() => false))) {
         const diag = await captureUiState(page, "bio-input-missing");
-        return { success: false, error: "Bio input not found (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+        return { success: false, error: "Bio input not found in the Edit-profile modal.", error_code: "UI_TIMEOUT", data: diag as any };
       }
-      const bioInput = bio.locator;
-      try {
-        await bioInput.click();
-        await page.keyboard.press("Control+A");
-        await page.keyboard.press("Delete");
-        if (req.bio) await bioInput.pressSequentially(req.bio, { delay: 20 });
-
-        const result = await submitAndAwaitTikTokApi(
-          page,
-          async () => {
-            const save = await resolveElement(page, [
-              { name: "role-name", build: (p) => p.getByRole("button", { name: /^save$/i }) },
-              { name: "text", build: (p) => p.locator('button:has-text("Save"):visible') },
-            ], { perStrategyMs: 5000 });
-            if (!save) throw new Error("Save button not found");
-            await save.locator.click({ timeout: 5000 });
-          },
-          /\/passport\/web\/user\/update|\/aweme\/v\d+\/(web\/)?user\/update/,
-          15000,
-        );
-
-        if (result?.ok) updated.push("bio");
-        else if (result?.errorMessage) {
-          return { success: false, error: `Bio: ${result.errorMessage}`, error_code: mapTikTokError(result.status, result.statusCode) };
-        }
-      } catch (e: any) {
-        return { success: false, error: `Failed to update bio: ${e.message}`, error_code: "UI_TIMEOUT" };
-      }
+      await bioInput.fill(req.bio);
+      updated.push("bio");
     }
 
     if (updated.length === 0) {
       return { success: false, error: "No profile fields were updated", error_code: "UI_TIMEOUT" };
     }
 
+    // Save; success = the modal dismisses (its Save button detaches).
+    const save = page.locator('[data-e2e="edit-profile-save"], button:has-text("Save"):visible').first();
+    await save.click({ timeout: 8000 });
+    const closed = await page.locator('[data-e2e="edit-profile-save"]').first()
+      .waitFor({ state: "detached", timeout: 12000 }).then(() => true).catch(() => false);
+    if (!closed) {
+      const diag = await captureUiState(page, "profile-save-stuck");
+      return { success: false, error: "Clicked Save but the Edit-profile modal didn't close — TikTok may have rejected the value.", error_code: "UI_TIMEOUT", data: diag as any };
+    }
+
+    // Read-back guard: TikTok closes the modal even when it silently rejects a
+    // nickname change (it limits nickname edits to roughly once a week). Don't
+    // report success if the profile title didn't actually change.
+    if (req.display_name !== undefined) {
+      const want = req.display_name.trim().toLowerCase();
+      let applied = false;
+      for (let i = 0; i < 6; i++) {
+        const title = ((await page.locator('[data-e2e="user-title"]').first().textContent({ timeout: 3000 }).catch(() => "")) || "").trim();
+        if (title && title.toLowerCase() === want) { applied = true; break; }
+        await page.waitForTimeout(800);
+      }
+      if (!applied) {
+        const toast = ((await page.locator('[class*="Toast" i], [role="alert"]').first().textContent({ timeout: 1500 }).catch(() => "")) || "").trim();
+        return {
+          success: false,
+          error: `Display name did not apply${toast ? ` (TikTok: "${toast}")` : " — TikTok limits nickname changes to about once a week"}.`,
+          error_code: "RATE_LIMITED",
+        };
+      }
+    }
+
     recordAction(req.account_id, "tiktok", "profile");
+    console.log(`[tiktok] updated profile (${updated.join(", ")}) via Edit-profile modal`);
     return { success: true, data: { updated } };
   } catch (e: any) {
     return { success: false, error: e.message || String(e), error_code: "UNKNOWN" };
@@ -1095,42 +1108,47 @@ export async function updateAvatar(req: TikTokAvatarRequest): Promise<TikTokOpRe
 
   const { page, close } = session;
   try {
-    await page.goto("https://www.tiktok.com/setting", { waitUntil: "domcontentloaded", timeout: 45000 });
-
-    // The avatar file input — prefer the image-scoped one, fall back to any.
-    const avatarInput = await resolveElement(page, [
-      { name: "image-input", build: (p) => p.locator('input[type="file"][accept*="image"]') },
-      { name: "any-input", build: (p) => p.locator('input[type="file"]') },
-    ], { state: "attached", perStrategyMs: 15000 });
-    if (!avatarInput) {
-      const diag = await captureUiState(page, "avatar-input-missing");
-      return { success: false, error: "Avatar file input not found (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+    // Avatar lives behind the same "Edit profile" modal as bio/name.
+    const opened = await openEditProfileModal(page);
+    if (!opened) {
+      const diag = await captureUiState(page, "edit-profile-entrance-missing");
+      return { success: false, error: "Could not open the Edit-profile modal (session may be logged out).", error_code: "UI_TIMEOUT", data: diag as any };
     }
-    await avatarInput.locator.setInputFiles(image.filePath);
 
-    // Wait for the crop modal's accept button (best-effort; some variants auto-apply).
-    const confirm = await resolveElement(page, [
-      { name: "role-name", build: (p) => p.getByRole("button", { name: /apply|save|confirm/i }) },
-      { name: "text", build: (p) => p.locator('button:has-text("Apply"), button:has-text("Save"), button:has-text("Confirm")') },
-    ], { perStrategyMs: 15000 });
+    // The modal's hidden file input — setInputFiles works without clicking the
+    // edit-icon first.
+    const fileInput = page.locator('input[type="file"]').first();
+    if (!(await fileInput.count())) {
+      const diag = await captureUiState(page, "avatar-input-missing");
+      return { success: false, error: "Avatar file input not found in the Edit-profile modal.", error_code: "UI_TIMEOUT", data: diag as any };
+    }
+    await fileInput.setInputFiles(image.filePath);
+    await page.waitForTimeout(1500);
 
-    const result = await submitAndAwaitTikTokApi(
-      page,
-      async () => { if (confirm) await confirm.locator.click({ timeout: 10000 }).catch(() => {}); },
-      /\/passport\/web\/user\/update|\/aweme\/v\d+\/(web\/)?user\/(update|avatar)/,
-      20000,
-    );
+    // Uploading opens a crop/preview dialog — confirm it (Apply/Confirm/Done).
+    // Prefer those over "Save" so we don't accidentally hit the modal's own
+    // Save button, which sits behind the crop dialog.
+    const cropConfirm = await resolveElement(page, [
+      { name: "role", build: (p) => p.getByRole("button", { name: /^(apply|confirm|done)$/i }) },
+      { name: "text", build: (p) => p.locator('button:visible', { hasText: /^(Apply|Confirm|Done)$/ }) },
+    ], { perStrategyMs: 8000 });
+    if (cropConfirm) {
+      await cropConfirm.locator.click({ timeout: 6000 }).catch(() => {});
+      await page.waitForTimeout(1200);
+    }
 
-    if (!result) return { success: false, error: "No avatar API call observed", error_code: "UI_TIMEOUT" };
-    if (!result.ok) {
-      return {
-        success: false,
-        error: result.errorMessage || `HTTP ${result.status}`,
-        error_code: mapTikTokError(result.status, result.statusCode),
-      };
+    // Save the modal; success = it dismisses.
+    const save = page.locator('[data-e2e="edit-profile-save"], button:has-text("Save"):visible').first();
+    await save.click({ timeout: 8000 }).catch(() => {});
+    const closed = await page.locator('[data-e2e="edit-profile-save"]').first()
+      .waitFor({ state: "detached", timeout: 12000 }).then(() => true).catch(() => false);
+    if (!closed) {
+      const diag = await captureUiState(page, "avatar-save-stuck");
+      return { success: false, error: "Uploaded the avatar but the modal didn't close after Save.", error_code: "UI_TIMEOUT", data: diag as any };
     }
 
     recordAction(req.account_id, "tiktok", "profile");
+    console.log("[tiktok] updated avatar via Edit-profile modal");
     return { success: true, data: { updated: true } };
   } catch (e: any) {
     return { success: false, error: e.message || String(e), error_code: "UNKNOWN" };
