@@ -30,6 +30,14 @@ export function requireAuth(
     typeof minUsdc === "function" ? minUsdc(req) : minUsdc;
 
   const handler = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    // Self-hosted single-operator instance: the operator owns the server, so
+    // there's no paywall — pass everything through free. Gated behind an
+    // explicit env flag that hosted/prod deployments never set.
+    if (process.env.PALMYR_SELF_HOSTED === "1") {
+      req.agentId = req.agentId || "self-hosted";
+      next();
+      return;
+    }
     const price = resolvePrice(req);
 
     const authHeader = req.headers["authorization"]?.toString().replace("Bearer ", "");

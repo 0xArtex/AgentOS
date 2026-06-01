@@ -153,6 +153,102 @@ async function captureUiState(
   return { diag_screenshot, interactive_elements };
 }
 
+/**
+ * TikTok Studio pops intro / promo / consent modals (`TUXModal-overlay`) that
+ * intercept pointer events — especially on a fresh profile — so a click on the
+ * caption box or Post button silently times out. Best-effort dismiss before we
+ * interact: try a close/affirmative button, else press Escape. Returns true if a
+ * modal was present.
+ */
+async function dismissBlockingModal(page: any, windowMs: number = 12000): Promise<boolean> {
+  // The "Turn on automatic content checks?" modal (Cancel/Turn on) appears a few
+  // seconds AFTER the upload finishes — not necessarily when the editor first
+  // renders — and a "New features" toast can stack on it. So POLL for an overlay
+  // across a window and dismiss whatever appears, proceeding only once it's been
+  // clear for a couple of checks. "Cancel" dismisses the content-checks prompt
+  // without enabling the optional checks (we just want to post).
+  // Dismiss inside page JS via a programmatic .click() — a real mouse click is
+  // defeated by the overlay's pointer-event interception, but el.click() still
+  // fires React's handler. We scan each visible overlay for a dismiss button by
+  // exact label and click it; logs the buttons it sees for diagnosis.
+  let dismissed = false;
+  let consecutiveClear = 0;
+  const deadline = Date.now() + windowMs;
+  while (Date.now() < deadline && consecutiveClear < 2) {
+    const res: string = await page.evaluate(`(()=>{
+      const ovs=[...document.querySelectorAll('.TUXModal-overlay,.react-joyride__overlay')].filter(o=>o.getClientRects().length>0);
+      if(!ovs.length) return JSON.stringify({open:0});
+      // react-joyride explicit skip/close first (its buttons sit OUTSIDE the overlay).
+      for(const id of ['button-skip','button-close']){
+        const el=document.querySelector('[data-test-id="'+id+'"]');
+        if(el && el.getClientRects().length){ el.click(); return JSON.stringify({open:ovs.length, clicked:id}); }
+      }
+      // text-labelled dismiss buttons anywhere (TUX "Cancel", joyride "Got it"/"Skip"/"Next").
+      const labels=['cancel','skip','skip all','skip tour','got it','no thanks','not now','maybe later','close','dismiss','done','finish','next'];
+      const btns=[...document.querySelectorAll('button,[role="button"]')].filter(b=>b.getClientRects().length>0);
+      const seen=btns.map(b=>(b.textContent||'').trim()).filter(Boolean).slice(0,15);
+      for(const b of btns){ const t=(b.textContent||'').trim().toLowerCase(); if(labels.includes(t)){ b.click(); return JSON.stringify({open:ovs.length, clicked:t, buttons:seen}); } }
+      const x=document.querySelector('[aria-label*="lose" i],[aria-label*="dismiss" i],[aria-label*="kip" i]');
+      if(x && x.getClientRects().length){ x.click(); return JSON.stringify({open:ovs.length, clicked:'[aria]', buttons:seen}); }
+      return JSON.stringify({open:ovs.length, clicked:null, buttons:seen});
+    })()`).catch((e: any) => JSON.stringify({ err: String(e?.message || e) }));
+    console.log("[tiktok] modal-dismiss: " + res);
+    let parsed: any = {};
+    try { parsed = JSON.parse(res); } catch {}
+    if (parsed.open) {
+      consecutiveClear = 0;
+      if (parsed.clicked) dismissed = true;
+      else await page.keyboard.press("Escape").catch(() => {});
+      await page.waitForTimeout(700);
+    } else {
+      consecutiveClear++;
+      await page.waitForTimeout(500);
+    }
+  }
+  return dismissed;
+}
+
+/**
+ * Set the "Who can see this post" audience. It's a
+ * `button[role="combobox"][aria-haspopup="dialog"]` showing the current value
+ * ("Everyone" by default); we open it and pick the option, then VERIFY the
+ * trigger now shows the wanted value. Returns ok=false if it can't be confirmed
+ * — the caller ABORTS rather than publish to the wrong audience.
+ */
+async function setPrivacy(page: any, privacy: 1 | 2): Promise<{ ok: boolean; value?: string; error?: string }> {
+  // Audience options are [role="option"]; the private one is exactly "Only you".
+  const wanted = privacy === 2 ? /only you/i : /friends/i;
+  // Scope to the "Who can see this post" row — there are other comboboxes on the
+  // page (e.g. Location), so a bare .first() grabs the wrong one.
+  const label = page.getByText(/Who can see this post/i).first();
+  if (!(await label.isVisible({ timeout: 4000 }).catch(() => false))) {
+    return { ok: false, error: "'Who can see this post' label not found" };
+  }
+  const row = label.locator('xpath=ancestor::*[.//button[@role="combobox" and @aria-haspopup="dialog"]][1]');
+  const trigger = row.locator('button[role="combobox"][aria-haspopup="dialog"]').first();
+  // The value lives in a child div, not the button's textContent — read it off
+  // the whole row (minus the label).
+  const readValue = async () =>
+    String((await row.textContent().catch(() => "")) || "").replace(/who can see this post/i, "").trim();
+  if (!(await trigger.isVisible({ timeout: 3000 }).catch(() => false))) {
+    return { ok: false, error: "audience dropdown not found in the row" };
+  }
+  await trigger.click({ timeout: 4000 }).catch(() => {});
+  await page.waitForTimeout(700);
+  const opt = await resolveElement(page, [
+    { name: "role-option", build: (p) => p.getByRole("option", { name: wanted }) },
+    { name: "dialog-text", build: (p) => p.locator('[role="dialog"],[role="listbox"]').getByText(wanted) },
+  ], { perStrategyMs: 2500 });
+  if (!opt) {
+    await page.keyboard.press("Escape").catch(() => {});
+    return { ok: false, error: "audience option not found in the dropdown" };
+  }
+  await opt.locator.click({ timeout: 4000 }).catch(() => {});
+  await page.waitForTimeout(600);
+  const shown = await readValue();
+  return { ok: wanted.test(shown), value: shown.slice(0, 40) };
+}
+
 /* ─── API response interceptor ─────────────────────────────────────────── */
 
 interface ApiResult {
@@ -251,68 +347,72 @@ function gate(accountId: string, operation: string): TikTokOpResult | null {
  * failure carries AX diagnostics so the real widget can be seen and refined.
  */
 async function applySchedule(page: any, when: WallClock): Promise<{ ok: boolean; error?: string }> {
-  // 1. Switch "When to post" to Schedule.
-  const toggle = await resolveElement(page, [
-    { name: "role-radio", build: (p) => p.getByRole("radio", { name: /schedule/i }) },
-    { name: "text", build: (p) => p.locator('label:has-text("Schedule"), [role="radio"]:has-text("Schedule")') },
-  ], { perStrategyMs: 6000 });
-  if (!toggle) return { ok: false, error: "schedule toggle not found" };
-  await toggle.locator.click({ timeout: 5000 }).catch(() => {});
-  await page.waitForTimeout(800);
+  // 1. Select the "Schedule" radio. It's a styled, label-driven radio
+  //    (input.Radio__input is visually hidden), so click the input by value in JS.
+  // Select "Schedule" via a real click on its label — a JS .click() on the
+  // hidden radio input doesn't reliably fire React's onChange (so the consent
+  // modal never shows and TikTok reverts to "Now").
+  const sched = await resolveElement(page, [
+    { name: "label", build: (p) => p.locator('label:has(input[name="postSchedule"][value="schedule"])') },
+    { name: "text", build: (p) => p.getByText("Schedule", { exact: true }) },
+  ], { perStrategyMs: 4000 });
+  if (!sched) return { ok: false, error: "'Schedule' option not found" };
+  await sched.locator.click({ timeout: 4000 }).catch(() => {});
+  await page.waitForTimeout(1000);
+  const sel = sched.strategy;
 
-  // 2. Time field (HH:MM, 24h). Type, then verify it stuck.
-  const timeStr = `${pad2(when.h)}:${pad2(when.mi)}`;
-  const time = await resolveElement(page, [
-    { name: "aria", build: (p) => p.locator('input[aria-label*="time" i]') },
-    { name: "placeholder", build: (p) => p.locator('input[placeholder*="time" i], input[placeholder="HH:MM"]') },
-  ], { perStrategyMs: 5000 });
-  if (!time) return { ok: false, error: "time field not found" };
-  try {
-    await time.locator.click();
+  // 2. Consent modal "Allow your video to be saved for scheduled posting?" — its
+  //    TUX overlay intercepts real mouse clicks, so JS-click the Allow button
+  //    (NOT Cancel). Without this, Schedule reverts to "Now".
+  const allowed: boolean = await page.evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^allow$/i.test((x.textContent||'').trim()));if(b){b.click();return true;}return false;})()`).catch(() => false);
+  await page.waitForTimeout(1300);
+
+  // 3. Date + time are plain text inputs (TUXTextInputCore-input): "YYYY-MM-DD"
+  //    and "HH:MM" (24h, 5-min granularity). Type, then VERIFY — abort on
+  //    mismatch so we never publish at the wrong time.
+  let hh = when.h, mi = Math.round(when.mi / 5) * 5;
+  if (mi === 60) { mi = 0; hh = (hh + 1) % 24; }
+  const timeStr = `${pad2(hh)}:${pad2(mi)}`;
+  const dateStr = `${when.y}-${pad2(when.mo)}-${pad2(when.d)}`;
+
+  const findFields = async (): Promise<{ t: any; d: any }> => {
+    let t: any = null, d: any = null;
+    const fields = page.locator("input.TUXTextInputCore-input");
+    const c = await fields.count().catch(() => 0);
+    for (let i = 0; i < c; i++) {
+      const v = String((await fields.nth(i).inputValue().catch(() => "")) || "");
+      if (/^\d{1,2}:\d{2}/.test(v)) t = fields.nth(i);
+      else if (/^\d{4}-\d{2}-\d{2}/.test(v)) d = fields.nth(i);
+    }
+    return { t, d };
+  };
+  let timeInput: any = null, dateInput: any = null;
+  for (let attempt = 0; attempt < 4 && (!timeInput || !dateInput); attempt++) {
+    const f = await findFields();
+    timeInput = timeInput || f.t; dateInput = dateInput || f.d;
+    if (!timeInput || !dateInput) await page.waitForTimeout(800);
+  }
+  console.log(`[tiktok] schedule: radio=${sel} allow=${allowed} time_field=${!!timeInput} date_field=${!!dateInput}`);
+  if (!timeInput || !dateInput) return { ok: false, error: "date/time fields not found after enabling Schedule" };
+
+  const setField = async (input: any, value: string) => {
+    await input.click().catch(() => {});
     await page.keyboard.press("Control+A");
     await page.keyboard.press("Delete");
-    await time.locator.pressSequentially(timeStr, { delay: 40 });
+    await input.pressSequentially(value, { delay: 40 });
     await page.keyboard.press("Enter");
-  } catch (e: any) {
-    return { ok: false, error: `time field not editable: ${e.message}` };
-  }
-  const tval = await time.locator.inputValue().catch(() => null);
-  if (!tval || !tval.includes(pad2(when.h)) || !tval.includes(pad2(when.mi))) {
-    return { ok: false, error: `time field did not accept ${timeStr} (read back "${tval}")` };
-  }
+    await page.waitForTimeout(400);
+    await page.keyboard.press("Escape").catch(() => {}); // close any picker popup
+    await page.waitForTimeout(200);
+  };
+  await setField(dateInput, dateStr);
+  await setField(timeInput, timeStr);
 
-  // 3. Date field. Calendar formats vary by locale, so try a few typed forms and
-  //    verify the year + day landed.
-  const date = await resolveElement(page, [
-    { name: "aria", build: (p) => p.locator('input[aria-label*="date" i]') },
-    { name: "placeholder", build: (p) => p.locator('input[placeholder*="date" i], input[placeholder*="-"], input[placeholder*="/"]') },
-  ], { perStrategyMs: 5000 });
-  if (!date) return { ok: false, error: "date field not found" };
-  const candidates = [
-    `${when.y}-${pad2(when.mo)}-${pad2(when.d)}`,
-    `${pad2(when.mo)}/${pad2(when.d)}/${when.y}`,
-    `${pad2(when.d)}/${pad2(when.mo)}/${when.y}`,
-  ];
-  let dateOk = false;
-  for (const cand of candidates) {
-    try {
-      await date.locator.click();
-      await page.keyboard.press("Control+A");
-      await page.keyboard.press("Delete");
-      await date.locator.pressSequentially(cand, { delay: 40 });
-      await page.keyboard.press("Enter");
-    } catch {
-      continue;
-    }
-    const dval = await date.locator.inputValue().catch(() => null);
-    // Verify year + MONTH + day all landed. Omitting month let a locale that
-    // transposes MM/DD vs DD/MM still pass (includes(year)&&includes(day)) and
-    // silently schedule to the wrong month. Every candidate contains pad2(month),
-    // so a correctly-accepted date still passes — this only adds false-negatives.
-    if (dval && dval.includes(String(when.y)) && dval.includes(pad2(when.mo)) && dval.includes(pad2(when.d))) { dateOk = true; break; }
-  }
-  if (!dateOk) return { ok: false, error: "date field did not accept a typed date (calendar-only widget?)" };
-
+  const dv = String((await dateInput.inputValue().catch(() => "")) || "");
+  const tv = String((await timeInput.inputValue().catch(() => "")) || "");
+  if (!dv.startsWith(dateStr)) return { ok: false, error: `date field shows "${dv}", expected ${dateStr}` };
+  if (!tv.startsWith(timeStr)) return { ok: false, error: `time field shows "${tv}", expected ${timeStr}` };
+  console.log(`[tiktok] schedule set to ${dateStr} ${timeStr}`);
   return { ok: true };
 }
 
@@ -419,6 +519,9 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
     const captionBox = caption.locator;
     console.log(`[tiktok] caption editor resolved via ${caption.strategy}`);
 
+    // Clear any blocking intro/consent modal before interacting with the editor.
+    if (await dismissBlockingModal(page)) console.log("[tiktok] dismissed a blocking modal overlay");
+
     // Clear any auto-filled caption, type the user's caption.
     await captionBox.click();
     await page.keyboard.press("Control+A");
@@ -426,13 +529,64 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
     await captionBox.pressSequentially(req.caption, { delay: 15 });
     await page.waitForTimeout(500);
 
+    // Diagnostic: capture the editor (incl. the "Who can view" privacy control)
+    // and return WITHOUT posting, so we can pin selectors without publishing.
+    if (process.env.TIKTOK_DRYRUN === "1" && scheduleWhen) {
+      await page.evaluate(`(()=>{const r=document.querySelector('input[name="postSchedule"][value="schedule"]');if(r)r.click();})()`).catch(() => {});
+      await page.waitForTimeout(900);
+      // consent modal: "Allow your video to be saved for scheduled posting?"
+      await page.locator('button:has-text("Allow")').first().click({ timeout: 4000 }).catch(() => {});
+      await page.waitForTimeout(1300);
+      // date/time picker trigger = a button[aria-haspopup=dialog] that is NOT one of the Select__trigger dropdowns
+      const dt = page.locator('button[aria-haspopup="dialog"]:not(.Select__trigger)').first();
+      const dtText = String((await dt.textContent().catch(() => "")) || "").trim();
+      await dt.click({ timeout: 4000 }).catch(() => {});
+      await page.waitForTimeout(1000);
+      const schedDom: string = await page.evaluate(`(()=>{
+        const dlgs=[...document.querySelectorAll('[role="dialog"],[class*="Picker" i],[class*="Calendar" i]')].filter(d=>d.getClientRects().length>0).map(d=>({cls:String(d.className).slice(0,60),text:(d.textContent||'').trim().slice(0,160)}));
+        const inputs=[...document.querySelectorAll('input')].filter(i=>i.getClientRects().length>0).map(i=>({type:i.type,ph:i.placeholder,aria:i.getAttribute('aria-label'),val:i.value,cls:String(i.className).slice(0,40)})).slice(0,15);
+        return JSON.stringify({dialogs:dlgs.slice(0,5), inputs});
+      })()`).catch((e: any)=>JSON.stringify({err:String(e?.message||e)}));
+      const diag = await captureUiState(page, "dryrun-schedule");
+      console.log("[tiktok] DRYRUN dt_trigger_text: " + dtText);
+      console.log("[tiktok] DRYRUN schedule screenshot: " + diag.diag_screenshot);
+      console.log("[tiktok] DRYRUN schedule_dom: " + schedDom);
+      return { success: false, error: "DRYRUN: schedule UI dumped", error_code: "INVALID_INPUT", data: diag as any };
+    }
+    if (process.env.TIKTOK_DRYRUN === "1") {
+      const label = page.getByText(/Who can see this post/i).first();
+      const row = label.locator('xpath=ancestor::*[.//button[@role="combobox" and @aria-haspopup="dialog"]][1]');
+      const trig = row.locator('button[role="combobox"][aria-haspopup="dialog"]').first();
+      const beforeVal = String((await row.textContent().catch(() => "")) || "").replace(/who can see this post/i, "").trim().slice(0, 60);
+      await trig.click({ timeout: 4000 }).catch(() => {});
+      await page.waitForTimeout(900);
+      const dump: string = await page.evaluate(`(()=>{
+        const dlgs=[...document.querySelectorAll('[role="dialog"],[role="listbox"],[role="menu"]')].filter(d=>d.getClientRects().length>0);
+        const opts=[];
+        for(const d of dlgs){ for(const o of d.querySelectorAll('[role="option"],[role="menuitem"],[role="menuitemradio"],li,button,div')){ const t=(o.textContent||'').trim(); if(t&&t.length<60&&!opts.find(x=>x.text===t)) opts.push({tag:o.tagName,role:o.getAttribute('role'),text:t.slice(0,60)}); } }
+        return JSON.stringify({dialogs:dlgs.length, options:opts.slice(0,20)});
+      })()`).catch((e: any)=>JSON.stringify({err:String(e?.message||e)}));
+      const diag = await captureUiState(page, "dryrun-privacy-open");
+      console.log("[tiktok] DRYRUN before_value: " + beforeVal);
+      console.log("[tiktok] DRYRUN privacy_dialog: " + dump);
+      return { success: false, error: "DRYRUN: privacy dialog dumped", error_code: "INVALID_INPUT", data: diag as any };
+    }
+
     // Apply privacy / comments / duet / stitch toggles if the user set non-defaults.
     // These selectors have been stable for ~18 months; if TikTok rotates them
     // we fall through to defaults (public, all allowed) which is what agents want anyway.
-    if (req.privacy === 1) {
-      await page.locator('text=/Friends/i').first().click({ timeout: 2000 }).catch(() => {});
-    } else if (req.privacy === 2) {
-      await page.locator('text=/Private|Only you/i').first().click({ timeout: 2000 }).catch(() => {});
+    if (req.privacy === 1 || req.privacy === 2) {
+      const pr = await setPrivacy(page, req.privacy);
+      if (!pr.ok) {
+        const diag = await captureUiState(page, "privacy-set-failed");
+        return {
+          success: false,
+          error: `Could not set audience to ${req.privacy === 2 ? "Only you" : "Friends"} (control showed "${pr.value || pr.error}"). Aborted before posting to avoid publishing to the wrong audience.`,
+          error_code: "INVALID_INPUT",
+          data: diag as any,
+        };
+      }
+      console.log(`[tiktok] audience set to "${pr.value}"`);
     }
     if (req.allow_comments === false) {
       await page.locator('[data-e2e="upload-switch-comment"], label:has-text("Comment")').first()
@@ -463,6 +617,9 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
       console.log(`[tiktok] native schedule applied for ${req.schedule_at}`);
     }
 
+    // A modal may have re-appeared after typing/scheduling — clear it before submit.
+    await dismissBlockingModal(page);
+
     // Resolve the submit button up front (its label is "Schedule" when a
     // schedule is set, "Post" otherwise), so a rotated selector returns a clean
     // UI_TIMEOUT with diagnostics instead of an opaque throw mid-submit.
@@ -492,10 +649,22 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
     );
 
     if (!result) {
+      // TikTok Studio redirects to the content/posts page on a successful post
+      // (its upload XHR isn't the classic /aweme/post path), so treat that
+      // redirect — or a success toast — as success rather than a false negative.
+      const url = String(page.url());
+      const posted = /tiktokstudio\/(content|posts)/i.test(url)
+        || await page.locator('text=/your (video|post).*(posted|uploaded|scheduled|published)|posted successfully|scheduled successfully/i')
+             .first().isVisible({ timeout: 3000 }).catch(() => false);
+      if (posted) {
+        recordAction(req.account_id, "tiktok", "post");
+        console.log(`[tiktok] post confirmed via redirect/toast (url=${url})`);
+        return { success: true, data: { ...(req.schedule_at ? { scheduled_at: req.schedule_at } : {}) } };
+      }
       const diag = await captureUiState(page, "no-post-api");
       return {
         success: false,
-        error: "No post API call observed after clicking Post — UI flow may have changed",
+        error: "No post confirmation observed after clicking Post — UI flow may have changed.",
         error_code: "UI_TIMEOUT",
         data: diag as any,
       };
@@ -525,7 +694,8 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
       },
     };
   } catch (e: any) {
-    return { success: false, error: e.message || String(e), error_code: "UNKNOWN" };
+    const diag = await captureUiState(page, "post-unknown-error").catch(() => ({}));
+    return { success: false, error: e.message || String(e), error_code: "UNKNOWN", data: diag as any };
   } finally {
     video.cleanup();
     await close();

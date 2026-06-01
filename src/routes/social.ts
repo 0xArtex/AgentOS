@@ -91,6 +91,9 @@ function requireSocialReady(
   res: Response,
   next: () => void
 ): void {
+  // Self-hosted single-operator mode runs on the operator's own IP with no
+  // residential proxy — skip the IPROYAL requirement.
+  if (process.env.PALMYR_SELF_HOSTED === "1") { next(); return; }
   if (!process.env.IPROYAL_HOST || !process.env.IPROYAL_USERNAME || !process.env.IPROYAL_PASSWORD) {
     res.status(503).json({
       error: "Social operations not configured",

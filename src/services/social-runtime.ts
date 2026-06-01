@@ -178,7 +178,17 @@ export async function openAuthenticatedSession(
 ): Promise<OpenedSession> {
   const chromium = await getStealthChromium();
   const sessionKey = opts.proxySessionId || opts.accountId;
-  const proxy = buildProxyConfig(sessionKey, { country: opts.country });
+  // Proxy is required in prod (the server runs on a VPS whose IP differs from
+  // where the session was minted). Self-hosted on the operator's own machine,
+  // the session was minted on this same IP — so launch direct when no proxy is
+  // configured and the explicit self-hosted flag is set. Prod is unchanged.
+  let proxy: any;
+  try {
+    proxy = buildProxyConfig(sessionKey, { country: opts.country });
+  } catch (e) {
+    if (process.env.PALMYR_SELF_HOSTED === "1") proxy = undefined;
+    else throw e;
+  }
 
   const browser = await chromium.launch({
     headless: true,
