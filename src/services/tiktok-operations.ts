@@ -347,25 +347,28 @@ function gate(accountId: string, operation: string): TikTokOpResult | null {
  * failure carries AX diagnostics so the real widget can be seen and refined.
  */
 async function applySchedule(page: any, when: WallClock): Promise<{ ok: boolean; error?: string }> {
-  // 1. Select the "Schedule" radio. It's a styled, label-driven radio
-  //    (input.Radio__input is visually hidden), so click the input by value in JS.
-  // Select "Schedule" via a real click on its label — a JS .click() on the
-  // hidden radio input doesn't reliably fire React's onChange (so the consent
-  // modal never shows and TikTok reverts to "Now").
-  const sched = await resolveElement(page, [
-    { name: "label", build: (p) => p.locator('label:has(input[name="postSchedule"][value="schedule"])') },
-    { name: "text", build: (p) => p.getByText("Schedule", { exact: true }) },
-  ], { perStrategyMs: 4000 });
-  if (!sched) return { ok: false, error: "'Schedule' option not found" };
-  await sched.locator.click({ timeout: 4000 }).catch(() => {});
-  await page.waitForTimeout(1000);
-  const sel = sched.strategy;
+  // 1. Select "Schedule" — JS-click the radio input by value. This fired the
+  //    consent modal reliably in testing; a label/real click did not.
+  const sel: string = await page.evaluate(`(()=>{const r=document.querySelector('input[name="postSchedule"][value="schedule"]');if(!r)return 'no-radio';r.click();return r.checked?'checked':'clicked';})()`).catch(() => "err");
+  if (sel === "no-radio") return { ok: false, error: "'Schedule' option not found" };
+  await page.waitForTimeout(1100);
 
-  // 2. Consent modal "Allow your video to be saved for scheduled posting?" — its
-  //    TUX overlay intercepts real mouse clicks, so JS-click the Allow button
-  //    (NOT Cancel). Without this, Schedule reverts to "Now".
-  const allowed: boolean = await page.evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/^allow$/i.test((x.textContent||'').trim()));if(b){b.click();return true;}return false;})()`).catch(() => false);
+  // 2. Consent modal "Allow your video to be saved for scheduled posting?" —
+  //    click Allow (NOT Cancel): real click first, JS-click fallback.
+  let allowed = false;
+  const allowBtn = page.locator('button:has-text("Allow")').first();
+  if (await allowBtn.isVisible({ timeout: 3000 }).catch(() => false)) {
+    await allowBtn.click({ timeout: 3000 }).catch(() => {});
+    allowed = true;
+  } else {
+    allowed = await page.evaluate(`(()=>{const b=[...document.querySelectorAll('button')].find(x=>/allow/i.test((x.textContent||'').trim())&&(x.textContent||'').trim().length<20);if(b){b.click();return true;}return false;})()`).catch(() => false);
+  }
   await page.waitForTimeout(1300);
+
+  // Reveal the date/time picker (a button[aria-haspopup=dialog] that isn't a
+  // Select__trigger dropdown), then read its inputs.
+  await page.locator('button[aria-haspopup="dialog"]:not(.Select__trigger)').first().click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(900);
 
   // 3. Date + time are plain text inputs (TUXTextInputCore-input): "YYYY-MM-DD"
   //    and "HH:MM" (24h, 5-min granularity). Type, then VERIFY — abort on
@@ -395,18 +398,37 @@ async function applySchedule(page: any, when: WallClock): Promise<{ ok: boolean;
   console.log(`[tiktok] schedule: radio=${sel} allow=${allowed} time_field=${!!timeInput} date_field=${!!dateInput}`);
   if (!timeInput || !dateInput) return { ok: false, error: "date/time fields not found after enabling Schedule" };
 
-  const setField = async (input: any, value: string) => {
+  // Escape closes the date calendar (and keeps the typed date), but it REVERTS
+  // the time picker — so only Escape for the date field; commit the time by
+  // blurring (click a neutral label) instead.
+  const setField = async (input: any, value: string, esc: boolean) => {
     await input.click().catch(() => {});
     await page.keyboard.press("Control+A");
     await page.keyboard.press("Delete");
-    await input.pressSequentially(value, { delay: 40 });
+    await input.pressSequentially(value, { delay: 50 });
     await page.keyboard.press("Enter");
     await page.waitForTimeout(400);
-    await page.keyboard.press("Escape").catch(() => {}); // close any picker popup
-    await page.waitForTimeout(200);
+    if (esc) { await page.keyboard.press("Escape").catch(() => {}); await page.waitForTimeout(200); }
   };
-  await setField(dateInput, dateStr);
-  await setField(timeInput, timeStr);
+  await setField(dateInput, dateStr, true);
+
+  // Time is a scroll picker (tiktok-timepicker), not free-text — open it and
+  // click the hour cell (1st option-list, 24 items) + minute cell (2nd list, 12
+  // items at 5-min steps).
+  await timeInput.click().catch(() => {});
+  await page.waitForTimeout(800);
+  const lists = page.locator(".tiktok-timepicker-option-list");
+  const hourItem = lists.nth(0).locator(".tiktok-timepicker-option-item", { hasText: new RegExp(`^${pad2(hh)}$`) }).first();
+  await hourItem.scrollIntoViewIfNeeded().catch(() => {});
+  await hourItem.click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  const minItem = lists.nth(1).locator(".tiktok-timepicker-option-item", { hasText: new RegExp(`^${pad2(mi)}$`) }).first();
+  await minItem.scrollIntoViewIfNeeded().catch(() => {});
+  await minItem.click({ timeout: 3000 }).catch(() => {});
+  await page.waitForTimeout(400);
+  // close the picker by blurring onto a neutral label
+  await page.getByText(/Who can see this post/i).first().click({ timeout: 2000 }).catch(() => {});
+  await page.waitForTimeout(400);
 
   const dv = String((await dateInput.inputValue().catch(() => "")) || "");
   const tv = String((await timeInput.inputValue().catch(() => "")) || "");
@@ -534,24 +556,25 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
     if (process.env.TIKTOK_DRYRUN === "1" && scheduleWhen) {
       await page.evaluate(`(()=>{const r=document.querySelector('input[name="postSchedule"][value="schedule"]');if(r)r.click();})()`).catch(() => {});
       await page.waitForTimeout(900);
-      // consent modal: "Allow your video to be saved for scheduled posting?"
-      await page.locator('button:has-text("Allow")').first().click({ timeout: 4000 }).catch(() => {});
-      await page.waitForTimeout(1300);
-      // date/time picker trigger = a button[aria-haspopup=dialog] that is NOT one of the Select__trigger dropdowns
-      const dt = page.locator('button[aria-haspopup="dialog"]:not(.Select__trigger)').first();
-      const dtText = String((await dt.textContent().catch(() => "")) || "").trim();
-      await dt.click({ timeout: 4000 }).catch(() => {});
-      await page.waitForTimeout(1000);
-      const schedDom: string = await page.evaluate(`(()=>{
-        const dlgs=[...document.querySelectorAll('[role="dialog"],[class*="Picker" i],[class*="Calendar" i]')].filter(d=>d.getClientRects().length>0).map(d=>({cls:String(d.className).slice(0,60),text:(d.textContent||'').trim().slice(0,160)}));
-        const inputs=[...document.querySelectorAll('input')].filter(i=>i.getClientRects().length>0).map(i=>({type:i.type,ph:i.placeholder,aria:i.getAttribute('aria-label'),val:i.value,cls:String(i.className).slice(0,40)})).slice(0,15);
-        return JSON.stringify({dialogs:dlgs.slice(0,5), inputs});
+      await page.locator('button:has-text("Allow")').first().click({ timeout: 3000 }).catch(() => {});
+      await page.waitForTimeout(1200);
+      // open the time scroll-picker by clicking the time field
+      const fields = page.locator("input.TUXTextInputCore-input");
+      const c = await fields.count().catch(() => 0);
+      let timeF: any = null;
+      for (let i = 0; i < c; i++) { const v = String((await fields.nth(i).inputValue().catch(() => "")) || ""); if (/^\d{1,2}:\d{2}/.test(v)) timeF = fields.nth(i); }
+      if (timeF) { await timeF.click().catch(() => {}); await page.waitForTimeout(900); }
+      const tpDump: string = await page.evaluate(`(()=>{
+        const tp=document.querySelector('[class*="timepicker" i]');
+        if(!tp) return JSON.stringify({timepicker:false});
+        const lists=[...tp.querySelectorAll('[class*="option-list" i],[class*="scroll" i]')].filter(l=>l.getClientRects().length>0).map(l=>({cls:String(l.className).slice(0,50),n:l.children.length,first:[...l.children].slice(0,3).map(ch=>({tag:ch.tagName,cls:String(ch.className).slice(0,36),text:(ch.textContent||'').trim().slice(0,6)}))}));
+        const leaves=[...tp.querySelectorAll('*')].filter(e=>e.children.length===0&&/^\d{2}$/.test((e.textContent||'').trim())).slice(0,5).map(e=>({tag:e.tagName,cls:String(e.className).slice(0,40),text:e.textContent.trim()}));
+        return JSON.stringify({timepicker:true, lists:lists.slice(0,4), leaves});
       })()`).catch((e: any)=>JSON.stringify({err:String(e?.message||e)}));
-      const diag = await captureUiState(page, "dryrun-schedule");
-      console.log("[tiktok] DRYRUN dt_trigger_text: " + dtText);
-      console.log("[tiktok] DRYRUN schedule screenshot: " + diag.diag_screenshot);
-      console.log("[tiktok] DRYRUN schedule_dom: " + schedDom);
-      return { success: false, error: "DRYRUN: schedule UI dumped", error_code: "INVALID_INPUT", data: diag as any };
+      const diag = await captureUiState(page, "dryrun-timepicker");
+      console.log("[tiktok] DRYRUN timepicker: " + tpDump);
+      console.log("[tiktok] DRYRUN screenshot: " + diag.diag_screenshot);
+      return { success: false, error: "DRYRUN: timepicker dumped", error_code: "INVALID_INPUT", data: diag as any };
     }
     if (process.env.TIKTOK_DRYRUN === "1") {
       const label = page.getByText(/Who can see this post/i).first();
@@ -572,9 +595,24 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
       return { success: false, error: "DRYRUN: privacy dialog dumped", error_code: "INVALID_INPUT", data: diag as any };
     }
 
+    // Set the native schedule FIRST — doing it after the privacy dropdown leaves
+    // the page in a state where the Schedule radio won't engage. ABORT before
+    // submitting if it can't be applied, so a broken schedule never posts "now".
+    if (scheduleWhen) {
+      const sched = await applySchedule(page, scheduleWhen);
+      if (!sched.ok) {
+        const diag = await captureUiState(page, "schedule-setup-failed");
+        return {
+          success: false,
+          error: `Could not set TikTok's native schedule (${sched.error}). Aborted before posting to avoid publishing immediately — see diagnostics.interactive_elements for the actual scheduler UI.`,
+          error_code: "SCHEDULE_FAILED",
+          data: diag as any,
+        };
+      }
+      console.log(`[tiktok] native schedule applied for ${req.schedule_at}`);
+    }
+
     // Apply privacy / comments / duet / stitch toggles if the user set non-defaults.
-    // These selectors have been stable for ~18 months; if TikTok rotates them
-    // we fall through to defaults (public, all allowed) which is what agents want anyway.
     if (req.privacy === 1 || req.privacy === 2) {
       const pr = await setPrivacy(page, req.privacy);
       if (!pr.ok) {
@@ -599,22 +637,6 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
     if (req.allow_stitch === false) {
       await page.locator('[data-e2e="upload-switch-stitch"], label:has-text("Stitch")').first()
         .click({ timeout: 2000 }).catch(() => {});
-    }
-
-    // If a native schedule was requested, set it now — and ABORT before
-    // submitting if it can't be applied, so a broken schedule never posts "now".
-    if (scheduleWhen) {
-      const sched = await applySchedule(page, scheduleWhen);
-      if (!sched.ok) {
-        const diag = await captureUiState(page, "schedule-setup-failed");
-        return {
-          success: false,
-          error: `Could not set TikTok's native schedule (${sched.error}). Aborted before posting to avoid publishing immediately — see diagnostics.interactive_elements for the actual scheduler UI.`,
-          error_code: "SCHEDULE_FAILED",
-          data: diag as any,
-        };
-      }
-      console.log(`[tiktok] native schedule applied for ${req.schedule_at}`);
     }
 
     // A modal may have re-appeared after typing/scheduling — clear it before submit.
