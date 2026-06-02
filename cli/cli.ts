@@ -7407,7 +7407,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               err(`approve failed: ${data?.error || 'unknown'}${data?.error_code ? ` [${data.error_code}]` : ''}`, EXIT.GENERAL)
             }
             sv.updateMeta(platform, draft!.account, { last_action_at: new Date().toISOString() })
-            const entry = sd.appendPostLog({ platform, account: draft!.account, caption: draft!.caption, source: 'draft', status: draft!.schedule_at ? 'scheduled' : 'posted', tag: draft!.tag, draft_id: id, result: data?.data })
+            const entry = sd.appendPostLog({ platform, account: draft!.account, caption: draft!.caption, source: 'draft', status: draft!.schedule_at ? 'scheduled' : 'posted', url: data?.data?.video_url, tag: draft!.tag, draft_id: id, result: data?.data })
             sd.deleteDraft(id)
             log(`tiktok approve ${id} → ${entry.status} for ${draft!.account}`)
             return print({ approved: true, draft_id: id, account: draft!.account, status: entry.status, ...(data?.data || {}) })
@@ -7468,7 +7468,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 }
                 data = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy, schedule_at }, psid, country)
                 if (data?.success) {
-                  sd.appendPostLog({ platform, account: username, caption, source: 'direct', status: schedule_at ? 'scheduled' : 'posted', tag: acc.tag, result: data?.data })
+                  sd.appendPostLog({ platform, account: username, caption, source: 'direct', status: schedule_at ? 'scheduled' : 'posted', url: data?.data?.video_url, tag: acc.tag, result: data?.data })
                 }
               } else if (subcommand === 'follow') {
                 const target = (flags.user as string) || (flags.target as string)

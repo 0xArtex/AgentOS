@@ -37,6 +37,7 @@ export interface PostLogEntry {
   caption: string
   source: 'draft' | 'direct'      // approved-from-draft vs posted directly
   status: 'posted' | 'scheduled'
+  url?: string                    // public video URL, if the post op resolved one
   tag?: string
   draft_id?: string
   result?: any                    // whatever the post op returned (url/id/etc.)
