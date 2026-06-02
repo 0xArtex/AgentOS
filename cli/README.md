@@ -647,6 +647,9 @@ Direct browser automation — no marketplace or paid upstream. A TikTok session 
 | `palmyr tiktok approve <draft-id>` | $0.01 *(the post price; scheduled drafts use the scheduler)* | Publish a queued draft and record it in the post log. The draft is kept on failure so it can be retried (e.g. after re-connecting a stale session). |
 | `palmyr tiktok reject <draft-id>` | free | Discard a queued draft. |
 | `palmyr tiktok logs [<username>]` *(`--tag <folder>`, `--limit N`)* | free | Audit log of posts that actually went out — approved drafts **and** direct posts (account, caption, timestamp, source). |
+| `palmyr tiktok analytics <username>` | $0.005 *(free in self-hosted)* | **Self-learning**: scrape per-post views/likes/comments from Studio, categorize each into tiers (`top`/`solid`/`underperforming`/`pending`) relative to the account's own posts, and append a snapshot to the local time-series (`~/.palmyr/social/analytics.jsonl`). |
+| `palmyr tiktok review <username>` | free | Performance review off the local snapshots — totals, tier mix, best/worst post, avg engagement rate, and the **trend** vs the previous snapshot. |
+| `palmyr tiktok monitor tick \| start \| stop \| status` *(`--every 6h`, `--account a,b`)* | free locally *(each tick runs `analytics`)* | Unattended monitor (mirrors the wallet daemon): periodically runs `analytics` so `review` stays fresh. `tick` = one snapshot now; `start` = detached interval loop; default scope is all connected accounts. |
 
 ### Utility
 
