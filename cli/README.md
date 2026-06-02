@@ -31,6 +31,7 @@ palmyr phone search --country US
   - [Domains](#domains)
   - [Wallet](#wallet)
   - [Twitter / X](#twitter--x)
+  - [TikTok](#tiktok)
   - [Utility](#utility)
 - [SDK](#sdk)
 - [Output Modes](#output-modes)
@@ -615,6 +616,32 @@ Pay at schedule time; the Palmyr server fires posts at `post_at` whether your ma
 
 The previous local-queue + `palmyr worker` daemon were deprecated when server-side scheduling shipped. `palmyr worker` now prints a deprecation pointer.
 
+### TikTok
+
+Direct browser automation — no marketplace or paid upstream. A TikTok session comes from a real-browser login (`connect`), not a password the server stores. Account-management commands are local-vault only (free); the action ops run server-side through the account's residential IP.
+
+| Command | Cost | Notes |
+|---------|------|-------|
+| `palmyr tiktok connect <username>` | free | One-shot real-browser login — opens Chrome/Edge/Brave, you log in once, and the session is auto-captured via CDP and cached locally. No server call. |
+| `palmyr tiktok connect <username> --qr` | free | QR login — opens a window showing TikTok's login QR for a human to scan with the TikTok app (no password / captcha). Also hosts the QR server-side and prints a `/connect/<token>` link to forward. Runs headed (TikTok rejects headless QR-auth). |
+| `palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>` | free | Bring your own cookies from a logged-in TikTok browser. |
+| `palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country <iso2>` | free | Marketplace colon format. Local vault only; `--country` drives proxy exit + browser locale. |
+| `palmyr tiktok list` | free | List local TikTok accounts. |
+| `palmyr tiktok info <username>` | free | Show one account (id, source, country, last action). |
+| `palmyr tiktok session <username>` | free | Whether a session is cached, its age in hours, and staleness (>12h). |
+| `palmyr tiktok rename <old> --to <new>` | free | Rename the local alias (does not change the TikTok handle). |
+| `palmyr tiktok remove <username> --confirm` | free | Delete the local copy. The TikTok account itself is not deleted. |
+| `palmyr tiktok totp <username>` | free | Print the current 2FA code from the stored seed (if one was imported). |
+| `palmyr tiktok login <username>` | $0.02 | Validate stored cookies/credentials via a stealth browser and cache the session. |
+| `palmyr tiktok post <username> --file video.mp4 --caption "..."` *(or `--url <https>`; `--privacy 0\|1\|2` = public / friends / private, default public)* | $0.01 | Post a video. Returns success after server-side verification. |
+| `palmyr tiktok schedule <username> --at <iso8601> --file video.mp4 --caption "..."` *(or `--url <https>`)* | $0.01 | Schedule via TikTok's own native scheduler — ~15 min to ~10 days out. Aborts before submit if the schedule can't be set, so it never posts "now" by mistake. |
+| `palmyr tiktok follow <username> --user @handle` | $0.001 | |
+| `palmyr tiktok like <username> --video <url>` | $0.001 | |
+| `palmyr tiktok delete <username> --video <url>` | $0.001 | Deletes via TikTok Studio's content manager. |
+| `palmyr tiktok bio <username> --text "..."` | $0.001 | New bio, ≤80 chars. Pass `--text ""` to clear. |
+| `palmyr tiktok name <username> --display "..."` | $0.001 | New display name, ≤30 chars. TikTok rate-limits nickname changes to ~once/week — returns `RATE_LIMITED` if the change didn't take. |
+| `palmyr tiktok pfp <username> --file pic.png` *(or `--url https://...`)* | $0.005 | PNG / JPG / WebP avatar. |
+
 ### Utility
 
 | Command | Cost | Notes |
@@ -713,6 +740,16 @@ ao.socialTwitterProfile(accountId, cookies, { bio?, display_name?, location?, we
 ao.socialTwitterAvatar(accountId, cookies, { image_base64? | image_url? }, proxySessionId?)
 ao.socialTwitterBanner(accountId, cookies, { image_base64? | image_url? }, proxySessionId?)
 ao.socialTwitterUsername(accountId, cookies, newUsername, proxySessionId?)
+
+// TikTok (account connect/list/info/rename/remove/totp/session are local CLI-only — not SDK calls)
+ao.socialTiktokHostQr(qrDataUrl)                                  // host a login QR → { token }; link is `${api}/connect/<token>`
+ao.socialTiktokLogin(accountId, { sessionid?, ttCsrfToken?, ttWebidV2?, extraCookies?, login?, password?, email?, emailPassword?, proxySessionId?, country? })
+ao.socialTiktokPost(accountId, cookies, caption, { video_base64? | video_url? }, { privacy?: 0|1|2, allow_comments?, allow_duet?, allow_stitch?, schedule_at? }?, proxySessionId?, country?)
+ao.socialTiktokFollow(accountId, cookies, targetUser, proxySessionId?, country?)
+ao.socialTiktokLike(accountId, cookies, videoUrl, proxySessionId?, country?)
+ao.socialTiktokDelete(accountId, cookies, videoUrl, proxySessionId?, country?)
+ao.socialTiktokProfile(accountId, cookies, { bio?, display_name? }, proxySessionId?, country?)
+ao.socialTiktokAvatar(accountId, cookies, { image_base64? | image_url? }, proxySessionId?, country?)
 
 // Info
 ao.pricing()

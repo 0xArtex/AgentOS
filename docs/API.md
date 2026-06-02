@@ -19,6 +19,7 @@
   - [Email](#email)
   - [Domains](#domains)
   - [Compute](#compute)
+  - [TikTok](#tiktok)
   - [API Keys](#api-keys)
 
 ---
@@ -1108,6 +1109,48 @@ Stdout/stderr are each capped at 1MiB.
   "hint": "Once you call POST /compute/servers/:id/setup-ssh, only your key works. Use your own SSH session to run commands."
 }
 ```
+
+---
+
+### TikTok
+
+TikTok automation runs server-side through Playwright + the account's residential proxy. Auth comes from a real-browser login captured by the CLI's `palmyr tiktok connect` — **no password is stored server-side**; the session cookies travel in each request body. Account management (`list` / `info` / `rename` / `remove` / `totp` / `session` / `import`) is local to the CLI vault and has no HTTP endpoint.
+
+Every op below takes a common envelope — `{ account_id, cookies, proxy_session_id?, country? }` — plus the per-op fields noted.
+
+#### `POST /social/tiktok/qr`
+
+Host an ephemeral login QR (data-URL) for a human to scan; the human-facing page is `GET /connect/:token`. Free, unauthenticated.
+
+Request: `{ qr_data_url }` → Response: `{ token, expires_in_sec }`
+
+#### `POST /social/tiktok/login`
+
+Validate stored cookies (or credentials) via a stealth browser and return a fresh cookie session. **$0.02.** Body adds: `{ sessionid?, tt_csrf_token?, tt_webid_v2?, extra_cookies?, login?, password?, email?, email_password? }`.
+
+#### `POST /social/tiktok/post`
+
+Post a video. **$0.01.** Body adds: `{ caption, video_base64? | video_url?, privacy?: 0 | 1 | 2, allow_comments?, allow_duet?, allow_stitch?, schedule_at? }`. Passing `schedule_at` (ISO-8601, ~15 min to ~10 days out) drives TikTok's native scheduler.
+
+#### `POST /social/tiktok/follow`
+
+Follow a user. **$0.001.** Body adds: `{ target_user }` (e.g. `@handle`).
+
+#### `POST /social/tiktok/like`
+
+Like a video. **$0.001.** Body adds: `{ video_url }`.
+
+#### `POST /social/tiktok/delete`
+
+Delete a post (via TikTok Studio's content manager). **$0.001.** Body adds: `{ video_url }`.
+
+#### `POST /social/tiktok/profile`
+
+Update bio and/or display name. **$0.001.** Body adds: `{ bio?, display_name? }`. TikTok rate-limits nickname (display_name) changes to ~once/week; the server returns `RATE_LIMITED` if the change didn't take.
+
+#### `POST /social/tiktok/avatar`
+
+Update the profile photo. **$0.005.** Body adds: `{ image_base64? | image_url? }`.
 
 ---
 

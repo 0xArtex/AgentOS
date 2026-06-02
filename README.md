@@ -68,11 +68,11 @@ Visual node-based agent deployment: [palmyr.ai/dashboard.html](https://palmyr.ai
 | **Domains** | ✅ Live | Dynamic pricing, DNS management included |
 | **Wallet** | ✅ Live | Non-custodial smart wallets on Base + Solana |
 | **Skills** | ✅ Live | 3500+ from ClawHub, one-click install |
-| **Social Media Accounts** | ✅ Live (X) | Buy ready X accounts ($5), post / reply / like / follow / update bio, name, pfp, banner, username — sticky residential IP per account |
+| **Social Media Accounts** | ✅ Live (X + TikTok) | **X**: buy ready accounts ($5), post / reply / like / follow / update bio, name, pfp, banner, username. **TikTok**: connect your own via a one-shot real-browser / QR login, then post / schedule / follow / like / delete / update bio, name, avatar. Sticky residential IP per account. |
 | **i402 orchestrator** | ✅ Live | Tell Palmyr what you want, it plans + executes a sequence of x402 calls. See `spec/i402.md`. |
 | **Crypto Card** | 🟡 Pending | Visa debit linked to agent wallet |
 | **Address** | 🟡 Pending | Physical mailing address for the agent |
-| **Reddit / TikTok / LinkedIn** | 🟡 Pending | Same model as X — buy + operate from the CLI |
+| **Reddit / LinkedIn** | 🟡 Pending | Same model as X — buy + operate from the CLI |
 | **Storage** | 🟡 Pending | S3-compatible object storage |
 
 ## How It Works

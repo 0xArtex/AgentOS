@@ -1,7 +1,7 @@
 ---
 name: palmyr
 version: 1.0.0
-description: Infrastructure for AI Agents. Phone, email, X/Twitter accounts, compute, domains, voice calling, and wallets for AI agents. Pay with USDC on Solana or Base via x402.
+description: Infrastructure for AI Agents. Phone, email, X/Twitter + TikTok accounts, compute, domains, voice calling, and wallets for AI agents. Pay with USDC on Solana or Base via x402.
 ---
 
 # Palmyr — Infrastructure for AI Agents
@@ -178,6 +178,24 @@ palmyr twitter claim                                             # Pull every se
 # So a wallet that was just transferred or shared an account can run `palmyr twitter post @h "gm"`
 # directly — no separate `claim` step needed.
 
+# TikTok — DIRECT browser automation (no paid upstream). Sessions come from a real browser login.
+palmyr tiktok connect <username>                         # Log in once in your real browser; the session is auto-captured via CDP. Free, no server call.
+palmyr tiktok connect <username> --qr                    # QR login: opens a window with a login QR for a human to scan with the TikTok app (no password/captcha). Also forwards a hosted /connect/<token> link.
+palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>   # BYO cookies from a logged-in browser (free)
+palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country us # Marketplace line (free; local vault only)
+palmyr tiktok login <username>                           # Validate cookies + cache the session ($0.02)
+palmyr tiktok session <username>                         # Check the cached session — flags stale >12h (free)
+palmyr tiktok post <username> --file video.mp4 --caption "..." [--privacy 0|1|2]           # Post a video; --privacy 0 public · 1 friends · 2 private (default public) ($0.01)
+palmyr tiktok schedule <username> --at 2026-06-03T18:00:00Z --file v.mp4 --caption "..."  # TikTok's native scheduler, ~15 min–10 days out (same price as post)
+palmyr tiktok follow <username> --user @handle           # Follow ($0.001)
+palmyr tiktok like <username> --video <url>              # Like a video ($0.001)
+palmyr tiktok delete <username> --video <url>            # Delete a post — via TikTok Studio's content manager ($0.001)
+palmyr tiktok bio <username> --text "..."                # Update bio, <=80 chars ($0.001)
+palmyr tiktok name <username> --display "..."            # Update display name, <=30 chars ($0.001). NB: TikTok rate-limits nickname changes to ~once/week.
+palmyr tiktok pfp <username> --file pic.png              # Update avatar ($0.005)
+palmyr tiktok list                                       # All local TikTok accounts (free)
+palmyr tiktok info <username> | rename <old> --to <new> | remove <username> --confirm | totp <username>   # Local account management (free)
+
 # Info
 palmyr pricing    # All service prices
 palmyr health     # API status
@@ -271,6 +289,15 @@ All endpoints also available as direct HTTP calls. CLI is recommended — less t
 | Share pool-bought account *(from `palmyr twitter buy`)* | `POST /social/twitter/pool/:id/share` | 0.01 *(ownership proof; owner-only)* |
 | Revoke shared wallet (pool-bought) | `POST /social/twitter/pool/:id/unshare` | 0.01 *(ownership proof; owner-only; rotate not yet wired)* |
 | List pool-bought accounts owned/shared with you | `GET /social/twitter/pool/mine` | 0.001 *(ownership proof; returns decrypted creds)* |
+| **TikTok** | | |
+| Host login QR | `POST /social/tiktok/qr` | Free |
+| Login (validate + cache cookies) | `POST /social/tiktok/login` | 0.02 |
+| Post video *(add `schedule_at` to use TikTok's native scheduler)* | `POST /social/tiktok/post` | 0.01 |
+| Follow | `POST /social/tiktok/follow` | 0.001 |
+| Like | `POST /social/tiktok/like` | 0.001 |
+| Delete post | `POST /social/tiktok/delete` | 0.001 |
+| Update profile (bio / display name) | `POST /social/tiktok/profile` | 0.001 |
+| Update avatar | `POST /social/tiktok/avatar` | 0.005 |
 | **Skills** | | |
 | Browse catalog | `GET /compute/skills/catalog` | Free |
 | Security scan | `GET /compute/skills/:slug/security` | Free |
