@@ -194,6 +194,11 @@ palmyr tiktok drafts [<username>] [--tag <folder>]       # List drafts awaiting 
 palmyr tiktok approve <draft-id>                         # Publish a queued draft + record it in the post log (charges the post price)
 palmyr tiktok reject <draft-id>                          # Discard a queued draft (free)
 palmyr tiktok logs [<username>] [--tag <folder>] [--limit N]   # Audit log of what went out — approved drafts + direct posts (free)
+
+# Self-learning loop: monitor → track analytics → categorize → review (so agents see what performs)
+palmyr tiktok analytics <username>                       # Scrape per-post views/likes/comments, tier them vs the account's OWN posts, snapshot the time-series ($0.005; free self-hosted)
+palmyr tiktok review <username>                          # Performance review — best/worst, tier mix, avg engagement, trend vs last snapshot (free, reads local store)
+palmyr tiktok monitor start --every 6h [--account a,b]   # Unattended: periodic analytics snapshots. Also: tick (one-shot) | stop | status (free locally)
 palmyr tiktok follow <username> --user @handle           # Follow ($0.001)
 palmyr tiktok like <username> --video <url>              # Like a video ($0.001)
 palmyr tiktok delete <username> --video <url>            # Delete a post — via TikTok Studio's content manager ($0.001)

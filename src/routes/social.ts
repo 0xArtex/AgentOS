@@ -78,6 +78,7 @@ import {
   deleteVideo as tiktokDelete,
   updateProfile as tiktokUpdateProfile,
   updateAvatar as tiktokUpdateAvatar,
+  analyzePosts as tiktokAnalyzePosts,
 } from "../services/tiktok-operations";
 
 const router = Router();
@@ -1774,6 +1775,22 @@ router.post(
       res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "TikTok avatar update failed" });
+    }
+  }
+);
+
+router.post(
+  "/tiktok/analytics",
+  requireTikTokEnabled,
+  requireAuth(0.005, "general", { discoverable: false }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const common = validateTikTokOpBody(req, res);
+    if (!common) return;
+    try {
+      const result = await tiktokAnalyzePosts({ ...common });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "TikTok analytics failed" });
     }
   }
 );

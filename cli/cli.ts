@@ -1136,6 +1136,20 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--limit <N>', desc: 'How many to show (default 20)' },
     { flag: '(price)', desc: 'Free' },
   ],
+  analytics: [
+    { flag: '<username>', desc: 'Scrape per-post views/likes/comments, categorize into tiers, snapshot the time-series' },
+    { flag: '(price)', desc: '$0.005 USDC (free in self-hosted mode)' },
+  ],
+  review: [
+    { flag: '<username>', desc: 'Performance review — best/worst, tier mix, engagement, trend vs last snapshot' },
+    { flag: '(price)', desc: 'Free — reads the local snapshot store' },
+  ],
+  monitor: [
+    { flag: 'tick | start | stop | status', desc: 'Unattended analytics loop (self-learning)' },
+    { flag: '--every <6h|30m>', desc: 'Interval for `start` (default 6h)' },
+    { flag: '--account a,b', desc: 'Limit to specific accounts (default: all connected)' },
+    { flag: '(price)', desc: 'Free locally; each tick runs `analytics`' },
+  ],
 }
 
 /**
@@ -6896,6 +6910,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
       case 'tiktok': {
         const sv = await import('./social-vault.js')
         const sd = await import('./social-drafts.js')
+        const sa = await import('./social-analytics.js')
         const platform = 'tiktok' as const
 
         // Same help guard as `twitter` — prevents `--help` from dispatching
@@ -6930,6 +6945,9 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               { name: 'approve', description: 'Publish a queued draft + record it in the post log', hint: '<draft-id>' },
               { name: 'reject',  description: 'Discard a queued draft', hint: '<draft-id>' },
               { name: 'logs',    description: 'Audit log of posts that went out (approved drafts + direct posts)', hint: '[<username>] [--tag <folder>] [--limit N]' },
+              { name: 'analytics', description: 'Scrape per-post views/likes/comments, categorize into tiers vs the account’s own posts, and snapshot the time-series', hint: '<username>' },
+              { name: 'review',  description: 'Performance review: best/worst posts, tier mix, engagement, and trend vs the last snapshot — the self-learning surface', hint: '<username>' },
+              { name: 'monitor', description: 'Unattended loop that periodically runs analytics so review stays fresh (mirrors the wallet daemon)', hint: 'tick | start --every 6h | stop | status' },
             ],
             fromHome,
           })
@@ -7413,6 +7431,79 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             return print({ approved: true, draft_id: id, account: draft!.account, status: entry.status, ...(data?.data || {}) })
           }
 
+          case 'analytics': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`tiktok account "${username}" not found locally`, EXIT.NOT_FOUND)
+            const sess = sv.loadSession(acc!.id)
+            if (!sess || !sess.cookies || sess.cookies.length === 0) {
+              err(`No cached session for ${username}. Run 'tiktok connect ${username}' first.`, EXIT.NOT_FOUND)
+            }
+            const psid = sv.getProxySessionId(platform, username)
+            const country = sv.getCountry(platform, username)
+            let data: any
+            try {
+              data = await ao.socialTiktokAnalytics(acc!.id, sess!.cookies, psid, country)
+            } catch (e: any) {
+              err(`analytics failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.success) {
+              err(`analytics failed: ${data?.error || 'unknown'}${data?.error_code ? ` [${data.error_code}]` : ''}`, EXIT.GENERAL)
+            }
+            // Categorize (relative tiers) + snapshot to the local time-series so
+            // `review` can show trends. `tiktok monitor` calls this same op.
+            const snap = sa.appendSnapshot(username, data?.data?.posts || [])
+            return print({ platform, username, scraped_at: data?.data?.scraped_at, summary: snap.summary, posts: snap.posts })
+          }
+
+          case 'review': {
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            return print(sa.review(username))
+          }
+
+          case 'monitor': {
+            // Unattended self-learning loop: periodically run `analytics` (scrape
+            // + categorize + snapshot) for the monitored accounts. Mirrors the
+            // wallet daemon — tick / start / stop / status.
+            const sm = await import('./social-monitor.js')
+            const sub = positional[0] || 'status'
+            const cliPath = process.argv[1]
+            const resolveAccounts = (): string[] => {
+              const flagAcc = flags.account as string
+              if (flagAcc) return flagAcc.split(',').map((s) => s.trim()).filter(Boolean)
+              return sv.listAccounts(platform).map((a) => a.username)
+            }
+            if (sub === 'tick') {
+              const accounts = resolveAccounts()
+              if (!accounts.length) err('No TikTok accounts to monitor — connect one first.', EXIT.NOT_FOUND)
+              return print({ ticked: accounts.length, results: sm.monitorTick(cliPath, accounts) })
+            }
+            if (sub === 'start') {
+              const accounts = resolveAccounts()
+              if (!accounts.length) err('No TikTok accounts to monitor — connect one first.', EXIT.NOT_FOUND)
+              const intervalSeconds = sm.parseInterval((flags.every as string) || (flags.interval as string), 21600)
+              const { pid } = sm.startMonitor(cliPath, { intervalSeconds, accounts })
+              return print({ started: true, pid, every_seconds: intervalSeconds, accounts })
+            }
+            if (sub === 'stop') {
+              const r = await sm.stopMonitor()
+              return print({ stopped: r.wasRunning, pid: r.pid })
+            }
+            if (sub === 'status') {
+              return print(sm.monitorStatus())
+            }
+            if (sub === '_run') {
+              const intervalSeconds = sm.parseInterval(flags.interval as string, 21600)
+              const accounts = resolveAccounts()
+              await sm.runMonitorLoop(cliPath, { intervalSeconds, accounts })
+              return
+            }
+            err(`Unknown monitor action: ${sub}. Try: tick, start, stop, status`, EXIT.BAD_INPUT)
+            return
+          }
+
           case 'post':
           case 'schedule':
           case 'follow':
@@ -7524,7 +7615,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, follow, like, delete, bio, name, pfp`)
+            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, review, monitor, follow, like, delete, bio, name, pfp`)
         }
         break
       }

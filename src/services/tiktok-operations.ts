@@ -1259,3 +1259,81 @@ export async function updateAvatar(req: TikTokAvatarRequest): Promise<TikTokOpRe
     await close();
   }
 }
+
+export interface TikTokAnalyticsRequest extends TikTokOpRequest {}
+
+/**
+ * Scrape per-post engagement (views / likes / comments) from the Studio content
+ * manager — a READ, so it's not subject to the protective post cap. Returns one
+ * row per post with the public URL + id so the caller can join to the post-log
+ * and track/ categorize over time. (Deep per-post analytics — watch time,
+ * completion, traffic source — layer on top of this in a follow-up.)
+ */
+export async function analyzePosts(req: TikTokAnalyticsRequest): Promise<TikTokOpResult<{ posts: any[]; scraped_at: string }>> {
+  let session;
+  try {
+    session = await openAuthenticatedSession({
+      accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
+      cookies: req.cookies,
+      country: req.country,
+    });
+  } catch (e: any) {
+    return { success: false, error: `Failed to open session: ${e.message}`, error_code: "LAUNCH_FAILED" };
+  }
+
+  const { page, close } = session;
+  try {
+    await page.goto("https://www.tiktok.com/tiktokstudio/content", { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.locator('a[href*="/video/"]').first().waitFor({ timeout: 20000 }).catch(() => {});
+    await page.waitForTimeout(1500);
+
+    const scraped: any = await page.evaluate(`(()=>{
+      const parseNum = (t) => {
+        if (t == null) return null;
+        const m = String(t).trim().replace(/,/g, '').match(/^([\\d.]+)\\s*([KMB])?$/i);
+        if (!m) return null;
+        let n = parseFloat(m[1]); const u = (m[2] || '').toUpperCase();
+        if (u === 'K') n *= 1e3; else if (u === 'M') n *= 1e6; else if (u === 'B') n *= 1e9;
+        return Math.round(n);
+      };
+      const links = [...document.querySelectorAll('a[href*="/video/"]')];
+      const seen = new Set();
+      const rows = [];
+      for (const a of links) {
+        const href = a.getAttribute('href') || '';
+        const m = /\\/video\\/(\\d+)/.exec(href); if (!m) continue;
+        const id = m[1]; if (seen.has(id)) continue; seen.add(id);
+        let row = a;
+        for (let i = 0; i < 8 && row; i++) { if (row.querySelector && row.querySelector('button.TUXButton')) break; row = row.parentElement; }
+        const caption = (a.textContent || '').trim();
+        const nums = [];
+        if (row) {
+          for (const el of row.querySelectorAll('*')) {
+            if (el.children.length === 0) { const t = (el.textContent || '').trim(); if (/^[\\d.,]+\\s*[KMB]?$/i.test(t) && t.length <= 8) nums.push(t); }
+          }
+        }
+        const privacy = row ? ([...row.querySelectorAll('button.TUXButton')].map(b => (b.textContent || '').trim()).find(t => /only me|everyone|friends|public/i.test(t)) || null) : null;
+        rows.push({
+          id, caption,
+          video_url: href.startsWith('http') ? href : ('https://www.tiktok.com' + href),
+          views: parseNum(nums[0]), likes: parseNum(nums[1]), comments: parseNum(nums[2]),
+          privacy,
+        });
+      }
+      return { posts: rows, count: rows.length, first: rows[0] || null };
+    })()`).catch((e: any) => ({ error: String(e?.message || e) }));
+
+    console.log("[tiktok] analytics scraped " + (scraped?.count ?? 0) + " posts; first=" + JSON.stringify(scraped?.first));
+    if (!scraped || scraped.error || !Array.isArray(scraped.posts)) {
+      const diag = await captureUiState(page, "analytics-scrape-failed");
+      return { success: false, error: "Could not scrape the content manager (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+    }
+    return { success: true, data: { posts: scraped.posts, scraped_at: new Date().toISOString() } };
+  } catch (e: any) {
+    const diag = await captureUiState(page, "analytics-error").catch(() => ({}));
+    return { success: false, error: e.message || String(e), error_code: "UNKNOWN", data: diag as any };
+  } finally {
+    await close();
+  }
+}

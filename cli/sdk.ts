@@ -1086,6 +1086,10 @@ export class Palmyr {
     return this.request('POST', '/social/tiktok/avatar', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies, ...image })
   }
 
+  async socialTiktokAnalytics(accountId: string, cookies: any[], proxySessionId?: string, country?: string): Promise<any> {
+    return this.request('POST', '/social/tiktok/analytics', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies })
+  }
+
   // ── Info ──
   async pricing(): Promise<any> {
     return this.request('GET', '/pricing')
