@@ -187,6 +187,13 @@ palmyr tiktok login <username>                           # Validate cookies + ca
 palmyr tiktok session <username>                         # Check the cached session — flags stale >12h (free)
 palmyr tiktok post <username> --file video.mp4 --caption "..." [--privacy 0|1|2]           # Post a video; --privacy 0 public · 1 friends · 2 private (default public) ($0.01)
 palmyr tiktok schedule <username> --at 2026-06-03T18:00:00Z --file v.mp4 --caption "..."  # TikTok's native scheduler, ~15 min–10 days out (same price as post)
+
+# Human-in-the-loop: draft → approve → post → audit log (so an agent never publishes unreviewed)
+palmyr tiktok draft <username> --file v.mp4 --caption "..." [--privacy 0|1|2] [--at <iso>]   # Stage a post for approval; does NOT publish (free). --at makes approve schedule it.
+palmyr tiktok drafts [<username>] [--tag <folder>]       # List drafts awaiting approval (free)
+palmyr tiktok approve <draft-id>                         # Publish a queued draft + record it in the post log (charges the post price)
+palmyr tiktok reject <draft-id>                          # Discard a queued draft (free)
+palmyr tiktok logs [<username>] [--tag <folder>] [--limit N]   # Audit log of what went out — approved drafts + direct posts (free)
 palmyr tiktok follow <username> --user @handle           # Follow ($0.001)
 palmyr tiktok like <username> --video <url>              # Like a video ($0.001)
 palmyr tiktok delete <username> --video <url>            # Delete a post — via TikTok Studio's content manager ($0.001)
