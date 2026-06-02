@@ -471,6 +471,52 @@ export interface TikTokPostRequest extends TikTokOpRequest, VideoInput {
   schedule_at?: string;
 }
 
+/**
+ * After an instant post, resolve the just-published video's URL + id from the
+ * Studio content manager (the post redirect lands there but carries no id).
+ * Matches the row by caption (polled, since the new row can take a moment to
+ * appear), falling back to the newest post. Best-effort — returns {} if it
+ * can't resolve one; the caller must never fail the post over this.
+ */
+async function findPostedVideo(page: any, caption: string): Promise<{ video_id?: string; video_url?: string }> {
+  if (!/tiktokstudio\/(content|posts)/i.test(String(page.url()))) {
+    await page.goto("https://www.tiktok.com/tiktokstudio/content", { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+  }
+  await page.locator('a[href*="/video/"]').first().waitFor({ timeout: 15000 }).catch(() => {});
+  const key = (caption || "").trim().slice(0, 24).toLowerCase();
+  let href: string | null = null;
+  if (key) {
+    for (let i = 0; i < 4 && !href; i++) {
+      href = await page.evaluate(`(()=>{
+        const links=[...document.querySelectorAll('a[href*="/video/"]')];
+        const m = links.find(a => (a.textContent||'').trim().toLowerCase().includes(${JSON.stringify(key)}));
+        return m ? m.getAttribute('href') : null;
+      })()`).catch(() => null);
+      if (!href) await page.waitForTimeout(1500);
+    }
+  }
+  if (!href) {
+    // Fallback: the NEWEST post — don't assume the list is sorted newest-first.
+    // TikTok video ids are time-ordered, so the largest id is newest. Compare as
+    // numeric strings (by length, then lexicographically) — 19-digit ids overflow
+    // JS Number precision.
+    href = await page.evaluate(`(()=>{
+      let best=null, bestId='';
+      for (const a of document.querySelectorAll('a[href*="/video/"]')) {
+        const m=/\\/video\\/(\\d+)/.exec(a.getAttribute('href')||'');
+        if(!m) continue;
+        const id=m[1];
+        if(id.length>bestId.length || (id.length===bestId.length && id>bestId)){ bestId=id; best=a; }
+      }
+      return best ? best.getAttribute('href') : null;
+    })()`).catch(() => null);
+  }
+  if (!href) return {};
+  const full = href.startsWith("http") ? href : `https://www.tiktok.com${href}`;
+  const idm = /\/video\/(\d+)/.exec(full);
+  return { video_url: full, video_id: idm ? idm[1] : undefined };
+}
+
 export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<{ video_url?: string; video_id?: string; scheduled_at?: string }>> {
   const blocked = gate(req.account_id, "post");
   if (blocked) return blocked;
@@ -649,7 +695,17 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
       if (posted) {
         recordAction(req.account_id, "tiktok", "post");
         console.log(`[tiktok] post confirmed via redirect/toast (url=${url})`);
-        return { success: true, data: { ...(req.schedule_at ? { scheduled_at: req.schedule_at } : {}) } };
+        // The redirect doesn't carry the new video's id, so (for instant posts)
+        // look it up in the content manager we just landed on — match the row by
+        // caption, newest as fallback. Best-effort: never fail the post over it.
+        const found = req.schedule_at ? undefined : await findPostedVideo(page, req.caption).catch(() => undefined);
+        return {
+          success: true,
+          data: {
+            ...(found || {}),
+            ...(req.schedule_at ? { scheduled_at: req.schedule_at } : {}),
+          },
+        };
       }
       const diag = await captureUiState(page, "no-post-api");
       return {
