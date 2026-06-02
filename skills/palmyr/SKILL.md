@@ -179,7 +179,7 @@ palmyr twitter claim                                             # Pull every se
 # directly — no separate `claim` step needed.
 
 # TikTok — DIRECT browser automation (no paid upstream). Sessions come from a real browser login.
-palmyr tiktok connect <username>                         # Log in once in your real browser; the session is auto-captured via CDP. Free, no server call.
+palmyr tiktok connect <username> [--tag <folder>]        # Log in once in your real browser; session auto-captured via CDP. --tag files it under a folder. Free, no server call.
 palmyr tiktok connect <username> --qr                    # QR login: opens a window with a login QR for a human to scan with the TikTok app (no password/captcha). Also forwards a hosted /connect/<token> link.
 palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>   # BYO cookies from a logged-in browser (free)
 palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country us # Marketplace line (free; local vault only)
@@ -193,7 +193,8 @@ palmyr tiktok delete <username> --video <url>            # Delete a post — via
 palmyr tiktok bio <username> --text "..."                # Update bio, <=80 chars ($0.001)
 palmyr tiktok name <username> --display "..."            # Update display name, <=30 chars ($0.001). NB: TikTok rate-limits nickname changes to ~once/week.
 palmyr tiktok pfp <username> --file pic.png              # Update avatar ($0.005)
-palmyr tiktok list                                       # All local TikTok accounts (free)
+palmyr tiktok list [--tag <folder>]                      # All local TikTok accounts; --tag filters to one folder (free)
+palmyr tiktok tag <username> <folder>                    # File an account under a folder-like tag to organize 30+ accounts; `--clear` removes it (free)
 palmyr tiktok info <username> | rename <old> --to <new> | remove <username> --confirm | totp <username>   # Local account management (free)
 
 # Info
