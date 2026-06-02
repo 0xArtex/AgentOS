@@ -15,6 +15,7 @@
  * authed UI rendered.
  */
 import { getStealthChromium, buildProxyConfig, profileForCountry } from "./social-runtime";
+import { isSelfHosted } from "./self-hosted";
 import { solveTikTokCaptcha, isCaptchaSolverConfigured } from "./captcha-solver";
 import { fetchVerificationCode } from "./email-reader";
 
@@ -166,7 +167,11 @@ export async function loginTikTok(
   try {
     proxy = buildProxyConfig(sessionKey, { country: req.country });
   } catch (e: any) {
-    return {
+    // Self-hosted single-operator mode runs on the operator's own IP — no
+    // residential proxy required (matches openAuthenticatedSession). Prod still
+    // requires it.
+    if (isSelfHosted()) proxy = undefined;
+    else return {
       success: false,
       error: e.message,
       error_code: "PROXY_NOT_CONFIGURED",
@@ -584,6 +589,12 @@ export async function loginTikTok(
         .then(() => false),
     ]).catch(() => null);
 
+    // NOTE (known gap): the `[data-e2e="nav-profile"]`/`upload-icon` left-nav
+    // links also render for ANONYMOUS users, so this signal can resolve
+    // authed=true on a logged-out page — a dead/fake sessionid reports a false
+    // "success". A proper fix (gate on a logged-in-only signal — top-right
+    // profile avatar absence-of-"Log in", or a server-set auth cookie) needs
+    // validation against a real logged-in session, which isn't available here.
     if (authed !== true) {
       const diag = await snapshot("no-auth-signal");
       const pathMsg = hasCookies

@@ -11,6 +11,7 @@ import { requireAuth } from "../middleware/auth";
 import { requirePoolAdmin } from "../middleware/pool-admin";
 import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
+import { isSelfHosted } from "../services/self-hosted";
 import {
   poolAdd,
   poolBuy,
@@ -91,6 +92,9 @@ function requireSocialReady(
   res: Response,
   next: () => void
 ): void {
+  // Self-hosted single-operator mode runs on the operator's own IP with no
+  // residential proxy — skip the IPROYAL requirement. Hard-gated off production.
+  if (isSelfHosted()) { next(); return; }
   if (!process.env.IPROYAL_HOST || !process.env.IPROYAL_USERNAME || !process.env.IPROYAL_PASSWORD) {
     res.status(503).json({
       error: "Social operations not configured",

@@ -4,6 +4,7 @@ import { db } from "../db";
 import { AuthenticatedRequest } from "../types";
 import * as balanceService from "../services/balance";
 import { getOrCreateWallet } from "../services/deposit-wallets";
+import { isSelfHosted, selfHostedIdentity } from "../services/self-hosted";
 
 /**
  * Authentication middleware for Palmyr
@@ -30,6 +31,15 @@ export function requireAuth(
     typeof minUsdc === "function" ? minUsdc(req) : minUsdc;
 
   const handler = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    // Self-hosted single-operator instance: the operator owns the server, so
+    // there's no paywall — pass everything through free. Hard-gated so it can
+    // never engage on the hosted multi-tenant production deployment (see
+    // isSelfHosted); identity is the operator's wallet so ownership still works.
+    if (isSelfHosted()) {
+      req.agentId = req.agentId || selfHostedIdentity();
+      next();
+      return;
+    }
     const price = resolvePrice(req);
 
     const authHeader = req.headers["authorization"]?.toString().replace("Bearer ", "");

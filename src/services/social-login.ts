@@ -8,6 +8,7 @@
  */
 import { createHmac } from "crypto";
 import { getStealthChromium, buildProxyConfig } from "./social-runtime";
+import { isSelfHosted } from "./self-hosted";
 
 type Browser = any;
 
@@ -88,7 +89,10 @@ export async function loginTwitter(
   try {
     proxy = buildProxyConfig(sessionKey);
   } catch (e: any) {
-    return {
+    // Self-hosted single-operator mode runs on the operator's own IP — no
+    // residential proxy required. Prod still requires it.
+    if (isSelfHosted()) proxy = undefined;
+    else return {
       success: false,
       error: e.message,
       error_code: "PROXY_NOT_CONFIGURED",
