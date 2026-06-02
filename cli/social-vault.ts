@@ -72,6 +72,11 @@ export interface SocialAccountFile {
    * the server can read it without decrypting the vault blob.
    */
   country?: string
+  /**
+   * Folder-like grouping tag for organizing many accounts under one label
+   * (e.g. a brand or cohort). Local-only metadata; mirrors wallet foldering.
+   */
+  tag?: string
   meta: {
     acquired_at: string
     acquisition_source: 'import' | 'accsmarket' | 'pool' | string
@@ -93,6 +98,7 @@ export interface SocialAccountSummary {
   last_action_at: string | null
   proxy_session_id?: string
   country?: string
+  tag?: string
 }
 
 function getSocialDir(): string {
@@ -177,7 +183,7 @@ export function importAccount(
   platform: Platform,
   username: string,
   credentials: SocialCredentials,
-  opts: { source?: string; notes?: string; proxy_session_id?: string; country?: string } = {}
+  opts: { source?: string; notes?: string; proxy_session_id?: string; country?: string; tag?: string } = {}
 ): SocialAccountSummary {
   if (findByUsername(platform, username)) {
     throw new Error(`${platform} account "${username}" already exists locally. Use 'remove' first if you want to re-import.`)
@@ -195,6 +201,7 @@ export function importAccount(
     cred_crypto: encrypt(JSON.stringify(credentials), sessionSecret),
     proxy_session_id: opts.proxy_session_id,
     country: opts.country ? opts.country.toLowerCase() : undefined,
+    tag: opts.tag || undefined,
     meta: {
       acquired_at: new Date().toISOString(),
       acquisition_source: opts.source || 'import',
@@ -219,12 +226,14 @@ function summarise(acc: SocialAccountFile): SocialAccountSummary {
     last_action_at: acc.meta.last_action_at,
     proxy_session_id: acc.proxy_session_id,
     country: acc.country,
+    tag: acc.tag,
   }
 }
 
-export function listAccounts(platform?: Platform): SocialAccountSummary[] {
+export function listAccounts(platform?: Platform, tag?: string): SocialAccountSummary[] {
   return readAllAccounts()
     .filter(a => !platform || a.platform === platform)
+    .filter(a => !tag || a.tag === tag)
     .map(summarise)
 }
 
@@ -250,6 +259,18 @@ export function renameAccount(platform: Platform, oldUsername: string, newUserna
   }
   acc.previous_usernames.push(acc.username)
   acc.username = newUsername
+  writeAccount(acc)
+  return summarise(acc)
+}
+
+/**
+ * Assign / change / clear an account's folder-like grouping tag. Pass null to
+ * clear. Mirrors `wallet tag`. Local-only metadata — the server never sees it.
+ */
+export function tagAccount(platform: Platform, username: string, tag: string | null): SocialAccountSummary {
+  const acc = findByUsername(platform, username)
+  if (!acc) throw new Error(`${platform} account "${username}" not found locally`)
+  acc.tag = tag || undefined
   writeAccount(acc)
   return summarise(acc)
 }

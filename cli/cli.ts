@@ -1023,6 +1023,7 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<username>', desc: 'TikTok handle to import' },
     { flag: '--sessionid <s> --csrf <c> --webid <w>', desc: 'Cookies from a logged-in TikTok browser' },
     { flag: '--credentials-line "..."', desc: 'Marketplace login:pw:email:email_pw format' },
+    { flag: '--tag <name>', desc: 'Assign a folder-like grouping tag at import' },
     { flag: '(price)', desc: 'Free — local vault only' },
   ],
   connect: [
@@ -1033,10 +1034,12 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
     { flag: '--no-sandbox', desc: 'Launch without the browser sandbox (auto on root Linux; for headless/CI)' },
     { flag: '--force', desc: 'Re-capture even if a fresh session is already cached' },
+    { flag: '--tag <name>', desc: 'Save under a folder-like grouping tag (organize many accounts)' },
     { flag: '(price)', desc: 'Free — local, no server call' },
   ],
   list: [
     { flag: '(no args)', desc: 'List all local TikTok accounts' },
+    { flag: '--tag <name>', desc: 'Filter to accounts in this folder/tag' },
     { flag: '(price)', desc: 'Free' },
   ],
   info: [{ flag: '<username>', desc: 'Show one account' }, { flag: '(price)', desc: 'Free' }],
@@ -1044,6 +1047,12 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<old>', desc: 'Current local handle' },
     { flag: '--to <new>', desc: 'New handle' },
     { flag: '(price)', desc: 'Free — local-only metadata update' },
+  ],
+  tag: [
+    { flag: '<username>', desc: 'Account to tag' },
+    { flag: '<tag-name>', desc: 'Folder name (positional) to assign' },
+    { flag: '--clear', desc: "Remove the account's tag instead" },
+    { flag: '(price)', desc: 'Free — local-only metadata' },
   ],
   remove: [
     { flag: '<username>', desc: 'Account to delete from local vault' },
@@ -6870,11 +6879,12 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             subtitle: 'Automated TikTok account management',
             footerLeft: 'Start with `connect`: log in once in your own browser, then post / follow / like — all server-side.',
             commands: [
-              { name: 'connect', description: 'Log in once via your own browser — opens TikTok, you sign in (incl. captcha/2FA), and Palmyr auto-captures the session into the local vault. Auto-creates the account and infers the country from your browser. This is the easy path.', hint: '<username>' },
+              { name: 'connect', description: 'Log in once via your own browser — opens TikTok, you sign in (incl. captcha/2FA), and Palmyr auto-captures the session into the local vault. Auto-creates the account and infers the country from your browser. This is the easy path.', hint: '<username> [--tag <folder>]' },
               { name: 'import',  description: 'Manual fallback to `connect`: save a BYO account from a marketplace --credentials-line "login:pw:email:email_pw", or paste cookies from DevTools → Application → Cookies → .tiktok.com via --sessionid.', hint: '--credentials-line "..." OR <username> --sessionid ... --csrf ... --webid ...' },
-              { name: 'list',    description: 'List all local TikTok accounts' },
+              { name: 'list',    description: 'List local TikTok accounts; --tag filters to one folder', hint: '[--tag <folder>]' },
               { name: 'info',    description: 'Show one account', hint: '<username>' },
               { name: 'rename',  description: 'Update the local handle', hint: '<old> --to <new>' },
+              { name: 'tag',     description: 'Group an account under a folder-like tag so one agent can organize 30+ accounts; --clear removes it', hint: '<username> <folder> | <username> --clear' },
               { name: 'remove',  description: 'Delete an account from the local vault', hint: '<username> --confirm' },
               { name: 'totp',    description: 'Print the current TOTP code', hint: '<username>' },
               { name: 'login',   description: 'Validate cookies and cache the session', hint: '<username>' },
@@ -7001,6 +7011,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             const summary = sv.importAccount(platform, username, creds, {
               source: line ? 'marketplace-line' : 'import',
               country,
+              tag: flags.tag as string | undefined,
             })
             const loginPath = sessionid ? 'cookie-injection' : 'form-login (requires CAPSOLVER_API_KEY server-side)'
             log(`tiktok import: ${summary.username} (${summary.id}) [login: ${loginPath}, country: ${country}]`)
@@ -7008,8 +7019,9 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           case 'list': {
-            const accounts = sv.listAccounts(platform)
-            return print({ accounts, count: accounts.length })
+            const tagFilter = flags.tag as string | undefined
+            const accounts = sv.listAccounts(platform, tagFilter)
+            return print({ accounts, count: accounts.length, ...(tagFilter ? { tag: tagFilter } : {}) })
           }
 
           case 'info': {
@@ -7027,6 +7039,18 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             if (!newUsername) err('--to <new-username> required')
             const summary = sv.renameAccount(platform, oldUsername, newUsername)
             log(`tiktok rename: ${oldUsername} → ${newUsername}`)
+            return print(summary)
+          }
+
+          case 'tag': {
+            // Folder-like grouping so one agent can organize 30+ accounts.
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const clear = !!flags.clear
+            const newTag = clear ? null : (positional[1] || (flags.tag as string))
+            if (!clear && !newTag) err('provide a tag (e.g. `palmyr tiktok tag <username> brand-x`) or --clear')
+            const summary = sv.tagAccount(platform, username, newTag)
+            log(clear ? `tiktok tag: cleared on ${username}` : `tiktok tag: ${username} → ${newTag}`)
             return print(summary)
           }
 
@@ -7146,8 +7170,11 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // Auto-create the account now that the country is known (one command,
             // not import-then-connect).
             if (!acc) {
-              acc = sv.importAccount(platform, username, { login: username, password: 'unknown' }, { source: 'connect', country: resolvedCountry })
+              acc = sv.importAccount(platform, username, { login: username, password: 'unknown' }, { source: 'connect', country: resolvedCountry, tag: flags.tag as string | undefined })
               process.stderr.write(`[connect] created local account ${username} (${acc.id}) [country: ${resolvedCountry}, ${countrySource}]\n`)
+            } else if (flags.tag) {
+              // Re-connecting an existing account with --tag (re)assigns the folder.
+              sv.tagAccount(platform, username, flags.tag as string)
             }
 
             // Persist into the same encrypted session cache that post/follow/like read.
@@ -7161,6 +7188,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               country_source: countrySource,
               cookies_captured: result.cookiesCaptured,
               sessionid_present: true,
+              ...(flags.tag ? { tag: flags.tag as string } : {}),
               ...(result.qrPngPath ? { qr_png_path: result.qrPngPath } : {}),
               ...(hostedLink ? { qr_link: hostedLink } : {}),
               next: `palmyr tiktok post ${username} --file video.mp4 --caption "..."`,
@@ -7356,7 +7384,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown tiktok command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, session, post, follow, like, delete, bio, name, pfp`)
+            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, list, info, rename, tag, remove, totp, login, session, post, schedule, follow, like, delete, bio, name, pfp`)
         }
         break
       }

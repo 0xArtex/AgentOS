@@ -622,14 +622,15 @@ Direct browser automation — no marketplace or paid upstream. A TikTok session 
 
 | Command | Cost | Notes |
 |---------|------|-------|
-| `palmyr tiktok connect <username>` | free | One-shot real-browser login — opens Chrome/Edge/Brave, you log in once, and the session is auto-captured via CDP and cached locally. No server call. |
+| `palmyr tiktok connect <username>` *(`--tag <folder>` files it under a folder)* | free | One-shot real-browser login — opens Chrome/Edge/Brave, you log in once, and the session is auto-captured via CDP and cached locally. No server call. |
 | `palmyr tiktok connect <username> --qr` | free | QR login — opens a window showing TikTok's login QR for a human to scan with the TikTok app (no password / captcha). Also hosts the QR server-side and prints a `/connect/<token>` link to forward. Runs headed (TikTok rejects headless QR-auth). |
 | `palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>` | free | Bring your own cookies from a logged-in TikTok browser. |
 | `palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country <iso2>` | free | Marketplace colon format. Local vault only; `--country` drives proxy exit + browser locale. |
-| `palmyr tiktok list` | free | List local TikTok accounts. |
+| `palmyr tiktok list` *(`--tag <folder>` filters to one folder)* | free | List local TikTok accounts. |
 | `palmyr tiktok info <username>` | free | Show one account (id, source, country, last action). |
 | `palmyr tiktok session <username>` | free | Whether a session is cached, its age in hours, and staleness (>12h). |
 | `palmyr tiktok rename <old> --to <new>` | free | Rename the local alias (does not change the TikTok handle). |
+| `palmyr tiktok tag <username> <folder>` *(or `--clear`)* | free | File an account under a folder-like grouping tag so one agent can organize 30+ accounts. `--clear` removes it; `palmyr tiktok list --tag <folder>` filters to a folder. Assignable at `connect`/`import` time via `--tag` too. |
 | `palmyr tiktok remove <username> --confirm` | free | Delete the local copy. The TikTok account itself is not deleted. |
 | `palmyr tiktok totp <username>` | free | Print the current 2FA code from the stored seed (if one was imported). |
 | `palmyr tiktok login <username>` | $0.02 | Validate stored cookies/credentials via a stealth browser and cache the session. |
