@@ -1256,10 +1256,10 @@ async function main() {
   setUiAgentMode(AGENT_MODE)
 
   if (flags.version) {
-    if (AGENT_MODE) {
-      // Agents need to disambiguate "CLI npm package version" from "Palmyr API
-      // server version" and the Node runtime — emit all three so they don't
-      // have to call multiple commands to assemble a support report.
+    // `--version` follows the universal CLI convention: a bare version string on
+    // stdout so wrappers/CI can grep it. Agents that want the richer cli/node/
+    // platform report opt in explicitly with --json (or PALMYR_JSON=1).
+    if (AGENT_MODE && (!!flags.json || process.env.PALMYR_JSON === '1')) {
       print({
         cliPackageVersion: VERSION,
         version: VERSION, // back-compat alias for the legacy {version} shape
@@ -3073,8 +3073,6 @@ async function main() {
             if (!sessionSecret) err('No session secret found. Was this wallet created on this machine?')
             const data = await ao.walletConfig(walletId, sessionSecret!)
             return print(data)
-            print(data.config || data)
-            break
           }
           case 'use': {
             const walletId = positional[0] || flags.id as string

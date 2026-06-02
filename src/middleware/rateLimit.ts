@@ -1,5 +1,6 @@
 import { Response, NextFunction } from "express";
 import { AuthenticatedRequest } from "../types";
+import { clientIp } from "./client-ip";
 
 interface RateLimitEntry {
   count: number;
@@ -25,10 +26,12 @@ setInterval(() => {
  */
 export function rateLimit(maxRequests: number = 10, windowMs: number = 60_000) {
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
-    // Authenticated identity only: req.agentId / req.payment.payer are set by
-    // trusted middleware earlier in the pipeline; req.ip is derived from the
-    // socket. Any incoming X-* header is attacker-controlled — do not trust it.
-    const key = req.agentId || req.payment?.payer || req.ip || "unknown";
+    // Authenticated identity first: req.agentId / req.payment.payer are set by
+    // trusted middleware earlier in the pipeline. The IP fallback uses
+    // clientIp() (CF-Connecting-IP behind the tunnel, else req.ip) — without it
+    // every caller collapses to 127.0.0.1 in prod. We still NEVER trust a raw
+    // X-Forwarded-* header (forgeable); CF-Connecting-IP is edge-controlled.
+    const key = req.agentId || req.payment?.payer || clientIp(req) || "unknown";
     const now = Date.now();
 
     let entry = store.get(key);

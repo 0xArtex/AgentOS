@@ -72,7 +72,7 @@ async function getTldPrice(tld: string): Promise<number> {
     // Query pricing for specific TLD
     const apiUser = process.env.NAMECHEAP_API_USER;
     const apiKey = process.env.NAMECHEAP_API_KEY;
-    const url = `https://api.namecheap.com/xml.response?ApiUser=${apiUser}&ApiKey=${apiKey}&UserName=${apiUser}&ClientIp=77.42.89.233&Command=namecheap.users.getPricing&ProductType=DOMAIN&ProductCategory=REGISTER&ProductName=${tld.toLowerCase()}`;
+    const url = `https://api.namecheap.com/xml.response?ApiUser=${apiUser}&ApiKey=${apiKey}&UserName=${apiUser}&ClientIp=${process.env.NAMECHEAP_CLIENT_IP || '77.42.89.233'}&Command=namecheap.users.getPricing&ProductType=DOMAIN&ProductCategory=REGISTER&ProductName=${tld.toLowerCase()}`;
     
     const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
     const xml = await resp.text();
@@ -213,7 +213,7 @@ router.get('/pricing', async (_req: Request, res: Response) => {
   res.json({
     currency: 'USDC',
     pricing,
-    note: 'Prices in USDC with 10% service fee. 1-year registration.',
+    note: 'Prices in USDC with 25% service fee. 1-year registration.',
   });
 });
 
@@ -667,11 +667,16 @@ router.post('/:domain/dns', requireAuth(OWNERSHIP_PROOF_USDC, 'general'), async 
         return params;
       }).reduce((acc, params) => ({ ...acc, ...params }), {});
 
-      // Set DNS records via Namecheap
+      // Namecheap ignores host-level MX rows while the domain is in FWD/MXE
+      // email mode; EmailType='MX' tells it to honor them. Only set it when the
+      // caller actually sent MX records (mirrors services/namecheap.ts
+      // setDomainDnsRecords) so non-MX setups like Gmail/Workspace aren't clobbered.
+      const hasMx = records.some((r: DnsRecord) => r.type === 'MX');
       await namecheapRequest('namecheap.domains.dns.setHosts', {
         SLD: (domain as string).split('.')[0],
         TLD: (domain as string).split('.').slice(1).join('.'),
-        ...hosts
+        ...hosts,
+        ...(hasMx ? { EmailType: 'MX' } : {}),
       });
 
       // Update records in database

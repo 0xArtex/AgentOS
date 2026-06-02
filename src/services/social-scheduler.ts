@@ -13,6 +13,7 @@
  */
 import {
   getDueScheduled,
+  recoverStaleInProgress,
   claimScheduled,
   markScheduledCompleted,
   markScheduledFailed,
@@ -127,6 +128,9 @@ export interface TickReport {
  */
 export async function runSocialSchedulerTick(): Promise<TickReport> {
   const startedAt = new Date().toISOString();
+  // Requeue items orphaned in 'in_progress' by a crashed/restarted worker before
+  // scanning, so a prepaid post that was mid-flight at the crash still fires.
+  recoverStaleInProgress();
   const due = getDueScheduled();
   const results: TickReport["results"] = [];
 

@@ -73,7 +73,10 @@ export function requirePoolAdmin(req: Request, res: Response, next: NextFunction
       return;
     }
   } catch (e: any) {
-    res.status(401).json({ error: `Signature verification failed: ${e.message}` });
+    // Only low-level decode noise (bad base58/hex) reaches here — log it
+    // server-side rather than leaking internal lib errors to the caller.
+    console.error("[pool-admin] signature verification error:", e);
+    res.status(401).json({ error: "Invalid admin signature" });
     return;
   }
 

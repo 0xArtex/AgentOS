@@ -38,7 +38,13 @@ import type {
 
 const I402_VERSION = "0.1";
 
-const ORCHESTRATION_FEE_PCT = () => parseFloat(process.env.I402_ORCHESTRATION_FEE_PCT ?? "0.15");
+const ORCHESTRATION_FEE_PCT = () => {
+  // Guard against a misconfigured env value — parseFloat("abc") is NaN, which
+  // would propagate through every total (NaN <= budget is false) and mislabel
+  // every plan budget_exceeded.
+  const v = parseFloat(process.env.I402_ORCHESTRATION_FEE_PCT ?? "0.15");
+  return Number.isFinite(v) && v >= 0 ? v : 0.15;
+};
 const ORCHESTRATION_FEE_MIN = 0.01;
 
 // -------------------- Router classification --------------------
@@ -572,9 +578,15 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
   if (candidateProviders.length === 0) {
     candidateProviders = listProviders({ enabledOnly: true });
   }
-  // Ensure at least top-3 per capability are in the candidate pool for coverage
+  // Ensure at least top-3 per capability are in the candidate pool for coverage.
+  // Pre-filter to x402-native first — otherwise a capability whose 3 highest-
+  // reputation rows are non-x402 contributes nothing (the filter below strips
+  // all three, and the x402 rows ranked #4+ were never added via this path).
+  const x402All = listProviders({ enabledOnly: true }).filter(
+    p => p.authScheme === "x402-solana" || p.authScheme === "x402-base"
+  );
   const byCapability = new Map<string, I402Provider[]>();
-  for (const p of listProviders({ enabledOnly: true })) {
+  for (const p of x402All) {
     if (!byCapability.has(p.capability)) byCapability.set(p.capability, []);
     byCapability.get(p.capability)!.push(p);
   }

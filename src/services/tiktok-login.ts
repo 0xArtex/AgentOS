@@ -454,10 +454,9 @@ export async function loginTikTok(
         } catch (e: any) {
           const diag = await snapshot("email-verification-failed");
           const message = String(e?.message || e);
-          const code =
-            /AUTH|authenticat/i.test(message) ? "EMAIL_AUTH_FAILED" :
-            /timeout|no matching/i.test(message) ? "EMAIL_VERIFICATION_FAILED" :
-            "EMAIL_VERIFICATION_FAILED";
+          const code = /AUTH|authenticat/i.test(message)
+            ? "EMAIL_AUTH_FAILED"
+            : "EMAIL_VERIFICATION_FAILED";
           return {
             success: false,
             error: `Email auto-solve failed: ${message}`,

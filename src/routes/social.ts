@@ -945,9 +945,35 @@ router.post(
    before fire = no refund (Buffer/Hootsuite model).
 */
 
+// Reject the trivially-knowable failures (missing account_id, missing/invalid/
+// past post_at) BEFORE the x402 paywall settles — otherwise the wallet is
+// charged and nothing is scheduled. Mirrors validateBuyFilters on /twitter/buy.
+function validateScheduleBody(req: AuthenticatedRequest, res: Response, next: () => void): void {
+  const body = (req.body || {}) as { account_id?: string; post_at?: string };
+  if (!body.account_id) {
+    res.status(400).json({ error: "account_id is required" });
+    return;
+  }
+  if (!body.post_at) {
+    res.status(400).json({ error: "post_at is required" });
+    return;
+  }
+  const ms = Date.parse(body.post_at);
+  if (Number.isNaN(ms)) {
+    res.status(400).json({ error: `post_at "${body.post_at}" is not a valid ISO 8601 date` });
+    return;
+  }
+  if (ms < Date.now() - 60_000) {
+    res.status(400).json({ error: `post_at "${body.post_at}" is in the past` });
+    return;
+  }
+  next();
+}
+
 router.post(
   "/scheduled/post",
   requireXEnabled,
+  validateScheduleBody,
   requireAuth(0.001, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
@@ -981,6 +1007,7 @@ router.post(
 router.post(
   "/scheduled/thread",
   requireXEnabled,
+  validateScheduleBody,
   requireAuth(0.005, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
@@ -1014,6 +1041,7 @@ router.post(
 router.post(
   "/scheduled/media",
   requireXEnabled,
+  validateScheduleBody,
   requireAuth(0.005, "general"),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;

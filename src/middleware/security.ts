@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from "express";
 import helmet from "helmet";
 import hpp from "hpp";
+import { clientIp } from "./client-ip";
 
 /**
  * Security middleware stack for Palmyr API.
@@ -50,18 +51,6 @@ export function sqlInjectionGuard(_req: Request, _res: Response, next: NextFunct
   next();
 }
 
-// Request body size check (prevent payload bombs)
-export function bodySizeLimit(maxBytes: number = 1024 * 100) { // 100KB default
-  return (req: Request, res: Response, next: NextFunction): void => {
-    const contentLength = parseInt(req.headers["content-length"] || "0");
-    if (contentLength > maxBytes) {
-      res.status(413).json({ error: "Payload Too Large", message: `Max body size: ${maxBytes} bytes` });
-      return;
-    }
-    next();
-  };
-}
-
 // Sanitize string inputs (strip null bytes, trim)
 export function sanitizeInputs(req: Request, _res: Response, next: NextFunction): void {
   const sanitize = (obj: any): any => {
@@ -100,7 +89,7 @@ function touchFailedEntry(ip: string, entry: { count: number; blockedUntil: numb
 }
 
 export function bruteForceProtection(req: Request, res: Response, next: NextFunction): void {
-  const ip = req.ip || req.socket.remoteAddress || "unknown";
+  const ip = clientIp(req);
   const entry = failedAttempts.get(ip);
 
   if (entry && Date.now() < entry.blockedUntil) {

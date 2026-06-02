@@ -242,6 +242,8 @@ export interface MonitorState {
   lastThesisVerdict?: 'yes' | 'no' | 'unclear'
   lastThesisReasoning?: string
   lastThesisFiredAt?: string
+  /** Per-trigger fire watermark (ISO ts) so non-auto monitoring stays idempotent across ticks. */
+  firedTriggers?: Partial<Record<'cut' | 'takeProfit' | 'trailingStop' | 'timeLimit', string>>
 }
 
 export interface SolanaEntry {

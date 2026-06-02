@@ -828,7 +828,10 @@ export function signMessage(
 
   if (c === "evm" || c === "base" || c === "ethereum" || c.startsWith("eip155:")) {
     const hd = deriveEvmWallet(mnemonic);
-    const sig = hd.signMessageSync(message);
+    // Sign the decoded bytes (honoring `encoding`), not the raw string —
+    // otherwise an encoding:"hex" request signs the literal hex text and the
+    // signature won't verify against the intended payload (Solana already does this).
+    const sig = hd.signMessageSync(msgBytes);
     return { signature: sig.replace("0x", "") };
   }
 
@@ -880,11 +883,17 @@ export function signTransaction(
 
 export function signTypedData(
   walletId: string,
-  _chain: string,
+  chain: string,
   typedDataJson: string,
   auth: { sessionSecret?: string; token?: string },
 ): SignResult {
   const mnemonic = resolveMnemonic(walletId, auth);
+  // EIP-712 is EVM-only. Fail loudly instead of silently returning an EVM
+  // signature for a chain:"solana" request the caller asked to sign elsewhere.
+  const c = chain.toLowerCase();
+  if (!(c === "evm" || c === "base" || c === "ethereum" || c.startsWith("eip155:"))) {
+    throw new Error("signTypedData (EIP-712) is only supported on EVM chains");
+  }
   const { TypedDataEncoder, SigningKey } = require("ethers");
   const hd = deriveEvmWallet(mnemonic);
 

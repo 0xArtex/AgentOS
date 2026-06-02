@@ -416,6 +416,10 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_servers_owner ON servers(owner);
   `);
 
+  // Migration: configure-openclaw flips this flag. Added after the original
+  // CREATE TABLE shipped, so guard against the 'duplicate column' on re-run.
+  try { db.exec("ALTER TABLE servers ADD COLUMN openclaw_configured INTEGER DEFAULT 0"); } catch {}
+
   // API Keys table
   db.exec(`
     CREATE TABLE IF NOT EXISTS api_keys (
@@ -809,7 +813,6 @@ export function initDatabase(): void {
       tested_at TEXT,
       notes TEXT
     );
-    CREATE INDEX IF NOT EXISTS idx_pool_status_platform_country ON social_account_pool(status, platform, country);
     CREATE INDEX IF NOT EXISTS idx_pool_sold_to ON social_account_pool(sold_to_wallet);
   `);
 
@@ -855,6 +858,10 @@ export function initDatabase(): void {
   // since every buy starts with status='ready'.
   db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_filters ON social_account_pool(status, platform, country, source, username_change_count);`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_pool_registration ON social_account_pool(status, platform, registered_country, registered_platform);`);
+  // idx_pool_filters' leftmost columns (status, platform, country) already serve
+  // every query the narrower idx_pool_status_platform_country could — drop the
+  // redundant index so existing DBs stop paying for it on each pool write.
+  db.exec(`DROP INDEX IF EXISTS idx_pool_status_platform_country;`);
 
   // Admin-set per-country prices that `palmyr twitter buy --country US` reads
   // from. Decouples pricing from per-account sale_price_usdc: one row per

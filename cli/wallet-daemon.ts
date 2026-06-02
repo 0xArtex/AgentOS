@@ -192,13 +192,18 @@ export function evaluateTriggers(p: PositionFile): TriggerFire[] {
     autoExecuted: false,
   }
 
+  // Without auto-execute the position stays 'open', so a threshold that's met
+  // keeps re-firing every tick — spamming pending.jsonl + the trade log. Gate
+  // each trigger on a fire-once watermark (mirrors lastThesisFiredAt below).
+  const fired = p.monitorState?.firedTriggers ?? {}
+
   const cutThreshold = parsePctString(p.exitPlan.cut)
-  if (cutThreshold !== null && currentPct <= cutThreshold) {
+  if (cutThreshold !== null && currentPct <= cutThreshold && !fired.cut) {
     out.push({ ...base, trigger: 'cut', thresholdPct: cutThreshold })
   }
 
   const tpThreshold = parsePctString(p.exitPlan.takeProfit)
-  if (tpThreshold !== null && currentPct >= tpThreshold) {
+  if (tpThreshold !== null && currentPct >= tpThreshold && !fired.takeProfit) {
     out.push({ ...base, trigger: 'takeProfit', thresholdPct: tpThreshold })
   }
 
@@ -207,7 +212,8 @@ export function evaluateTriggers(p: PositionFile): TriggerFire[] {
     trailPct !== null &&
     p.monitorState &&
     p.monitorState.peakUnrealizedPct > 0 &&
-    p.monitorState.peakUnrealizedPct - currentPct >= trailPct
+    p.monitorState.peakUnrealizedPct - currentPct >= trailPct &&
+    !fired.trailingStop
   ) {
     const peak = p.monitorState.peakUnrealizedPct
     out.push({
@@ -222,7 +228,7 @@ export function evaluateTriggers(p: PositionFile): TriggerFire[] {
   const limitMs = parseDurationToMs(p.exitPlan.timeLimit)
   if (limitMs !== null) {
     const elapsedMs = Date.now() - new Date(p.entry.time).getTime()
-    if (elapsedMs >= limitMs) {
+    if (elapsedMs >= limitMs && !fired.timeLimit) {
       out.push({
         ...base,
         trigger: 'timeLimit',
@@ -465,6 +471,16 @@ async function processPositionFires(p: PositionFile, opts: DaemonOpts): Promise<
     appendTradeLog(logLine)
     if (fire.trigger === 'thesis_falsified' && p.monitorState) {
       p.monitorState.lastThesisFiredAt = fire.ts
+      writePosition(p)
+    } else if (
+      fire.trigger === 'cut' || fire.trigger === 'takeProfit' ||
+      fire.trigger === 'trailingStop' || fire.trigger === 'timeLimit'
+    ) {
+      // Stamp the watermark so this trigger doesn't re-append every tick when
+      // auto-execute is off (auto-exec closes the position, making this a no-op).
+      if (!p.monitorState) p.monitorState = { peakUnrealizedPct: p.pnl.unrealizedPct, peakAt: fire.ts }
+      if (!p.monitorState.firedTriggers) p.monitorState.firedTriggers = {}
+      p.monitorState.firedTriggers[fire.trigger] = fire.ts
       writePosition(p)
     }
     out.push(fire)

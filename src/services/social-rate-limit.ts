@@ -89,17 +89,31 @@ export function checkRateLimit(
     }
   }
 
-  // 2. Per-operation window caps.
+  // 2. Per-window caps. A window may cover several operations (e.g.
+  // ['post','reply']) and the `max` is the SHARED budget across them, so count
+  // every operation the window spans — not just the one being checked.
   for (const w of policy.windows) {
     if (w.operations.length && !w.operations.includes(operation)) continue;
     const since = now - w.windowMs;
-    const row = db
-      .prepare(
-        `SELECT COUNT(*) as n FROM social_action_log
-         WHERE account_id = ? AND platform = ? AND operation = ?
-           AND acted_at > ?`
-      )
-      .get(accountId, platform, operation, since) as { n: number };
+    let row: { n: number };
+    if (w.operations.length) {
+      const placeholders = w.operations.map(() => "?").join(",");
+      row = db
+        .prepare(
+          `SELECT COUNT(*) as n FROM social_action_log
+           WHERE account_id = ? AND platform = ? AND operation IN (${placeholders})
+             AND acted_at > ?`
+        )
+        .get(accountId, platform, ...w.operations, since) as { n: number };
+    } else {
+      row = db
+        .prepare(
+          `SELECT COUNT(*) as n FROM social_action_log
+           WHERE account_id = ? AND platform = ?
+             AND acted_at > ?`
+        )
+        .get(accountId, platform, since) as { n: number };
+    }
     if (row.n >= w.max) {
       return {
         ok: false,

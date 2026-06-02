@@ -191,8 +191,8 @@ export function createInbox(
       steps: [
         "1. GET /email/inboxes/:id/messages (x402 payment from your wallet)",
         "2. Messages returned as ciphertext — we cannot read them",
-        "3. Decrypt client-side: strip 'w:' prefix, base64 decode, nacl.box.open(ciphertext, nonce, serverPub, yourPrivateKey)",
-        "4. Convert your Ed25519 key to X25519 for decryption",
+        "3. Strip the 'w:' prefix, base64-decode to bytes B. ephemeralPub = B.slice(0,32); nonce = B.slice(32,56); ciphertext = B.slice(56).",
+        "4. Convert your Ed25519 secret key to X25519, then nacl.box.open(ciphertext, nonce, ephemeralPub, yourX25519SecretKey).",
       ],
     },
   };
@@ -256,11 +256,19 @@ export function handleInboundEmail(
   attachments?: Array<{filename: string; contentType: string; content: string}>,
   headers?: {messageId?: string; inReplyTo?: string; cc?: string}
 ): EmailMessage | null {
-  const match = to.match(/^([^@]+)@/);
+  // Strip any "Name <addr>" framing, then route on the FULL address first —
+  // multi-domain inboxes let the same local-part exist on different domains, so
+  // local-part-only routing could seal an inbox's mail (and E2E ciphertext) to
+  // the wrong wallet. Fall back to local-part for the default domain so legacy
+  // palmyr.ai inboxes provisioned before address routing still resolve.
+  const addr = (to.match(/<([^>]+)>/)?.[1] || to).trim().toLowerCase();
+  const match = addr.match(/^([^@]+)@/);
   if (!match) return null;
 
-  const localPart = match[1].toLowerCase();
-  const inboxId = storage.getEmailInboxByLocalPart(localPart);
+  let inboxId = storage.getEmailInboxByAddress(addr);
+  if (!inboxId && addr.endsWith('@' + config.emailDomain)) {
+    inboxId = storage.getEmailInboxByLocalPart(match[1].toLowerCase());
+  }
   if (!inboxId) {
     console.warn(`[email] Inbound email to unknown address: ${to}`);
     return null;

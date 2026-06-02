@@ -85,7 +85,7 @@ export function renderExpiredPage(): string {
   return (
     PAGE_HEAD +
     `<h1>Link expired</h1>` +
-    `<p class="sub">This TikTok login QR has expired or was already used.</p>` +
+    `<p class="sub">This TikTok login QR has expired.</p>` +
     `<div class="steps">Ask for a fresh link and try again.</div>` +
     `</div></body></html>`
   );

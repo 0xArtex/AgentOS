@@ -207,7 +207,7 @@ function toJsonSafe(obj: any): any {
 async function handleSvmPayment(
   paymentPayload: any,
   matchedRequirement: any,
-): Promise<{ verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string }> {
+): Promise<{ verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string; amountPaid?: bigint }> {
   const svmPayload = paymentPayload.payload;
   if (!svmPayload?.transaction) {
     return { verified: false, settled: false, reason: "missing_transaction_in_payload" };
@@ -240,7 +240,7 @@ async function handleSvmPayment(
     };
   }
 
-  return { verified: true, settled: true, signature: settleResult.signature, payer: verifyResult.payer };
+  return { verified: true, settled: true, signature: settleResult.signature, payer: verifyResult.payer, amountPaid: verifyResult.amount };
 }
 
 async function handleEvmPayment(
@@ -329,7 +329,7 @@ async function handleEvmPayment(
       const reason = settleResult.error || settleResult.errorReason || settleResult.errorMessage || settleResult.message || "transaction_failed";
       return { verified: true, settled: false, reason };
     }
-    return { verified: true, settled: true, signature: settleResult.transaction || result.txHash };
+    return { verified: true, settled: true, signature: settleResult.transaction || settleResult.txHash || settleResult.transactionHash };
   } catch (e: any) {
     console.error("[x402] EVM settlement exception:", e?.message);
     return { verified: true, settled: false, reason: "settlement_error: " + (e?.message || "unknown") };
@@ -384,7 +384,7 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
 
       console.log("[x402] Matched network:", matchedRequirement.network);
 
-      let result: { verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string };
+      let result: { verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string; amountPaid?: bigint };
 
       if (matchedRequirement.network.startsWith("solana:")) {
         console.log("[x402] Using direct SVM verification");
@@ -428,7 +428,10 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
       req.payment = {
         signature: result.signature || "x402-verified",
         payer: result.payer || "unknown",
-        amountLamports: BigInt(Math.round(minUsdc * 1e6)),
+        // Record what was actually transferred on-chain (SVM threads the parsed
+        // amount through) so a refund returns the full amount an overpayer sent,
+        // not just the route minimum. EVM has no parsed amount → falls back.
+        amountLamports: result.amountPaid ?? BigInt(Math.round(minUsdc * 1e6)),
         verifiedAt: Date.now(),
         chain: matchedRequirement.network.startsWith("solana:") ? "solana" : "base",
       };

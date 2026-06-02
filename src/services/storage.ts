@@ -169,6 +169,12 @@ class Storage {
     return row?.id;
   }
 
+  getEmailInboxByAddress(address: string): string | undefined {
+    const stmt = db.prepare('SELECT id FROM email_inboxes WHERE address = ? LIMIT 1');
+    const row = stmt.get(address.toLowerCase()) as any;
+    return row?.id;
+  }
+
   hasEmailLocalPart(localPart: string): boolean {
     const stmt = db.prepare('SELECT 1 FROM email_inboxes WHERE local_part = ? LIMIT 1');
     return Boolean(stmt.get(localPart));
@@ -372,11 +378,14 @@ class Storage {
   // ── Compute ────────────────────────────────────────────────
 
   setServer(id: string, server: Server): void {
+    // INSERT OR REPLACE wipes the whole row, so carry the openclaw_configured
+    // flag forward from any existing row — getServer/serverAction/resize/rename
+    // all re-save via this path and would otherwise reset a configured box to 0.
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO servers (id, name, server_type, image, status, ipv4, ipv6, owner, price_monthly, created_at, root_password)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO servers (id, name, server_type, image, status, ipv4, ipv6, owner, price_monthly, created_at, root_password, openclaw_configured)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT openclaw_configured FROM servers WHERE id = ?), 0))
     `);
-    stmt.run(id, server.name, server.serverType, server.image, server.status, server.ipv4, server.ipv6, server.owner, server.priceMonthly, server.createdAt, server.rootPassword);
+    stmt.run(id, server.name, server.serverType, server.image, server.status, server.ipv4, server.ipv6, server.owner, server.priceMonthly, server.createdAt, server.rootPassword, id);
   }
 
   getServer(id: string): Server | undefined {
@@ -481,21 +490,6 @@ class Storage {
       active: Boolean(row.active),
       createdAt: row.created_at
     }));
-  }
-
-  // ── Used Payments (for transaction deduplication) ─────────
-
-  isPaymentUsed(signature: string): boolean {
-    const stmt = db.prepare('SELECT 1 FROM used_payments WHERE signature = ? LIMIT 1');
-    return Boolean(stmt.get(signature));
-  }
-
-  markPaymentUsed(signature: string, payer: string, amountLamports: bigint, endpoint: string): void {
-    const stmt = db.prepare(`
-      INSERT INTO used_payments (signature, payer, amount_lamports, verified_at, endpoint)
-      VALUES (?, ?, ?, ?, ?)
-    `);
-    stmt.run(signature, payer, amountLamports.toString(), new Date().toISOString(), endpoint);
   }
 
   // ── Voice Calls ────────────────────────────────────────────

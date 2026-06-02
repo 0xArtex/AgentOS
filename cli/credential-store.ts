@@ -44,9 +44,9 @@ function storeWindows(account: string, secret: string): void {
   const outPath = dpapiPath(account)
   const script = [
     'Add-Type -AssemblyName System.Security',
-    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('${secret}')`,
+    `$bytes = [System.Text.Encoding]::UTF8.GetBytes('${secret.replace(/'/g, "''")}')`,
     '$enc = [System.Security.Cryptography.ProtectedData]::Protect($bytes, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)',
-    `[System.IO.File]::WriteAllBytes('${outPath.replace(/\\/g, '\\\\')}', $enc)`,
+    `[System.IO.File]::WriteAllBytes('${outPath.replace(/\\/g, '\\\\').replace(/'/g, "''")}', $enc)`,
   ].join('; ')
   execFileSync('powershell.exe', ['-NoProfile', '-Command', script], { stdio: 'ignore', timeout: 10000 })
 }
@@ -56,7 +56,7 @@ function retrieveWindows(account: string): string | null {
   if (!existsSync(fpath)) return null
   const script = [
     'Add-Type -AssemblyName System.Security',
-    `$enc = [System.IO.File]::ReadAllBytes('${fpath.replace(/\\/g, '\\\\')}')`,
+    `$enc = [System.IO.File]::ReadAllBytes('${fpath.replace(/\\/g, '\\\\').replace(/'/g, "''")}')`,
     '$dec = [System.Security.Cryptography.ProtectedData]::Unprotect($enc, $null, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)',
     '[System.Text.Encoding]::UTF8.GetString($dec)',
   ].join('; ')
