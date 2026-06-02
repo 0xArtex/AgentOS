@@ -1053,14 +1053,15 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   totp: [{ flag: '<username>', desc: 'Print current TOTP code' }, { flag: '(price)', desc: 'Free' }],
   login: [
     { flag: '<username>', desc: 'Validate cookies and cache the session' },
-    { flag: '(price)', desc: '$0.005 USDC' },
+    { flag: '(price)', desc: '$0.02 USDC' },
   ],
   session: [{ flag: '<username>', desc: 'Check cached session' }, { flag: '(price)', desc: 'Free' }],
   post: [
     { flag: '<username>', desc: 'Account to post from' },
     { flag: '--file video.mp4', desc: 'Video file' },
     { flag: '--caption "..."', desc: 'Caption' },
-    { flag: '(price)', desc: '$0.001 USDC' },
+    { flag: '--privacy 0|1|2', desc: 'Audience: 0 public (default) · 1 friends · 2 private' },
+    { flag: '(price)', desc: '$0.01 USDC' },
   ],
   schedule: [
     { flag: '<username>', desc: 'Account to post from' },
