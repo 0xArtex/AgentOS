@@ -1109,6 +1109,33 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--file pic.png', desc: 'Image file' },
     { flag: '(price)', desc: '$0.005 USDC' },
   ],
+  draft: [
+    { flag: '<username>', desc: 'Account to post from' },
+    { flag: '--file video.mp4 | --url <https>', desc: 'Video' },
+    { flag: '--caption "..."', desc: 'Caption' },
+    { flag: '--privacy 0|1|2', desc: 'Audience: 0 public (default) · 1 friends · 2 private' },
+    { flag: '--at <iso8601>', desc: 'Optional — schedule on approval instead of posting now' },
+    { flag: '(price)', desc: 'Free — queues for approval; you pay on approve' },
+  ],
+  drafts: [
+    { flag: '[<username>]', desc: 'List drafts awaiting approval (optionally for one account)' },
+    { flag: '--tag <name>', desc: 'Filter by folder/tag' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  approve: [
+    { flag: '<draft-id>', desc: 'Publish the queued draft + write it to the post log' },
+    { flag: '(price)', desc: "Same as post — $0.01 (a scheduled draft uses TikTok's scheduler)" },
+  ],
+  reject: [
+    { flag: '<draft-id>', desc: 'Discard a queued draft' },
+    { flag: '(price)', desc: 'Free' },
+  ],
+  logs: [
+    { flag: '[<username>]', desc: 'Recent posts (audit log) — approved drafts + direct posts' },
+    { flag: '--tag <name>', desc: 'Filter by folder/tag' },
+    { flag: '--limit <N>', desc: 'How many to show (default 20)' },
+    { flag: '(price)', desc: 'Free' },
+  ],
 }
 
 /**
@@ -6868,6 +6895,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
       case 'tiktok': {
         const sv = await import('./social-vault.js')
+        const sd = await import('./social-drafts.js')
         const platform = 'tiktok' as const
 
         // Same help guard as `twitter` — prevents `--help` from dispatching
@@ -6897,6 +6925,11 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               { name: 'bio',     description: 'Update bio (<=80 chars)', hint: '<username> --text "..."' },
               { name: 'name',    description: 'Update display name (<=30 chars)', hint: '<username> --display "..."' },
               { name: 'pfp',     description: 'Update avatar', hint: '<username> --file pic.png' },
+              { name: 'draft',   description: 'Stage a post for human approval instead of publishing — queues it locally (free).', hint: '<username> --file v.mp4 --caption "..." [--at <iso>]' },
+              { name: 'drafts',  description: 'List drafts awaiting approval', hint: '[<username>] [--tag <folder>]' },
+              { name: 'approve', description: 'Publish a queued draft + record it in the post log', hint: '<draft-id>' },
+              { name: 'reject',  description: 'Discard a queued draft', hint: '<draft-id>' },
+              { name: 'logs',    description: 'Audit log of posts that went out (approved drafts + direct posts)', hint: '[<username>] [--tag <folder>] [--limit N]' },
             ],
             fromHome,
           })
@@ -7276,6 +7309,110 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             })
           }
 
+          case 'draft': {
+            // Stage a post for human approval — does NOT publish. Free, local.
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`tiktok account "${username}" not found locally`, EXIT.NOT_FOUND)
+            const caption = (flags.caption as string) || (flags.body as string) || (flags.text as string)
+            if (!caption) err('--caption "..." required')
+            const filePath = (flags.file as string) || (flags.path as string)
+            const videoUrl = flags.url as string
+            if (!filePath && !videoUrl) err('--file <local-path> or --url <https-url> required')
+            if (filePath) {
+              const { existsSync, statSync } = await import('fs')
+              if (!existsSync(filePath)) err(`File not found: ${filePath}`, EXIT.NOT_FOUND)
+              if (statSync(filePath).size > 100 * 1024 * 1024) err('Video too large (max 100 MB)', EXIT.BAD_INPUT)
+            }
+            const privacy = flags.privacy !== undefined ? Number(flags.privacy) as 0 | 1 | 2 : undefined
+            let schedule_at: string | undefined
+            const at = (flags.at as string) || (flags.when as string)
+            if (at) {
+              const when = new Date(at)
+              if (isNaN(when.getTime())) err('--at must be a valid ISO-8601 datetime', EXIT.BAD_INPUT)
+              const ms = when.getTime() - Date.now()
+              if (ms < 15 * 60 * 1000) err('--at must be at least ~15 minutes in the future', EXIT.BAD_INPUT)
+              if (ms > 10 * 24 * 60 * 60 * 1000) err('--at must be within ~10 days', EXIT.BAD_INPUT)
+              schedule_at = when.toISOString()
+            }
+            const absFile = filePath ? (await import('path')).resolve(filePath) : undefined
+            const draft = sd.createDraft({
+              platform, account: username, caption, file: absFile, url: videoUrl,
+              privacy, tag: (flags.tag as string) || acc.tag, schedule_at,
+            })
+            log(`tiktok draft ${draft.id} staged for ${username} (awaiting approval)`)
+            return print({
+              draft_id: draft.id, status: draft.status, account: username, caption,
+              ...(draft.tag ? { tag: draft.tag } : {}), ...(schedule_at ? { schedule_at } : {}),
+              next: `palmyr tiktok approve ${draft.id}`,
+            })
+          }
+
+          case 'drafts': {
+            const drafts = sd.listDrafts({ platform, account: positional[0] || (flags.account as string), tag: flags.tag as string })
+            return print({
+              drafts: drafts.map(d => ({ id: d.id, account: d.account, caption: d.caption, privacy: d.privacy, tag: d.tag, schedule_at: d.schedule_at, created_at: d.created_at })),
+              count: drafts.length,
+            })
+          }
+
+          case 'reject': {
+            const id = positional[0] || (flags.id as string)
+            if (!id) err('<draft-id> required')
+            if (!sd.deleteDraft(id)) err(`draft "${id}" not found`, EXIT.NOT_FOUND)
+            log(`tiktok reject ${id}`)
+            return print({ rejected: true, draft_id: id })
+          }
+
+          case 'logs': {
+            const entries = sd.readPostLog({
+              platform, account: positional[0] || (flags.account as string),
+              tag: flags.tag as string, limit: flags.limit ? Number(flags.limit) : 20,
+            })
+            return print({ posts: entries, count: entries.length })
+          }
+
+          case 'approve': {
+            // Publish a queued draft from the human-in-the-loop flow + log it.
+            const id = positional[0] || (flags.id as string)
+            if (!id) err('<draft-id> required')
+            const draft = sd.getDraft(id)
+            if (!draft) err(`draft "${id}" not found`, EXIT.NOT_FOUND)
+            const acc = sv.getAccount(platform, draft!.account)
+            if (!acc) err(`account "${draft!.account}" for draft ${id} not found locally`, EXIT.NOT_FOUND)
+            const sess = sv.loadSession(acc!.id)
+            if (!sess || !sess.cookies || sess.cookies.length === 0) {
+              err(`No cached session for ${draft!.account}. Run 'tiktok connect ${draft!.account}' first.`, EXIT.NOT_FOUND)
+            }
+            const psid = sv.getProxySessionId(platform, draft!.account)
+            const country = sv.getCountry(platform, draft!.account)
+            const media: { video_base64?: string; video_url?: string } = {}
+            if (draft!.file) {
+              const { readFileSync, existsSync, statSync } = await import('fs')
+              if (!existsSync(draft!.file)) err(`Draft video no longer exists at ${draft!.file}`, EXIT.NOT_FOUND)
+              if (statSync(draft!.file).size > 100 * 1024 * 1024) err('Video too large (max 100 MB)', EXIT.BAD_INPUT)
+              media.video_base64 = `data:video/mp4;base64,${readFileSync(draft!.file).toString('base64')}`
+            } else {
+              media.video_url = draft!.url
+            }
+            let data: any
+            try {
+              data = await ao.socialTiktokPost(acc!.id, sess!.cookies, draft!.caption, media, { privacy: draft!.privacy, schedule_at: draft!.schedule_at }, psid, country)
+            } catch (e: any) {
+              err(`approve failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.success) {
+              // Keep the draft so it can be retried (e.g. after re-connecting a stale session).
+              err(`approve failed: ${data?.error || 'unknown'}${data?.error_code ? ` [${data.error_code}]` : ''}`, EXIT.GENERAL)
+            }
+            sv.updateMeta(platform, draft!.account, { last_action_at: new Date().toISOString() })
+            const entry = sd.appendPostLog({ platform, account: draft!.account, caption: draft!.caption, source: 'draft', status: draft!.schedule_at ? 'scheduled' : 'posted', tag: draft!.tag, draft_id: id, result: data?.data })
+            sd.deleteDraft(id)
+            log(`tiktok approve ${id} → ${entry.status} for ${draft!.account}`)
+            return print({ approved: true, draft_id: id, account: draft!.account, status: entry.status, ...(data?.data || {}) })
+          }
+
           case 'post':
           case 'schedule':
           case 'follow':
@@ -7330,6 +7467,9 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                   schedule_at = when.toISOString()
                 }
                 data = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy, schedule_at }, psid, country)
+                if (data?.success) {
+                  sd.appendPostLog({ platform, account: username, caption, source: 'direct', status: schedule_at ? 'scheduled' : 'posted', tag: acc.tag, result: data?.data })
+                }
               } else if (subcommand === 'follow') {
                 const target = (flags.user as string) || (flags.target as string)
                 if (!target) err('--user <@handle> required')
@@ -7384,7 +7524,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, list, info, rename, tag, remove, totp, login, session, post, schedule, follow, like, delete, bio, name, pfp`)
+            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, follow, like, delete, bio, name, pfp`)
         }
         break
       }

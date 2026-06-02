@@ -642,6 +642,11 @@ Direct browser automation — no marketplace or paid upstream. A TikTok session 
 | `palmyr tiktok bio <username> --text "..."` | $0.001 | New bio, ≤80 chars. Pass `--text ""` to clear. |
 | `palmyr tiktok name <username> --display "..."` | $0.001 | New display name, ≤30 chars. TikTok rate-limits nickname changes to ~once/week — returns `RATE_LIMITED` if the change didn't take. |
 | `palmyr tiktok pfp <username> --file pic.png` *(or `--url https://...`)* | $0.005 | PNG / JPG / WebP avatar. |
+| `palmyr tiktok draft <username> --file video.mp4 --caption "..."` *(`--privacy` / `--at` / `--tag` as for post)* | free | **Human-in-the-loop**: stage a post for approval instead of publishing. Queued locally; `--at` makes `approve` schedule it. Nothing goes out until approved. |
+| `palmyr tiktok drafts [<username>]` *(`--tag <folder>`)* | free | List drafts awaiting approval. |
+| `palmyr tiktok approve <draft-id>` | $0.01 *(the post price; scheduled drafts use the scheduler)* | Publish a queued draft and record it in the post log. The draft is kept on failure so it can be retried (e.g. after re-connecting a stale session). |
+| `palmyr tiktok reject <draft-id>` | free | Discard a queued draft. |
+| `palmyr tiktok logs [<username>]` *(`--tag <folder>`, `--limit N`)* | free | Audit log of posts that actually went out — approved drafts **and** direct posts (account, caption, timestamp, source). |
 
 ### Utility
 
