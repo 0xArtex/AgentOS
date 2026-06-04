@@ -87,8 +87,9 @@ const BOOLEAN_FLAGS = new Set([
   'auto', 'clear',
   // wallet brief flags
   'evaluate',
-  // tiktok connect hand-off flags
-  'qr', 'remote',
+  // tiktok connect hand-off flags ('remote' tolerated as a no-op alias — the
+  // live-browser hand-off is now the default, so the flag is no longer needed)
+  'qr', 'local', 'remote',
 ])
 
 function parse(argv: string[]) {
@@ -1029,9 +1030,9 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '(price)', desc: 'Free — local vault only' },
   ],
   connect: [
-    { flag: '<username>', desc: 'Log in once via your real browser; auto-captures the session' },
-    { flag: '--qr', desc: 'Human hand-off: prints a durable, auto-refreshing /connect link instantly to send a human to scan (no password/captcha)' },
-    { flag: '--remote', desc: 'Human hand-off for VPS/headless: streams the real browser to a /connect link so a human logs in (email/password/2FA/captcha) from any device' },
+    { flag: '<username>', desc: 'Default: prints a /connect link (login_link) to send a human — they do the full email/password/2FA/captcha login in any browser, any device; session auto-captured. Works on any VPS/headless box.' },
+    { flag: '--qr', desc: 'Hand-off via QR instead: a durable, auto-refreshing link the human scans with the TikTok app (no password/captcha). Needs the account in their phone app.' },
+    { flag: '--local', desc: 'Skip the link — open the browser on THIS machine and log in here yourself (a desktop with a human present).' },
     { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
     { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
     { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
@@ -7171,10 +7172,14 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             }
 
             const { connectTikTok } = await import('./tiktok-connect.js')
-            // --qr and --remote both wait on a human, so give them ample time.
-            // --remote takes precedence if both are passed (they're alternatives).
-            const remoteMode = !flags.qr && !!flags.remote
-            const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : ((flags.qr || remoteMode) ? 600 : 300)
+            // The DEFAULT is the live-browser hand-off link — works on any VPS /
+            // headless box: the human logs in from their own device and the session
+            // is captured automatically. --qr is the phone-scan hand-off; --local
+            // opens the browser on THIS machine (a desktop with a human present).
+            const localMode = !flags.qr && !!flags.local
+            const remoteMode = !flags.qr && !localMode // default
+            // Hand-off modes wait on a human → ample time; --local is operator-present.
+            const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : (localMode ? 300 : 600)
             let hostedLink: string | undefined
             let qrToken: string | undefined
             let screenToken: string | undefined
@@ -7202,7 +7207,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 process.stderr.write(`[connect] 🔗 Send this link to your human to sign in: ${hostedLink}\n`)
                 process.stderr.write(`[connect] They log in there in any browser (any device) — solving any captcha/2FA. The link stays valid ~${mins} min; I capture the session the moment they're signed in…\n`)
               } catch (e: any) {
-                err(`could not start the remote login hand-off: ${e?.message || e}. Is the API reachable?`, EXIT.GENERAL, { platform, username })
+                err(`could not start the login hand-off: ${e?.message || e}. Is the API reachable? Or pass --local to log in directly in a browser on this machine.`, EXIT.GENERAL, { platform, username })
               }
             }
             const result = await connectTikTok({
