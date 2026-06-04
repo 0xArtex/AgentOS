@@ -87,9 +87,10 @@ const BOOLEAN_FLAGS = new Set([
   'auto', 'clear',
   // wallet brief flags
   'evaluate',
-  // tiktok connect hand-off flags ('remote' tolerated as a no-op alias — the
-  // live-browser hand-off is now the default, so the flag is no longer needed)
-  'qr', 'local', 'remote',
+  // tiktok connect hand-off flags. Default is the extension capture (clean,
+  // real-browser login). --qr scan, --local on-machine window, --stream the
+  // screencast ('remote' kept as a tolerated alias for --stream).
+  'qr', 'local', 'stream', 'remote',
 ])
 
 function parse(argv: string[]) {
@@ -1030,9 +1031,10 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '(price)', desc: 'Free — local vault only' },
   ],
   connect: [
-    { flag: '<username>', desc: 'Default: prints a /connect link (login_link) to send a human — they do the full email/password/2FA/captcha login in any browser, any device; session auto-captured. Works on any VPS/headless box.' },
-    { flag: '--qr', desc: 'Hand-off via QR instead: a durable, auto-refreshing link the human scans with the TikTok app (no password/captcha). Needs the account in their phone app.' },
-    { flag: '--local', desc: 'Skip the link — open the browser on THIS machine and log in here yourself (a desktop with a human present).' },
+    { flag: '<username>', desc: 'Default: prints a /connect link — your human installs the Palmyr Connect extension, logs into the REAL tiktok.com, and the session is captured (login_link). Reliable, not sus, works for any account.' },
+    { flag: '--qr', desc: 'Phone-scan hand-off: a durable, auto-refreshing /connect link the human scans with the TikTok app (qr_link). Needs the account in their phone app.' },
+    { flag: '--local', desc: 'Open the browser on THIS machine and log in here yourself (a desktop with a human present).' },
+    { flag: '--stream', desc: 'Screencast a server browser to a /connect link so a human logs in remotely (login_link). Note: TikTok often blocks typed password login.' },
     { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
     { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
     { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
@@ -7171,77 +7173,108 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               }
             }
 
-            const { connectTikTok } = await import('./tiktok-connect.js')
-            // The DEFAULT is the live-browser hand-off link — works on any VPS /
-            // headless box: the human logs in from their own device and the session
-            // is captured automatically. --qr is the phone-scan hand-off; --local
-            // opens the browser on THIS machine (a desktop with a human present).
-            const localMode = !flags.qr && !!flags.local
-            const remoteMode = !flags.qr && !localMode // default
+            // Mode resolution. DEFAULT is the extension capture: the human logs
+            // into the REAL tiktok.com in their own browser and the Palmyr Connect
+            // extension hands us the session — no streamed browser, no proxy, no
+            // anti-bot to fight. --qr = phone scan; --local = browser on THIS
+            // machine; --stream = screencast a server browser ('remote' alias).
+            const qrMode = !!flags.qr
+            const localMode = !qrMode && !!flags.local
+            const streamMode = !qrMode && !localMode && (!!flags.stream || !!flags.remote)
+            const captureMode = !qrMode && !localMode && !streamMode // default
             // Hand-off modes wait on a human → ample time; --local is operator-present.
             const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : (localMode ? 300 : 600)
+            const apiBase = ao.api.replace(/\/+$/, '')
             let hostedLink: string | undefined
             let qrToken: string | undefined
             let screenToken: string | undefined
-            // QR mode: create the hand-off session UP FRONT so the agent can
-            // forward a clean, durable link immediately — before the QR even
-            // renders. `connect` then keeps that link's QR fresh as it rotates.
-            if (flags.qr) {
+            let result: any
+
+            if (captureMode) {
+              // No browser launched here. Create a one-time, token-scoped session;
+              // the human logs into real tiktok.com and Palmyr Connect posts the
+              // cookies to /connect/<token>/session. We poll until they arrive.
+              let token = ''
               try {
-                const sess = await ao.socialTiktokHostQr()
-                qrToken = sess.token
-                hostedLink = `${ao.api.replace(/\/+$/, '')}/connect/${qrToken}`
-                const mins = Math.round((sess.expires_in_sec || 900) / 60)
-                process.stderr.write(`[connect] 🔗 Send this link to your human to sign in: ${hostedLink}\n`)
-                process.stderr.write(`[connect] The QR refreshes automatically; the link stays valid ~${mins} min. Capturing the session the moment they confirm…\n`)
-              } catch { /* hosting optional; falls back to the local window */ }
-            } else if (remoteMode) {
-              // Remote mode: stream the real browser to a hand-off link the human
-              // opens in ANY browser to do the full email/password/captcha/2FA
-              // login. The link is useless if we can't create it, so fail hard.
-              try {
-                const sess = await ao.socialTiktokScreenStart()
-                screenToken = sess.token
-                hostedLink = `${ao.api.replace(/\/+$/, '')}/connect/${screenToken}`
-                const mins = Math.round((sess.expires_in_sec || 900) / 60)
-                process.stderr.write(`[connect] 🔗 Send this link to your human to sign in: ${hostedLink}\n`)
-                process.stderr.write(`[connect] They log in there in any browser (any device) — solving any captcha/2FA. The link stays valid ~${mins} min; I capture the session the moment they're signed in…\n`)
+                const sess = await ao.socialTiktokCaptureStart()
+                token = sess.token
+                hostedLink = `${apiBase}/connect/${token}`
+                process.stderr.write(`[connect] 🔗 Send your human this link: ${hostedLink}\n`)
+                process.stderr.write(`[connect] They: install Palmyr Connect → log in to tiktok.com → paste the connect code → Connect:\n`)
+                process.stderr.write(`[connect]    ${hostedLink}/session\n`)
+                process.stderr.write(`[connect] Waiting up to ${Math.round(timeoutSec / 60)} min for the session…\n`)
               } catch (e: any) {
-                err(`could not start the login hand-off: ${e?.message || e}. Is the API reachable? Or pass --local to log in directly in a browser on this machine.`, EXIT.GENERAL, { platform, username })
+                err(`could not start the connect hand-off: ${e?.message || e}. Is the API reachable? Or use: palmyr tiktok import ${username} --sessionid <s> --csrf <c> --webid <w>`, EXIT.GENERAL, { platform, username })
               }
+              const deadline = Date.now() + timeoutSec * 1000
+              let cookies: any[] | null = null
+              while (Date.now() < deadline) {
+                await new Promise((r) => setTimeout(r, 2500))
+                try {
+                  const s = await ao.socialTiktokCaptureGet(token)
+                  if (s.captured && Array.isArray(s.cookies) && s.cookies.length) { cookies = s.cookies; break }
+                } catch { /* expired/transient — keep polling until the deadline */ }
+              }
+              if (!cookies) {
+                err(`connect timed out — no session received. Make sure your human installed Palmyr Connect, logged in to tiktok.com, and clicked Connect. Or use: palmyr tiktok import ${username} --sessionid <s> --csrf <c> --webid <w>`, EXIT.GENERAL, { platform, username, login_link: hostedLink })
+              }
+              result = { success: true, cookies, cookiesCaptured: cookies.length, sessionidPresent: true, browser: 'extension' }
+            } else {
+              const { connectTikTok } = await import('./tiktok-connect.js')
+              if (qrMode) {
+                // Create the QR hand-off session UP FRONT so the agent forwards a
+                // clean, durable link immediately; connect keeps the QR fresh.
+                try {
+                  const sess = await ao.socialTiktokHostQr()
+                  qrToken = sess.token
+                  hostedLink = `${apiBase}/connect/${qrToken}`
+                  const mins = Math.round((sess.expires_in_sec || 900) / 60)
+                  process.stderr.write(`[connect] 🔗 Send this link to your human to scan: ${hostedLink}\n`)
+                  process.stderr.write(`[connect] The QR refreshes automatically; the link stays valid ~${mins} min. Capturing the moment they confirm…\n`)
+                } catch { /* hosting optional; falls back to the local window */ }
+              } else if (streamMode) {
+                // Stream the real browser to a hand-off link; useless if we can't
+                // create it, so fail hard.
+                try {
+                  const sess = await ao.socialTiktokScreenStart()
+                  screenToken = sess.token
+                  hostedLink = `${apiBase}/connect/${screenToken}`
+                  const mins = Math.round((sess.expires_in_sec || 900) / 60)
+                  process.stderr.write(`[connect] 🔗 Send this link to your human to sign in: ${hostedLink}\n`)
+                  process.stderr.write(`[connect] They log in there in any browser — solving any captcha/2FA. The link stays valid ~${mins} min.\n`)
+                } catch (e: any) {
+                  err(`could not start the stream hand-off: ${e?.message || e}. Is the API reachable? Or pass --local.`, EXIT.GENERAL, { platform, username })
+                }
+              }
+              result = await connectTikTok({
+                country: explicitCountry || acc?.country,
+                timeoutMs: timeoutSec * 1000,
+                browserPath: flags['browser-path'] as string | undefined,
+                noSandbox: !!flags['no-sandbox'],
+                qr: qrMode,
+                remote: streamMode,
+                onQr: qrToken
+                  ? async (dataUrl) => { try { await ao.socialTiktokHostQr(dataUrl, qrToken) } catch { /* keep waiting */ } }
+                  : undefined,
+                pushFrameAndPullInput: screenToken
+                  ? async (frame) => {
+                      try {
+                        const r = await ao.socialTiktokScreenFrame(screenToken!, frame?.b64, frame?.vw, frame?.vh)
+                        return Array.isArray(r.input) ? r.input : []
+                      } catch { return [] }
+                    }
+                  : undefined,
+                onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
+              })
+              // Tell the hand-off page the login landed, so it shows confirmation.
+              if (result.success && qrToken) { try { await ao.socialTiktokHostQr(undefined, qrToken, true) } catch { /* cosmetic */ } }
+              if (result.success && screenToken) { try { await ao.socialTiktokScreenFrame(screenToken, undefined, undefined, undefined, true) } catch { /* cosmetic */ } }
             }
-            const result = await connectTikTok({
-              country: explicitCountry || acc?.country,
-              timeoutMs: timeoutSec * 1000,
-              browserPath: flags['browser-path'] as string | undefined,
-              noSandbox: !!flags['no-sandbox'],
-              qr: !!flags.qr,
-              remote: remoteMode,
-              // Refresh the hand-off link's QR whenever TikTok rotates it.
-              onQr: qrToken
-                ? async (dataUrl) => { try { await ao.socialTiktokHostQr(dataUrl, qrToken) } catch { /* keep waiting */ } }
-                : undefined,
-              // Relay: push the latest frame to the hand-off link, replay the
-              // human's queued input. Swallow transient relay errors so a blip
-              // never aborts the login — connect keeps waiting until its deadline.
-              pushFrameAndPullInput: screenToken
-                ? async (frame) => {
-                    try {
-                      const r = await ao.socialTiktokScreenFrame(screenToken!, frame?.b64, frame?.vw, frame?.vh)
-                      return Array.isArray(r.input) ? r.input : []
-                    } catch { return [] }
-                  }
-                : undefined,
-              onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
-            })
-            // Tell the hand-off page the login landed, so it shows confirmation.
-            if (result.success && qrToken) { try { await ao.socialTiktokHostQr(undefined, qrToken, true) } catch { /* cosmetic */ } }
-            if (result.success && screenToken) { try { await ao.socialTiktokScreenFrame(screenToken, undefined, undefined, undefined, true) } catch { /* cosmetic */ } }
 
             if (!result.success) {
               const details: Record<string, unknown> = { platform, username, reason: result.reason }
               if (result.qrPngPath) details.qr_png_path = result.qrPngPath
-              if (hostedLink) details[remoteMode ? 'login_link' : 'qr_link'] = hostedLink
+              if (hostedLink) details[qrMode ? 'qr_link' : 'login_link'] = hostedLink
               if (result.reason === 'no_local_browser') {
                 details.remedy =
                   `No Chrome/Edge/Brave found. Install one, pass --browser-path <path>, or import cookies manually: ` +
@@ -7291,7 +7324,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               sessionid_present: true,
               ...(flags.tag ? { tag: flags.tag as string } : {}),
               ...(result.qrPngPath ? { qr_png_path: result.qrPngPath } : {}),
-              ...(hostedLink ? (remoteMode ? { login_link: hostedLink } : { qr_link: hostedLink }) : {}),
+              ...(hostedLink ? (qrMode ? { qr_link: hostedLink } : { login_link: hostedLink }) : {}),
               next: `palmyr tiktok post ${username} --file video.mp4 --caption "..."`,
             })
           }

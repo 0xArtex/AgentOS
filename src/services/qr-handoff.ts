@@ -18,7 +18,7 @@
  */
 import { randomBytes } from "crypto";
 
-type Mode = "qr" | "screen";
+type Mode = "qr" | "screen" | "capture";
 type State = "waiting" | "ready" | "completed";
 
 /** A human input event, relayed page → server → `connect` (which dispatches it
@@ -41,6 +41,8 @@ interface Entry {
   vw: number;
   vh: number;
   inputQueue: InputEvent[];
+  // Capture mode (browser-extension hand-off)
+  cookies: any[] | null;
 }
 
 const store = new Map<string, Entry>();
@@ -72,7 +74,7 @@ function newEntry(mode: Mode): { token: string; e: Entry } {
   pruneExpired();
   evictIfFull();
   const token = randomBytes(16).toString("hex");
-  const e: Entry = { mode, state: "waiting", expiresAt: Date.now() + TTL_MS, dataUrl: null, frame: null, seq: 0, vw: 0, vh: 0, inputQueue: [] };
+  const e: Entry = { mode, state: "waiting", expiresAt: Date.now() + TTL_MS, dataUrl: null, frame: null, seq: 0, vw: 0, vh: 0, inputQueue: [], cookies: null };
   store.set(token, e);
   return { token, e };
 }
@@ -196,10 +198,72 @@ export function getLive(token: string): LiveStatus | null {
   return { state: e.state, mode: e.mode, seq: e.seq, frame: e.frame, vw: e.vw, vh: e.vh, expires_in_sec: Math.max(0, Math.round((e.expiresAt - Date.now()) / 1000)) };
 }
 
-/** Which page to render for a token (so the route can pick QR vs screen). */
+/** Which page to render for a token (so the route can pick QR vs screen vs capture). */
 export function sessionMode(token: string): Mode | null {
   const e = fresh(token);
   return e ? e.mode : null;
+}
+
+/* ─── Capture mode (browser-extension hand-off) ──────────────────────────── */
+
+/**
+ * The cleanest, least-sus path: the human logs into the REAL tiktok.com in their
+ * own browser, and a tiny extension reads the session cookies and posts them
+ * here. No streamed browser, no proxy, no anti-bot to fight. The agent polls and
+ * harvests the cookies into the same vault every op already reads.
+ */
+export function createCaptureSession(): { token: string; expiresInSec: number } {
+  const { token } = newEntry("capture");
+  return { token, expiresInSec: Math.round(TTL_MS / 1000) };
+}
+
+/** Validate + store the cookies the extension posted; requires a real sessionid. */
+export function putCapturedCookies(token: string, cookies: unknown): { ok: true; count: number } | null {
+  const e = fresh(token);
+  if (!e || e.mode !== "capture") return null;
+  const clean = sanitizeCookies(cookies); // throws on invalid / no sessionid
+  e.cookies = clean;
+  e.state = "completed";
+  e.expiresAt = Date.now() + TTL_MS;
+  return { ok: true, count: clean.length };
+}
+
+export interface CaptureStatus { state: State; captured: boolean; cookies: any[] | null; expires_in_sec: number; }
+export function getCaptured(token: string): CaptureStatus | null {
+  const e = fresh(token);
+  if (!e || e.mode !== "capture") return null;
+  return {
+    state: e.state,
+    captured: e.state === "completed" && Array.isArray(e.cookies) && e.cookies.length > 0,
+    cookies: e.cookies,
+    expires_in_sec: Math.max(0, Math.round((e.expiresAt - Date.now()) / 1000)),
+  };
+}
+
+/** Keep only well-formed tiktok.com cookies; require a real sessionid. Returns
+ *  the Playwright-injectable shape every op already understands. */
+function sanitizeCookies(raw: any): any[] {
+  if (!Array.isArray(raw)) throw new Error("cookies must be an array");
+  if (raw.length > 80) throw new Error("too many cookies");
+  const out: any[] = [];
+  let hasSession = false;
+  for (const c of raw) {
+    if (!c || typeof c !== "object") continue;
+    const name = typeof c.name === "string" ? c.name.slice(0, 256) : null;
+    const value = typeof c.value === "string" ? c.value.slice(0, 8192) : null;
+    const domain = typeof c.domain === "string" ? c.domain.slice(0, 256) : null;
+    if (!name || value === null || !domain) continue;
+    if (!domain.replace(/^\./, "").toLowerCase().endsWith("tiktok.com")) continue; // tiktok cookies only
+    const cookie: any = { name, value, domain, path: typeof c.path === "string" ? c.path.slice(0, 256) : "/" };
+    if (typeof c.expires === "number" && c.expires > 0 && isFinite(c.expires)) cookie.expires = Math.floor(c.expires);
+    if (typeof c.httpOnly === "boolean") cookie.httpOnly = c.httpOnly;
+    if (typeof c.secure === "boolean") cookie.secure = c.secure;
+    if (c.sameSite === "Strict" || c.sameSite === "Lax" || c.sameSite === "None") cookie.sameSite = c.sameSite;
+    out.push(cookie);
+    if (name === "sessionid" && value.length > 10) hasSession = true;
+  }
+  if (!hasSession) throw new Error("no valid TikTok sessionid found — log into TikTok first, then connect");
+  return out;
 }
 
 /* ─── Rendered pages ─────────────────────────────────────────────────────── */
@@ -308,6 +372,37 @@ export function renderScreenPage(token: string): string {
     `<div id="wrap"><img id="screen" alt="TikTok sign-in"><div id="wait">Loading…</div></div>` +
     `<p class="foot">Sign in to TikTok to connect your account. Your password goes straight to TikTok over a private, one-time session — nothing is saved on this page.</p>` +
     `<script>${js}</script></body></html>`
+  );
+}
+
+/**
+ * Render the capture (extension) hand-off page: the human logs into the real
+ * tiktok.com, then the Palmyr Connect extension posts the session here. The page
+ * shows the steps + the connect code (this URL + /session) and polls until the
+ * session lands, so it confirms hands-free.
+ */
+export function renderCapturePage(token: string): string {
+  const t = JSON.stringify(token);
+  return (
+    PAGE_HEAD +
+    `<h1>Connect your TikTok</h1><p class="sub" id="sub">Log in to TikTok, then connect.</p>` +
+    `<div class="steps" style="text-align:left">` +
+    `1. Install the <b>Palmyr Connect</b> browser extension<br>` +
+    `2. Log in to <b>tiktok.com</b> normally in this browser<br>` +
+    `3. Open the extension, paste the code below, click <b>Connect</b></div>` +
+    `<div style="margin:18px 0"><div style="font-size:11px;color:#5f7a7f;margin-bottom:6px">CONNECT CODE</div>` +
+    `<code id="code" style="display:block;word-break:break-all;background:#0c2226;border:1px solid #2a4a4f;border-radius:8px;padding:10px;font-size:12px;color:#a89774"></code>` +
+    `<button id="copy" style="margin-top:8px;background:#a89774;color:#112d32;border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer">Copy code</button></div>` +
+    `<p class="foot" id="foot">Waiting for you to connect…</p>` +
+    `<script>(function(){var T=${t};var code=location.origin+'/connect/'+T+'/session';` +
+    `document.getElementById('code').textContent=code;` +
+    `document.getElementById('copy').addEventListener('click',function(){navigator.clipboard&&navigator.clipboard.writeText(code);this.textContent='Copied';});` +
+    `var sub=document.getElementById('sub'),foot=document.getElementById('foot');` +
+    `function tick(){fetch('/connect/'+T+'/session',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(s){` +
+    `if(s.captured){sub.textContent='✓ Connected — you can close this tab.';foot.textContent='Your agent has the session.';return;}` +
+    `setTimeout(tick,2500);}).catch(function(){foot.textContent='This link has expired — ask for a fresh one.';});}` +
+    `tick();})();</script>` +
+    `</div></body></html>`
   );
 }
 

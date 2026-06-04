@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><style>
+  body{width:320px;margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;background:#112d32;color:#e8e3d8;padding:16px}
+  h1{font-size:15px;margin:0 0 4px}
+  p{font-size:12px;color:#a89774;margin:0 0 12px;line-height:1.5}
+  label{font-size:11px;color:#5f7a7f;display:block;margin-bottom:4px}
+  textarea{width:100%;box-sizing:border-box;height:54px;resize:none;background:#0c2226;border:1px solid #2a4a4f;border-radius:8px;color:#e8e3d8;font-size:11px;padding:8px}
+  button{width:100%;margin-top:10px;background:#a89774;color:#112d32;border:0;border-radius:8px;padding:10px;font-weight:600;font-size:13px;cursor:pointer}
+  button:disabled{opacity:.5;cursor:default}
+  #status{font-size:12px;margin-top:10px;min-height:16px;line-height:1.4;word-break:break-word}
+  .ok{color:#7fd1ae}.err{color:#e8a0a0}
+</style></head><body>
+  <h1>Palmyr Connect</h1>
+  <p>Log in to <b>tiktok.com</b> in this browser, paste the connect code from your agent, then click Connect.</p>
+  <label>Connect code</label>
+  <textarea id="code" placeholder="https://…/connect/…/session"></textarea>
+  <button id="go">Connect TikTok account</button>
+  <div id="status"></div>
+  <script src="popup.js"></script>
+</body></html>

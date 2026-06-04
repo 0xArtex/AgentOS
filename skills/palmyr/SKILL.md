@@ -179,9 +179,10 @@ palmyr twitter claim                                             # Pull every se
 # directly — no separate `claim` step needed.
 
 # TikTok — DIRECT browser automation (no paid upstream). Sessions come from a real browser login.
-palmyr tiktok connect <username> [--tag <folder>]        # DEFAULT human hand-off: prints a clean /connect link INSTANTLY (in login_link) to send a human — they do the FULL email/password/2FA/captcha login in any browser on any device; the real server browser is streamed to them and the session is auto-captured the moment they're in. Works on any VPS/headless box (xvfb). --tag files it under a folder.
-palmyr tiktok connect <username> --qr                    # Hand-off via QR instead: clean /connect link (in qr_link) the human scans with the TikTok app. Auto-refreshes (never stale, ~15 min); captured the moment they scan + confirm. Needs the account in their TikTok phone app.
-palmyr tiktok connect <username> --local                 # Skip the link: open the browser on THIS machine and log in here yourself (a desktop with a human present). The original local-window flow.
+palmyr tiktok connect <username> [--tag <folder>]        # DEFAULT (recommended): prints a /connect link (in login_link). Your human installs the Palmyr Connect extension (extension/palmyr-connect/), logs into the REAL tiktok.com normally, clicks Connect → the session is captured & saved. Reliable, not sus, no anti-bot to fight, works for ANY account incl. email/password. Needs a desktop + the one-time extension install. --tag files it under a folder.
+palmyr tiktok connect <username> --qr                    # Phone-scan hand-off: durable, auto-refreshing /connect link (in qr_link) the human scans with the TikTok app. Needs the account in their TikTok phone app.
+palmyr tiktok connect <username> --local                 # Open the browser on THIS machine and log in here yourself (a desktop with a human present).
+palmyr tiktok connect <username> --stream                # Screencast a server browser to a /connect link for remote login from any device. Note: TikTok often blocks typed password login ("Something went wrong") — prefer the default or --qr.
 palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>   # BYO cookies from a logged-in browser (free)
 palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country us # Marketplace line (free; local vault only)
 palmyr tiktok login <username>                           # Validate cookies + cache the session ($0.02)
