@@ -751,7 +751,7 @@ ao.socialTwitterBanner(accountId, cookies, { image_base64? | image_url? }, proxy
 ao.socialTwitterUsername(accountId, cookies, newUsername, proxySessionId?)
 
 // TikTok (account connect/list/info/rename/remove/totp/session are local CLI-only — not SDK calls)
-ao.socialTiktokHostQr(qrDataUrl)                                  // host a login QR → { token }; link is `${api}/connect/<token>`
+ao.socialTiktokHostQr(qrDataUrl?, token?, done?)                  // create/refresh a hand-off session → { token, expires_in_sec }; link is `${api}/connect/<token>`. No-arg → new waiting session; pass token+qrDataUrl to refresh the QR; token+done to mark captured
 ao.socialTiktokLogin(accountId, { sessionid?, ttCsrfToken?, ttWebidV2?, extraCookies?, login?, password?, email?, emailPassword?, proxySessionId?, country? })
 ao.socialTiktokPost(accountId, cookies, caption, { video_base64? | video_url? }, { privacy?: 0|1|2, allow_comments?, allow_duet?, allow_stitch?, schedule_at? }?, proxySessionId?, country?)
 ao.socialTiktokFollow(accountId, cookies, targetUser, proxySessionId?, country?)
