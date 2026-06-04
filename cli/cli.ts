@@ -87,10 +87,10 @@ const BOOLEAN_FLAGS = new Set([
   'auto', 'clear',
   // wallet brief flags
   'evaluate',
-  // tiktok connect hand-off flags. Default is the extension capture (clean,
-  // real-browser login). --qr scan, --local on-machine window, --stream the
-  // screencast ('remote' kept as a tolerated alias for --stream).
-  'qr', 'local', 'stream', 'remote',
+  // tiktok connect hand-off flags. Default is QR (zero-install phone scan).
+  // --extension = desktop-login capture, --local on-machine, --stream screencast
+  // ('qr' tolerated as the explicit default; 'remote' as a --stream alias).
+  'qr', 'extension', 'local', 'stream', 'remote',
 ])
 
 function parse(argv: string[]) {
@@ -1031,8 +1031,8 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '(price)', desc: 'Free — local vault only' },
   ],
   connect: [
-    { flag: '<username>', desc: 'Default: prints a /connect link — your human installs the Palmyr Connect extension, logs into the REAL tiktok.com, and the session is captured (login_link). Reliable, not sus, works for any account.' },
-    { flag: '--qr', desc: 'Phone-scan hand-off: a durable, auto-refreshing /connect link the human scans with the TikTok app (qr_link). Needs the account in their phone app.' },
+    { flag: '<username>', desc: 'Default: prints a /connect link (qr_link) the human opens and scans with the TikTok app on their phone — zero install, not sus, captured instantly. Best when the human owns the account.' },
+    { flag: '--extension', desc: 'Capture from a desktop login (bulk / email-password accounts not on a phone): human installs Palmyr Connect once, logs into real tiktok.com, clicks Connect (login_link).' },
     { flag: '--local', desc: 'Open the browser on THIS machine and log in here yourself (a desktop with a human present).' },
     { flag: '--stream', desc: 'Screencast a server browser to a /connect link so a human logs in remotely (login_link). Note: TikTok often blocks typed password login.' },
     { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
@@ -7173,15 +7173,15 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               }
             }
 
-            // Mode resolution. DEFAULT is the extension capture: the human logs
-            // into the REAL tiktok.com in their own browser and the Palmyr Connect
-            // extension hands us the session — no streamed browser, no proxy, no
-            // anti-bot to fight. --qr = phone scan; --local = browser on THIS
-            // machine; --stream = screencast a server browser ('remote' alias).
-            const qrMode = !!flags.qr
-            const localMode = !qrMode && !!flags.local
-            const streamMode = !qrMode && !localMode && (!!flags.stream || !!flags.remote)
-            const captureMode = !qrMode && !localMode && !streamMode // default
+            // Mode resolution. DEFAULT is QR: a zero-install link the human scans
+            // with the TikTok app on their phone (where the account already lives)
+            // — not sus, never blocked. --extension = capture from a desktop login
+            // for bulk/email-password accounts (install once); --local = browser on
+            // THIS machine; --stream = screencast a server browser ('remote' alias).
+            const localMode = !!flags.local
+            const streamMode = !localMode && (!!flags.stream || !!flags.remote)
+            const captureMode = !localMode && !streamMode && !!flags.extension
+            const qrMode = !localMode && !streamMode && !captureMode // default
             // Hand-off modes wait on a human → ample time; --local is operator-present.
             const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : (localMode ? 300 : 600)
             const apiBase = ao.api.replace(/\/+$/, '')
