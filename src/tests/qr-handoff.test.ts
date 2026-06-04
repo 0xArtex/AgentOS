@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   putQr, getQrSession, renderQrPage, renderExpiredPage,
   createScreenSession, pushFrame, enqueueInput, getLive, sessionMode, renderScreenPage,
+  createCaptureSession, putCapturedCookies, getCaptured, renderCapturePage,
 } from "../services/qr-handoff";
 
 const VALID = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
@@ -133,4 +134,59 @@ test("renderScreenPage embeds the token, polls /live, posts /input", () => {
   assert.ok(page.includes("/live"));
   assert.ok(page.includes("/input"));
   assert.ok(/screencast|live|browser/i.test(page));
+});
+
+/* ─── Capture (extension) mode ───────────────────────────────────────────── */
+
+const SID = { name: "sessionid", value: "abcdef0123456789abcdef", domain: ".tiktok.com", path: "/", httpOnly: true, secure: true, sameSite: "None" };
+const CSRF = { name: "tt_csrf_token", value: "XYZ123", domain: "www.tiktok.com", path: "/" };
+
+test("capture: create → waiting; putCapturedCookies → completed + cookies; getCaptured reflects it", () => {
+  const { token, expiresInSec } = createCaptureSession();
+  assert.equal(expiresInSec, 900);
+  assert.equal(sessionMode(token), "capture");
+  const c0 = getCaptured(token)!;
+  assert.equal(c0.state, "waiting");
+  assert.equal(c0.captured, false);
+  assert.equal(c0.cookies, null);
+
+  const r = putCapturedCookies(token, [SID, CSRF]);
+  assert.deepEqual(r, { ok: true, count: 2 });
+  const c1 = getCaptured(token)!;
+  assert.equal(c1.state, "completed");
+  assert.equal(c1.captured, true);
+  assert.equal(c1.cookies!.length, 2);
+  assert.equal(c1.cookies!.find((c: any) => c.name === "sessionid").value, SID.value);
+});
+
+test("capture: drops non-tiktok cookies and requires a real sessionid", () => {
+  const { token } = createCaptureSession();
+  // a foreign-domain cookie is dropped; sessionid kept
+  const r = putCapturedCookies(token, [SID, { name: "evil", value: "x", domain: "evil.com", path: "/" }]);
+  assert.equal(r!.count, 1);
+  assert.equal(getCaptured(token)!.cookies!.every((c: any) => /tiktok\.com$/.test(c.domain.replace(/^\./, ""))), true);
+});
+
+test("capture: rejects no-sessionid, short sessionid, and non-array", () => {
+  const { token } = createCaptureSession();
+  assert.throws(() => putCapturedCookies(token, [CSRF])); // no sessionid
+  assert.throws(() => putCapturedCookies(token, [{ name: "sessionid", value: "short", domain: ".tiktok.com" }])); // too short
+  assert.throws(() => putCapturedCookies(token, "nope" as any)); // not an array
+  // a rejected post leaves the session still waiting
+  assert.equal(getCaptured(token)!.state, "waiting");
+});
+
+test("capture: mode isolation — capture token rejects screen ops and vice-versa", () => {
+  const cap = createCaptureSession().token;
+  const scr = createScreenSession().token;
+  assert.equal(pushFrame(cap, { frame: "Zm9v" }), null); // not a screen session
+  assert.equal(putCapturedCookies(scr, [SID]), null);     // not a capture session
+  assert.equal(getCaptured("deadbeef".repeat(4)), null);
+});
+
+test("renderCapturePage embeds the token, shows the /session code, polls", () => {
+  const page = renderCapturePage("cap7token");
+  assert.ok(page.includes("cap7token"));
+  assert.ok(page.includes("/session"));
+  assert.ok(/Palmyr Connect/i.test(page));
 });

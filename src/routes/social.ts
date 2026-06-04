@@ -70,7 +70,7 @@ import {
   listMyTweets,
 } from "../services/social-operations";
 import { loginTikTok } from "../services/tiktok-login";
-import { putQr, createScreenSession } from "../services/qr-handoff";
+import { putQr, createScreenSession, createCaptureSession } from "../services/qr-handoff";
 import {
   postVideo as tiktokPostVideo,
   followUser as tiktokFollow,
@@ -1688,6 +1688,11 @@ router.post(
       if (mode === "screen") {
         const s = createScreenSession();
         res.json({ token: s.token, expires_in_sec: s.expiresInSec, mode: "screen" });
+        return;
+      }
+      if (mode === "capture") {
+        const s = createCaptureSession();
+        res.json({ token: s.token, expires_in_sec: s.expiresInSec, mode: "capture" });
         return;
       }
       const r = putQr({ dataUrl: qr_data_url, token, done: !!done });

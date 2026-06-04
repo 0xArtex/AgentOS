@@ -164,8 +164,26 @@ app.use((req, res, next) => {
 // and BEFORE sanitizeInputs (which would corrupt base64 frame bytes), with a
 // dedicated, generous, token-scoped limiter. The 16-byte token is the only
 // capability — there's no session/account data here to leak.
-import { getLive, pushFrame, enqueueInput } from "./services/qr-handoff";
+import { getLive, pushFrame, enqueueInput, putCapturedCookies, getCaptured } from "./services/qr-handoff";
 const connectRelayLimit = rateLimit(6000, 60_000);
+// Capture (extension) hand-off: the Palmyr Connect extension posts the real
+// TikTok session here; the agent polls to harvest it. Token-scoped, like the
+// other relay routes. POST is what the extension calls (cross-origin via its
+// host permission, so no CORS dance); GET is the agent's poll.
+app.post("/connect/:token/session", connectRelayLimit, (req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const r = putCapturedCookies(String(req.params.token), (req.body || {}).cookies);
+    if (!r) { res.status(404).json({ error: "expired" }); return; }
+    res.json(r);
+  } catch (e: any) { res.status(400).json({ error: e?.message || "bad cookies" }); }
+});
+app.get("/connect/:token/session", connectRelayLimit, (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const s = getCaptured(String(req.params.token));
+  if (!s) { res.status(404).json({ state: "expired", captured: false, cookies: null }); return; }
+  res.json(s);
+});
 app.post("/connect/:token/frame", connectRelayLimit, (req, res) => {
   res.set("Cache-Control", "no-store");
   try {
@@ -249,7 +267,7 @@ app.get("/version", (_req, res) => {
 });
 // ── TikTok connect QR hand-off page (public, unauthenticated) ──
 // A human opens /connect/<token> to scan the login QR an agent forwarded them.
-import { getQrSession, sessionMode, renderQrPage, renderScreenPage, renderExpiredPage } from "./services/qr-handoff";
+import { getQrSession, sessionMode, renderQrPage, renderScreenPage, renderCapturePage, renderExpiredPage } from "./services/qr-handoff";
 import { warnIfSelfHosted } from "./services/self-hosted";
 app.get("/connect/:token", (req, res) => {
   const mode = sessionMode(req.params.token);
@@ -258,7 +276,10 @@ app.get("/connect/:token", (req, res) => {
   // Render the page for any live session (even before the first frame/QR — it
   // polls and fills in); only an unknown/expired token gets the expired page.
   if (!mode) { res.status(404).send(renderExpiredPage()); return; }
-  res.status(200).send(mode === "screen" ? renderScreenPage(req.params.token) : renderQrPage(req.params.token));
+  const page = mode === "screen" ? renderScreenPage(req.params.token)
+    : mode === "capture" ? renderCapturePage(req.params.token)
+    : renderQrPage(req.params.token);
+  res.status(200).send(page);
 });
 // The page polls this to live-refresh the (rotating) QR + show completion.
 app.get("/connect/:token/status", (req, res) => {
