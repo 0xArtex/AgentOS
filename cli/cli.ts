@@ -87,6 +87,8 @@ const BOOLEAN_FLAGS = new Set([
   'auto', 'clear',
   // wallet brief flags
   'evaluate',
+  // tiktok connect hand-off flags
+  'qr', 'remote',
 ])
 
 function parse(argv: string[]) {
@@ -1029,6 +1031,7 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   connect: [
     { flag: '<username>', desc: 'Log in once via your real browser; auto-captures the session' },
     { flag: '--qr', desc: 'Human hand-off: prints a durable, auto-refreshing /connect link instantly to send a human to scan (no password/captcha)' },
+    { flag: '--remote', desc: 'Human hand-off for VPS/headless: streams the real browser to a /connect link so a human logs in (email/password/2FA/captcha) from any device' },
     { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
     { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
     { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
@@ -7168,10 +7171,13 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             }
 
             const { connectTikTok } = await import('./tiktok-connect.js')
-            // QR hand-off waits on a human, so give them ample time by default.
-            const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : (flags.qr ? 600 : 300)
+            // --qr and --remote both wait on a human, so give them ample time.
+            // --remote takes precedence if both are passed (they're alternatives).
+            const remoteMode = !flags.qr && !!flags.remote
+            const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : ((flags.qr || remoteMode) ? 600 : 300)
             let hostedLink: string | undefined
             let qrToken: string | undefined
+            let screenToken: string | undefined
             // QR mode: create the hand-off session UP FRONT so the agent can
             // forward a clean, durable link immediately — before the QR even
             // renders. `connect` then keeps that link's QR fresh as it rotates.
@@ -7184,6 +7190,20 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 process.stderr.write(`[connect] 🔗 Send this link to your human to sign in: ${hostedLink}\n`)
                 process.stderr.write(`[connect] The QR refreshes automatically; the link stays valid ~${mins} min. Capturing the session the moment they confirm…\n`)
               } catch { /* hosting optional; falls back to the local window */ }
+            } else if (remoteMode) {
+              // Remote mode: stream the real browser to a hand-off link the human
+              // opens in ANY browser to do the full email/password/captcha/2FA
+              // login. The link is useless if we can't create it, so fail hard.
+              try {
+                const sess = await ao.socialTiktokScreenStart()
+                screenToken = sess.token
+                hostedLink = `${ao.api.replace(/\/+$/, '')}/connect/${screenToken}`
+                const mins = Math.round((sess.expires_in_sec || 900) / 60)
+                process.stderr.write(`[connect] 🔗 Send this link to your human to sign in: ${hostedLink}\n`)
+                process.stderr.write(`[connect] They log in there in any browser (any device) — solving any captcha/2FA. The link stays valid ~${mins} min; I capture the session the moment they're signed in…\n`)
+              } catch (e: any) {
+                err(`could not start the remote login hand-off: ${e?.message || e}. Is the API reachable?`, EXIT.GENERAL, { platform, username })
+              }
             }
             const result = await connectTikTok({
               country: explicitCountry || acc?.country,
@@ -7191,19 +7211,32 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               browserPath: flags['browser-path'] as string | undefined,
               noSandbox: !!flags['no-sandbox'],
               qr: !!flags.qr,
+              remote: remoteMode,
               // Refresh the hand-off link's QR whenever TikTok rotates it.
               onQr: qrToken
                 ? async (dataUrl) => { try { await ao.socialTiktokHostQr(dataUrl, qrToken) } catch { /* keep waiting */ } }
+                : undefined,
+              // Relay: push the latest frame to the hand-off link, replay the
+              // human's queued input. Swallow transient relay errors so a blip
+              // never aborts the login — connect keeps waiting until its deadline.
+              pushFrameAndPullInput: screenToken
+                ? async (frame) => {
+                    try {
+                      const r = await ao.socialTiktokScreenFrame(screenToken!, frame?.b64, frame?.vw, frame?.vh)
+                      return Array.isArray(r.input) ? r.input : []
+                    } catch { return [] }
+                  }
                 : undefined,
               onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
             })
             // Tell the hand-off page the login landed, so it shows confirmation.
             if (result.success && qrToken) { try { await ao.socialTiktokHostQr(undefined, qrToken, true) } catch { /* cosmetic */ } }
+            if (result.success && screenToken) { try { await ao.socialTiktokScreenFrame(screenToken, undefined, undefined, undefined, true) } catch { /* cosmetic */ } }
 
             if (!result.success) {
               const details: Record<string, unknown> = { platform, username, reason: result.reason }
               if (result.qrPngPath) details.qr_png_path = result.qrPngPath
-              if (hostedLink) details.qr_link = hostedLink
+              if (hostedLink) details[remoteMode ? 'login_link' : 'qr_link'] = hostedLink
               if (result.reason === 'no_local_browser') {
                 details.remedy =
                   `No Chrome/Edge/Brave found. Install one, pass --browser-path <path>, or import cookies manually: ` +
@@ -7253,7 +7286,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               sessionid_present: true,
               ...(flags.tag ? { tag: flags.tag as string } : {}),
               ...(result.qrPngPath ? { qr_png_path: result.qrPngPath } : {}),
-              ...(hostedLink ? { qr_link: hostedLink } : {}),
+              ...(hostedLink ? (remoteMode ? { login_link: hostedLink } : { qr_link: hostedLink }) : {}),
               next: `palmyr tiktok post ${username} --file video.mp4 --caption "..."`,
             })
           }

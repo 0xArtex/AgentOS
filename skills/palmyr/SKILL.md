@@ -180,7 +180,8 @@ palmyr twitter claim                                             # Pull every se
 
 # TikTok — DIRECT browser automation (no paid upstream). Sessions come from a real browser login.
 palmyr tiktok connect <username> [--tag <folder>]        # Log in once in your real browser; session auto-captured via CDP. --tag files it under a folder. Free, no server call.
-palmyr tiktok connect <username> --qr                    # Human hand-off: prints a clean /connect link INSTANTLY (also in the result's qr_link) to send a human. The link auto-refreshes the QR (never stale, ~15 min); session captured the moment they scan + confirm. No password/captcha.
+palmyr tiktok connect <username> --qr                    # Human hand-off (QR): prints a clean /connect link INSTANTLY (also in qr_link) to send a human. Auto-refreshes the QR (never stale, ~15 min); captured the moment they scan + confirm. Needs the account in their TikTok phone app.
+palmyr tiktok connect <username> --remote                # Human hand-off (live browser) for VPS/headless: streams the real server browser to a /connect link (in login_link) so a human does the FULL email/password/2FA/captcha login from any device. Best when QR isn't an option. Headed browser required (xvfb on headless).
 palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>   # BYO cookies from a logged-in browser (free)
 palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country us # Marketplace line (free; local vault only)
 palmyr tiktok login <username>                           # Validate cookies + cache the session ($0.02)

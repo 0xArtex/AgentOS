@@ -150,9 +150,46 @@ app.use((req, res, next) => {
     ? "150mb"
     : IMAGE_UPLOAD_ROUTES.has(p)
       ? "15mb"
-      : "100kb";
+      : /^\/connect\/[^/]+\/frame$/.test(p)
+        ? "4mb" // live-login screencast frame (base64 JPEG) — see relay routes below
+        : "100kb";
   return express.json({ limit })(req, res, next);
 });
+
+// ── TikTok connect — live login hand-off relay (public, token-scoped) ──────
+// High-frequency routes for `connect --remote`: the CLI streams the real VPS
+// browser as JPEG frames and drains the human's queued input in the same
+// round-trip, while the human's page polls frames + posts clicks/keys. Mounted
+// BEFORE the global rate limiter (interactive polling would blow a 200/min cap)
+// and BEFORE sanitizeInputs (which would corrupt base64 frame bytes), with a
+// dedicated, generous, token-scoped limiter. The 16-byte token is the only
+// capability — there's no session/account data here to leak.
+import { getLive, pushFrame, enqueueInput } from "./services/qr-handoff";
+const connectRelayLimit = rateLimit(6000, 60_000);
+app.post("/connect/:token/frame", connectRelayLimit, (req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const { frame, vw, vh, done } = (req.body || {}) as { frame?: string; vw?: number; vh?: number; done?: boolean };
+    const r = pushFrame(String(req.params.token), { frame, vw, vh, done: !!done });
+    if (!r) { res.status(404).json({ error: "expired", input: [] }); return; }
+    res.json(r);
+  } catch (e: any) { res.status(400).json({ error: e?.message || "bad frame", input: [] }); }
+});
+app.post("/connect/:token/input", connectRelayLimit, (req, res) => {
+  res.set("Cache-Control", "no-store");
+  try {
+    const r = enqueueInput(String(req.params.token), (req.body || {}).events);
+    if (!r) { res.status(404).json({ error: "expired" }); return; }
+    res.json(r);
+  } catch (e: any) { res.status(400).json({ error: e?.message || "bad input" }); }
+});
+app.get("/connect/:token/live", connectRelayLimit, (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const s = getLive(String(req.params.token));
+  if (!s) { res.status(404).json({ state: "expired", frame: null, seq: -1 }); return; }
+  res.json(s);
+});
+
 app.use(cors);
 app.use(sanitizeInputs);
 app.use(sqlInjectionGuard);
@@ -212,15 +249,16 @@ app.get("/version", (_req, res) => {
 });
 // ── TikTok connect QR hand-off page (public, unauthenticated) ──
 // A human opens /connect/<token> to scan the login QR an agent forwarded them.
-import { getQrSession, renderQrPage, renderExpiredPage } from "./services/qr-handoff";
+import { getQrSession, sessionMode, renderQrPage, renderScreenPage, renderExpiredPage } from "./services/qr-handoff";
 import { warnIfSelfHosted } from "./services/self-hosted";
 app.get("/connect/:token", (req, res) => {
-  const sess = getQrSession(req.params.token);
+  const mode = sessionMode(req.params.token);
   res.set("Content-Type", "text/html; charset=utf-8");
   res.set("Cache-Control", "no-store");
-  // Render the page for any live session (even before the QR renders — it polls
-  // and fills in); only an unknown/expired token gets the expired page.
-  res.status(sess ? 200 : 404).send(sess ? renderQrPage(req.params.token) : renderExpiredPage());
+  // Render the page for any live session (even before the first frame/QR — it
+  // polls and fills in); only an unknown/expired token gets the expired page.
+  if (!mode) { res.status(404).send(renderExpiredPage()); return; }
+  res.status(200).send(mode === "screen" ? renderScreenPage(req.params.token) : renderQrPage(req.params.token));
 });
 // The page polls this to live-refresh the (rotating) QR + show completion.
 app.get("/connect/:token/status", (req, res) => {
