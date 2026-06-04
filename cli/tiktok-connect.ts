@@ -66,9 +66,29 @@ export interface ConnectOptions {
    * caller can host it / relay a link while connect keeps waiting for the scan.
    */
   onQr?: (dataUrl: string) => void | Promise<void>;
+  /**
+   * Remote interactive login: instead of QR, stream the real (headed) browser as
+   * JPEG frames so a human on any device can do the email/password/captcha/2FA
+   * login themselves through a hand-off link. Lands on the typed-login page.
+   */
+  remote?: boolean;
+  /**
+   * Relay tick for remote mode. Called repeatedly with the latest browser frame
+   * (base64 JPEG + viewport size in CSS px); returns the human's queued input
+   * events for connect to replay over CDP. The caller wires this to the server
+   * hand-off (push frame + drain input in one round-trip).
+   */
+  pushFrameAndPullInput?: (frame: { b64: string; vw: number; vh: number } | null) => Promise<RelayInputEvent[]>;
   /** Human-facing progress lines. Caller routes these to stderr so stdout stays clean JSON. */
   onProgress?: (msg: string) => void;
 }
+
+/** A human input event relayed from the hand-off page (normalized [0,1] coords). */
+export type RelayInputEvent =
+  | { t: "m"; k: "down" | "up" | "move"; x: number; y: number; b?: number; n?: number }
+  | { t: "w"; x: number; y: number; dx: number; dy: number }
+  | { t: "x"; s: string }
+  | { t: "k"; k: "down" | "up"; key: string; code: string; vk?: number };
 
 export interface ConnectResult {
   success: boolean;
@@ -263,6 +283,7 @@ class CdpSession {
   private ws: WebSocket;
   private nextId = 1;
   private pending = new Map<number, { resolve: (v: any) => void; reject: (e: any) => void }>();
+  private listeners = new Map<string, ((params: any) => void)[]>();
   closed = false;
 
   private constructor(ws: WebSocket) {
@@ -279,6 +300,9 @@ class CdpSession {
         this.pending.delete(msg.id);
         if (msg.error) p.reject(new Error(msg.error.message || "CDP error"));
         else p.resolve(msg.result);
+      } else if (typeof msg.method === "string") {
+        const ls = this.listeners.get(msg.method);
+        if (ls) for (const fn of ls) { try { fn(msg.params); } catch { /* listener errors are non-fatal */ } }
       }
     });
     ws.on("close", () => {
@@ -301,6 +325,13 @@ class CdpSession {
         resolve(new CdpSession(ws));
       });
     });
+  }
+
+  /** Subscribe to a CDP event (e.g. "Page.screencastFrame"). */
+  on(method: string, fn: (params: any) => void): void {
+    const a = this.listeners.get(method) || [];
+    a.push(fn);
+    this.listeners.set(method, a);
   }
 
   send(method: string, params: Record<string, any> = {}): Promise<any> {
@@ -394,6 +425,56 @@ function saveQrPng(dataUrl: string): string {
   return path;
 }
 
+/* ─── Remote-login input replay (screencast mode) ────────────────────────── */
+
+const BTN_NAME = (b?: number) => (b === 2 ? "right" : b === 1 ? "middle" : "left");
+const BTN_MASK = (b?: number) => (b === 2 ? 2 : b === 1 ? 4 : 1); // CDP buttons bitmask: left=1,right=2,middle=4
+
+/**
+ * Replay one human input event into the live browser via CDP. Normalized coords
+ * are scaled to the screencast viewport (CSS px). Printable text goes through
+ * insertText (reliable for password fields); control keys through key events.
+ * `st.buttons` tracks held mouse buttons so drags (slider captchas) carry the
+ * right `buttons` bitmask through move events.
+ */
+async function dispatchInput(
+  cdp: CdpSession,
+  ev: RelayInputEvent,
+  vw: number,
+  vh: number,
+  st: { buttons: number },
+): Promise<void> {
+  try {
+    if (ev.t === "m") {
+      const x = ev.x * vw, y = ev.y * vh;
+      if (ev.k === "down") {
+        st.buttons |= BTN_MASK(ev.b);
+        await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: BTN_NAME(ev.b), buttons: st.buttons, clickCount: ev.n || 1 });
+      } else if (ev.k === "up") {
+        const after = st.buttons & ~BTN_MASK(ev.b);
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: BTN_NAME(ev.b), buttons: after, clickCount: ev.n || 1 });
+        st.buttons = after;
+      } else {
+        await cdp.send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, button: "none", buttons: st.buttons });
+      }
+    } else if (ev.t === "w") {
+      await cdp.send("Input.dispatchMouseEvent", { type: "mouseWheel", x: ev.x * vw, y: ev.y * vh, deltaX: ev.dx, deltaY: ev.dy });
+    } else if (ev.t === "x") {
+      await cdp.send("Input.insertText", { text: ev.s });
+    } else if (ev.t === "k") {
+      await cdp.send("Input.dispatchKeyEvent", {
+        type: ev.k === "down" ? "keyDown" : "keyUp",
+        key: ev.key,
+        code: ev.code,
+        windowsVirtualKeyCode: ev.vk || 0,
+        nativeVirtualKeyCode: ev.vk || 0,
+      });
+    }
+  } catch {
+    /* one bad event must never break the relay loop */
+  }
+}
+
 /* ─── Main entry ─────────────────────────────────────────────────────────── */
 
 export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectResult> {
@@ -476,6 +557,9 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
   if (noSandbox) progress("launched with --no-sandbox (root / headless environment detected).");
   if (opts.qr) {
     progress(`opened ${browser.name} — fetching TikTok's login QR (a window opens; scan from it or the saved image)…`);
+  } else if (opts.remote) {
+    progress(`opened ${browser.name} on the server — streaming it to your hand-off link for your human to log in.`);
+    progress("capturing automatically the moment they're signed in…");
   } else {
     progress(`opened ${browser.name} — log in to TikTok (solve any captcha / 2FA yourself).`);
     progress("capturing automatically the moment you're signed in… (window will close on success)");
@@ -486,6 +570,12 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
   let qrPngPath: string | undefined;
   let qrDataUrl: string | undefined;
   let result: ConnectResult = { success: false, reason: "login_timeout", error: "timed out waiting for login", browser: browser.name };
+
+  // Remote (screencast) relay state.
+  let lastFrame: { b64: string; vw: number; vh: number } | null = null;
+  let lastVw = 1280, lastVh = 800; // viewport (CSS px) for scaling normalized input
+  let screencastOn = false;
+  const inputState = { buttons: 0 };
 
   try {
     while (Date.now() < deadline) {
@@ -511,6 +601,7 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
             cdp = await CdpSession.connect(wsUrl);
             await cdp.send("Network.enable");
             if (opts.qr) { try { await cdp.send("Page.enable"); } catch { /* screenshot fallback only */ } }
+            screencastOn = false; // (re)start the screencast on this fresh target (remote mode)
           } catch {
             cdp = null;
           }
@@ -532,6 +623,35 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
               progress("QR live on your hand-off link — your human scans it with the TikTok app; I capture the session automatically once they confirm.");
             }
             try { await opts.onQr?.(dataUrl); } catch { /* hosting optional; capture still works */ }
+          }
+        }
+
+        // Remote mode: (re)start the screencast on this target, then each tick
+        // push the latest frame to the hand-off link and replay whatever input
+        // the human queued. The frame handler acks every frame (CDP stops
+        // streaming otherwise) and tracks the viewport for input scaling.
+        if (opts.remote) {
+          if (!screencastOn) {
+            try {
+              await cdp.send("Page.enable");
+              cdp.on("Page.screencastFrame", (p: any) => {
+                const vw = p?.metadata?.deviceWidth || lastVw;
+                const vh = p?.metadata?.deviceHeight || lastVh;
+                if (vw) lastVw = vw;
+                if (vh) lastVh = vh;
+                if (typeof p?.data === "string") lastFrame = { b64: p.data, vw, vh };
+                if (p?.sessionId != null) cdp!.send("Page.screencastFrameAck", { sessionId: p.sessionId }).catch(() => {});
+              });
+              await cdp.send("Page.startScreencast", { format: "jpeg", quality: 50, maxWidth: 900, maxHeight: 1600, everyNthFrame: 1 });
+              screencastOn = true;
+              progress("live browser is streaming to your hand-off link — your human logs in there; I capture the session automatically.");
+            } catch { /* transient; retry next tick */ }
+          }
+          if (opts.pushFrameAndPullInput) {
+            try {
+              const events = await opts.pushFrameAndPullInput(lastFrame);
+              if (Array.isArray(events)) for (const ev of events) await dispatchInput(cdp, ev, lastVw, lastVh, inputState);
+            } catch { /* relay hiccup; keep waiting */ }
           }
         }
 
@@ -587,7 +707,7 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
         }
       }
 
-      await sleep(2000);
+      await sleep(opts.remote ? 120 : 2000);
     }
     // Carry the QR artifacts onto whatever we return (incl. timeout) so the
     // caller always has the QR that was generated.

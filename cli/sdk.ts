@@ -1056,6 +1056,19 @@ export class Palmyr {
     return this.request('POST', '/social/tiktok/qr', { qr_data_url: qrDataUrl, token, done })
   }
 
+  /** Start a live-browser (screencast) login hand-off → token; build the link as
+   *  `${this.api}/connect/${token}`. Free, unauthenticated. Used by `connect --remote`. */
+  async socialTiktokScreenStart(): Promise<{ token: string; expires_in_sec: number; mode: string }> {
+    return this.request('POST', '/social/tiktok/qr', { mode: 'screen' })
+  }
+
+  /** Push the latest browser frame to a screencast hand-off and drain the human's
+   *  queued input in the same round-trip. Pass `done` to mark the login captured.
+   *  Free, unauthenticated, token-scoped. */
+  async socialTiktokScreenFrame(token: string, frame?: string, vw?: number, vh?: number, done?: boolean): Promise<{ input: any[]; state: string }> {
+    return this.request('POST', `/connect/${token}/frame`, { frame, vw, vh, done })
+  }
+
   async socialTiktokFollow(accountId: string, cookies: any[], targetUser: string, proxySessionId?: string, country?: string): Promise<any> {
     return this.request('POST', '/social/tiktok/follow', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies, target_user: targetUser })
   }
