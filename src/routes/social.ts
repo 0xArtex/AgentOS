@@ -70,7 +70,7 @@ import {
   listMyTweets,
 } from "../services/social-operations";
 import { loginTikTok } from "../services/tiktok-login";
-import { putQr, createScreenSession, createCaptureSession } from "../services/qr-handoff";
+import { putQr } from "../services/qr-handoff";
 import {
   postVideo as tiktokPostVideo,
   followUser as tiktokFollow,
@@ -1680,21 +1680,10 @@ router.post(
   "/tiktok/qr",
   (req: AuthenticatedRequest, res: Response) => {
     try {
-      // { mode: "screen" } → create a live-browser (screencast) hand-off session.
       // No body → create a QR session up front (agent gets the link immediately).
       // { qr_data_url, token } → refresh that session's QR as TikTok rotates it.
       // { token, done } → mark the login captured so the page confirms.
-      const { qr_data_url, token, done, mode } = (req.body || {}) as { qr_data_url?: string; token?: string; done?: boolean; mode?: string };
-      if (mode === "screen") {
-        const s = createScreenSession();
-        res.json({ token: s.token, expires_in_sec: s.expiresInSec, mode: "screen" });
-        return;
-      }
-      if (mode === "capture") {
-        const s = createCaptureSession();
-        res.json({ token: s.token, expires_in_sec: s.expiresInSec, mode: "capture" });
-        return;
-      }
+      const { qr_data_url, token, done } = (req.body || {}) as { qr_data_url?: string; token?: string; done?: boolean };
       const r = putQr({ dataUrl: qr_data_url, token, done: !!done });
       res.json({ token: r.token, expires_in_sec: r.expiresInSec });
     } catch (err: any) {
