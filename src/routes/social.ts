@@ -1680,10 +1680,12 @@ router.post(
   "/tiktok/qr",
   (req: AuthenticatedRequest, res: Response) => {
     try {
-      const { qr_data_url } = (req.body || {}) as { qr_data_url?: string };
-      if (!qr_data_url) { res.status(400).json({ error: "qr_data_url required" }); return; }
-      const { token, expiresInSec } = putQr(qr_data_url);
-      res.json({ token, expires_in_sec: expiresInSec });
+      // No body → create a session up front (agent gets the link immediately).
+      // { qr_data_url, token } → refresh that session's QR as TikTok rotates it.
+      // { token, done } → mark the login captured so the page confirms.
+      const { qr_data_url, token, done } = (req.body || {}) as { qr_data_url?: string; token?: string; done?: boolean };
+      const r = putQr({ dataUrl: qr_data_url, token, done: !!done });
+      res.json({ token: r.token, expires_in_sec: r.expiresInSec });
     } catch (err: any) {
       res.status(400).json({ error: err.message || "qr host failed" });
     }

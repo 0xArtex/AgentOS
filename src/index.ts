@@ -212,13 +212,22 @@ app.get("/version", (_req, res) => {
 });
 // ── TikTok connect QR hand-off page (public, unauthenticated) ──
 // A human opens /connect/<token> to scan the login QR an agent forwarded them.
-import { getQr, renderQrPage, renderExpiredPage } from "./services/qr-handoff";
+import { getQrSession, renderQrPage, renderExpiredPage } from "./services/qr-handoff";
 import { warnIfSelfHosted } from "./services/self-hosted";
 app.get("/connect/:token", (req, res) => {
-  const dataUrl = getQr(req.params.token);
+  const sess = getQrSession(req.params.token);
   res.set("Content-Type", "text/html; charset=utf-8");
   res.set("Cache-Control", "no-store");
-  res.status(dataUrl ? 200 : 404).send(dataUrl ? renderQrPage(dataUrl) : renderExpiredPage());
+  // Render the page for any live session (even before the QR renders — it polls
+  // and fills in); only an unknown/expired token gets the expired page.
+  res.status(sess ? 200 : 404).send(sess ? renderQrPage(req.params.token) : renderExpiredPage());
+});
+// The page polls this to live-refresh the (rotating) QR + show completion.
+app.get("/connect/:token/status", (req, res) => {
+  res.set("Cache-Control", "no-store");
+  const sess = getQrSession(req.params.token);
+  if (!sess) { res.status(404).json({ state: "expired", qr: null }); return; }
+  res.json(sess);
 });
 
 // ── API Documentation ─────────────────────────────────────────

@@ -520,14 +520,18 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
       if (cdp && !cdp.closed) {
         // QR mode: surface the QR once, as soon as it renders, so the agent can
         // forward it to a human while we keep polling for the scan.
-        if (opts.qr && !qrDataUrl) {
+        // Re-extract each loop so a ROTATED QR is pushed to the hand-off link
+        // (TikTok cycles the code every few minutes); onQr fires only on change.
+        if (opts.qr) {
           const { dataUrl } = await extractTikTokQr(cdp);
-          if (dataUrl) {
+          if (dataUrl && dataUrl !== qrDataUrl) {
+            const first = !qrDataUrl;
             qrDataUrl = dataUrl;
-            try { qrPngPath = saveQrPng(dataUrl); } catch { /* path optional */ }
-            progress("QR ready — forward it to a human to scan with the TikTok app; I capture the session automatically once they confirm.");
-            if (qrPngPath) progress(`QR image saved: ${qrPngPath}`);
-            try { await opts.onQr?.(dataUrl); } catch { /* hosting is optional; PNG/data-URL still work */ }
+            if (first) {
+              try { qrPngPath = saveQrPng(dataUrl); } catch { /* path optional */ }
+              progress("QR live on your hand-off link — your human scans it with the TikTok app; I capture the session automatically once they confirm.");
+            }
+            try { await opts.onQr?.(dataUrl); } catch { /* hosting optional; capture still works */ }
           }
         }
 
