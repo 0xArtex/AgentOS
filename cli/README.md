@@ -623,7 +623,7 @@ Direct browser automation — no marketplace or paid upstream. A TikTok session 
 | Command | Cost | Notes |
 |---------|------|-------|
 | `palmyr tiktok connect <username>` *(`--tag <folder>` files it under a folder)* | free | One-shot real-browser login — opens Chrome/Edge/Brave, you log in once, and the session is auto-captured via CDP and cached locally. No server call. |
-| `palmyr tiktok connect <username> --qr` | free | QR login — opens a window showing TikTok's login QR for a human to scan with the TikTok app (no password / captcha). Also hosts the QR server-side and prints a `/connect/<token>` link to forward. Runs headed (TikTok rejects headless QR-auth). |
+| `palmyr tiktok connect <username> --qr` | free | **Human hand-off login** — prints a clean `/connect/<token>` link **instantly** (in stderr + the result's `qr_link`) to forward to a human. The link is **durable (~15 min) and auto-refreshes** the QR as TikTok rotates it (the page live-polls `/connect/<token>/status`), so it never shows a stale code; on capture the page confirms. The human scans with the TikTok app (no password/captcha). Runs a headed browser locally (TikTok rejects headless QR-auth — use xvfb if headless). |
 | `palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>` | free | Bring your own cookies from a logged-in TikTok browser. |
 | `palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country <iso2>` | free | Marketplace colon format. Local vault only; `--country` drives proxy exit + browser locale. |
 | `palmyr tiktok list` *(`--tag <folder>` filters to one folder)* | free | List local TikTok accounts. |

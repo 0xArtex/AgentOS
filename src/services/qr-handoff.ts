@@ -1,56 +1,71 @@
 /**
- * Ephemeral QR hand-off for `tiktok connect --qr`.
+ * Live login hand-off for `tiktok connect --qr`.
  *
- * An agent running `connect --qr` extracts TikTok's login QR locally, POSTs it
- * here, and gets back a short token. It forwards `https://<host>/connect/<token>`
- * to its human, who opens it and scans the QR with the TikTok app. The agent's
- * own browser then captures the session (unchanged).
+ * The agent creates a session UP FRONT — getting a stable `/connect/<token>`
+ * link it can forward to a human instantly, before the QR even renders. As
+ * TikTok rotates the QR, `connect` keeps refreshing the session's image; the
+ * human's page polls and live-updates, so the QR is never stale and the link
+ * stays valid for the whole connect window. On capture, the session is marked
+ * done so the page confirms.
  *
- * Deliberately tiny + in-memory: TikTok QRs expire in minutes anyway, so there's
- * no value in persisting. Guards (short TTL, small size cap, entry cap, strict
- * data-URL validation) keep this from being usable as a general image host.
+ * In-memory + guarded (TTL, size cap, entry cap, strict data-URL validation) so
+ * it can't be abused as a general image host.
  */
 import { randomBytes } from "crypto";
 
-interface Entry {
-  dataUrl: string;
-  expiresAt: number;
-}
+type State = "waiting" | "ready" | "completed";
+interface Entry { dataUrl: string | null; state: State; expiresAt: number; }
 
 const store = new Map<string, Entry>();
-const TTL_MS = 5 * 60 * 1000; // TikTok QRs lapse fast; 5 min is generous
+const TTL_MS = 15 * 60 * 1000; // reset on every update — gives the human ample time
 const MAX_ENTRIES = 500;
-const MAX_DATAURL_LEN = 200_000; // ~150 KB; a 170px PNG QR is a few KB
+const MAX_DATAURL_LEN = 200_000; // ~150 KB; a QR PNG is a few KB
 const DATAURL_RE = /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/;
 
 function pruneExpired(): void {
   const now = Date.now();
   for (const [k, v] of store) if (now > v.expiresAt) store.delete(k);
 }
-
-export function putQr(dataUrl: string): { token: string; expiresInSec: number } {
-  if (typeof dataUrl !== "string" || !DATAURL_RE.test(dataUrl)) {
-    throw new Error("qr_data_url must be a base64 data:image URL (png/jpeg/webp)");
-  }
-  if (dataUrl.length > MAX_DATAURL_LEN) throw new Error("qr image too large");
-  pruneExpired();
-  if (store.size >= MAX_ENTRIES) {
-    // Evict the soonest-to-expire entry to bound memory.
-    let oldestKey: string | undefined;
-    let oldestAt = Infinity;
-    for (const [k, v] of store) if (v.expiresAt < oldestAt) { oldestAt = v.expiresAt; oldestKey = k; }
-    if (oldestKey) store.delete(oldestKey);
-  }
-  const token = randomBytes(16).toString("hex");
-  store.set(token, { dataUrl, expiresAt: Date.now() + TTL_MS });
-  return { token, expiresInSec: TTL_MS / 1000 };
+function evictIfFull(): void {
+  if (store.size < MAX_ENTRIES) return;
+  let oldestKey: string | undefined, oldestAt = Infinity;
+  for (const [k, v] of store) if (v.expiresAt < oldestAt) { oldestAt = v.expiresAt; oldestKey = k; }
+  if (oldestKey) store.delete(oldestKey);
 }
 
-export function getQr(token: string): string | null {
+/**
+ * Create a session (no QR yet) so the agent gets a link immediately, or update
+ * an existing one. `dataUrl` (re)sets the QR; `done` marks the login captured.
+ * Every call resets the TTL, so the link lives as long as `connect` keeps it
+ * fresh. Returns the token (same one when updating).
+ */
+export function putQr(opts: { dataUrl?: string; token?: string; done?: boolean }): { token: string; expiresInSec: number } {
+  const { dataUrl, done } = opts;
+  if (dataUrl !== undefined && (typeof dataUrl !== "string" || !DATAURL_RE.test(dataUrl))) {
+    throw new Error("qr_data_url must be a base64 data:image URL (png/jpeg/webp)");
+  }
+  if (dataUrl && dataUrl.length > MAX_DATAURL_LEN) throw new Error("qr image too large");
+  pruneExpired();
+
+  let token = opts.token && store.has(opts.token) ? opts.token : undefined;
+  if (!token) {
+    evictIfFull();
+    token = randomBytes(16).toString("hex");
+    store.set(token, { dataUrl: null, state: "waiting", expiresAt: 0 });
+  }
+  const e = store.get(token)!;
+  if (done) e.state = "completed";
+  else if (dataUrl) { e.dataUrl = dataUrl; e.state = "ready"; }
+  e.expiresAt = Date.now() + TTL_MS;
+  return { token, expiresInSec: Math.round(TTL_MS / 1000) };
+}
+
+export interface QrStatus { state: State; qr: string | null; expires_in_sec: number; }
+export function getQrSession(token: string): QrStatus | null {
   const e = store.get(token);
   if (!e) return null;
   if (Date.now() > e.expiresAt) { store.delete(token); return null; }
-  return e.dataUrl;
+  return { state: e.state, qr: e.dataUrl, expires_in_sec: Math.max(0, Math.round((e.expiresAt - Date.now()) / 1000)) };
 }
 
 const PAGE_HEAD =
@@ -68,15 +83,25 @@ const PAGE_HEAD =
   `.foot{margin-top:22px;color:#5f7a7f;font-size:12px}` +
   `</style></head><body><div class="card">`;
 
-/** Render the QR page. `dataUrl` is validated on store, so it's safe in src. */
-export function renderQrPage(dataUrl: string): string {
+/**
+ * Render the hand-off page. It polls `/connect/<token>/status` and live-updates
+ * the QR, so a rotated code is always current and the link never shows stale.
+ */
+export function renderQrPage(token: string): string {
+  const t = JSON.stringify(token);
   return (
     PAGE_HEAD +
-    `<h1>Log in to TikTok</h1><p class="sub">Scan this with the TikTok app</p>` +
-    `<div class="qr"><img src="${dataUrl}" alt="TikTok login QR"></div>` +
+    `<h1>Log in to TikTok</h1><p class="sub" id="sub">Preparing your login code…</p>` +
+    `<div class="qr" id="qrbox" style="display:none"><img id="qr" alt="TikTok login QR"></div>` +
     `<div class="steps">1. Open TikTok on your phone<br>` +
-    `2. Profile → ☰ menu → scan QR code<br>3. Confirm login</div>` +
-    `<p class="foot">This code expires in a few minutes.</p>` +
+    `2. Profile → ☰ menu → Scan QR code<br>3. Confirm login</div>` +
+    `<p class="foot">Keep this page open — the code refreshes automatically.</p>` +
+    `<script>(function(){var T=${t};var sub=document.getElementById('sub'),box=document.getElementById('qrbox'),img=document.getElementById('qr');` +
+    `function tick(){fetch('/connect/'+T+'/status',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(s){` +
+    `if(s.state==='completed'){sub.textContent='✓ Logged in — you can close this tab.';box.style.display='none';return;}` +
+    `if(s.state==='ready'&&s.qr){if(img.src!==s.qr)img.src=s.qr;box.style.display='inline-block';sub.textContent='Scan this with the TikTok app';}` +
+    `else{sub.textContent='Preparing your login code…';}setTimeout(tick,4000);}).catch(function(){sub.textContent='This link has expired — ask your agent for a fresh one.';box.style.display='none';});}` +
+    `tick();})();</script>` +
     `</div></body></html>`
   );
 }
@@ -85,8 +110,8 @@ export function renderExpiredPage(): string {
   return (
     PAGE_HEAD +
     `<h1>Link expired</h1>` +
-    `<p class="sub">This TikTok login QR has expired.</p>` +
-    `<div class="steps">Ask for a fresh link and try again.</div>` +
+    `<p class="sub">This TikTok login link is no longer active.</p>` +
+    `<div class="steps">Ask your agent for a fresh link and try again.</div>` +
     `</div></body></html>`
   );
 }

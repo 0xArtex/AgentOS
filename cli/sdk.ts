@@ -1050,8 +1050,10 @@ export class Palmyr {
 
   /** Host an ephemeral login QR (data-URL) → returns a short token. Build the
    *  human-facing link as `${this.api}/connect/${token}`. Free, unauthenticated. */
-  async socialTiktokHostQr(qrDataUrl: string): Promise<{ token: string; expires_in_sec: number }> {
-    return this.request('POST', '/social/tiktok/qr', { qr_data_url: qrDataUrl })
+  /** Create a hand-off session (no args → returns a token/link immediately),
+   *  refresh its QR (pass qrDataUrl + token), or mark it done (token + done). */
+  async socialTiktokHostQr(qrDataUrl?: string, token?: string, done?: boolean): Promise<{ token: string; expires_in_sec: number }> {
+    return this.request('POST', '/social/tiktok/qr', { qr_data_url: qrDataUrl, token, done })
   }
 
   async socialTiktokFollow(accountId: string, cookies: any[], targetUser: string, proxySessionId?: string, country?: string): Promise<any> {

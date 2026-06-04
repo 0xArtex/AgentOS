@@ -1028,7 +1028,7 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   connect: [
     { flag: '<username>', desc: 'Log in once via your real browser; auto-captures the session' },
-    { flag: '--qr', desc: 'QR login: opens a window with a login QR for a human to scan with the TikTok app (no password/captcha)' },
+    { flag: '--qr', desc: 'Human hand-off: prints a durable, auto-refreshing /connect link instantly to send a human to scan (no password/captcha)' },
     { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
     { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
     { flag: '--browser-path <path>', desc: 'Override Chrome/Edge/Brave auto-detection' },
@@ -7168,25 +7168,37 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             }
 
             const { connectTikTok } = await import('./tiktok-connect.js')
-            const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : 300
+            // QR hand-off waits on a human, so give them ample time by default.
+            const timeoutSec = flags.timeout !== undefined ? Math.max(30, Number(flags.timeout)) : (flags.qr ? 600 : 300)
             let hostedLink: string | undefined
+            let qrToken: string | undefined
+            // QR mode: create the hand-off session UP FRONT so the agent can
+            // forward a clean, durable link immediately — before the QR even
+            // renders. `connect` then keeps that link's QR fresh as it rotates.
+            if (flags.qr) {
+              try {
+                const sess = await ao.socialTiktokHostQr()
+                qrToken = sess.token
+                hostedLink = `${ao.api.replace(/\/+$/, '')}/connect/${qrToken}`
+                const mins = Math.round((sess.expires_in_sec || 900) / 60)
+                process.stderr.write(`[connect] 🔗 Send this link to your human to sign in: ${hostedLink}\n`)
+                process.stderr.write(`[connect] The QR refreshes automatically; the link stays valid ~${mins} min. Capturing the session the moment they confirm…\n`)
+              } catch { /* hosting optional; falls back to the local window */ }
+            }
             const result = await connectTikTok({
               country: explicitCountry || acc?.country,
               timeoutMs: timeoutSec * 1000,
               browserPath: flags['browser-path'] as string | undefined,
               noSandbox: !!flags['no-sandbox'],
               qr: !!flags.qr,
-              onQr: async (dataUrl) => {
-                // Host the QR so the agent gets a clean link to forward. Best-effort:
-                // if the server lacks the endpoint, the PNG/data-URL still work.
-                try {
-                  const hosted = await ao.socialTiktokHostQr(dataUrl)
-                  hostedLink = `${ao.api.replace(/\/+$/, '')}/connect/${hosted.token}`
-                  process.stderr.write(`[connect] QR link (send to a human): ${hostedLink}\n`)
-                } catch { /* hosting optional */ }
-              },
+              // Refresh the hand-off link's QR whenever TikTok rotates it.
+              onQr: qrToken
+                ? async (dataUrl) => { try { await ao.socialTiktokHostQr(dataUrl, qrToken) } catch { /* keep waiting */ } }
+                : undefined,
               onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
             })
+            // Tell the hand-off page the login landed, so it shows confirmation.
+            if (result.success && qrToken) { try { await ao.socialTiktokHostQr(undefined, qrToken, true) } catch { /* cosmetic */ } }
 
             if (!result.success) {
               const details: Record<string, unknown> = { platform, username, reason: result.reason }
