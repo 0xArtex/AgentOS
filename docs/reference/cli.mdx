@@ -13,7 +13,7 @@ palmyr <command> --help    # discover any subcommand
 
 ## Output modes
 
-The CLI auto-switches between an interactive interface and an agent-friendly JSON contract.
+The CLI defaults to an agent-friendly JSON contract — raw JSON on stdout, structured errors and exit codes — and renders a human-readable interface only when you run it in a terminal.
 
 - **Interactive (TTY)** — menus, spinners, colour.
 - **Agent mode** — raw JSON on stdout, NDJSON for streaming, single-line `{error, exitCode}` JSON on stderr, no ANSI.
