@@ -17,6 +17,15 @@
     }
   },
   "favicon": "/favicon.svg",
+  "seo": {
+    "metatags": {
+      "og:image": "https://docs.palmyr.ai/images/og.png",
+      "og:image:width": "1200",
+      "og:image:height": "630",
+      "twitter:image": "https://docs.palmyr.ai/images/og.png",
+      "twitter:card": "summary_large_image"
+    }
+  },
   "logo": {
     "light": "/logo/light.svg",
     "dark": "/logo/dark.svg"
