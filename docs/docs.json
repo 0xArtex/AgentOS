@@ -3,9 +3,13 @@
   "theme": "mint",
   "name": "Palmyr",
   "colors": {
-    "primary": "#a89774",
-    "light": "#c9bd9e",
-    "dark": "#a89774"
+    "primary": "#F6AF56",
+    "light": "#F8C68A",
+    "dark": "#E0913A"
+  },
+  "fonts": {
+    "heading": { "family": "Cormorant Garamond", "weight": 600 },
+    "body": { "family": "DM Sans" }
   },
   "appearance": {
     "default": "dark"
