@@ -1,0 +1,127 @@
+---
+title: "X / Twitter"
+description: "Operate X / Twitter accounts from the CLI — buy or import, post, engage, schedule, and transfer ownership, all paid per-action in USDC with no API keys."
+icon: "x-twitter"
+---
+
+Buy, import, and operate X accounts straight from the CLI. Every login, post, and engagement action is paid per-action in USDC over x402 — no developer account, no API keys, no OAuth dance. The wallet that signs the payment owns the account.
+
+<Note>
+  Each account is pinned to a **sticky residential IP** for its lifetime — login, posting, and every later action route through the same exit IP, so X never sees a sudden geography jump. Local credentials are encrypted with **AES-256-GCM** (the per-account session secret lives in your OS credential store). Cookies cache for 12h after login and auto-refresh — commands that need a live session call `palmyr twitter login` for you when the cookies go stale.
+</Note>
+
+## Acquire and post
+
+```bash
+npm i -g @palmyr/cli
+
+# Option A — buy a ready account from the pool ($5.00 USDC)
+palmyr twitter buy
+
+# Option B — import your own (free); accepts the 4 / 5 / 7-field colon format
+palmyr twitter import acct1 --credentials-line "login:pw:email:email_pw:2fa:ct0:auth_token"
+
+# Post a text tweet ($0.001) — returns the tweet_id after server-side verification
+palmyr twitter post acct1 --body "shipping in public"
+```
+
+<Info>
+  Operations are confirmed at the network layer: the server intercepts X's actual API responses (`CreateTweet`, `FavoriteTweet`, `update_profile`, etc.) before reporting success. No false positives.
+</Info>
+
+## Commands
+
+### Accounts & sessions
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr twitter buy` | $5.00 | Pay $5 USDC, get a ready X account from the pool. Auto-imports into the local vault and primes the session — post immediately. |
+| `palmyr twitter import <username> --credentials-line "..."` | free | Bring your own account. Accepts the standard 4 / 5 / 7-field colon format from marketplace exports. |
+| `palmyr twitter import <username> --login E --password P [...]` | free | Same, with explicit flags (`--email-password`, `--totp-seed`, `--auth-token`, `--ct0`). |
+| `palmyr twitter list [--local]` | $0.0011 (`--local` free) | Local vault PLUS server-side accounts the wallet owns or was shared with. `--local` skips the server check. |
+| `palmyr twitter info <username>` | free | Show one account (id, addresses, last action, source). |
+| `palmyr twitter rename <old> --to <new>` | free | Rename the local handle (does not touch the X handle — use `username` for that). |
+| `palmyr twitter remove <username> --confirm` | free | Delete the local copy. The X account itself is not deleted. |
+| `palmyr twitter totp <username>` | free | Print the current 2FA code derived from the stored seed. |
+| `palmyr twitter login <username>` | $0.005 | Open a Playwright stealth session, log in through the residential IP, cache cookies 12h. |
+| `palmyr twitter session <username>` | free | Show whether a session is cached, its age in hours, and staleness. |
+
+### Posting & engagement
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr twitter post <username> --body "..."` | $0.001 | Post a text-only tweet. |
+| `palmyr twitter post <username> --body "..." --image path[,path,...]` (or `--video path.mp4`, `--media-json '[...]'`) | $0.005 | Post with media: 1-4 images OR 1 video (X allows one or the other). Local files are base64-encoded. |
+| `palmyr twitter thread <username> --texts '[...]'` (or `--file thread.json`) | $0.005 | Post a 2-25 tweet native X thread; each entry ≤280 chars. Returns `tweet_ids[]` and `tweet_urls[]`. |
+| Add `--community <id>` to any post / thread | same | Scope the post to an X community (numeric id from the community URL). The account must be a member. |
+| `palmyr twitter reply <username> --to <tweet-url> --body "..."` | $0.001 | Reply to a tweet. |
+| `palmyr twitter like <username> --tweet <url>` | $0.001 | Like a tweet. |
+| `palmyr twitter retweet <username> --tweet <url>` | $0.001 | Retweet. |
+| `palmyr twitter follow <username> --user @handle` | $0.001 | Follow an account. |
+| `palmyr twitter unfollow <username> --user @handle` | $0.001 | Unfollow (handles both confirm-modal and instant paths). |
+| `palmyr twitter delete <username> --tweet <url>` | $0.001 | Delete one of your tweets. |
+
+### Profile
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr twitter bio <username> --text "..."` | $0.001 | Set the bio. Pass `--text ""` to clear. |
+| `palmyr twitter name <username> --display "..."` | $0.001 | Set the display name. |
+| `palmyr twitter location <username> --text "..."` | $0.001 | Set the location. |
+| `palmyr twitter website <username> --url https://...` | $0.001 | Set the website link. |
+| `palmyr twitter pfp <username> --file path.png` (or `--url ...`) | $0.005 | Set the profile picture (PNG / JPG / WebP / GIF). URLs are fetched server-side with an SSRF guard. |
+| `palmyr twitter banner <username> --file path.png` (or `--url ...`) | $0.005 | Set the banner image. |
+| `palmyr twitter username <username> --to <new-handle>` | $0.005 | Change the X handle. Pre-flight validates the handle (4-15 chars, `[A-Za-z0-9_]`) before payment. |
+
+### Ownership
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr twitter transfer <username> --to <wallet> --confirm` | $0.0001 proof + $0.0011 lookup (+ $0.01 if auto-register runs, + ~$0.001 polls) | Atomically hand the account to another wallet. Password is rotated and other sessions revoked before ownership flips, so your local credentials become useless. The async rotation takes 30-90s; the receiver picks up fresh creds with `claim`. |
+| `palmyr twitter share <username> --with <wallet>` | $0.01 | Grant another wallet shared access — same login, no credential rotation. Both wallets see it via `claim`. Owner-only. |
+| `palmyr twitter unshare <username> --from <wallet> [--rotate]` | $0.0001 proof + $0.0011 lookup (more with `--rotate`) | Revoke shared access. Without `--rotate`, previously exported cookies stay valid until X-side expiry; with `--rotate`, the password is rotated and your local vault is re-synced. Owner-only. |
+| `palmyr twitter claim` | $0.0011 | Pull every X account on the server bound to your wallet (owner or shared) into the local vault, cookies pre-warmed. The fast path after receiving a transfer. |
+
+## Fire-and-forget scheduling
+
+To make scheduled posts fire even when your machine is off, register the account on the server once. `register` reads the creds, the server runs a real test login through a fresh residential session, then encrypts and stores them at rest (AES-256-GCM, key in `REGISTERED_ACCOUNTS_KEY`, never logged). After that the server can re-login on your wallet's behalf to refresh stale cookies and fire scheduled posts on its own — nothing runs on your machine.
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr twitter register <username>` | $0.01 | Upload vault creds; server test-logs-in, then encrypts + stores. Returns `account_id` and `cookies_captured`. |
+| `palmyr twitter register <username> --password "..." [...]` | $0.01 | Same, with explicit creds (`--login`, `--totp-seed`, `--email`, `--email-password`, `--auth-token`, `--ct0`, `--country`). |
+| `palmyr twitter unregister <username-or-account-id>` | $0.001 | Wipe the encrypted credential + cookie blobs from the server (status flips to `revoked`). |
+| `palmyr twitter registered` | $0.001 | List your wallet's registered accounts (id, username, country, status, `last_login_at`). |
+| `palmyr twitter schedule <username> --body "..." --at "2026-05-15T14:00:00Z"` (or `--texts`, plus `--image`/`--video`/`--media-json`/`--community`) | $0.001 text / $0.005 thread or media | Pay now at the post's full price; the server's internal scheduler fires it at `post_at`. Returns `schedule_id`. |
+| `palmyr twitter queue [filters]` | $0.001 | Server-backed, wallet-scoped list. Filter by `--status` (`pending`, `in_progress`, `completed`, `failed`, `cancelled`), `--account-id`, `--from`/`--to`, `--limit`. |
+| `palmyr twitter cancel <schedule-id>` | $0.001 | Cancel a pending scheduled post. In-progress / completed / failed cannot be cancelled. No refund. |
+
+Retryable failures (rate limits, transient browser issues) are re-tried with exponential backoff up to 3 attempts; terminal failures (session expired, bad input) move to `failed` for inspection with `queue --status failed`.
+
+<Warning>
+  `register` and `schedule` mean the Palmyr server holds your X credentials, encrypted at rest. This is the same trade-off as Buffer / Hootsuite / Postiz holding your OAuth tokens. Every row uses its own random IV + auth tag and all access is wallet-scoped, so a database leak alone reveals nothing without the env key — but a full server compromise (DB **and** the env key) means stored credentials are decryptable. If that isn't acceptable, skip `register` and drive posts locally from your own machine, where creds never leave your device.
+</Warning>
+
+## Safety
+
+- **Local encryption.** Credentials in the local vault are AES-256-GCM encrypted; the session secret lives in your OS credential store, not on disk in plaintext.
+- **IP stickiness.** Every account keeps one residential exit IP for life, so logins and posts never trip X's geography-change checks.
+- **Transfer rotates the password.** `transfer` (and `unshare --rotate`) rotate the password and revoke other sessions before ownership flips — the old holder's exported creds and cookies stop working.
+- **Network-verified.** Success is read from X's intercepted API responses, not optimistic client guesses.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Privacy & data" icon="shield" href="/security/privacy">
+    What's stored locally vs. server-side, and exactly how each is encrypted.
+  </Card>
+  <Card title="Permissions & limits" icon="sliders" href="/security/permissions">
+    Wallet scoping, ownership proofs, and per-action authorization.
+  </Card>
+  <Card title="Pricing" icon="coins" href="/pricing">
+    Per-action USDC costs across every Palmyr service.
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/reference/cli">
+    Full command and flag reference for `@palmyr/cli`.
+  </Card>
+</CardGroup>

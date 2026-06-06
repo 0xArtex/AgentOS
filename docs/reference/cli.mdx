@@ -1,0 +1,217 @@
+---
+title: "CLI reference"
+description: "Complete command index for the Palmyr CLI: wallets, trading, phone, email, compute, domains, social, plus output modes, config, and exit codes."
+icon: "terminal"
+---
+
+The complete command surface of `@palmyr/cli`. Costs are paid in USDC over [x402](/concepts/payments) at request time; actions marked **free** require no payment. For prose and examples, follow the per-service links.
+
+```bash
+npm i -g @palmyr/cli      # Node.js 18+
+palmyr <command> --help    # discover any subcommand
+```
+
+## Output modes
+
+The CLI auto-switches between an interactive interface and an agent-friendly JSON contract.
+
+- **Interactive (TTY)** — menus, spinners, colour.
+- **Agent mode** — raw JSON on stdout, NDJSON for streaming, single-line `{error, exitCode}` JSON on stderr, no ANSI.
+
+Agent mode turns on when stdout is not a TTY, when you pass `--json`, or when `PALMYR_JSON=1` is set. See [For AI Agents](/for-agents).
+
+## Wallet
+
+All wallet operations except `addresses`, `api-key`, and `config` run locally with no server contact. Full guide: [Wallets & funding](/concepts/wallets).
+
+| Command | Cost | Description |
+|---|---|---|
+| `wallet create [--name N] [--tag T] [--count N]` | free | Create a wallet. Requires `--passphrase`, `PALMYR_WALLET_PASSPHRASE`, or `--session-only`. |
+| `wallet import --mnemonic "..."` | free | Restore from a BIP-39 seed. |
+| `wallet rekey <ID> --passphrase P` | free | Add or rotate the scrypt passphrase fallback. |
+| `wallet list [--tag T]` | free | List wallets in the local vault. |
+| `wallet info <ID>` | free | Show one wallet (id, addresses, mode, tag). |
+| `wallet tags` | free | List tags with counts and chains. |
+| `wallet tag <ID> <TAG>` | free | Assign, change, or clear a tag (`--clear`). |
+| `wallet tag-delete <TAG> --confirm` | free | Cascade-delete every wallet under a tag. |
+| `wallet use <ID> --chain <chain>` | free | Set the default payer and payment chain. |
+| `wallet addresses <ID>` | API | Server-derived multi-chain addresses. |
+| `wallet sign-message <ID> --msg "..."` | free | Sign an arbitrary message offline. |
+| `wallet api-key <ID> [--name N]` | API | Mint an agent API key bound to the wallet. |
+| `wallet export <ID> --confirm` | free | Print the mnemonic (guarded by `--confirm`). |
+
+## Trading
+
+Swaps route from your wallet to Jupiter (Solana) and ParaSwap (Base). No Palmyr fee for the swap. Full guide: [Trading](/services/trading).
+
+| Command | Description |
+|---|---|
+| `wallet buy solana <CA> --amount 0.5sol --thesis "..."` | Open a Solana position. Exit flags: `--cut`, `--tp`, `--trail`, `--time-limit`, `--protected`. |
+| `wallet buy base <0xToken> --amount 0.01eth --thesis "..."` | Open a Base position. |
+| `wallet sell solana <CA> --percent 50 --reason "..."` | Sell N% (FIFO realized PnL); auto-closes at 100%. |
+| `wallet sell base <0xToken> --percent 50 --reason "..."` | Sell N% on Base (auto-handles ERC20 approval). |
+| `wallet positions [--chain X] [--all]` | List open (and with `--all`, closed) positions. |
+| `wallet position <CA>` | Full detail: thesis, exit plan, sells, PnL. |
+| `wallet sync [--wallet Y]` | Reconcile on-chain balances; refresh unrealized PnL. |
+| `wallet pnl [--by chain] [--since DATE]` | Aggregate realized + unrealized, with USD total. |
+| `wallet journal add <CA> --note "..."` | Append a trade note (`journal show` to read). |
+| `wallet watch add <CA> --trigger "..."` | Append a watchlist entry (`watch list` to read). |
+| `wallet brief <CA> [--evaluate]` | Position brief; `--evaluate` runs an LLM thesis check. |
+| `wallet daemon start [--interval N] [--auto]` | Background monitor; auto-exits on triggers with `--auto`. Also `tick` / `stop` / `status`. |
+| `wallet triggers [--clear]` | List pending trigger fires. |
+| `wallet cohort buy <CHAIN> <CA> --total <amt> --wallets a,b,c` | Split one decision across N wallets. |
+| `wallet template list` | Manage YAML strategy templates (`show` / `path` / `delete`). |
+| `wallet evm-quote <SRC> <DST> --amount <raw>` | Get a Base swap quote without signing. |
+| `wallet trading-keystore init [--count N]` | Optional power-user keystore (`unlock` / `lock` / `list` / `status` / `derive` / `export`). |
+
+## Phone & SMS
+
+Full guide: [Phone & SMS](/services/phone).
+
+| Command | Cost | Description |
+|---|---|---|
+| `phone search --country US [--limit N]` | free | Search inventory by ISO-2 country. |
+| `phone buy --country US [--area 415]` | $3.00 | Provision a real number. |
+| `phone messages --id <ID>` | $0.02 | Read inbound SMS history. |
+| `phone sms --id <ID> --to +1... --body "..."` | $0.05 | Send an SMS. |
+| `phone call --id <ID> --to +1... [--tts "..."]` | $0.10 | Outbound call with optional text-to-speech. |
+| `phone delete --id <ID>` | $0.01 | Release the number. |
+
+## Email
+
+End-to-end encrypted inboxes at `<name>@palmyr.ai`. Full guide: [Email](/services/email).
+
+| Command | Cost | Description |
+|---|---|---|
+| `email create --name agent --wallet <SOL_PUBKEY>` | $2.00 | Create an inbox owned by a Solana pubkey. |
+| `email read --id <INBOX_ID>` | $0.02 | Read messages (owner only). |
+| `email send --id <ID> --to a@b.com --subject "..." --body "..."` | $0.08 | Send an email. |
+| `email threads --id <INBOX_ID>` | $0.02 | List conversation threads. |
+
+## Compute
+
+VPS on Hetzner-class hardware. Full guide: [Compute](/services/compute).
+
+| Command | Cost | Description |
+|---|---|---|
+| `compute plans [--location X]` | free | List server types and monthly pricing. |
+| `compute locations` | free | List datacenters and per-location availability. |
+| `compute install-recipes` | free | List runtimes for `--install`. |
+| `compute deploy [--type cx23] [--install hermes]` | $6.00 | Deploy, auto-key, wait until ready, return an SSH command. |
+| `compute wait <name\|id>` | $0.01 | Re-run the readiness chain on a server. |
+| `compute ssh <name\|id>` | free | Open a shell or print the SSH command (from cache). |
+| `compute setup-ssh <id> --pubkey-file ...` | $0.01 | Inject your key; remove the platform's temp key. |
+| `compute exec <name\|id> -- <cmd>` | $0.05 | Run one command pre-handoff. |
+| `compute list` | $0.01 | List your servers. |
+| `compute reboot / poweroff / poweron / reset / rebuild / console / reset-password <name\|id>` | $0.10 | Lifecycle actions. |
+| `compute rename <name\|id> <new-name>` | $0.01 | Rename (metadata only). |
+| `compute delete <name\|id>` | $0.10 | Terminate and stop billing. |
+| `compute ssh-key add <pubkey-file>` | $0.10 | Upload a reusable SSH key (`list` / `delete` are $0.01). |
+
+## Domains
+
+Full guide: [Domains](/services/domains).
+
+| Command | Cost | Description |
+|---|---|---|
+| `domain check --name example.dev` | free | Availability check. |
+| `domain pricing --name example.dev` | free | TLD pricing. |
+| `domain buy --name example.dev` | $20.00 | One-year registration. |
+| `domain list` | $0.01 | List domains you own or that are shared with you. |
+| `domain dns --name example.dev` | $0.01 | View DNS records. |
+| `domain transfer-ownership --name X --to <wallet>` | $0.01 | Hand the domain to another wallet. |
+| `domain share / unshare --name X --with <wallet>` | $0.01 | Grant or revoke shared DNS access. |
+
+## X / Twitter
+
+Full guide: [X / Twitter](/services/twitter).
+
+| Command | Cost | Description |
+|---|---|---|
+| `twitter buy` | $5.00 | Receive a ready account from the pool. |
+| `twitter import <username> ...` | free | Bring your own account. |
+| `twitter list [--local]` | $0.0011 | Local plus server-side accounts (`--local` is free). |
+| `twitter login <username>` | $0.005 | Open a stealth session and cache cookies (12h). |
+| `twitter session <username>` | free | Show session age and staleness. |
+| `twitter post <username> --body "..."` | $0.001 | Post text. Add `--image` / `--video` for $0.005. |
+| `twitter thread <username> --texts '[...]'` | $0.005 | Post a 2–25 tweet native thread. |
+| `twitter reply / like / retweet / follow / unfollow / delete` | $0.001 | Engagement. |
+| `twitter bio / name / location / website` | $0.001 | Profile fields. |
+| `twitter pfp / banner / username` | $0.005 | Profile media and handle. |
+| `twitter transfer <username> --to <wallet> --confirm` | ~$0.01 | Hand the account to another wallet (rotates the password). |
+| `twitter share / unshare / claim` | $0.01 / varies | Shared access and pulling owned accounts in. |
+| `twitter register <username>` | $0.01 | Upload encrypted creds for fire-and-forget scheduling. |
+| `twitter schedule <username> --body "..." --at <iso>` | $0.001 | Server-side scheduled post ($0.005 media/thread). |
+| `twitter queue / cancel` | $0.001 | View and cancel scheduled posts. |
+
+## TikTok
+
+Direct browser automation — no password stored server-side. Full guide: [TikTok](/services/tiktok).
+
+| Command | Cost | Description |
+|---|---|---|
+| `tiktok connect <username>` | free | QR hand-off by default; `--local` opens a browser here. |
+| `tiktok import <username> ...` | free | Bring your own cookies or credentials. |
+| `tiktok list / info / session / rename / tag / remove / totp` | free | Local account management. |
+| `tiktok login <username>` | $0.02 | Validate the session via a stealth browser. |
+| `tiktok post <username> --file video.mp4 --caption "..."` | $0.01 | Post a video. |
+| `tiktok schedule <username> --at <iso> --file video.mp4` | $0.01 | TikTok-native scheduled post. |
+| `tiktok follow / like / delete / bio / name` | $0.001 | Engagement and profile. |
+| `tiktok pfp <username> --file pic.png` | $0.005 | Set the avatar. |
+| `tiktok draft <username> ...` | free | Stage a post for human approval. |
+| `tiktok drafts / approve / reject / logs` | free / $0.01 | Approval queue (`approve` is $0.01) and audit log. |
+| `tiktok analytics <username>` | $0.005 | Scrape per-post metrics (free when self-hosted). |
+| `tiktok review / monitor` | free | Performance review and the unattended monitor loop. |
+
+## Utility
+
+| Command | Cost | Description |
+|---|---|---|
+| `setup` | free | One-time bootstrap of `~/.palmyr/`. |
+| `status` | free | Wallet config, default chain, and API health. |
+| `config` | free | Print the resolved config. |
+| `doctor` | free | Diagnose vault, credential store, and connectivity. |
+| `pricing` | free | Live price list from the API. |
+| `health` | free | API uptime, version, and chain status. |
+| `note "..."` | free | Append a timestamped note to local memory. |
+| `telemetry on / off / status` | free | Opt-in anonymous usage stats (off by default). |
+
+## Configuration
+
+Config lives in `~/.palmyr/config.json`; environment variables override file values.
+
+| Variable | Purpose |
+|---|---|
+| `PALMYR_API` | Override the API endpoint. |
+| `PALMYR_TOKEN` / `PALMYR_API_KEY` | Bearer token for authenticated routes. |
+| `PALMYR_PAY_WALLET` | Force a specific wallet ID for x402 payment. |
+| `PALMYR_WALLET_PATH` | Override the vault directory. |
+| `PALMYR_WALLET_PASSPHRASE` | Vault decryption passphrase / recovery fallback. |
+| `PALMYR_JSON` | Set to `1` to force agent (JSON) output. |
+
+## Exit codes
+
+| Code | Constant | Meaning |
+|---|---|---|
+| `0` | `OK` | Success |
+| `1` | `GENERAL` | Uncategorised failure |
+| `2` | `BAD_INPUT` | Invalid command, flag, or argument |
+| `3` | `AUTH_FAIL` | 401, or missing token |
+| `4` | `NOT_FOUND` | 404, or unknown local resource |
+| `5` | `NETWORK` | DNS, connection, or transport failure |
+| `6` | `PAYMENT` | 402, or x402 signing was rejected |
+| `7` | `SECURITY` | Wallet integrity check failed |
+
+## File layout
+
+```text
+~/.palmyr/
+  config.json        resolved config (chains, defaults, vault path)
+  wallet/            encrypted wallet files, key metadata, spend ledgers
+  secrets/           Windows DPAPI fallback (macOS/Linux use the OS keychain)
+  data/              local cache of phones, inboxes, servers, domains
+  trading/           positions, trades, journal, watchlist, templates
+  memory/notes.md    output of palmyr note
+```
+
+Wallet files contain only ciphertext; the decryption key lives in your OS credential store.

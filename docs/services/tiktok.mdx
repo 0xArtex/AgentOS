@@ -1,0 +1,119 @@
+---
+title: "TikTok"
+description: "Automate TikTok from the Palmyr CLI: QR connect with no password stored server-side, then post, schedule, engage, and track analytics paid per action in USDC."
+icon: "tiktok"
+---
+
+TikTok in Palmyr is direct browser automation — no marketplace and no paid upstream API. You pay per action in USDC over x402; the wallet that signs the payment owns the session. Account management is free local-vault; the action ops run server-side through the account's residential IP.
+
+<Note>
+  No TikTok password is ever stored server-side. A session is captured from a real-browser login, and the default `connect` flow is a QR hand-off — the password never leaves the phone.
+</Note>
+
+## Connect an account
+
+`connect` is free and has two modes. The default is a QR hand-off — zero install, nothing to type, never blocked by TikTok.
+
+<Steps>
+  <Step title="Run connect (QR default)">
+    ```bash
+    palmyr tiktok connect <username>
+    ```
+    It prints a `/connect/<token>` link (in stderr and as `qr_link` in the result).
+  </Step>
+  <Step title="Scan from the phone">
+    Open the link and scan the QR with the **TikTok app on the phone** where the account is already logged in. No password, no captcha.
+  </Step>
+  <Step title="Session captured">
+    The link is durable (~15 min) and auto-refreshes as TikTok rotates the code (the page polls `/connect/<token>/status`). The session is captured the moment they confirm.
+  </Step>
+</Steps>
+
+To log in on the current machine instead, use `--local` — it opens Chrome/Edge/Brave here and captures the session via CDP with no server call:
+
+```bash
+palmyr tiktok connect <username> --local
+```
+
+Already have cookies from a logged-in browser? Import them directly:
+
+```bash
+palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>
+```
+
+## Post a video
+
+```bash
+palmyr tiktok post <username> --file video.mp4 --caption "ship day"
+```
+
+Use `--url <https>` instead of `--file` to post from a URL. `--privacy` takes 0/1/2 = public / friends / private (default public).
+
+## Commands
+
+### Accounts & sessions
+
+| Command | Cost | What it does |
+|---------|------|--------------|
+| `palmyr tiktok connect <username>` | free | QR hand-off (default). Prints a `/connect/<token>` link; scan with the phone's TikTok app. `--tag <folder>` files it under a folder. |
+| `palmyr tiktok connect <username> --local` | free | Opens a browser on this machine; you log in here. Session auto-captured via CDP, no server call. |
+| `palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>` | free | Bring your own 3 cookies from a logged-in browser. |
+| `palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country <iso2>` | free | Marketplace colon format. Local vault only; `--country` drives proxy exit + locale. |
+| `palmyr tiktok list` | free | List local accounts. `--tag <folder>` filters to one folder. |
+| `palmyr tiktok info <username>` | free | Show one account (id, source, country, last action). |
+| `palmyr tiktok session <username>` | free | Whether a session is cached, its age in hours, and staleness (>12h). |
+| `palmyr tiktok rename <old> --to <new>` | free | Rename the local alias (does not change the TikTok handle). |
+| `palmyr tiktok tag <username> <folder>` | free | Group accounts under a folder-like tag. `--clear` removes it. |
+| `palmyr tiktok remove <username> --confirm` | free | Delete the local copy. The TikTok account itself is not deleted. |
+| `palmyr tiktok totp <username>` | free | Print the current 2FA code from the stored seed (if imported). |
+| `palmyr tiktok login <username>` | $0.02 | Validate stored cookies/credentials via a stealth browser and cache the session. |
+
+### Posting & engagement
+
+| Command | Cost | What it does |
+|---------|------|--------------|
+| `palmyr tiktok post <username> --file video.mp4 --caption "..."` | $0.01 | Post a video (`--url <https>` instead of `--file`). `--privacy` 0/1/2 = public/friends/private, default public. |
+| `palmyr tiktok schedule <username> --at <iso8601> --file video.mp4 --caption "..."` | $0.01 | Schedule via TikTok's native scheduler — ~15 min to ~10 days out. Aborts before submit if the schedule can't be set, so it never posts "now" by mistake. |
+| `palmyr tiktok follow <username> --user @handle` | $0.001 | Follow a handle. |
+| `palmyr tiktok like <username> --video <url>` | $0.001 | Like a video. |
+| `palmyr tiktok delete <username> --video <url>` | $0.001 | Delete via TikTok Studio's content manager. |
+
+### Profile
+
+| Command | Cost | What it does |
+|---------|------|--------------|
+| `palmyr tiktok bio <username> --text "..."` | $0.001 | New bio, ≤80 chars. Pass `--text ""` to clear. |
+| `palmyr tiktok name <username> --display "..."` | $0.001 | New display name, ≤30 chars. Rate-limited to ~once/week — returns `RATE_LIMITED` if it didn't take. |
+| `palmyr tiktok pfp <username> --file pic.png` | $0.005 | PNG / JPG / WebP avatar (`--url https://...` instead of `--file`). |
+
+### Human-in-the-loop drafts
+
+| Command | Cost | What it does |
+|---------|------|--------------|
+| `palmyr tiktok draft <username> --file video.mp4 --caption "..."` | free | Stage a post for approval instead of publishing. `--privacy` / `--at` / `--tag` as for post; `--at` makes `approve` schedule it. |
+| `palmyr tiktok drafts [<username>]` | free | List drafts awaiting approval. `--tag <folder>` filters. |
+| `palmyr tiktok approve <draft-id>` | $0.01 | Publish a queued draft and record it in the post log. Kept on failure so it can be retried. |
+| `palmyr tiktok reject <draft-id>` | free | Discard a queued draft. |
+| `palmyr tiktok logs [<username>]` | free | Audit log of posts that actually went out — approved drafts and direct posts. `--limit N`, `--tag <folder>`. |
+
+### Analytics & monitoring
+
+| Command | Cost | What it does |
+|---------|------|--------------|
+| `palmyr tiktok analytics <username>` | $0.005 | Scrape per-post views/likes/comments from Studio, tier each post against the account's own history, and append a snapshot to the local time-series. Free in self-hosted. |
+| `palmyr tiktok review <username>` | free | Performance review off local snapshots — totals, tier mix, best/worst post, avg engagement rate, and the trend vs the previous snapshot. |
+| `palmyr tiktok monitor tick` (or `start` / `stop` / `status`) | free | Unattended monitor: periodically runs `analytics` so `review` stays fresh. `--every 6h`, `--account a,b`. |
+
+## Safety
+
+- **No server-side password.** The session is captured from a real-browser login; TikTok credentials never sit on Palmyr's servers.
+- **Residential IP.** Action ops run server-side through the account's residential IP, set by `--country` at connect/import time.
+- **Drafts are a human approval gate.** Stage with `draft`; nothing publishes until you `approve`, and a failed approve keeps the draft for retry.
+- **Audit logs.** `logs` records every post that actually went out — account, caption, timestamp, and source.
+
+## See also
+
+- [Privacy & data](/security/privacy)
+- [Permissions & limits](/security/permissions)
+- [Pricing](/pricing)
+- [CLI reference](/reference/cli)

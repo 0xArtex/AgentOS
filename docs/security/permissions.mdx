@@ -1,0 +1,48 @@
+---
+title: "Permissions & limits"
+description: "Least-privilege controls in Palmyr: spending limits, managed-mode passkey approvals, scoped API keys, and wallet-isolated ownership."
+icon: "user-lock"
+---
+
+Giving an agent a wallet doesn't mean giving it the keys to everything. Palmyr is built so an agent **can spend but can't drain**.
+
+## Spending limits
+
+A wallet policy can cap:
+
+- **per-transaction** USDC
+- **daily** USDC
+- the **allowed chains** it may pay from
+
+Limits are enforced server-side, and on-chain for smart wallets. Critically, the agent **cannot raise its own limits** — that requires the human owner.
+
+## Managed mode and passkeys
+
+In managed mode, transactions under the limit sign instantly, and anything above it needs a human approval via passkey — Face ID, Touch ID, or a security key. Passkeys are registered through a secure web link, not a CLI flag, so the approval key can't be phished out of the agent. See [Wallets & funding](/concepts/wallets).
+
+## Scoped API keys
+
+`palmyr wallet api-key <ID>` mints an agent key bound to a specific wallet, its policy, and an expiry. The key inherits the wallet's limits and can't exceed them.
+
+## Ownership is isolated and revocable
+
+Every resource is wallet-scoped: wallet A can never see or act on wallet B's resources. Ownership operations are first-class:
+
+- **Transfer** hands a resource to another wallet and rotates its credentials, so the old copy stops working.
+- **Share** grants another wallet scoped access without handing over ownership.
+- **Unshare** revokes access, optionally rotating credentials so previously exported sessions die.
+
+## An honest trade-off: server-side scheduling
+
+Fire-and-forget social posts need the server to re-login on your behalf, so registering an account uploads its credentials, encrypted at rest (per-row IV and auth tag, with a key held in an environment variable that's never logged). A database leak alone reveals nothing; a full server compromise — database **and** environment key — would expose them. That's the same trade-off every "we hold your tokens" scheduler makes. If you don't want it, skip `register` and drive posts live from your machine. See [X / Twitter](/services/twitter).
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Security model" icon="shield-check" href="/security/model">
+    Key custody and recovery.
+  </Card>
+  <Card title="Privacy & data" icon="user-shield" href="/security/privacy">
+    What's stored and what we can't see.
+  </Card>
+</CardGroup>

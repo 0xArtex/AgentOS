@@ -1,0 +1,95 @@
+---
+title: "HTTP API"
+description: "The Palmyr HTTP API and x402 wire protocol — for callers writing their own client. The CLI handles all of this for you."
+icon: "code"
+---
+
+Most users never touch the HTTP API — `@palmyr/cli` and the SDK handle payment and signing for you. This page is for callers writing their own x402 client.
+
+- **Base URL** — `https://palmyr.ai` (or your self-hosted instance)
+- **Auth** — [x402 v2](https://github.com/coinbase/x402): your wallet signs a payment per request, and the paying wallet becomes the resource owner. No API keys.
+- **Discoverable** — in [x402scan](https://x402scan.com), the Coinbase x402 Bazaar, and via `/.well-known/x402` and `/openapi.json`.
+
+## Two chains
+
+| Chain | Asset | Mechanism |
+|---|---|---|
+| Solana | USDC SPL `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v` | Co-signed `TransferChecked` — server pays SOL fees |
+| Base | USDC ERC-20 `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | EIP-3009 `transferWithAuthorization` — gasless via the facilitator |
+
+## The request loop
+
+<Steps>
+  <Step title="Call without payment">
+    The server returns `402 Payment Required` with an `accepts[]` array — one entry per chain, each carrying the amount, asset, and treasury address.
+  </Step>
+  <Step title="Build and sign">
+    Pick a chain from `accepts[]`, build the matching payload (signed Solana transaction or signed EIP-3009 authorization), and base64-encode it.
+  </Step>
+  <Step title="Retry with the header">
+    Resend the request with the payload in the `X-PAYMENT` header.
+  </Step>
+  <Step title="Settle">
+    The server verifies and settles through the facilitator and returns the result. The settled transaction hash comes back in the `Payment-Response` header.
+  </Step>
+</Steps>
+
+### 402 challenge
+
+```json
+{
+  "x402Version": 2,
+  "resource": { "url": "https://palmyr.ai/phone/numbers", "mimeType": "application/json" },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "solana",
+      "amount": "3000000",
+      "payTo": "B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3",
+      "asset": "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+      "maxTimeoutSeconds": 60
+    },
+    {
+      "scheme": "exact",
+      "network": "eip155:8453",
+      "amount": "3000000",
+      "payTo": "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "maxTimeoutSeconds": 60
+    }
+  ]
+}
+```
+
+Amounts are in the asset's smallest unit — USDC has 6 decimals, so `3000000` means $3.00.
+
+<Warning>
+  When you build the paid request, echo the **full** `PaymentRequirements` object from `accepts[]` verbatim into the payload's `accepted` field. The facilitator runs strict validation and rejects partial stubs. The CLI's payment layer builds this correctly; mirror it if you roll your own.
+</Warning>
+
+## Errors
+
+All errors are JSON with an `error` title and a `message`. A failed payment returns a fresh `402` with the `accepts[]` block and a `message` explaining why — common causes: insufficient USDC on the chosen chain, a malformed payload, an expired authorization, or a reused (replayed) payment header. Each payment payload is one-shot; build a fresh one per request.
+
+## Rate limits
+
+Applied per payer wallet (or IP when unpaid). Every response carries `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset`. Provisioning endpoints are the tightest (for example, `POST /compute/servers` at 5 requests per 60s).
+
+## Costs
+
+Per-action prices are on the [Pricing](/pricing) page, or fetch them live (free):
+
+```bash
+curl https://palmyr.ai/pricing
+```
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Payments & x402" icon="coins" href="/concepts/payments">
+    The concepts behind the protocol.
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/reference/cli">
+    The simpler path — let the CLI pay.
+  </Card>
+</CardGroup>

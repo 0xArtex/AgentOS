@@ -1,0 +1,87 @@
+---
+title: "Quickstart"
+description: "Install the Palmyr CLI, create and fund a wallet, and run your first paid action in about five minutes."
+icon: "rocket"
+---
+
+Five minutes from install to a provisioned resource.
+
+## Prerequisites
+
+- **Node.js 18+**
+- A few **USDC** on Solana or Base to fund actions (and a little SOL or ETH if you plan to trade)
+
+<Steps>
+  <Step title="Install the CLI">
+    ```bash
+    npm i -g @palmyr/cli
+    ```
+
+    Or run it once without installing: `npx @palmyr/cli phone search --country US`.
+  </Step>
+
+  <Step title="Create a wallet">
+    Wallet creation requires a recoverable passphrase. Pass it as an environment variable so it stays out of your shell history:
+
+    ```bash
+    PALMYR_WALLET_PASSPHRASE="your-passphrase" palmyr wallet create --name agent-prod
+    ```
+
+    This generates a BIP-39 wallet with both a Solana and a Base address. The seed is encrypted locally and never leaves your machine. See [Wallets & funding](/concepts/wallets) for managed mode, recovery, and bulk creation.
+
+    <Warning>
+      Skipping the passphrase with `--session-only` binds the wallet to this machine's OS keychain — it can't be recovered from the file alone. Use it only for throwaway wallets.
+    </Warning>
+  </Step>
+
+  <Step title="Set the default payer and chain">
+    ```bash
+    palmyr wallet use <WALLET_ID> --chain solana
+    ```
+
+    Every paid action is now signed by this wallet on this chain. Switch any time with the same command.
+  </Step>
+
+  <Step title="Fund the wallet">
+    Print your addresses, then send USDC from any exchange or wallet:
+
+    ```bash
+    palmyr wallet info <WALLET_ID>
+    ```
+  </Step>
+
+  <Step title="Run your first paid action">
+    ```bash
+    palmyr phone buy --country US
+    ```
+
+    The CLI answers the x402 challenge automatically, USDC is deducted, and the number is owned by your wallet. Free actions like `palmyr phone search` cost nothing.
+  </Step>
+</Steps>
+
+## Running as an agent
+
+The CLI emits raw JSON when stdout isn't a terminal, when you pass `--json`, or when `PALMYR_JSON=1` is set:
+
+```bash
+palmyr wallet list --json | jq '.wallets[].id'
+```
+
+Errors go to stderr as a single-line JSON object, and the process exits with a distinct code per failure mode. See [For AI Agents](/for-agents).
+
+## Next steps
+
+<CardGroup cols={2}>
+  <Card title="Explore the services" icon="cubes" href="/services/trading">
+    Trading, phone, email, compute, domains, and social.
+  </Card>
+  <Card title="Understand payments" icon="coins" href="/concepts/payments">
+    How x402 pay-per-action works on Solana and Base.
+  </Card>
+  <Card title="Secure your wallet" icon="shield-check" href="/security/model">
+    Recovery, spending limits, and managed mode.
+  </Card>
+  <Card title="Full CLI reference" icon="terminal" href="/reference/cli">
+    Every command, flag, and cost.
+  </Card>
+</CardGroup>

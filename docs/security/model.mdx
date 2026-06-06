@@ -1,0 +1,60 @@
+---
+title: "Security model"
+description: "How Palmyr custodies keys: local-only seeds, AES-256-GCM at rest, OS keychain, recoverable-by-default passphrases, and vault integrity checks."
+icon: "shield-check"
+---
+
+Palmyr is non-custodial by construction. Your keys are generated, stored, and used on your machine.
+
+## Keys never leave the machine
+
+`wallet create` and `wallet import` never transmit seed material to the server. Signing happens locally.
+
+## Encrypted at rest
+
+The wallet file is **AES-256-GCM** ciphertext. The decryption key — a session secret generated at creation — is stored in your operating system's credential store:
+
+- **Windows** — DPAPI
+- **macOS** — Keychain
+- **Linux** — `secret-tool` (libsecret)
+
+If no credential store is available, the CLI errors rather than falling back to plaintext.
+
+## Recoverable by default
+
+A deliberate default: routine events — a reboot, an OS-keychain password change, a fresh install, copying the wallet to another machine — must never brick a wallet.
+
+So `wallet create` and `wallet import` require either a **scrypt passphrase fallback** or an explicit `--session-only` opt-out. With a passphrase, the wallet file carries a second AES-256-GCM blob keyed by `scrypt(passphrase, salt)`. Decryption tries the OS session secret first, then the passphrase. That second blob is what lets the wallet decrypt on a different machine or a headless box.
+
+<Warning>
+  `--session-only` wallets have only the keychain blob and are bound to one machine. They are explicit opt-in, for ephemeral use you're fine losing.
+</Warning>
+
+See [Wallets & funding](/concepts/wallets) for the recovery commands.
+
+## Vault integrity
+
+On every load, the CLI checks that every account in the wallet file is still derivable from the seed **and** that every account derivable from the seed is still in the file. Either direction failing returns exit code `7` (`SECURITY`) instead of operating on a tampered or corrupted vault.
+
+## Pay only for valid requests
+
+Endpoints that are easy to fail are validated before the x402 paywall, so a bad input never costs you USDC. See [Payments & x402](/concepts/payments).
+
+## Email is end-to-end encrypted
+
+Inbox messages are encrypted with the inbox wallet's public key (NaCl box, X25519). The server stores ciphertext and cannot read your mail. See [Email](/services/email).
+
+## No bypass switches
+
+There is no `--no-verify`. Hooks, signatures, and webhooks are always verified.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Permissions & limits" icon="user-lock" href="/security/permissions">
+    Spending caps, managed mode, and scoped keys.
+  </Card>
+  <Card title="Privacy & data" icon="user-shield" href="/security/privacy">
+    What's stored, where, and what we can't see.
+  </Card>
+</CardGroup>

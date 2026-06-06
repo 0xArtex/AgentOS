@@ -1,0 +1,65 @@
+---
+title: "Domains"
+description: "Register and manage domains from the CLI, paid per-action in USDC. check and pricing are free, buy is $20.00, ownership operations cost $0.01 each."
+icon: "globe"
+---
+
+Register and manage domains directly from the CLI. The wallet that pays for `palmyr domain buy` owns the domain — there are no accounts or API keys.
+
+<Note>
+  Read and ownership operations (`list`, `dns`, `transfer-ownership`, `share`, `unshare`) cost a flat `$0.01`. That charge is an **ownership proof**: the signing wallet pays a trivial amount to prove it controls the resource before the action runs. The wallet that signs is the owner.
+</Note>
+
+## Quickstart
+
+```bash
+# Check availability (free)
+palmyr domain check --name example.dev
+
+# Register for one year ($20.00)
+palmyr domain buy --name example.dev
+
+# View DNS records ($0.01 ownership proof)
+palmyr domain dns --name example.dev
+```
+
+## Commands
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr domain check --name example.dev` | free | Availability check. |
+| `palmyr domain pricing --name example.dev` | free | TLD pricing. |
+| `palmyr domain buy --name example.dev` | $20.00 | One-year registration. Renewals are charged annually. |
+| `palmyr domain list` | $0.01 | List domains your wallet owns plus any shared with you. Each row tagged `access: owner` or `access: shared`. |
+| `palmyr domain dns --name example.dev` | $0.01 | View DNS records. Owners and shared wallets allowed. |
+| `palmyr domain transfer-ownership --name example.dev --to <wallet>` | $0.01 | Hand the domain to another wallet. Clears `shared_with` — the prior owner's collaborators don't travel with the domain. |
+| `palmyr domain share --name example.dev --with <wallet>` | $0.01 | Grant another wallet shared access (visible in `domain list`, can edit DNS). Owner-only. |
+| `palmyr domain unshare --name example.dev --from <wallet>` | $0.01 | Revoke a shared wallet's access. Owner-only. |
+
+## Ownership & sharing
+
+- **`share`** grants another wallet DNS-edit access to a domain you own. The shared wallet shows up in `domain list` and can edit DNS, but ownership stays with you. Owner-only.
+- **`unshare`** revokes a previously shared wallet's access. Owner-only.
+- **`transfer-ownership`** hands the domain to another wallet entirely. It clears `shared_with`, so the prior owner's collaborators do **not** travel with the domain — the new owner starts with a clean collaborator list.
+
+## Safety
+
+<Warning>
+  `share`, `unshare`, and `transfer-ownership` are owner-only. `transfer-ownership` is irreversible from your side once the new wallet owns the domain — double-check the `--to <wallet>` address.
+</Warning>
+
+Every read and ownership operation requires a `$0.01` ownership proof, so an action only runs when the signing wallet actually controls the domain. There are no API keys to leak: control follows the wallet.
+
+## See also
+
+<CardGroup cols={3}>
+  <Card title="Payments & x402" href="/concepts/payments" icon="coins">
+    How per-action USDC payments work.
+  </Card>
+  <Card title="Pricing" href="/pricing" icon="tag">
+    Full per-action cost list.
+  </Card>
+  <Card title="CLI reference" href="/reference/cli" icon="terminal">
+    Every command and flag.
+  </Card>
+</CardGroup>

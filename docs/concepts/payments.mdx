@@ -1,0 +1,73 @@
+---
+title: "Payments & x402"
+description: "How Palmyr's pay-per-action billing works: the x402 loop, USDC on Solana and Base, chain selection, and pre-flight validation."
+icon: "coins"
+---
+
+Palmyr bills with [x402](https://github.com/coinbase/x402) — an HTTP-native protocol where a server answers a request with `402 Payment Required`, the caller pays, and the request is retried and fulfilled. Payment is in **USDC**, on Solana or Base.
+
+The CLI handles the whole loop for you. This page explains what's happening underneath and how to control it.
+
+## The loop
+
+<Steps>
+  <Step title="Call a paid action">
+    The server responds `402 Payment Required` with an `accepts[]` list describing each chain it will take: amount, asset, and treasury address.
+  </Step>
+  <Step title="Sign a USDC transfer">
+    The CLI picks a chain you've configured, builds the matching payment, and signs it with your wallet.
+  </Step>
+  <Step title="Retry with the payment">
+    The signed payload goes back in the `X-PAYMENT` header; the server verifies and settles it.
+  </Step>
+  <Step title="Get the result">
+    The resource is provisioned to your wallet, and the settled transaction hash is returned.
+  </Step>
+</Steps>
+
+## Two chains
+
+| Chain | Asset | Mechanism |
+|---|---|---|
+| **Solana** | USDC SPL | Co-signed transfer — the server pays the SOL network fee |
+| **Base** | USDC ERC-20 | EIP-3009 `transferWithAuthorization` — gasless via the Palmyr facilitator |
+
+USDC mint addresses:
+
+- Solana — `EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v`
+- Base — `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+
+Amounts are quoted in the asset's smallest unit. USDC has 6 decimals, so `2000000` means $2.00.
+
+## Choosing the chain
+
+The payment chain resolves in this order:
+
+1. A `--chain` flag on the command
+2. `defaultPayChain` in `~/.palmyr/config.json` — set with `palmyr wallet use <ID> --chain <chain>`
+3. `solana` as the final default
+
+If an endpoint doesn't offer your chosen chain, the CLI errors loudly. There is no silent fallback — an agent should always know which chain it's paying from.
+
+## Pre-flight validation saves money
+
+Inputs that are easy to get wrong — a malformed phone number, a bad inbox pubkey, an unsupported country, a typo'd install recipe — are validated **before** the paywall. Bad requests fail without charging you.
+
+## Free vs paid
+
+Discovery and local work are free: `search`, `list`, `info`, `pricing`, `health`, `status`, and every local wallet operation. You only pay when something is provisioned, read, or sent. See [Pricing](/pricing).
+
+## Discoverable by agents
+
+Palmyr's paid endpoints are discoverable in [x402scan](https://x402scan.com), the Coinbase x402 Bazaar, and via `/.well-known/x402` and `/openapi.json` — so an agent can find and pay for them without a human in the loop.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="HTTP API" icon="code" href="/reference/api">
+    The on-the-wire x402 request and response shapes.
+  </Card>
+  <Card title="Pricing" icon="tag" href="/pricing">
+    What each action costs.
+  </Card>
+</CardGroup>

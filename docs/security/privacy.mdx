@@ -1,0 +1,54 @@
+---
+title: "Privacy & data"
+description: "What Palmyr stores and what it can't see: no accounts, end-to-end encrypted email, opt-in telemetry, local-first data, and open source."
+icon: "user-shield"
+---
+
+## No accounts
+
+There's no email, password, or KYC to use Palmyr. Your wallet is your identity, and two wallets are fully isolated from each other. See [How Palmyr works](/concepts/how-palmyr-works).
+
+## Email the server can't read
+
+Inboxes are end-to-end encrypted to the inbox wallet's public key. Palmyr stores ciphertext only. See [Email](/services/email).
+
+## Telemetry is off by default
+
+Usage telemetry is opt-in:
+
+```bash
+palmyr telemetry status
+palmyr telemetry on
+palmyr telemetry off
+```
+
+When enabled, it captures only the command name, exit code, duration, CLI and Node versions, and platform — never flag values, arguments, or any input you pass.
+
+## Local-first data
+
+These never leave your machine:
+
+- wallet seeds and keys (encrypted)
+- trading positions, journals, and watchlists
+- social account credentials and sessions
+
+The server holds the metadata needed to own and operate a resource, plus — only if you opt in via `register` — encrypted social credentials for scheduled posting. See [Permissions & limits](/security/permissions).
+
+## Why social actions use a sticky residential IP
+
+Each social account is pinned to one residential exit IP for its lifetime, so logins and actions don't trigger a sudden geography change that would lock the account. It's a safety measure for the account and keeps its traffic consistent.
+
+## Open source
+
+Palmyr is MIT-licensed and self-hostable. You can read exactly what the server does and run it yourself — verify, don't trust.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Security model" icon="shield-check" href="/security/model">
+    Key custody, encryption, and recovery.
+  </Card>
+  <Card title="Permissions & limits" icon="user-lock" href="/security/permissions">
+    Spending caps and scoped access.
+  </Card>
+</CardGroup>

@@ -1,0 +1,140 @@
+---
+title: "Compute"
+description: "Deploy VPS on Hetzner-class hardware, paid per-action in USDC via x402. One command generates an SSH key, deploys, waits for readiness, returns a shell."
+icon: "server"
+---
+
+VPS instances on Hetzner-class hardware, paid per action in USDC over [x402](/concepts/payments) — no accounts, no API keys. Plans are listed live; `cx23` is a 4 vCPU / 8 GB / 80 GB SSD baseline.
+
+## Golden path
+
+The bare command is a one-liner. It auto-generates an ed25519 keypair, deploys, blocks until the server is reachable, verifies SSH actually works, and returns a usable shell command in the JSON response.
+
+```bash
+# Deploy and wait for a verified-ready box
+palmyr compute deploy --type cx23 --json
+
+# Drop into it (free — resolves from local cache)
+palmyr compute ssh <name>
+```
+
+That single `deploy` call:
+
+1. Generates `~/.palmyr/ssh/<server-name>/id_ed25519{,.pub}` (chmod 600).
+2. Inlines the public key into Hetzner's cloud-init so it lands in `authorized_keys` at first boot.
+3. Pays the $6.00 deploy fee via x402 (Solana or Base USDC).
+4. Polls until Hetzner reports `status=running` (gate 1).
+5. TCP-probes port 22 until sshd accepts (gate 2).
+6. Runs `ssh -i <key> root@<ip> 'true'` to confirm authentication (gate 3).
+7. Returns JSON with a top-level `sshCommand` and a `readiness` block.
+
+<Tip>
+`compute ssh <name>` resolves the IP and private-key path from the cache that `deploy` populated. It is free — no paid API round-trip.
+</Tip>
+
+When `readiness.ready` is `false`, the response carries a `readiness.diagnostics` block (cloud-init status, the tail of `/var/log/cloud-init-output.log`, and per-recipe install logs) fetched over SSH, so you can debug without logging in by hand.
+
+## Bootstrap an agent runtime
+
+Pass `--install <recipe>` to bake an AI-agent runtime into the deploy. Cloud-init runs the recipe before SSH is handed back, and the readiness chain gains a fourth gate that polls `/etc/palmyr/install-status.json` until every requested recipe reports `status: ok`.
+
+```bash
+palmyr compute deploy --type cx23 --install hermes --json     # Hermes Agent (Nous Research)
+palmyr compute deploy --type cx23 --install hermes,openclaw --json  # multiple, run in order
+palmyr compute install-recipes --json                          # discover what's installable
+```
+
+| Recipe | What lands on the box |
+|---|---|
+| `openclaw` *(default when `--install` is omitted)* | Node 22 plus the `openclaw` and `clawhub` global npm packages. Provision marker at `/etc/openclaw/provision.json`. |
+| `hermes` | [Hermes Agent](https://github.com/NousResearch/hermes-agent) at `/usr/local/bin/hermes`. Pulls Python 3.11 plus a few hundred MB of pip packages — adds 2–4 min. After deploy, run `palmyr compute exec <name> -- hermes setup` to pick a model provider. |
+
+<Note>
+Recipe validation is **pre-payment**: `--install bogus` exits `2` (`EXIT.BAD_INPUT`) before any USDC is charged. The CLI defaults `--wait-timeout` to 600s when `--install` is set (otherwise 240s; clamped 30–900).
+</Note>
+
+## Commands
+
+### Provision
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr compute plans [--location <loc>]` | free | List server types and monthly pricing; `--location` filters to a datacenter. |
+| `palmyr compute locations` | free | List Hetzner datacenters (fsn1 / nbg1 / hel1 / ash / hil / sin) with deployable type lists. |
+| `palmyr compute install-recipes` | free | List recipes you can pass to `--install`. |
+| `palmyr compute deploy [--type cx23] [--name <name>]` | $6.00 | Golden path (auto-key, auto-wait, verified). Deploy fee only; monthly server cost is metered separately. |
+
+**Deploy flags** (all on `palmyr compute deploy`):
+
+| Flag | What it does |
+|---|---|
+| `--install <recipe>` | Bootstrap one or more runtimes (comma-separated, run in order). |
+| `--no-install` | Vanilla Ubuntu, password auth stays enabled, returns a usable `rootPassword`. |
+| `--location <loc>` | Pick a datacenter; type+location compatibility is validated pre-payment. |
+| `--ssh-key <id>` | Use a pre-uploaded Hetzner key (numeric `id` from `ssh-key list`). |
+| `--pubkey-file <path>` / `--pubkey "<key>"` | Supply your own key inline without uploading first. |
+| `--no-generate-ssh-key` | Opt out of auto key — boots with the platform temp key only. |
+| `--no-wait` | Fire-and-forget; returns as soon as Hetzner accepts the create call. |
+| `--wait-timeout <sec>` | Override the readiness budget (clamped 30–900). |
+
+<Note>
+Names are lowercase RFC 1123 hostnames (`[a-z0-9.-]`, 1–253 chars, alphanumeric ends). The four key sources (`--ssh-key`, `--pubkey-file`, `--pubkey`, `--generate-ssh-key`) are mutually exclusive. Both rules are validated client-side and pre-payment, so a bad value fails as 400 with no USDC charged.
+</Note>
+
+### Access
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr compute wait <name\|id> [--key <path>] [--wait-timeout <sec>]` | $0.01 | Re-run the readiness chain on an existing server. Exits `4` when not ready, `0` when all gates pass. |
+| `palmyr compute ssh <name\|id>` | free | Drop into the server (TTY) or print the `ssh -i <key> root@<ip>` command (agent mode). Resolves from local cache. |
+| `palmyr compute setup-ssh <id> --pubkey-file <path>` | $0.01 | Inject your key into a server you deployed without one. Locks the root password and removes the platform temp key. |
+| `palmyr compute exec <name\|id> -- <command> [args...]` | $0.05 | Run one command pre-handoff via the platform temp key. Returns `{stdout, stderr, exitCode, durationMs}`; `410 Gone` after `setup-ssh`. |
+
+The `--` separator passes everything after it to the remote shell, not the local CLI:
+
+```bash
+palmyr compute exec my-vps -- systemctl status --no-pager openclaw
+```
+
+### Lifecycle
+
+Each takes `<name|id>` from the local cache or a numeric Hetzner id directly.
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr compute reboot <name\|id>` | $0.10 | Graceful restart. |
+| `palmyr compute poweroff <name\|id>` | $0.10 | Graceful shutdown — data preserved. |
+| `palmyr compute poweron <name\|id>` | $0.10 | Power on a stopped server. |
+| `palmyr compute reset <name\|id>` | $0.10 | Hard restart, no graceful shutdown. |
+| `palmyr compute rebuild <name\|id> [--image ubuntu-24.04]` | $0.10 | Reinstall OS — wipes disk, re-runs cloud-init, keeps IP. |
+| `palmyr compute rename <name\|id> <new-name>` | $0.01 | Metadata-only rename; updates the local cache. |
+| `palmyr compute reset-password <name\|id>` | $0.10 | Rotate the root password (console use; SSH password auth is disabled on Palmyr boxes). |
+| `palmyr compute console <name\|id>` | $0.10 | noVNC console URL (`wssUrl` + `password`, expires ~1 min). Break-glass when SSH is down. |
+| `palmyr compute list` | $0.01 | List your servers. |
+| `palmyr compute delete <name\|id>` | $0.10 | Terminate and stop billing. |
+
+### SSH keys
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr compute ssh-key add <pubkey-file> [--name "label"]` | $0.10 | Upload a key to Hetzner. Returns a numeric `id` for `--ssh-key`; reusable across deploys. |
+| `palmyr compute ssh-key list` | $0.01 | List uploaded keys with fingerprints. |
+| `palmyr compute ssh-key delete <id>` | $0.01 | Remove a key from Hetzner. Existing servers keep it in `authorized_keys`. |
+
+## Safety
+
+By default, cloud-init hardens the box: only your generated or supplied key lands in `authorized_keys`, and password auth is disabled.
+
+- **Handoff.** `setup-ssh` injects your key, locks the root password, and removes the platform's temporary key. After that only your key works — and `exec` returns `410 Gone` because the platform key is gone.
+- **Password auth.** Stays enabled only on `--no-install` (vanilla Ubuntu), where the returned `rootPassword` is usable.
+- **Break-glass.** `console` gives a short-lived noVNC URL when SSH is unreachable (cloud-init failed, sshd misconfigured).
+
+<Warning>
+`--no-generate-ssh-key` boots the server with the platform temp key only. Call `setup-ssh` afterward or you will not be able to get in.
+</Warning>
+
+## See also
+
+- [Payments & x402](/concepts/payments) — how per-action USDC settlement works.
+- [Pricing](/pricing) — per-action costs across all services.
+- [CLI reference](/reference/cli) — full command and flag index.

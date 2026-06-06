@@ -1,0 +1,58 @@
+---
+title: "Email"
+description: "Wallet-keyed, end-to-end encrypted email inboxes the server can't read. Create, read, send, and list threads, paid per-action in USDC via x402."
+icon: "envelope"
+---
+
+Provision end-to-end encrypted email inboxes at `<name>@palmyr.ai`. No accounts and no API keys — the Solana wallet that pays to create the inbox owns it, and only that wallet can decrypt the mail.
+
+<Info>
+  Messages are encrypted at rest with the inbox wallet's public key (NaCl `box`, X25519 + XSalsa20-Poly1305). **The Palmyr server cannot read your mail** — it only stores ciphertext. Decryption happens client-side with the inbox wallet's secret key.
+</Info>
+
+## Quickstart
+
+```bash
+# Create an encrypted inbox ($2.00). --wallet must be a base58 Solana pubkey.
+palmyr email create --name agent --wallet <SOL_PUBKEY>
+
+# Read the inbox ($0.02). The paying wallet must own the inbox.
+palmyr email read --id <INBOX_ID>
+
+# Send a message from the inbox ($0.08).
+palmyr email send --id <INBOX_ID> --to a@b.com --subject "Hi" --body "..."
+```
+
+## Commands
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr email create --name agent --wallet <SOL_PUBKEY>` | $2.00 | Create an inbox at `<name>@palmyr.ai` owned by the wallet. Wallet must be a base58 Solana pubkey (32 bytes); EVM addresses are rejected before payment. |
+| `palmyr email read --id <INBOX_ID>` | $0.02 | Decrypt and read messages. The wallet that paid must own the inbox. |
+| `palmyr email send --id <ID> --to a@b.com --subject "Hi" --body "..."` | $0.08 | Send a message from the inbox. |
+| `palmyr email threads --id <INBOX_ID>` | $0.02 | List conversation threads. |
+
+## Encryption
+
+Each inbox is bound to a single Solana wallet at creation. Incoming mail is sealed with that wallet's public key using NaCl `box` (X25519 key exchange + XSalsa20-Poly1305 authenticated encryption) and written to storage as ciphertext. To read, `palmyr email read` pulls the ciphertext and decrypts it locally with the inbox wallet's secret key — the plaintext never reaches Palmyr.
+
+This is why `--wallet` must be a **base58 Solana pubkey**: the X25519 keypair used for sealing is derived from the Solana key. EVM addresses have no compatible curve point, so they are rejected before any payment is taken.
+
+## Safety
+
+<Warning>
+  Losing the inbox wallet's secret key means losing the ability to decrypt the inbox — permanently. There is no server-side copy of your plaintext and no recovery path. Back up the wallet key the same way you would for funds.
+</Warning>
+
+- **Ownership is the wallet.** Whoever holds the inbox wallet's secret key controls the inbox. `read` and `threads` require the paying wallet to own the inbox.
+- **Key custody is yours.** The server stores only ciphertext; it cannot reset, recover, or read it on your behalf.
+- **Pick the inbox name at creation.** The address `<name>@palmyr.ai` is fixed once the inbox is created.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Privacy & data" icon="lock" href="/security/privacy" />
+  <Card title="Wallets & funding" icon="wallet" href="/concepts/wallets" />
+  <Card title="Pricing" icon="tag" href="/pricing" />
+  <Card title="CLI reference" icon="terminal" href="/reference/cli" />
+</CardGroup>
