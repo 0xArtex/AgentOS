@@ -1,0 +1,158 @@
+---
+title: "Trading"
+description: "Trade tokens on Solana and Base from any Palmyr wallet: thesis-tracked positions, exit plans, an auto-exit daemon, and cohort buys. No Palmyr swap fee."
+icon: "chart-line"
+---
+
+Palmyr turns any wallet into a trading agent. Open thesis-tracked positions on Solana (via Jupiter v6) and Base (via ParaSwap), attach an exit plan, and let a background daemon monitor and auto-exit on your triggers — all from the CLI. Positions, sells, journal, and watchlist persist locally at `~/.palmyr/trading/` (override with `PALMYR_TRADING_PATH`).
+
+<Note>
+  **Any wallet from `palmyr wallet create` can trade on both chains.** Vault wallets carry both a Solana (`m/44'/501'`) and an EVM (`m/44'/60'/0'/0/0`) derivation out of the box, so just pass `--wallet <name|id>` to any trading command. The optional `trading-keystore` is a power-user add-on for HD-deriving many wallets from one seed.
+
+  **Trades route directly from your wallet through the DEX, and Palmyr charges no x402 fee on the swap itself.** You pay only network gas plus the DEX. Palmyr never takes custody of funds or the trade. (x402 per-action pricing applies to Palmyr's hosted services, not your on-chain swaps.)
+</Note>
+
+## Open a position
+
+```bash
+# Buy with 0.5 SOL, attach a thesis and an exit plan
+palmyr wallet buy solana <CA> --amount 0.5sol \
+  --thesis "narrative + liquidity strong pre-listing" \
+  --cut -25% --tp 100% --trail 15 --time-limit 48h
+
+# Later, take half off the table
+palmyr wallet sell solana <CA> --percent 50 --reason "hit first target"
+
+# Review what you hold and how it's doing
+palmyr wallet positions
+palmyr wallet pnl --by chain
+```
+
+## Funding and PnL
+
+The `--amount` suffix picks the input asset:
+
+- `0.5sol` / `0.01eth` spend the native asset
+- `10usdc` spends USDC (same `EPjFW…Dt1v` on Solana and `0x8335…2913` on Base)
+
+Sells exit back to whatever the position was entered in: buy with USDC, sell back to USDC (exit symmetry). PnL is tracked per-asset, so a USDC-funded position's realized/unrealized are denominated in USDC, not SOL. `palmyr wallet pnl` shows separate SOL / ETH / USDC buckets plus a cross-asset USD total (Jupiter SOL/USD + Coinbase ETH/USD + USDC at $1.00).
+
+## Commands
+
+### Buy and sell
+
+| Command | What it does |
+|---|---|
+| `palmyr wallet buy solana <CA> --amount 0.5sol --thesis "..."` | Open a Solana position via Jupiter. Optional `--cut`, `--tp`, `--trail <pct>`, `--time-limit <dur>`, `--hold-if`, `--wallet <id\|name>`, `--slippage <bps>`, `--auto-slippage`, `--protected`, `--tip <lamports>`, `--dry-run`. |
+| `palmyr wallet buy base <0xToken> --amount 0.01eth --thesis "..." --wallet <vault-name>` | Open a Base position via ParaSwap. Amount accepts `Neth` / `Ngwei` / `Nwei`. Same exit-plan flags (`--cut`, `--tp`, `--trail`, `--time-limit`, `--thesis-check`). |
+| `palmyr wallet sell solana <CA> --percent 50 --reason "..."` | Sell N% of remaining tokens. FIFO realized PnL (post-fee, post-tip). Auto-closes when fully exited. |
+| `palmyr wallet sell base <0xToken> --percent N --reason "..." --wallet <vault-name>` | Sell N% on Base. Auto-handles ERC20 approval on first sell of a token; shows approval tx separately from the swap tx. |
+| `palmyr wallet evm-quote <SRC> <DST> --amount <raw> [--chain base]` | Get a Base swap quote without signing. `<SRC>`/`<DST>` accept `eth` or a `0x...` address; `--amount` is the raw integer in src smallest unit. |
+
+### Positions and PnL
+
+| Command | What it does |
+|---|---|
+| `palmyr wallet positions [--chain X] [--wallet Y] [--all]` | List positions across both chains. `--all` includes closed; `WALLET` and `CHAIN` columns. |
+| `palmyr wallet position <CA> [--chain base\|solana]` | Full detail: thesis verbatim, exit plan, sells, PnL. Auto-detects chain when `--chain` is omitted. |
+| `palmyr wallet sync [--wallet Y] [--chain base]` | Reconcile on-chain balances against the book and refresh unrealized PnL. Read-only — flags drift, never auto-corrects. |
+| `palmyr wallet pnl [--by wallet\|chain] [--since DATE] [--no-usd]` | Aggregate realized + unrealized. Per-asset SOL/ETH/USDC buckets plus a cross-asset USD total. `--no-usd` skips price calls. |
+| `palmyr wallet journal add <CA> --note "..."` | Append a note (omit `<CA>` for a general entry). |
+| `palmyr wallet journal show [--ca <CA>] [--date YYYY-MM-DD]` | List entries or read a day's full markdown. |
+| `palmyr wallet watch add <CA> --trigger "..."` | Append a watch entry to the watchlist. |
+| `palmyr wallet watch list` | Show the watchlist. |
+| `palmyr wallet brief <CA> [--evaluate]` | Position brief: thesis + PnL + last sync time. `--evaluate` asks Claude Haiku whether the thesis still holds (needs `ANTHROPIC_API_KEY`). |
+
+### Daemon
+
+| Command | What it does |
+|---|---|
+| `palmyr wallet daemon start [--interval N] [--auto] [--wallet <id\|name>]` | Spawn a detached daemon. Default interval 30s; syncs both chains per tick. |
+| `palmyr wallet daemon tick [--auto]` | One-shot sync + evaluate triggers + exit. Useful for cron-driven setups. |
+| `palmyr wallet daemon stop` | SIGTERM the daemon and clean up PID + status files. |
+| `palmyr wallet daemon status` | Liveness check, last tick timestamp, and current opts. |
+| `palmyr wallet triggers [--ca <CA>] [--since <iso>] [--clear]` | List pending trigger fires; `--clear` truncates the queue after listing. |
+
+### Cohort buys
+
+| Command | What it does |
+|---|---|
+| `palmyr wallet cohort buy <CHAIN> <CA> --total <amt> --wallets alice,bob,carol` | Split one decision across N vault wallets. Each leg is its own position; all share a `cohortId`. Sequential, with per-leg failure isolation. |
+| `palmyr wallet cohort buy <CHAIN> <CA> --total <amt> --wallets trading:0,trading:1` | Same, across trading-keystore-derived wallets. |
+| `palmyr wallet cohort buy <CHAIN> <CA> --total <amt> --from trading:N --split K` | Derive `K` consecutive trading wallets from index `N`. `--jitter <ms>` adds a random delay between legs. All `buy` flags pass through. |
+
+### Templates
+
+| Command | What it does |
+|---|---|
+| `palmyr wallet template list` | List installed templates; auto-installs 3 bundled examples on first call. |
+| `palmyr wallet template show <name>` | Print metadata + raw YAML body. |
+| `palmyr wallet template path <name>` | Print the absolute path (for editing). |
+| `palmyr wallet template delete <name>` | Remove the file (idempotent). |
+| `palmyr wallet buy <chain> <CA> --template <name> --thesis "..."` | Load template defaults for amount / exit plan / slippage / `protectedExec`. CLI flags win on conflict. |
+| `palmyr wallet cohort buy <CHAIN> <CA> --template <name> --thesis "..."` | Template can also supply cohort split / from / jitter. The thesis and `<CA>` are always required at trade time. |
+
+### Trading keystore (power-user)
+
+| Command | What it does |
+|---|---|
+| `palmyr wallet trading-keystore init [--count N] [--mnemonic "..."]` | Create the keystore (default `--count 5`). scrypt + AES-256-GCM; caches the seed in the OS keychain. |
+| `palmyr wallet trading-keystore unlock [--ttl <dur>]` | Decrypt the seed and cache it (default TTL 24h). Required before the daemon or CLI can use `--wallet trading:N`. |
+| `palmyr wallet trading-keystore lock` | Clear the cached seed from the OS keychain. |
+| `palmyr wallet trading-keystore list` | List `[index]` → derived address. No unlock needed. |
+| `palmyr wallet trading-keystore status` | Show exists / path / wallet count / locked vs unlocked / `expiresAt`. |
+| `palmyr wallet trading-keystore derive --count N` | Append N more HD-derived wallets. |
+| `palmyr wallet trading-keystore export --confirm` | Print the mnemonic. Always requires the passphrase. |
+
+## Exit plans
+
+Every position can carry an exit plan that the daemon enforces. The triggers map to buy-time flags:
+
+| Trigger | Flag | Behavior |
+|---|---|---|
+| Stop-loss | `--cut` | Sell when the position drops past your floor. |
+| Take-profit | `--tp` | Sell when it hits your target. |
+| Trailing stop | `--trail <pct>` | Drop-from-peak in pct points; arms only after the position has been in profit. |
+| Time limit | `--time-limit <dur>` | Sell after N hours/days regardless of PnL. |
+| Thesis check | `--thesis-check` | Periodic LLM check of whether your thesis still holds; fires `thesis_falsified` when the model says no (needs `ANTHROPIC_API_KEY`). |
+
+## The daemon
+
+`palmyr wallet daemon start` spawns a detached background process (default 30s interval) that, on each tick, syncs every open position on both chains and evaluates your triggers. Fires append to `~/.palmyr/trading/triggers/pending.jsonl` and to `trades.jsonl`. For cron-driven setups, run a single `palmyr wallet daemon tick` instead.
+
+<Warning>
+  With `--auto`, the daemon **sells 100% of the position the moment a trigger fires**, unattended, and links the resulting tx back to the fire record. The `thesis_falsified` trigger needs `ANTHROPIC_API_KEY`; LLM failures are non-fatal (logged to `daemon.log` and skipped).
+</Warning>
+
+## MEV protection
+
+Pass `--protected` on `buy` / `sell` to route around the public mempool:
+
+- **Solana** — routes through the Jito Block Engine with a tip (default 10000 lamports, override with `--tip <lamports>`). Also switches to dynamic slippage from DexScreener 5m volatility unless `--slippage <bps>` is explicit.
+- **Base** — routes through a protected RPC (`PALMYR_BASE_PROTECTED_RPC`, no public default) and bumps `maxPriorityFeePerGas` (default 0.001 gwei, override with `--tip <gwei>`). `--rpc <url>` overrides everything; falls back to the public Base RPC if the env var is unset.
+
+Each fill gets a post-trade forensics flag (`ok` / `suspect-mev`) based on how much of the slippage budget the realized fill consumed.
+
+## Safety
+
+- **Self-custody.** Keys never leave your machine, and the wallet that signs owns the position. Trades route straight through Jupiter / ParaSwap with no Palmyr swap fee and no custody. Back wallets with a passphrase (`palmyr wallet create --passphrase ...`) so a reboot or keychain loss can't strand them.
+- **Thesis discipline.** Every position takes a plain-string `--thesis`. Write the real reason you're in — `position`, `brief --evaluate`, and the daemon's `thesis_falsified` check all read it back to you. A position without a falsifiable thesis has no exit logic.
+- **Use `--protected` for size or thin liquidity.** Without it, buys and sells hit the public mempool and can be sandwiched.
+- **`daemon --auto` is live execution.** It sells real funds unattended on the first trigger. Dry-run your exit plan with a manual `palmyr wallet daemon tick` (no `--auto`) first, and start with a tight `--wallet` scope.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Wallets & funding" icon="wallet" href="/concepts/wallets">
+    Create, fund, tag, and back up the wallets that trade.
+  </Card>
+  <Card title="Security model" icon="shield-halved" href="/security/model">
+    How self-custody, keychains, and passphrases work.
+  </Card>
+  <Card title="Pricing" icon="tag" href="/pricing">
+    x402 per-action pricing for hosted services.
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/reference/cli">
+    Every command and flag in one place.
+  </Card>
+</CardGroup>

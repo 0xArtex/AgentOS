@@ -1,0 +1,56 @@
+---
+title: "Introduction"
+description: "Palmyr is the agent-native CLI for autonomous infrastructure — phone, email, compute, domains, wallets, trading, and social, paid per action in USDC over x402."
+icon: "house"
+---
+
+Palmyr is the agent-native CLI and SDK for **autonomous infrastructure**. One tool gives a person — or an AI agent — a phone number, an end-to-end encrypted inbox, a cloud server, a domain, a non-custodial crypto wallet, on-chain trading, and social accounts.
+
+Every action is paid **per call in USDC** over the [x402](https://github.com/coinbase/x402) payment protocol, on Solana or Base. No accounts, no API keys, no monthly bills.
+
+```bash
+npm i -g @palmyr/cli
+palmyr wallet create
+palmyr phone search --country US
+```
+
+<Note>
+  **Your wallet is your identity.** The wallet that signs an x402 payment becomes the owner of the resource it just paid for — an inbox, a number, a server. Re-paying from the same wallet proves continued ownership. No sign-up, no password.
+</Note>
+
+## Built for humans and agents
+
+The same CLI runs two ways. In a terminal it renders an interactive interface. In a pipeline or an agent runtime it emits raw JSON — auto-detected, or forced with `--json`. These docs are written for both readers; if you're an agent, start with [For AI Agents](/for-agents).
+
+## Start here
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Install the CLI, create a wallet, and run your first paid action in five minutes.
+  </Card>
+  <Card title="For AI Agents" icon="robot" href="/for-agents">
+    JSON output, the x402 auto-pay loop, exit codes, and the SDK.
+  </Card>
+  <Card title="Services" icon="cubes" href="/services/trading">
+    What Palmyr can do: trading, phone, email, compute, domains, and social.
+  </Card>
+  <Card title="Security & Trust" icon="shield-check" href="/security/model">
+    How keys are custodied, what's recoverable, and what an agent can and can't do.
+  </Card>
+</CardGroup>
+
+## How it works
+
+<Steps>
+  <Step title="Create a wallet">
+    A standard BIP-39 wallet is generated locally. The seed never leaves your machine.
+  </Step>
+  <Step title="Fund it with USDC">
+    Send a few USDC on Solana or Base. That balance pays for every action.
+  </Step>
+  <Step title="Call an action">
+    Each paid endpoint returns an x402 challenge; the CLI signs it automatically from your wallet, and the resource is provisioned to you.
+  </Step>
+</Steps>
+
+Read [How Palmyr works](/concepts/how-palmyr-works) for the full model, or [Payments & x402](/concepts/payments) for the payment mechanics.

@@ -1,0 +1,116 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Palmyr",
+  "colors": {
+    "primary": "#a89774",
+    "light": "#c9bd9e",
+    "dark": "#a89774"
+  },
+  "appearance": {
+    "default": "dark"
+  },
+  "background": {
+    "color": {
+      "light": "#ffffff",
+      "dark": "#112d32"
+    }
+  },
+  "favicon": "/favicon.svg",
+  "logo": {
+    "light": "/logo/light.svg",
+    "dark": "/logo/dark.svg"
+  },
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart", "for-agents"]
+          },
+          {
+            "group": "Concepts",
+            "pages": [
+              "concepts/how-palmyr-works",
+              "concepts/payments",
+              "concepts/wallets"
+            ]
+          },
+          {
+            "group": "Services",
+            "pages": [
+              "services/trading",
+              "services/phone",
+              "services/email",
+              "services/compute",
+              "services/domains",
+              "services/twitter",
+              "services/tiktok"
+            ]
+          },
+          {
+            "group": "Security & Trust",
+            "pages": [
+              "security/model",
+              "security/permissions",
+              "security/privacy"
+            ]
+          },
+          {
+            "group": "Pricing",
+            "pages": ["pricing"]
+          }
+        ]
+      },
+      {
+        "tab": "Reference",
+        "groups": [
+          {
+            "group": "Reference",
+            "pages": ["reference/cli", "reference/api"]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "GitHub",
+          "href": "https://github.com/0xArtex/Palmyr",
+          "icon": "github"
+        },
+        {
+          "anchor": "npm",
+          "href": "https://www.npmjs.com/package/@palmyr/cli",
+          "icon": "npm"
+        },
+        {
+          "anchor": "palmyr.ai",
+          "href": "https://palmyr.ai",
+          "icon": "globe"
+        }
+      ]
+    }
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "GitHub",
+        "href": "https://github.com/0xArtex/Palmyr"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Get the CLI",
+      "href": "https://www.npmjs.com/package/@palmyr/cli"
+    }
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/0xArtex/Palmyr",
+      "website": "https://palmyr.ai"
+    }
+  }
+}

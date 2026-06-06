@@ -1,0 +1,63 @@
+---
+title: "How Palmyr works"
+description: "The Palmyr model: no accounts, wallet-as-identity, pay-per-action over x402, local-first key custody, and real provisioned infrastructure."
+icon: "diagram-project"
+---
+
+Palmyr turns "call an API" into "pay for an action and own the result." There's no sign-up step and no API-key step — just a wallet and a balance.
+
+## Two interfaces, one package
+
+`@palmyr/cli` ships both the `palmyr` command and a typed SDK. In a terminal it renders an interactive interface; in a pipeline or agent runtime it emits raw JSON. Same actions, same payment model, either way.
+
+## Wallet as identity
+
+There are no user accounts. The wallet that signs an x402 payment becomes the **owner** of the resource it paid for — an inbox, a phone number, a server, a domain. Re-paying from the same wallet proves continued ownership and unlocks reads and writes on that resource.
+
+This means:
+
+- No email, password, or KYC to start.
+- Ownership is portable — transfer a resource by handing it to another wallet.
+- Two agents with two wallets are fully isolated; neither can see or touch the other's resources.
+
+## Pay per action
+
+Every action has a fixed USDC price, charged at request time over [x402](/concepts/payments). Reads and provisioning are priced separately, and discovery is free — `search`, `list`, `info`, and all local wallet operations cost nothing. No subscriptions, no minimums. See [Pricing](/pricing).
+
+## Local-first by design
+
+Key material is generated and encrypted on your machine and never sent to the server. Only what's needed to route a payment and provision a resource leaves your machine. Trading positions, journals, and social credentials stay local too. See the [Security model](/security/model).
+
+## What's underneath
+
+```text
+  your CLI / SDK
+        |
+        v
+   x402 payment            USDC on Solana or Base
+        |
+        v
+   Palmyr API  (palmyr.ai)
+        |
+        |-- phone / SMS / voice      (real numbers)
+        |-- email                    (E2E encrypted inboxes)
+        |-- compute                  (real VPS)
+        |-- domains + DNS
+        |-- social automation        (X, TikTok)
+
+  trading routes straight from your wallet to on-chain DEXs
+  (Jupiter on Solana, ParaSwap on Base) -- no Palmyr fee
+```
+
+Palmyr is open source (MIT) and self-hostable, so you can run the API yourself and verify exactly what it does.
+
+## Next
+
+<CardGroup cols={2}>
+  <Card title="Payments & x402" icon="coins" href="/concepts/payments">
+    The payment loop, chains, and addresses.
+  </Card>
+  <Card title="Wallets & funding" icon="wallet" href="/concepts/wallets">
+    Create, fund, and recover a wallet.
+  </Card>
+</CardGroup>

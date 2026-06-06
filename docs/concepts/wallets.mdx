@@ -1,0 +1,92 @@
+---
+title: "Wallets & funding"
+description: "Palmyr wallets are local BIP-39 HD wallets for Solana and Base. Create with a recoverable passphrase, fund with USDC, and recover anywhere."
+icon: "wallet"
+---
+
+A Palmyr wallet is a standard **BIP-39 HD wallet** that derives both a Solana and a Base address from one 12-word seed. Wallets are created locally and the seed never leaves your machine.
+
+- Solana — `m/44'/501'/0'/0'` (Ed25519)
+- Base / EVM — `m/44'/60'/0'/0/0` (secp256k1)
+
+## Create a wallet
+
+Creation requires a recoverable passphrase (kept out of shell history via an environment variable) or an explicit opt-out:
+
+```bash
+PALMYR_WALLET_PASSPHRASE="your-passphrase" palmyr wallet create --name agent-prod
+```
+
+<Warning>
+  `--session-only` skips the passphrase and binds the wallet to this machine's OS keychain. It is **not** recoverable from the wallet file alone — use it only for ephemeral wallets you're fine losing on a reboot, keychain change, or machine move.
+</Warning>
+
+By default both chains are derived. Pass `--solana` or `--base` to surface only one side.
+
+## Two custody modes
+
+| Mode | Custody | When to use |
+|---|---|---|
+| **Unmanaged** *(default)* | The agent signs instantly, no human in the loop | Agents you trust with a budget |
+| **Managed** | Sub-limit transactions sign instantly; anything over a per-transaction or daily limit needs a human passkey approval | Production agents that keep a human safety check |
+
+Managed approvals use a passkey (Face ID, Touch ID, or a security key) registered through a secure web link. See [Permissions & limits](/security/permissions).
+
+## Fund it
+
+Print your addresses, then send funds:
+
+```bash
+palmyr wallet info <WALLET_ID>
+```
+
+Send **USDC** (on Solana or Base) to pay for actions. If you plan to trade, also send a little native **SOL** or **ETH** for network gas. Set the default payer and chain once:
+
+```bash
+palmyr wallet use <WALLET_ID> --chain solana
+```
+
+## Recovery
+
+A passphrase-backed wallet stores a second, scrypt-sealed copy of its key. To recover on a new machine, copy the wallet file and provide the passphrase:
+
+```bash
+# add or rotate a passphrase on an existing wallet (run on the original machine)
+palmyr wallet rekey <WALLET_ID> --passphrase "your-passphrase"
+
+# recover elsewhere: copy ~/.palmyr/wallet/wallets/<id>.json, then
+PALMYR_WALLET_PASSPHRASE="your-passphrase" palmyr wallet info <WALLET_ID>
+```
+
+Read more in the [Security model](/security/model).
+
+## Tags and cohorts
+
+Group many wallets under one tag for demos or agent fleets, then cascade-delete them together when done:
+
+```bash
+palmyr wallet create --tag agents --count 50 --name-prefix bot
+palmyr wallet list --tag agents
+palmyr wallet tag-delete agents --confirm
+```
+
+Bulk creation caps at 500 per call. For trading across many wallets from a single seed, see the trading keystore in [Trading](/services/trading).
+
+## Export
+
+```bash
+palmyr wallet export <WALLET_ID> --confirm
+```
+
+The `--confirm` flag is mandatory; the seed is decrypted in-process and printed once.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Security model" icon="shield-check" href="/security/model">
+    Encryption, recovery, and vault integrity.
+  </Card>
+  <Card title="Permissions & limits" icon="user-lock" href="/security/permissions">
+    Spending caps and managed mode.
+  </Card>
+</CardGroup>

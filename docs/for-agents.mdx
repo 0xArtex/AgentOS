@@ -1,0 +1,108 @@
+---
+title: "For AI Agents"
+description: "How an AI agent uses Palmyr: JSON output, the x402 auto-pay loop, exit codes, the error contract, the SDK, and machine-readable docs."
+icon: "robot"
+---
+
+Palmyr is built to be driven by an agent with no human in the loop. This page is the contract.
+
+## One install, JSON everywhere
+
+```bash
+npm i -g @palmyr/cli
+```
+
+The CLI switches to **agent mode** — raw JSON on stdout, no spinners, no ANSI — whenever any of these is true:
+
+- stdout is not a TTY (you piped, redirected, or you're in `cron` / `docker` / CI)
+- you pass `--json`
+- `PALMYR_JSON=1` is set in the environment
+
+```bash
+PALMYR_JSON=1 palmyr wallet list
+palmyr compute deploy --type cx23 --json | jq '.sshCommand'
+```
+
+## The payment loop
+
+You never handle x402 by hand. Configure a payer wallet once, and the CLI signs each challenge automatically:
+
+<Steps>
+  <Step title="Configure a payer">
+    ```bash
+    palmyr wallet use <WALLET_ID> --chain solana
+    ```
+  </Step>
+  <Step title="Call any action">
+    The endpoint returns `402 Payment Required`; the CLI builds and signs a USDC transfer from your wallet and retries.
+  </Step>
+  <Step title="Own the result">
+    The paying wallet becomes the owner. The settled transaction hash comes back in the response.
+  </Step>
+</Steps>
+
+See [Payments & x402](/concepts/payments) for the wire-level detail.
+
+## Exit codes
+
+Branch on the exit code, not on stderr text.
+
+| Code | Constant | Meaning |
+|---|---|---|
+| `0` | `OK` | Success |
+| `1` | `GENERAL` | Uncategorised failure |
+| `2` | `BAD_INPUT` | Invalid command, flag, or argument |
+| `3` | `AUTH_FAIL` | 401, or missing token |
+| `4` | `NOT_FOUND` | 404, or unknown local resource |
+| `5` | `NETWORK` | DNS, connection, or transport failure |
+| `6` | `PAYMENT` | 402, or x402 signing was rejected |
+| `7` | `SECURITY` | Wallet integrity check failed |
+
+## Error contract
+
+In agent mode, failures print one JSON line to **stderr** so stdout stays a clean data stream:
+
+```json
+{ "error": "--name and --type required", "exitCode": 2 }
+```
+
+## Use the SDK
+
+The same package exports a typed class:
+
+```typescript
+import { Palmyr } from '@palmyr/cli'
+
+const palmyr = new Palmyr({ autoPay: true }) // signs x402 from the configured wallet
+
+const numbers = await palmyr.phoneSearch('US', 5)          // free
+const inbox = await palmyr.emailCreate('agent', solPubkey) // paid, auto-signed
+const mail = await palmyr.emailRead(inbox.id)
+```
+
+## Machine-readable docs
+
+This site is published for agents as well as people:
+
+- **`/llms.txt`** — an indexed map of every page, each with a description
+- **`/llms-full.txt`** — the entire documentation concatenated for one-shot context
+- Every page is also available as clean Markdown
+
+Point your retrieval or context pipeline at those URLs.
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Payments & x402" icon="coins" href="/concepts/payments">
+    The payment protocol in detail.
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/reference/cli">
+    Every command, flag, and cost.
+  </Card>
+  <Card title="HTTP API" icon="code" href="/reference/api">
+    Roll your own x402 client.
+  </Card>
+  <Card title="Security model" icon="shield-check" href="/security/model">
+    Keys, recovery, and limits.
+  </Card>
+</CardGroup>

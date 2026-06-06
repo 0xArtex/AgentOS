@@ -1,0 +1,112 @@
+---
+title: "Pricing"
+description: "Palmyr is pay-per-action in USDC over x402 — no subscriptions, no minimums. Discovery and local operations are free. Live prices via palmyr pricing."
+icon: "tag"
+---
+
+Palmyr is **pay-per-action**. Each call has a fixed USDC price, charged at request time over [x402](/concepts/payments) on Solana or Base. No subscriptions, no minimums, no monthly bills.
+
+<Note>
+  The prices below are the published list at the time of writing. For the authoritative, live list, run `palmyr pricing` (free) or call `GET /pricing`.
+</Note>
+
+## Free
+
+Discovery and local work never cost anything: `search`, `list`, `info`, `pricing`, `health`, `status`, `note`, and **every local wallet operation** (create, import, rekey, tag, export, sign).
+
+## Phone & SMS
+
+| Action | Cost |
+|---|---|
+| `search` | free |
+| `buy` (provision a number) | $3.00 |
+| `messages` (read inbound SMS) | $0.02 |
+| `sms` (send) | $0.05 |
+| `call` (outbound, optional TTS) | $0.10 |
+| `delete` (release) | $0.01 |
+
+## Email
+
+| Action | Cost |
+|---|---|
+| `create` (inbox) | $2.00 |
+| `read` | $0.02 |
+| `send` | $0.08 |
+| `threads` | $0.02 |
+
+## Compute
+
+| Action | Cost |
+|---|---|
+| `plans` / `locations` / `install-recipes` | free |
+| `deploy` | $6.00 |
+| `ssh` (resolve from cache) | free |
+| `wait` / `setup-ssh` / `rename` / `list` | $0.01 |
+| `exec` | $0.05 |
+| lifecycle: `reboot` / `poweroff` / `poweron` / `reset` / `rebuild` / `console` / `reset-password` | $0.10 |
+| `delete` (terminate) | $0.10 |
+| `ssh-key add` | $0.10 |
+| `ssh-key list` / `ssh-key delete` | $0.01 |
+
+The $6.00 is a one-time deploy fee. The monthly server cost is metered separately by plan — see `palmyr compute plans`.
+
+## Domains
+
+| Action | Cost |
+|---|---|
+| `check` / `pricing` | free |
+| `buy` (one-year registration) | $20.00 |
+| `list` / `dns` / `transfer-ownership` / `share` / `unshare` | $0.01 |
+
+## Trading
+
+Trades route directly from your wallet to on-chain DEXs (Jupiter on Solana, ParaSwap on Base). **Palmyr charges no fee for the swap itself** — you pay network gas and the DEX's pricing. Position tracking, PnL, the daemon, journals, and templates are all local and free. See [Trading](/services/trading).
+
+## X / Twitter
+
+| Action | Cost |
+|---|---|
+| `buy` (account from pool) | $5.00 |
+| `import` | free |
+| `list` | $0.0011 (`--local` is free) |
+| `login` | $0.005 |
+| `post` (text) / `reply` / `like` / `retweet` / `follow` / `unfollow` / `delete` | $0.001 |
+| `post` (media) / `thread` | $0.005 |
+| `bio` / `name` / `location` / `website` | $0.001 |
+| `pfp` / `banner` / `username` | $0.005 |
+| `register` | $0.01 |
+| `schedule` | $0.001 text, $0.005 media or thread |
+| `queue` / `cancel` / `registered` / `unregister` | $0.001 |
+
+## TikTok
+
+| Action | Cost |
+|---|---|
+| `connect` / `import` / `list` / `info` / `session` / `draft` / `reject` / `logs` / `review` / `monitor` | free |
+| `login` | $0.02 |
+| `post` / `schedule` / `approve` | $0.01 |
+| `follow` / `like` / `delete` / `bio` / `name` | $0.001 |
+| `pfp` | $0.005 |
+| `analytics` | $0.005 (free when self-hosted) |
+
+## API keys
+
+Provision a key for a third-party provider, paid in USDC:
+
+| Provider | Cost |
+|---|---|
+| `helius` | $2.00 |
+| `brave_search` / `openai` / `anthropic` / `elevenlabs` | $1.00 |
+| `custom` | $0.50 |
+| list / revoke | $0.01 |
+
+## See also
+
+<CardGroup cols={2}>
+  <Card title="Payments & x402" icon="coins" href="/concepts/payments">
+    How charges are signed and settled.
+  </Card>
+  <Card title="CLI reference" icon="terminal" href="/reference/cli">
+    Every command and flag.
+  </Card>
+</CardGroup>
