@@ -77,14 +77,14 @@
     "global": {
       "anchors": [
         {
+          "anchor": "skill.md",
+          "href": "https://palmyr.ai/skill.md",
+          "icon": "robot"
+        },
+        {
           "anchor": "GitHub",
           "href": "https://github.com/0xArtex/Palmyr",
           "icon": "github"
-        },
-        {
-          "anchor": "npm",
-          "href": "https://www.npmjs.com/package/@palmyr/cli",
-          "icon": "npm"
         },
         {
           "anchor": "palmyr.ai",

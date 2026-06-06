@@ -1,15 +1,27 @@
 ---
 title: "Quickstart"
-description: "Install the Palmyr CLI, create and fund a wallet, and run your first paid action in about five minutes."
+description: "Onboard Palmyr two ways: hand your agent the skill.md manifest to self-onboard, or install the CLI, create a wallet, and run your first paid action by hand."
 icon: "rocket"
 ---
 
-Five minutes from install to a provisioned resource.
-
-## Prerequisites
+Two ways to onboard: hand your agent the **skill file** and let it self-onboard, or run the steps yourself. Either way you'll need:
 
 - **Node.js 18+**
-- A few **USDC** on Solana or Base to fund actions (and a little SOL or ETH if you plan to trade)
+- A few **USDC** on Solana or Base (plus a little SOL or ETH if you'll trade)
+
+## Hand your agent the skill file
+
+The fastest path for an agent. `skill.md` is a single manifest that describes the install, the wallet-as-identity and x402 payment model, and the full command surface — everything an agent needs to drive Palmyr with no human in the loop.
+
+Point your agent at:
+
+```
+https://palmyr.ai/skill.md
+```
+
+Drop that URL (or its contents) into your agent's context, tool list, or skill registry, and it can install the CLI, create a wallet, check funding, and start calling actions on its own. For deeper machine-readable docs, also give it `/llms.txt` and `/llms-full.txt` — see [For AI Agents](/for-agents).
+
+## Or set it up manually
 
 <Steps>
   <Step title="Install the CLI">
