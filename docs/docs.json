@@ -44,16 +44,9 @@
             "pages": ["introduction", "quickstart", "for-agents"]
           },
           {
-            "group": "Concepts",
-            "pages": [
-              "concepts/how-palmyr-works",
-              "concepts/payments",
-              "concepts/wallets"
-            ]
-          },
-          {
             "group": "Services",
             "pages": [
+              "pricing",
               "services/trading",
               "services/phone",
               "services/email",
@@ -64,16 +57,20 @@
             ]
           },
           {
+            "group": "Concepts",
+            "pages": [
+              "concepts/how-palmyr-works",
+              "concepts/payments",
+              "concepts/wallets"
+            ]
+          },
+          {
             "group": "Security & Trust",
             "pages": [
               "security/model",
               "security/permissions",
               "security/privacy"
             ]
-          },
-          {
-            "group": "Pricing",
-            "pages": ["pricing"]
           }
         ]
       },

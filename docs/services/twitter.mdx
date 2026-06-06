@@ -79,9 +79,9 @@ palmyr twitter post acct1 --body "shipping in public"
 
 | Command | Cost | What it does |
 |---|---|---|
-| `palmyr twitter transfer <username> --to <wallet> --confirm` | $0.0001 proof + $0.0011 lookup (+ $0.01 if auto-register runs, + ~$0.001 polls) | Atomically hand the account to another wallet. Password is rotated and other sessions revoked before ownership flips, so your local credentials become useless. The async rotation takes 30-90s; the receiver picks up fresh creds with `claim`. |
+| `palmyr twitter transfer <username> --to <wallet> --confirm` | \$0.0001 proof + \$0.0011 lookup (+ \$0.01 if auto-register runs, + ~\$0.001 polls) | Atomically hand the account to another wallet. Password is rotated and other sessions revoked before ownership flips, so your local credentials become useless. The async rotation takes 30-90s; the receiver picks up fresh creds with `claim`. |
 | `palmyr twitter share <username> --with <wallet>` | $0.01 | Grant another wallet shared access — same login, no credential rotation. Both wallets see it via `claim`. Owner-only. |
-| `palmyr twitter unshare <username> --from <wallet> [--rotate]` | $0.0001 proof + $0.0011 lookup (more with `--rotate`) | Revoke shared access. Without `--rotate`, previously exported cookies stay valid until X-side expiry; with `--rotate`, the password is rotated and your local vault is re-synced. Owner-only. |
+| `palmyr twitter unshare <username> --from <wallet> [--rotate]` | \$0.0001 proof + \$0.0011 lookup (more with `--rotate`) | Revoke shared access. Without `--rotate`, previously exported cookies stay valid until X-side expiry; with `--rotate`, the password is rotated and your local vault is re-synced. Owner-only. |
 | `palmyr twitter claim` | $0.0011 | Pull every X account on the server bound to your wallet (owner or shared) into the local vault, cookies pre-warmed. The fast path after receiving a transfer. |
 
 ## Fire-and-forget scheduling
@@ -94,7 +94,7 @@ To make scheduled posts fire even when your machine is off, register the account
 | `palmyr twitter register <username> --password "..." [...]` | $0.01 | Same, with explicit creds (`--login`, `--totp-seed`, `--email`, `--email-password`, `--auth-token`, `--ct0`, `--country`). |
 | `palmyr twitter unregister <username-or-account-id>` | $0.001 | Wipe the encrypted credential + cookie blobs from the server (status flips to `revoked`). |
 | `palmyr twitter registered` | $0.001 | List your wallet's registered accounts (id, username, country, status, `last_login_at`). |
-| `palmyr twitter schedule <username> --body "..." --at "2026-05-15T14:00:00Z"` (or `--texts`, plus `--image`/`--video`/`--media-json`/`--community`) | $0.001 text / $0.005 thread or media | Pay now at the post's full price; the server's internal scheduler fires it at `post_at`. Returns `schedule_id`. |
+| `palmyr twitter schedule <username> --body "..." --at "2026-05-15T14:00:00Z"` (or `--texts`, plus `--image`/`--video`/`--media-json`/`--community`) | \$0.001 text / \$0.005 thread or media | Pay now at the post's full price; the server's internal scheduler fires it at `post_at`. Returns `schedule_id`. |
 | `palmyr twitter queue [filters]` | $0.001 | Server-backed, wallet-scoped list. Filter by `--status` (`pending`, `in_progress`, `completed`, `failed`, `cancelled`), `--account-id`, `--from`/`--to`, `--limit`. |
 | `palmyr twitter cancel <schedule-id>` | $0.001 | Cancel a pending scheduled post. In-progress / completed / failed cannot be cancelled. No refund. |
 
