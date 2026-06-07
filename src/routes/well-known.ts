@@ -5,7 +5,7 @@
  * Two surfaces, both backed by the same paid-route registry from
  * `route-discovery.ts`:
  *
- *   GET /.well-known/x402   →  { version: 1, resources: ["METHOD /path", ...] }
+ *   GET /.well-known/x402   →  { version: 1, resources: ["https://host/path", ...] }
  *   GET /openapi.json       →  OpenAPI 3.1 doc with x-payment-info on each
  *                              paid operation, suitable for x402scan canonical
  *                              discovery
@@ -20,14 +20,40 @@ import { enumeratePaidRoutes } from "../services/route-discovery";
 interface WellKnownX402Doc {
   version: 1;
   resources: string[];
+  ownershipProofs?: string[];
 }
 
-export function buildWellKnownDoc(app: Express): WellKnownX402Doc {
+/**
+ * Ownership proofs let x402scan / agentcash bind on-chain volume (including the
+ * legacy agntos.dev / AgentOS history) to this origin. Each proof is a signature
+ * of the bare origin string (e.g. "https://palmyr.ai") by a payTo treasury key —
+ * EIP-191 personal_sign for the Base/EVM treasury (hex 0x...), Ed25519 for the
+ * Solana treasury (base58). Generate them OFFLINE and set X402_OWNERSHIP_PROOFS
+ * (comma-separated); the treasury keys never touch the server.
+ */
+function ownershipProofs(): string[] {
+  return (process.env.X402_OWNERSHIP_PROOFS || "")
+    .split(",")
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+export function buildWellKnownDoc(app: Express, host: string): WellKnownX402Doc {
   const routes = enumeratePaidRoutes(app);
-  return {
-    version: 1,
-    resources: routes.map(r => `${r.method} ${r.path}`),
-  };
+  // x402scan's canonical /.well-known/x402 lists absolute resource URLs.
+  const seen = new Set<string>();
+  const resources: string[] = [];
+  for (const r of routes) {
+    const url = `https://${host}${r.path}`;
+    if (!seen.has(url)) {
+      seen.add(url);
+      resources.push(url);
+    }
+  }
+  const doc: WellKnownX402Doc = { version: 1, resources };
+  const proofs = ownershipProofs();
+  if (proofs.length) doc.ownershipProofs = proofs;
+  return doc;
 }
 
 /**
@@ -141,7 +167,7 @@ export function buildOpenApiDoc(app: Express, host: string): any {
     paths[oasPath][r.method.toLowerCase()] = op;
   }
 
-  return {
+  const doc: any = {
     openapi: "3.1.0",
     info: {
       title: "Palmyr",
@@ -168,11 +194,21 @@ export function buildOpenApiDoc(app: Express, host: string): any {
       },
     },
   };
+
+  // Bind on-chain volume to this origin. agentcash checks
+  // `x-agentcash-provenance.ownershipProofs` first, then `x-discovery.ownershipProofs`.
+  const proofs = ownershipProofs();
+  if (proofs.length) {
+    doc["x-discovery"] = { ownershipProofs: proofs };
+    doc["x-agentcash-provenance"] = { ownershipProofs: proofs };
+  }
+  return doc;
 }
 
 export function mountDiscoveryRoutes(app: Express): void {
-  app.get("/.well-known/x402", (_req: Request, res: Response) => {
-    res.json(buildWellKnownDoc(app));
+  app.get("/.well-known/x402", (req: Request, res: Response) => {
+    const host = req.get("host") || "palmyr.ai";
+    res.json(buildWellKnownDoc(app, host));
   });
 
   app.get("/openapi.json", (req: Request, res: Response) => {
