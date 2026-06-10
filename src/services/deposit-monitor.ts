@@ -7,13 +7,18 @@ import {
 import { db } from "../db";
 import { deposit } from "./balance";
 import { getSolanaKeypair, getEvmPrivateKey } from "./deposit-wallets";
+import { config } from "../config";
 
 // ─── Config ───
+// Treasury addresses are sourced from `config` (TREASURY_WALLET /
+// TREASURY_EVM_WALLET) — the SAME source x402 uses for `payTo` and refund.ts
+// uses for the refund origin. Single source of truth means rotating the
+// treasury is a pure env change; nothing here hardcodes a specific wallet.
 const SOL_USDC_MINT = new PublicKey("EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v");
-const TREASURY_SOL = new PublicKey("B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3");
+const TREASURY_SOL = new PublicKey(config.treasuryWallet);
 
 const BASE_USDC = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-const TREASURY_EVM = "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2";
+const TREASURY_EVM = config.treasuryEvmWallet;
 
 const POLL_INTERVAL = 60_000; // 60s
 const SWEEP_MIN_USDC = 1; // Don't sweep dust
