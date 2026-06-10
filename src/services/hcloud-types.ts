@@ -78,6 +78,12 @@ let cache: {
    * the location list every time.
    */
   typeLocationAvailability: Map<string, Set<string>>;
+  /**
+   * For each server type, the locations that OFFER it at all (Hetzner's
+   * `supported` list). supported-but-not-available = temporarily sold out,
+   * which deserves a different answer than "never offered here".
+   */
+  typeLocationSupported: Map<string, Set<string>>;
   refreshedAt: number;
 } | null = null;
 let inflight: Promise<void> | null = null;
@@ -146,6 +152,7 @@ function emptyExtras() {
   return {
     locations: new Map<string, LocationInfo>(),
     typeLocationAvailability: new Map<string, Set<string>>(),
+    typeLocationSupported: new Map<string, Set<string>>(),
   };
 }
 
@@ -206,6 +213,7 @@ export async function refreshHcloudTypes(): Promise<void> {
       // ANY datacenter in fsn1 has it.
       const locations = new Map<string, LocationInfo>();
       const typeLocationAvailability = new Map<string, Set<string>>();
+      const typeLocationSupported = new Map<string, Set<string>>();
       for (const dc of datacenters) {
         const locName = dc.location?.name;
         if (!locName) continue;
@@ -230,10 +238,18 @@ export async function refreshHcloudTypes(): Promise<void> {
           }
           typeLocationAvailability.get(typeName)!.add(locName);
         }
+        for (const id of dc.server_types?.supported ?? []) {
+          const typeName = idToName.get(id);
+          if (!typeName) continue;
+          if (!typeLocationSupported.has(typeName)) {
+            typeLocationSupported.set(typeName, new Set());
+          }
+          typeLocationSupported.get(typeName)!.add(locName);
+        }
         loc.availableTypes = [...availSet].sort();
       }
 
-      cache = { plans, locations, typeLocationAvailability, refreshedAt: Date.now() };
+      cache = { plans, locations, typeLocationAvailability, typeLocationSupported, refreshedAt: Date.now() };
       console.log(`[hcloud-types] Loaded ${plans.length} server types, ${locations.size} locations from Hetzner`);
     } catch (err: any) {
       console.error("[hcloud-types] Refresh failed:", err?.message || err);
@@ -310,4 +326,37 @@ export function isTypeAvailableInLocation(typeName: string, locationName: string
   if (!cache || cache.locations.size === 0) return true; // no data → don't block
   const set = cache.typeLocationAvailability.get(typeName);
   return !!set && set.has(locationName);
+}
+
+/**
+ * Does this location OFFER the type at all (Hetzner's `supported` list)?
+ * supported && !available = temporarily sold out — a 409 "retry elsewhere /
+ * later", not a 400 "wrong combo". Same graceful degradation as above.
+ */
+export function isTypeSupportedInLocation(typeName: string, locationName: string): boolean {
+  maybeRefreshInBackground();
+  if (!cache || cache.locations.size === 0) return true; // no data → don't block
+  const set = cache.typeLocationSupported.get(typeName);
+  return !!set && set.has(locationName);
+}
+
+/** True when the live location/availability maps are loaded (not the static fallback). */
+export function hasLocationData(): boolean {
+  return !!cache && cache.locations.size > 0;
+}
+
+/**
+ * Deploy-grade freshness: the 6h background TTL is fine for browsing plans,
+ * but a $6+ deploy decision should not ride on hours-old capacity data — a
+ * type can sell out mid-window. Awaits a refresh when the cache is older
+ * than `maxAgeMs`; on refresh failure the stale cache (or fallback) stands,
+ * so this never blocks a deploy outright.
+ */
+export async function ensureFreshAvailability(maxAgeMs: number = 60_000): Promise<void> {
+  if (cache && Date.now() - cache.refreshedAt <= maxAgeMs) return;
+  try {
+    await refreshHcloudTypes();
+  } catch {
+    // logged inside refreshHcloudTypes; stale data is better than no answer
+  }
 }

@@ -121,7 +121,8 @@ export function bruteForceProtection(req: Request, res: Response, next: NextFunc
   next();
 }
 
-// Cleanup blocked IPs periodically
+// Cleanup blocked IPs periodically. unref: a housekeeping timer must not
+// keep the process alive (tests importing route files would hang).
 setInterval(() => {
   const now = Date.now();
   for (const [ip, entry] of failedAttempts) {
@@ -130,4 +131,4 @@ setInterval(() => {
     const unblocked = now > entry.blockedUntil + 60_000;
     if (stale && unblocked) failedAttempts.delete(ip);
   }
-}, 5 * 60_000);
+}, 5 * 60_000).unref();

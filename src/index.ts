@@ -772,6 +772,7 @@ import { seedPalmyrPrimitives } from "./services/i402-providers";
 import { ensureProviderEmbeddings, embeddingsAvailable } from "./services/i402-embeddings";
 import { refreshFederatedCatalogs } from "./services/i402-agentic-market";
 import { refreshHcloudTypes } from "./services/hcloud-types";
+import { startRefundRetryLoop } from "./services/refund";
 
 async function refreshI402Federations(): Promise<void> {
   try {
@@ -800,6 +801,9 @@ app.listen(config.port, () => {
   refreshHcloudTypes().catch(err =>
     console.warn("[hcloud-types] initial refresh failed:", err?.message ?? err)
   );
+  // Drain any refunds that previously failed before broadcast (e.g. treasury
+  // key was missing) — warns at boot when refunds can't work, retries hourly.
+  startRefundRetryLoop();
   if (embeddingsAvailable()) {
     // Non-blocking: compute any missing provider embeddings in the background.
     ensureProviderEmbeddings().catch(err =>
