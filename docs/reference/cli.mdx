@@ -76,6 +76,9 @@ Full guide: [Phone & SMS](/services/phone).
 | `phone sms --id <ID> --to +1... --body "..."` | $0.05 | Send an SMS. |
 | `phone call --id <ID> --to +1... [--tts "..."]` | $0.10 | Outbound call with optional text-to-speech. |
 | `phone delete --id <ID>` | $0.01 | Release the number. |
+| `phone transfer-ownership --id <ID> --to <wallet>` | $0.01 | Hand the number to another wallet (clears shared access). |
+| `phone share --id <ID> --with <wallet>` | $0.01 | Grant another wallet shared use of the number. |
+| `phone unshare --id <ID> --from <wallet>` | $0.01 | Revoke a shared wallet's use. |
 
 ## Email
 

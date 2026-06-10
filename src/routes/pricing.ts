@@ -46,6 +46,9 @@ router.get("/", (_req: Request, res: Response) => {
         hangup: { price: isFree ? "FREE" : "$0.02", unit: "per hangup" },
         answer_inbound: { price: isFree ? "FREE" : "$0.02", unit: "per inbound call answer" },
         transfer: { price: isFree ? "FREE" : "$0.10", unit: "per call transfer" },
+        transfer_ownership: { price: isFree ? "FREE" : "$0.01", unit: "per ownership transfer (move a number to another wallet)" },
+        share: { price: isFree ? "FREE" : "$0.01", unit: "per share grant (another wallet can use the number)" },
+        unshare: { price: isFree ? "FREE" : "$0.01", unit: "per share revocation" },
       },
       email: {
         provision: { price: isFree ? "FREE" : "$1.00/mo", unit: "per inbox" },

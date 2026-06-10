@@ -389,6 +389,19 @@ export class Palmyr {
     return this.request('DELETE', `/phone/numbers/${phoneId}`)
   }
 
+  // Ownership: transfer / share / unshare (mirrors domains)
+  async phoneTransferOwnership(phoneId: string, newOwner: string): Promise<any> {
+    return this.request('POST', `/phone/numbers/${phoneId}/transfer-ownership`, { new_owner: newOwner })
+  }
+
+  async phoneShare(phoneId: string, withWallet: string): Promise<any> {
+    return this.request('POST', `/phone/numbers/${phoneId}/share`, { with: withWallet })
+  }
+
+  async phoneUnshare(phoneId: string, wallet: string): Promise<any> {
+    return this.request('POST', `/phone/numbers/${phoneId}/unshare`, { wallet })
+  }
+
   // Call-control-scoped operations
   async phoneCallInfo(callControlId: string): Promise<any> {
     return this.request('GET', `/phone/calls/${callControlId}`)

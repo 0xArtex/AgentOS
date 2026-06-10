@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from "express";
 import { requireAuth } from "../middleware/auth";
-import { AuthenticatedRequest, ProvisionNumberRequest, SendSmsRequest } from "../types";
+import { AuthenticatedRequest, PhoneNumber, ProvisionNumberRequest, SendSmsRequest } from "../types";
 import * as phoneService from "../services/phone";
 import * as voiceService from "../services/voice";
 import { config } from "../config";
@@ -10,28 +10,40 @@ import { refundAndRespond } from "../services/refund";
 
 const router = Router({ mergeParams: true });
 
+// Owners are wallet addresses on either chain x402 settles on:
+//   Solana: base58, 32–44 chars
+//   EVM (Base): 0x + 40 hex chars
+const SOL_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const EVM_ADDR = /^0x[a-fA-F0-9]{40}$/;
+const isWalletAddress = (s: string) => SOL_PUBKEY.test(s) || EVM_ADDR.test(s);
+
+// Symbolic fee proving the signing wallet controls the resource — same
+// "ownership proof" tier as domains and X accounts.
+const OWNERSHIP_PROOF_USDC = 0.01;
+
 /**
  * Returns true (and sends a 403) when `phoneNumberId` is owned by a wallet
- * other than the caller. A missing number/owner is NOT a mismatch — the
- * provider call stays the final authority, so we never lock out legitimate
- * control of an inbound call whose local record isn't there yet.
+ * other than the caller and not shared with the caller. A missing
+ * number/owner is NOT a mismatch — the provider call stays the final
+ * authority, so we never lock out legitimate control of an inbound call
+ * whose local record isn't there yet.
  */
-function denyIfNotNumberOwner(req: AuthenticatedRequest, res: Response, phoneNumberId: string | undefined): boolean {
+function denyIfNotNumberAccess(req: AuthenticatedRequest, res: Response, phoneNumberId: string | undefined): boolean {
   if (!phoneNumberId) return false;
   const number = phoneService.getNumber(phoneNumberId);
   const caller = req.payment?.payer || req.agentId;
-  if (number?.owner && caller && number.owner !== caller) {
-    res.status(403).json({ error: "Forbidden", message: "This resource belongs to a phone number you do not own" });
+  if (number?.owner && caller && !phoneService.hasNumberAccess(number, caller)) {
+    res.status(403).json({ error: "Forbidden", message: "This resource belongs to a phone number you do not own or have shared access to" });
     return true;
   }
   return false;
 }
 
-/** Owner gate for call-control routes keyed on a Telnyx callControlId. */
-function denyIfNotCallOwner(req: AuthenticatedRequest, res: Response, callControlId: string): boolean {
+/** Access gate for call-control routes keyed on a Telnyx callControlId. */
+function denyIfNotCallAccess(req: AuthenticatedRequest, res: Response, callControlId: string): boolean {
   const call = voiceService.getCallByControlId(callControlId);
   if (!call) return false; // unknown call — let the provider be the authority
-  return denyIfNotNumberOwner(req, res, call.phoneNumberId);
+  return denyIfNotNumberAccess(req, res, call.phoneNumberId);
 }
 
 /**
@@ -112,13 +124,18 @@ async function preflightProvisionNumber(req: Request, res: Response, next: NextF
  * Cost: 3.00 USDC (or free during hackathon with agent limits)
  */
 router.get("/numbers", requireAuth(0.01, "general", {
-  description: "List all phone numbers owned by the calling wallet.",
+  description: "List all phone numbers owned by or shared with the calling wallet.",
   category: "communications",
   tags: ["phone", "list"],
 }), async (req: AuthenticatedRequest, res: Response) => {
-  const owner = req.agentId || req.payment?.payer;
-  if (!owner) return res.status(401).json({ error: "Unauthenticated" });
-  const numbers = phoneService.listNumbers(owner);
+  const caller = req.agentId || req.payment?.payer;
+  if (!caller) return res.status(401).json({ error: "Unauthenticated" });
+  // Tag each row owner/shared; only owners see who else has access.
+  const numbers = phoneService.listNumbers(caller).map(n => ({
+    ...n,
+    access: n.owner === caller ? "owner" : "shared",
+    sharedWith: n.owner === caller ? (n.sharedWith || []) : undefined,
+  }));
   res.json({ numbers });
 });
 
@@ -163,17 +180,17 @@ router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone", {
  * Cost: 0.01 USDC (or free during hackathon)
  */
 router.get("/numbers/:id/messages", requireAuth(0.02, "general", {
-  description: "Read all SMS messages received on a phone number you own.",
+  description: "Read all SMS messages received on a phone number you own or have shared access to.",
   category: "communications",
   tags: ["phone", "sms", "inbox", "read"],
 }), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const phoneNumberId = req.params.id as string;
-    const owner = req.payment?.payer || req.agentId;
-    if (!owner) {
+    const caller = req.payment?.payer || req.agentId;
+    if (!caller) {
       return res.status(401).json({ error: "No caller identity — cannot verify ownership" });
     }
-    const msgs = phoneService.getMessages(phoneNumberId, owner);
+    const msgs = phoneService.getMessages(phoneNumberId, caller);
     res.json({ messages: msgs });
   } catch (err: any) {
     const status = err?.statusCode === 403 ? 403 : 404;
@@ -295,12 +312,13 @@ async function preflightSendSms(req: Request, res: Response, next: NextFunction)
  * Cost: 0.05 USDC (or free during hackathon)
  */
 router.post("/numbers/:id/send", preflightSendSms, requireAuth(0.05, "general", {
-  description: "Send an SMS message from a phone number you own. Body: { to: E.164, body: string }",
+  description: "Send an SMS message from a phone number you own or have shared access to. Body: { to: E.164, body: string }",
   category: "communications",
   tags: ["phone", "sms", "send", "outbound"],
 }), async (req: AuthenticatedRequest, res: Response) => {
   const { to, body } = req.body as SendSmsRequest;
   const phoneNumberId = req.params.id as string;
+  if (denyIfNotNumberAccess(req, res, phoneNumberId)) return;
 
   try {
     const msg = await phoneService.sendSms(phoneNumberId, to, body);
@@ -345,6 +363,117 @@ router.delete("/numbers/:id", requireAuth(0.01, "general"), async (req: Authenti
   }
 });
 
+// ── Ownership: transfer / share / unshare ───────────────────
+// Mirrors /domains: the $0.01 charge is an ownership proof — the x402
+// payer signature identifies the current owner. Number stays on our
+// Telnyx account; only the DB owner / shared_with rows change.
+
+/** Loads the number and 404s/403s unless the caller is the owner. */
+function getNumberAsOwner(req: AuthenticatedRequest, res: Response): PhoneNumber | undefined {
+  const number = phoneService.getNumber(String(req.params.id));
+  if (!number) {
+    res.status(404).json({ error: "Phone Number Not Found", message: `No phone number with ID ${req.params.id}` });
+    return undefined;
+  }
+  const caller = req.payment?.payer || req.agentId;
+  if (!caller || number.owner !== caller) {
+    res.status(403).json({ error: "Forbidden", message: "Only the owner can do this" });
+    return undefined;
+  }
+  return number;
+}
+
+/**
+ * POST /phone/numbers/:id/transfer-ownership — hand the number to another wallet.
+ * Body: { new_owner: "<wallet>" }
+ */
+router.post("/numbers/:id/transfer-ownership", requireAuth(OWNERSHIP_PROOF_USDC, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const { new_owner } = req.body || {};
+    if (!new_owner || typeof new_owner !== "string" || !isWalletAddress(new_owner)) {
+      return res.status(400).json({ error: "new_owner must be a Solana (base58) or EVM (0x…) wallet address" });
+    }
+    const number = getNumberAsOwner(req, res);
+    if (!number) return;
+    if (new_owner === number.owner) {
+      return res.status(400).json({ error: "new_owner is already the current owner" });
+    }
+
+    // Clear shared_with on transfer — the previous owner's collaborators
+    // don't travel with the number. New owner can re-share if desired.
+    phoneService.transferNumber(number.id, new_owner);
+
+    res.json({
+      message: "Ownership transferred",
+      id: number.id,
+      phone_number: number.phoneNumber,
+      previous_owner: req.payment?.payer || req.agentId,
+      new_owner,
+    });
+  } catch (err: any) {
+    console.error("[phone] Transfer ownership error:", err);
+    res.status(500).json({ error: "Transfer Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/numbers/:id/share — grant another wallet shared use
+ * (send SMS, place calls, read messages and call history). Owner-only.
+ * Body: { with: "<wallet>" }
+ */
+router.post("/numbers/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const withWallet = (req.body || {}).with;
+    if (!withWallet || typeof withWallet !== "string" || !isWalletAddress(withWallet)) {
+      return res.status(400).json({ error: "`with` must be a Solana (base58) or EVM (0x…) wallet address" });
+    }
+    const number = getNumberAsOwner(req, res);
+    if (!number) return;
+    if (withWallet === number.owner) {
+      return res.status(400).json({ error: "Cannot share with the current owner" });
+    }
+
+    const sharedWith = phoneService.shareNumber(number.id, withWallet);
+
+    res.json({
+      message: `${number.phoneNumber} shared with ${withWallet}`,
+      id: number.id,
+      phone_number: number.phoneNumber,
+      shared_with: sharedWith,
+    });
+  } catch (err: any) {
+    console.error("[phone] Share error:", err);
+    res.status(500).json({ error: "Share Failed", message: err.message });
+  }
+});
+
+/**
+ * POST /phone/numbers/:id/unshare — revoke a wallet's shared use. Owner-only.
+ * Body: { wallet: "<wallet>" }
+ */
+router.post("/numbers/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const targetWallet = (req.body || {}).wallet;
+    if (!targetWallet || typeof targetWallet !== "string" || !isWalletAddress(targetWallet)) {
+      return res.status(400).json({ error: "`wallet` must be a Solana (base58) or EVM (0x…) wallet address" });
+    }
+    const number = getNumberAsOwner(req, res);
+    if (!number) return;
+
+    const sharedWith = phoneService.unshareNumber(number.id, targetWallet);
+
+    res.json({
+      message: `${targetWallet} no longer has shared access to ${number.phoneNumber}`,
+      id: number.id,
+      phone_number: number.phoneNumber,
+      shared_with: sharedWith,
+    });
+  } catch (err: any) {
+    console.error("[phone] Unshare error:", err);
+    res.status(500).json({ error: "Unshare Failed", message: err.message });
+  }
+});
+
 // ── Voice / Calling ─────────────────────────────────────────
 
 /**
@@ -352,11 +481,12 @@ router.delete("/numbers/:id", requireAuth(0.01, "general"), async (req: Authenti
  * Cost: 0.10 USDC
  */
 router.post("/numbers/:id/call", requireAuth(0.10, "general", {
-  description: "Place an outbound phone call from a number you own, with optional TTS or audio playback.",
+  description: "Place an outbound phone call from a number you own or have shared access to, with optional TTS or audio playback.",
   category: "communications",
   tags: ["phone", "voice", "call", "dial", "outbound"],
 }), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    if (denyIfNotNumberAccess(req, res, String(req.params.id))) return;
     const { to, tts, ttsVoice, audioUrl, record, timeoutSecs } = req.body as {
       to: string;
       tts?: string;
@@ -400,7 +530,7 @@ router.post("/numbers/:id/call", requireAuth(0.10, "general", {
  */
 router.get("/numbers/:id/calls", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotNumberOwner(req, res, String(req.params.id))) return;
+    if (denyIfNotNumberAccess(req, res, String(req.params.id))) return;
     const calls = voiceService.listCalls(String(req.params.id));
     res.json({ calls, count: calls.length });
   } catch (err: any) {
@@ -424,14 +554,9 @@ router.get("/messages/:id", requireAuth(0.005, "general", {
       res.status(404).json({ error: "Message Not Found", message: `No SMS message with id ${req.params.id}` });
       return;
     }
-    // Owner gate: only the wallet that owns the underlying number can read.
+    // Access gate: only wallets with use of the underlying number can read.
     // Without this, anyone with a wallet could enumerate message ids.
-    const number = phoneService.getNumber(msg.phoneNumberId);
-    const caller = req.payment?.payer || req.agentId;
-    if (number?.owner && caller && number.owner !== caller) {
-      res.status(403).json({ error: "Forbidden", message: "Message belongs to a phone number you do not own" });
-      return;
-    }
+    if (denyIfNotNumberAccess(req, res, msg.phoneNumberId)) return;
     res.json(msg);
   } catch (err: any) {
     res.status(500).json({ error: "Failed to get message", message: err.message });
@@ -449,7 +574,7 @@ router.get("/calls/:id", requireAuth(0.02, "general", { discoverable: false }), 
       res.status(404).json({ error: "Call not found" });
       return;
     }
-    if (denyIfNotNumberOwner(req, res, call.phoneNumberId)) return;
+    if (denyIfNotNumberAccess(req, res, call.phoneNumberId)) return;
     res.json(call);
   } catch (err: any) {
     res.status(500).json({ error: "Failed to get call", message: err.message });
@@ -462,7 +587,7 @@ router.get("/calls/:id", requireAuth(0.02, "general", { discoverable: false }), 
  */
 router.post("/calls/:callControlId/speak", requireAuth(0.08, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
+    if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     const { text, voice, language } = req.body as { text: string; voice?: string; language?: string };
     if (!text) {
       res.status(400).json({ error: "Missing 'text' field" });
@@ -481,7 +606,7 @@ router.post("/calls/:callControlId/speak", requireAuth(0.08, "general"), async (
  */
 router.post("/calls/:callControlId/play", requireAuth(0.08, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
+    if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     const { audioUrl } = req.body as { audioUrl: string };
     if (!audioUrl) {
       res.status(400).json({ error: "Missing 'audioUrl' field" });
@@ -500,7 +625,7 @@ router.post("/calls/:callControlId/play", requireAuth(0.08, "general", { discove
  */
 router.post("/calls/:callControlId/dtmf", requireAuth(0.02, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
+    if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     const { digits } = req.body as { digits: string };
     if (!digits) {
       res.status(400).json({ error: "Missing 'digits' field", hint: "e.g. '1234#'" });
@@ -519,7 +644,7 @@ router.post("/calls/:callControlId/dtmf", requireAuth(0.02, "general", { discove
  */
 router.post("/calls/:callControlId/gather", requireAuth(0.08, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
+    if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     const { minDigits, maxDigits, timeoutMillis, terminatingDigit, prompt, promptVoice } = req.body as any;
     await voiceService.gatherDtmf(String(req.params.callControlId), {
       minDigits, maxDigits, timeoutMillis, terminatingDigit, prompt, promptVoice,
@@ -536,7 +661,7 @@ router.post("/calls/:callControlId/gather", requireAuth(0.08, "general"), async 
  */
 router.post("/calls/:callControlId/record", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
+    if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     const { format } = req.body as { format?: string };
     await voiceService.startRecording(String(req.params.callControlId), format);
     res.json({ success: true, message: "Recording started" });
@@ -551,7 +676,7 @@ router.post("/calls/:callControlId/record", requireAuth(0.10, "general"), async 
  */
 router.post("/calls/:callControlId/record/stop", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
+    if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     await voiceService.stopRecording(String(req.params.callControlId));
     res.json({ success: true, message: "Recording stopped" });
   } catch (err: any) {
@@ -565,7 +690,7 @@ router.post("/calls/:callControlId/record/stop", requireAuth(0.02, "general"), a
  */
 router.post("/calls/:callControlId/hangup", requireAuth(0.02, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
+    if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     await voiceService.hangup(String(req.params.callControlId));
     res.json({ success: true, message: "Call ended" });
   } catch (err: any) {
@@ -579,7 +704,7 @@ router.post("/calls/:callControlId/hangup", requireAuth(0.02, "general"), async 
  */
 router.post("/calls/:callControlId/answer", requireAuth(0.02, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
+    if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     await voiceService.answer(String(req.params.callControlId));
     res.json({ success: true, message: "Call answered" });
   } catch (err: any) {
@@ -593,7 +718,7 @@ router.post("/calls/:callControlId/answer", requireAuth(0.02, "general", { disco
  */
 router.post("/calls/:callControlId/transfer", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
-    if (denyIfNotCallOwner(req, res, String(req.params.callControlId))) return;
+    if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     const { to } = req.body as { to: string };
     if (!to) {
       res.status(400).json({ error: "Missing 'to' field" });

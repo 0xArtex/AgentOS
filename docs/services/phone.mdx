@@ -9,7 +9,7 @@ icon: "phone"
 Palmyr provisions real phone numbers by country (`ISO-2`), sends and reads SMS, and places outbound voice calls. Each action is billed per-call in USDC over x402, and the wallet that signs the payment owns the number.
 
 <Note>
-  The wallet that pays for `buy` owns the number — only that wallet can read, send, call, or release it. Pre-flight validation rejects malformed `E.164` numbers and unsupported destinations *before* any charge, so you never pay for a request that cannot complete.
+  The wallet that pays for `buy` owns the number — only that wallet (and any wallets it `share`s with) can read, send, call, or release it. Pre-flight validation rejects malformed `E.164` numbers and unsupported destinations *before* any charge, so you never pay for a request that cannot complete.
 </Note>
 
 ## Quickstart
@@ -40,6 +40,9 @@ The `<ID>` is returned by `buy` and identifies the number you own.
 | `palmyr phone sms --id <ID> --to +1... --body "..."` | $0.05 | Send SMS. |
 | `palmyr phone delete --id <ID>` | $0.01 | Release the number. |
 | `palmyr phone call --id <ID> --to +1... [--tts "..."]` | $0.10 | Outbound dial with optional text-to-speech on connect. |
+| `palmyr phone transfer-ownership --id <ID> --to <wallet>` | $0.01 | Hand the number to another wallet. Clears shared access — the prior owner's collaborators don't travel with the number. |
+| `palmyr phone share --id <ID> --with <wallet>` | $0.01 | Grant another wallet shared use (send/read SMS, place calls). Owner-only. |
+| `palmyr phone unshare --id <ID> --from <wallet>` | $0.01 | Revoke a shared wallet's use. Owner-only. |
 
 ## Voice calls
 
@@ -49,10 +52,22 @@ The `<ID>` is returned by `buy` and identifies the number you own.
   Live call control — `speak`, `play`, `dtmf`, `gather`, `record`, `hangup`, and `transfer` — is exposed through the SDK and the REST API rather than the CLI. Drive an in-progress call programmatically over those surfaces.
 </Info>
 
+## Ownership & sharing
+
+- **`share`** grants another wallet shared use of a number you own — it shows up in their `phone list` (tagged `access: shared`) and they can send and read SMS, place calls, and drive live-call controls. Ownership stays with you; shared wallets cannot release, transfer, or re-share the number. Owner-only.
+- **`unshare`** revokes a previously shared wallet's use. Owner-only.
+- **`transfer-ownership`** hands the number to another wallet entirely. It clears the shared list, so the prior owner's collaborators do **not** travel with the number — the new owner starts clean.
+
+The `$0.01` charge on these is an **ownership proof**: the signing wallet pays a trivial amount to prove it controls the number before the action runs.
+
+<Warning>
+  `transfer-ownership` is irreversible from your side once the new wallet owns the number — double-check the `--to <wallet>` address.
+</Warning>
+
 ## Safety
 
 - **`E.164` pre-flight.** `palmyr phone sms` and `palmyr phone call` validate the destination and reject malformed `E.164` numbers or unsupported destinations before charging, so a doomed request costs nothing.
-- **Ownership.** The wallet that paid for `buy` is the only one that can read, send, call, or release the number. Release it with `palmyr phone delete` for $0.01 when you no longer need it.
+- **Ownership.** Only the wallet that paid for `buy` — plus any wallets it shared the number with — can read, send, or call from the number. Release stays owner-only: `palmyr phone delete` for $0.01 when you no longer need it.
 
 ## See also
 

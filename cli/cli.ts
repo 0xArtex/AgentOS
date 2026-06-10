@@ -445,7 +445,7 @@ const PHONE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
     { flag: '(example)', desc: 'palmyr phone call --id PN_abc --to +15551234567 --tts "hello"' },
   ],
   list: [
-    { flag: '(no args)', desc: 'List phone numbers owned by your wallet' },
+    { flag: '(no args)', desc: 'List phone numbers owned by or shared with your wallet (rows tagged access: owner/shared)' },
     { flag: '(price)', desc: '$0.01 per call' },
     { flag: '(example)', desc: 'palmyr phone list --json' },
   ],
@@ -472,6 +472,24 @@ const PHONE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
     { flag: '--id <PHONE_ID>', desc: 'Phone number id to release (required; positional also accepted)' },
     { flag: '(price)', desc: '$0.01 per release (stops monthly Telnyx billing)' },
     { flag: '(example)', desc: 'palmyr phone release --id PN_abc' },
+  ],
+  'transfer-ownership': [
+    { flag: '--id <PHONE_ID>', desc: 'Phone number id to transfer (required; positional also accepted)' },
+    { flag: '--to <wallet>', desc: 'New owner — Solana (base58) or EVM (0x…) wallet (required)' },
+    { flag: '(price)', desc: '$0.01 ownership proof. Clears shared access — collaborators don’t travel with the number' },
+    { flag: '(example)', desc: 'palmyr phone transfer-ownership --id PN_abc --to <wallet>' },
+  ],
+  share: [
+    { flag: '--id <PHONE_ID>', desc: 'Phone number id to share (required; positional also accepted)' },
+    { flag: '--with <wallet>', desc: 'Wallet to grant shared use — can send/read SMS and place calls (required)' },
+    { flag: '(price)', desc: '$0.01 ownership proof. Owner-only; ownership stays with you' },
+    { flag: '(example)', desc: 'palmyr phone share --id PN_abc --with <wallet>' },
+  ],
+  unshare: [
+    { flag: '--id <PHONE_ID>', desc: 'Phone number id (required; positional also accepted)' },
+    { flag: '--from <wallet>', desc: 'Wallet to revoke shared use from (required; --wallet alias accepted)' },
+    { flag: '(price)', desc: '$0.01 ownership proof. Owner-only' },
+    { flag: '(example)', desc: 'palmyr phone unshare --id PN_abc --from <wallet>' },
   ],
   'call-info': [
     { flag: '--call <CALL_ID>', desc: 'Call control id (required; --id and positional also accepted)' },
@@ -1475,8 +1493,11 @@ async function main() {
             commands: [
               { name: 'search', description: 'Search available numbers', hint: '--country US' },
               { name: 'buy', description: 'Buy a phone number', hint: '--country US' },
-              { name: 'list', description: 'List numbers owned by your wallet' },
+              { name: 'list', description: 'List numbers owned by or shared with your wallet' },
               { name: 'release', description: 'Release a phone number', hint: '--id PHONE_ID' },
+              { name: 'transfer-ownership', description: 'Hand a number to another wallet', hint: '--id PHONE_ID --to <wallet>' },
+              { name: 'share', description: 'Grant another wallet shared use of a number', hint: '--id PHONE_ID --with <wallet>' },
+              { name: 'unshare', description: 'Revoke a wallet’s shared use', hint: '--id PHONE_ID --from <wallet>' },
               { name: 'sms', description: 'Send an SMS', hint: '--id ID --to +1... --body "hi"' },
               { name: 'messages', description: 'Read SMS messages received on a number', hint: '--id PHONE_ID' },
               { name: 'message', description: 'Get one SMS message by id (incl. delivery status)', hint: '--id MESSAGE_ID' },
@@ -1603,6 +1624,33 @@ async function main() {
             const data = await ao.phoneRelease(id)
             return print(data)
           }
+          case 'transfer-ownership': {
+            const id = (flags.id as string) || positional[0]
+            const to = (flags.to as string) || positional[1]
+            if (!id) err('--id PHONE_ID required')
+            if (!to) err('--to <wallet> required')
+            const data = await ao.phoneTransferOwnership(id, to)
+            log(`phone transfer-ownership: ${id} → ${to}`)
+            return print(data)
+          }
+          case 'share': {
+            const id = (flags.id as string) || positional[0]
+            const withWallet = (flags.with as string) || (flags.wallet as string)
+            if (!id) err('--id PHONE_ID required')
+            if (!withWallet) err('--with <wallet> required')
+            const data = await ao.phoneShare(id, withWallet)
+            log(`phone share: ${id} → ${withWallet}`)
+            return print(data)
+          }
+          case 'unshare': {
+            const id = (flags.id as string) || positional[0]
+            const targetWallet = (flags.from as string) || (flags.wallet as string)
+            if (!id) err('--id PHONE_ID required')
+            if (!targetWallet) err('--from <wallet> required')
+            const data = await ao.phoneUnshare(id, targetWallet)
+            log(`phone unshare: ${id} ✗ ${targetWallet}`)
+            return print(data)
+          }
           case 'call-info': {
             const callId = (flags.call as string) || (flags.id as string) || positional[0]
             if (!callId) err('--call CALL_CONTROL_ID required')
@@ -1684,7 +1732,7 @@ async function main() {
             const data = await ao.phoneTransfer(callId, to)
             return print(data)
           }
-          default: err(`Unknown phone command: ${subcommand}. Try: search, buy, list, release, sms, messages, call, calls, call-info, speak, play, dtmf, gather, record, record-stop, hangup, answer, transfer`)
+          default: err(`Unknown phone command: ${subcommand}. Try: search, buy, list, release, transfer-ownership, share, unshare, sms, messages, call, calls, call-info, speak, play, dtmf, gather, record, record-stop, hangup, answer, transfer`)
         }
         break
       }

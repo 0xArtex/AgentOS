@@ -47,6 +47,14 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_phone_numbers_owner ON phone_numbers(owner);
   `);
 
+  // JSON array of wallet addresses granted shared use (send/read/call on the
+  // number — but cannot release, re-transfer, or unshare). Same shape as
+  // domains.shared_with. Probe PRAGMA since SQLite has no IF NOT EXISTS on columns.
+  const phoneCols = db.prepare("PRAGMA table_info(phone_numbers)").all() as Array<{ name: string }>;
+  if (!phoneCols.some(c => c.name === 'shared_with')) {
+    db.exec("ALTER TABLE phone_numbers ADD COLUMN shared_with TEXT DEFAULT '[]'");
+  }
+
   // SMS Messages table
   db.exec(`
     CREATE TABLE IF NOT EXISTS sms_messages (
