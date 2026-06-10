@@ -428,7 +428,9 @@ export function initDatabase(): void {
   // CREATE TABLE shipped, so guard against the 'duplicate column' on re-run.
   try { db.exec("ALTER TABLE servers ADD COLUMN openclaw_configured INTEGER DEFAULT 0"); } catch {}
 
-  // API Keys table
+  // Vestigial: the managed third-party API-key feature was removed (it only
+  // ever issued fake stub keys). The table is retained, inert, so legacy
+  // hackathon stat routes that COUNT(*) it keep returning 0 instead of throwing.
   db.exec(`
     CREATE TABLE IF NOT EXISTS api_keys (
       id TEXT PRIMARY KEY,

@@ -23,7 +23,6 @@ const GROUPS: CapabilityGroup[] = [
   { key: "compute",  label: "Compute",  test: n => /^(deploy_vps|list_vps|get_vps|vps_|create_ssh_key|list_ssh_keys|delete_ssh_key|install_skill|install_skills_bulk|remove_skill|configure_openclaw|configure_vps_wallet)$/.test(n) },
   { key: "twitter",  label: "Twitter",  test: n => n.startsWith("twitter_") },
   { key: "tiktok",   label: "TikTok",   test: n => n.startsWith("tiktok_") },
-  { key: "keys",     label: "Keys",     test: n => n === "issue_api_key" },
   { key: "compound", label: "Compound", test: n => !!CAPABILITY_CLASSES[n]?.isCompound },
   { key: "dispatch", label: "Dispatch", test: n => n === "social_post" || n === "social_account_provision" },
 ];

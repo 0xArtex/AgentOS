@@ -115,7 +115,7 @@ describe("i402 registry coverage", () => {
   });
 
   it("spot-checks: critical route files exist in src/routes/", () => {
-    for (const route of ["phone", "email", "domains", "compute", "social", "apikeys"]) {
+    for (const route of ["phone", "email", "domains", "compute", "social"]) {
       assert.ok(routeFileExists(`/${route}`), `expected src/routes/${route}.ts to exist`);
     }
   });

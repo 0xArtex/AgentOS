@@ -538,14 +538,6 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     outputSchema: { success: "boolean", data: "object ({ updated: boolean })" },
   },
 
-  // ── API keys ──
-  issue_api_key: {
-    name: "issue_api_key",
-    description: "Issue an API key for a third-party service, wallet-scoped. The secret field is shown only on creation.",
-    inputSchema: { provider: "string (brave_search|helius|openai|anthropic|elevenlabs|custom)", label: "string?" },
-    outputSchema: { id: "string", provider: "string", label: "string", secret: "string (only shown once)", owner: "string", priceUsdc: "number", active: "boolean", createdAt: "iso8601" },
-  },
-
   // ── Compound capabilities ──
   launch_product: {
     name: "launch_product",
@@ -1012,11 +1004,6 @@ export function seedPalmyrPrimitives(): void {
     }),
     p("palmyr.tiktok_update_avatar", "tiktok_update_avatar", "/social/tiktok/avatar", {
       costUsdc: 0.005, p50: 8000, reputation: 0.7,
-    }),
-
-    // ── API keys ──
-    p("palmyr.issue_api_key", "issue_api_key", "/apikeys", {
-      costUsdc: 1.0, p50: 400,
     }),
 
     // ── Legacy platform-dispatch providers kept for the existing social_post/social_account_provision capability classes ──

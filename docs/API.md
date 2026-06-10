@@ -20,7 +20,6 @@
   - [Domains](#domains)
   - [Compute](#compute)
   - [TikTok](#tiktok)
-  - [API Keys](#api-keys)
 
 ---
 
@@ -188,7 +187,6 @@ Rate limiting is applied per payer wallet address (or IP if no payment).
 **Rate-limited endpoints:**
 - `POST /phone/numbers` — 10 requests per 60 seconds
 - `POST /compute/servers` — 5 requests per 60 seconds
-- `POST /apikeys` — 10 requests per 60 seconds
 
 **429 Response:**
 ```json
@@ -216,7 +214,7 @@ Service info (no payment required).
   "version": "0.1.0",
   "status": "operational",
   "docs": "https://github.com/0xArtex/Palmyr",
-  "services": ["phone", "email", "domains", "compute", "apikeys"]
+  "services": ["phone", "email", "domains", "compute"]
 }
 ```
 
@@ -268,11 +266,6 @@ Full pricing table (no payment required).
       "upload_ssh_key": "0.10",
       "list_ssh_keys": "0.01",
       "delete_ssh_key": "0.01"
-    },
-    "apikeys": {
-      "provision_key": "1.00",
-      "list_keys": "0.01",
-      "revoke_key": "0.01"
     }
   }
 }
@@ -1153,113 +1146,6 @@ Update bio and/or display name. **$0.001.** Body adds: `{ bio?, display_name? }`
 Update the profile photo. **$0.005.** Body adds: `{ image_base64? | image_url? }`.
 
 ---
-
-### API Keys
-
-#### `POST /apikeys`
-
-Provision a new API key for a third-party service.
-
-| Field | Details |
-|-------|---------|
-| **Cost** | 1.00 USDC |
-| **Rate Limit** | 10 req / 60s |
-
-**Request:**
-```bash
-curl -X POST https://palmyr.ai/apikeys \
-  -H "Content-Type: application/json" \
-  -H "X-Payment: <tx-signature>" \
-  -d '{
-    "provider": "openai",
-    "label": "my-agent-key"
-  }'
-```
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `provider` | string | ✅ | Provider: `brave_search`, `helius`, `openai`, `anthropic`, `elevenlabs`, `custom` |
-| `label` | string | ❌ | Human-readable label |
-
-**Provider Pricing:**
-
-| Provider | Cost |
-|----------|------|
-| `brave_search` | 1.00 USDC |
-| `helius` | 2.00 USDC |
-| `openai` | 1.00 USDC |
-| `anthropic` | 1.00 USDC |
-| `elevenlabs` | 1.00 USDC |
-| `custom` | 0.50 USDC |
-
-**Response (201):**
-```json
-{
-  "id": "key_mno345",
-  "provider": "openai",
-  "label": "my-agent-key",
-  "secret": "sk-...",
-  "owner": "7xKXt...",
-  "priceUsdc": "1.00",
-  "active": true,
-  "createdAt": "2025-01-15T10:30:00Z"
-}
-```
-
----
-
-#### `GET /apikeys`
-
-List all active API keys for the payer.
-
-| Field | Details |
-|-------|---------|
-| **Cost** | 0.01 USDC |
-
-**Request:**
-```bash
-curl https://palmyr.ai/apikeys \
-  -H "X-Payment: <tx-signature>"
-```
-
-**Response (200):**
-```json
-{
-  "keys": [
-    {
-      "id": "key_mno345",
-      "provider": "openai",
-      "label": "my-agent-key",
-      "active": true,
-      "createdAt": "2025-01-15T10:30:00Z"
-    }
-  ]
-}
-```
-
----
-
-#### `DELETE /apikeys/:id`
-
-Revoke an API key.
-
-| Field | Details |
-|-------|---------|
-| **Cost** | 0.01 USDC |
-
-**Request:**
-```bash
-curl -X DELETE https://palmyr.ai/apikeys/key_mno345 \
-  -H "X-Payment: <tx-signature>"
-```
-
-**Response (200):**
-```json
-{
-  "revoked": true,
-  "id": "key_mno345"
-}
-```
 
 ---
 

@@ -1,4 +1,4 @@
-import { PhoneNumber, SmsMessage, EmailInbox, EmailMessage, Domain, DnsRecord, Server, ApiKey } from "../types";
+import { PhoneNumber, SmsMessage, EmailInbox, EmailMessage, Domain, DnsRecord, Server } from "../types";
 import { db } from "../db";
 
 function rowToPhoneNumber(row: any): PhoneNumber {
@@ -439,57 +439,6 @@ class Storage {
       createdAt: row.created_at,
       rootPassword: row.root_password,
       openclawConfigured: !!row.openclaw_configured,
-    }));
-  }
-
-  // ── API Keys ──────────────────────────────────────────────
-
-  setApiKey(id: string, key: ApiKey): void {
-    const stmt = db.prepare(`
-      INSERT OR REPLACE INTO api_keys (id, provider, label, secret, owner, price_usdc, active, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-    stmt.run(id, key.provider, key.label, key.secret, key.owner, key.priceUsdc, key.active ? 1 : 0, key.createdAt);
-  }
-
-  getApiKey(id: string): ApiKey | undefined {
-    const stmt = db.prepare('SELECT * FROM api_keys WHERE id = ?');
-    const row = stmt.get(id) as any;
-    if (!row) return undefined;
-
-    return {
-      id: row.id,
-      provider: row.provider,
-      label: row.label,
-      secret: row.secret,
-      owner: row.owner,
-      priceUsdc: row.price_usdc,
-      active: Boolean(row.active),
-      createdAt: row.created_at
-    };
-  }
-
-  listApiKeys(owner?: string): ApiKey[] {
-    let stmt;
-    let rows: any[];
-    
-    if (owner) {
-      stmt = db.prepare('SELECT * FROM api_keys WHERE owner = ? AND active = 1 ORDER BY created_at DESC');
-      rows = stmt.all(owner);
-    } else {
-      stmt = db.prepare('SELECT * FROM api_keys WHERE active = 1 ORDER BY created_at DESC');
-      rows = stmt.all();
-    }
-
-    return rows.map(row => ({
-      id: row.id,
-      provider: row.provider,
-      label: row.label,
-      secret: row.secret,
-      owner: row.owner,
-      priceUsdc: row.price_usdc,
-      active: Boolean(row.active),
-      createdAt: row.created_at
     }));
   }
 

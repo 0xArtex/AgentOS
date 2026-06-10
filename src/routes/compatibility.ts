@@ -72,7 +72,7 @@ router.get("/", (_req: Request, res: Response) => {
       any: { supported: true, note: "Any language with HTTP support works" }
     },
     requirements: {
-      auth: "x-api-key header (get key from /api/apikeys)",
+      auth: "x402 USDC payment, or a Bearer agent token from POST /wallet/{id}/api-key",
       payment: "x402 USDC on Solana (FREE during hackathon with X-Agent-Id header)",
       format: "JSON REST API",
       docs: "http://77.42.89.233:3001/docs"
