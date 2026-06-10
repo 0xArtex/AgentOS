@@ -105,15 +105,24 @@ export async function provisionNumber(
 }
 
 /**
- * Get all messages for a phone number. Owner scope is enforced — callers
+ * True when `wallet` may use this number — the owner or a wallet the owner
+ * shared it with. Owner-only actions (release, transfer, share) must check
+ * `number.owner` directly instead.
+ */
+export function hasNumberAccess(number: PhoneNumber, wallet: string): boolean {
+  return number.owner === wallet || (number.sharedWith || []).includes(wallet);
+}
+
+/**
+ * Get all messages for a phone number. Access scope is enforced — callers
  * must present their identity; we refuse to return messages for a number
- * they do not own.
+ * they neither own nor have shared access to.
  */
 export function getMessages(phoneNumberId: string, owner?: string): SmsMessage[] {
   const number = storage.getPhoneNumber(phoneNumberId);
   if (!number) throw new Error(`Phone number ${phoneNumberId} not found`);
-  if (owner && number.owner && number.owner !== owner) {
-    const err = new Error(`You do not own phone number ${phoneNumberId}`);
+  if (owner && number.owner && !hasNumberAccess(number, owner)) {
+    const err = new Error(`You do not have access to phone number ${phoneNumberId}`);
     (err as any).statusCode = 403;
     throw err;
   }
@@ -232,10 +241,42 @@ export function getNumber(id: string): PhoneNumber | undefined {
 }
 
 /**
- * List all phone numbers for an owner.
+ * List all phone numbers a wallet owns or has shared access to.
  */
-export function listNumbers(owner: string): PhoneNumber[] {
-  return storage.getPhoneNumbersByOwner(owner);
+export function listNumbers(wallet: string): PhoneNumber[] {
+  return storage.getPhoneNumbersByWallet(wallet);
+}
+
+/**
+ * Move a number to a new owner. Clears sharedWith — the previous owner's
+ * collaborators don't travel with the number.
+ */
+export function transferNumber(phoneNumberId: string, newOwner: string): PhoneNumber {
+  const number = storage.getPhoneNumber(phoneNumberId);
+  if (!number) throw new Error(`Phone number ${phoneNumberId} not found`);
+  number.owner = newOwner;
+  number.sharedWith = [];
+  storage.setPhoneNumber(phoneNumberId, number);
+  return number;
+}
+
+/** Grant a wallet shared use of a number (idempotent). Returns the updated list. */
+export function shareNumber(phoneNumberId: string, wallet: string): string[] {
+  const number = storage.getPhoneNumber(phoneNumberId);
+  if (!number) throw new Error(`Phone number ${phoneNumberId} not found`);
+  const current = number.sharedWith || [];
+  number.sharedWith = current.includes(wallet) ? current : [...current, wallet];
+  storage.setPhoneNumber(phoneNumberId, number);
+  return number.sharedWith;
+}
+
+/** Revoke a wallet's shared use of a number. Returns the updated list. */
+export function unshareNumber(phoneNumberId: string, wallet: string): string[] {
+  const number = storage.getPhoneNumber(phoneNumberId);
+  if (!number) throw new Error(`Phone number ${phoneNumberId} not found`);
+  number.sharedWith = (number.sharedWith || []).filter(w => w !== wallet);
+  storage.setPhoneNumber(phoneNumberId, number);
+  return number.sharedWith;
 }
 
 /**

@@ -38,6 +38,8 @@ export interface PhoneNumber {
   owner: string;
   provisionedAt: string;
   active: boolean;
+  /** Wallets granted shared use (send/read/call) — cannot release, transfer, or re-share */
+  sharedWith?: string[];
 }
 
 export interface SmsMessage {

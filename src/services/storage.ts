@@ -1,6 +1,23 @@
 import { PhoneNumber, SmsMessage, EmailInbox, EmailMessage, Domain, DnsRecord, Server, ApiKey } from "../types";
 import { db } from "../db";
 
+function rowToPhoneNumber(row: any): PhoneNumber {
+  let sharedWith: string[] = [];
+  try {
+    const parsed = JSON.parse(row.shared_with || "[]");
+    if (Array.isArray(parsed)) sharedWith = parsed.filter((w: any) => typeof w === "string");
+  } catch { /* malformed column — treat as unshared */ }
+  return {
+    id: row.id,
+    phoneNumber: row.phone_number,
+    country: row.country,
+    owner: row.owner,
+    provisionedAt: row.provisioned_at,
+    active: Boolean(row.active),
+    sharedWith,
+  };
+}
+
 function rowToSmsMessage(row: any): SmsMessage {
   return {
     id: row.id,
@@ -25,55 +42,39 @@ class Storage {
 
   setPhoneNumber(id: string, record: PhoneNumber): void {
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO phone_numbers (id, phone_number, country, owner, provisioned_at, active)
-      VALUES (?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO phone_numbers (id, phone_number, country, owner, provisioned_at, active, shared_with)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, record.phoneNumber, record.country, record.owner, record.provisionedAt, record.active ? 1 : 0);
+    stmt.run(id, record.phoneNumber, record.country, record.owner, record.provisionedAt, record.active ? 1 : 0, JSON.stringify(record.sharedWith || []));
   }
 
   getPhoneNumber(id: string): PhoneNumber | undefined {
     const stmt = db.prepare('SELECT * FROM phone_numbers WHERE id = ?');
     const row = stmt.get(id) as any;
     if (!row) return undefined;
-
-    return {
-      id: row.id,
-      phoneNumber: row.phone_number,
-      country: row.country,
-      owner: row.owner,
-      provisionedAt: row.provisioned_at,
-      active: Boolean(row.active)
-    };
+    return rowToPhoneNumber(row);
   }
 
-  getPhoneNumbersByOwner(owner: string): PhoneNumber[] {
-    const stmt = db.prepare('SELECT * FROM phone_numbers WHERE owner = ? ORDER BY provisioned_at DESC');
-    const rows = stmt.all(owner) as any[];
-    return rows.map(row => ({
-      id: row.id,
-      phoneNumber: row.phone_number,
-      country: row.country,
-      owner: row.owner,
-      provisionedAt: row.provisioned_at,
-      active: Boolean(row.active),
-    }));
+  /** Numbers the wallet owns OR has shared access to. The LIKE pre-filters
+   *  by substring (SQLite can't query JSON arrays natively); the JS filter
+   *  is the authority. */
+  getPhoneNumbersByWallet(wallet: string): PhoneNumber[] {
+    const stmt = db.prepare(`
+      SELECT * FROM phone_numbers
+      WHERE owner = ? OR shared_with LIKE ?
+      ORDER BY provisioned_at DESC
+    `);
+    const rows = stmt.all(wallet, `%${wallet}%`) as any[];
+    return rows
+      .map(rowToPhoneNumber)
+      .filter(n => n.owner === wallet || (n.sharedWith || []).includes(wallet));
   }
 
   findPhoneByNumber(phoneNumber: string): [string, PhoneNumber] | undefined {
     const stmt = db.prepare('SELECT * FROM phone_numbers WHERE phone_number = ?');
     const row = stmt.get(phoneNumber) as any;
     if (!row) return undefined;
-
-    const phone: PhoneNumber = {
-      id: row.id,
-      phoneNumber: row.phone_number,
-      country: row.country,
-      owner: row.owner,
-      provisionedAt: row.provisioned_at,
-      active: Boolean(row.active)
-    };
-    
-    return [row.id, phone];
+    return [row.id, rowToPhoneNumber(row)];
   }
 
   initSmsMessages(phoneNumberId: string): void {
