@@ -280,6 +280,34 @@ function headers() {
   };
 }
 
+/**
+ * Typed Hetzner API failure. `code` is Hetzner's machine-readable error code
+ * (`resource_unavailable`, `resource_limit_exceeded`, `uniqueness_error`, ...)
+ * so route handlers can map failures to the right HTTP status + agent-readable
+ * guidance instead of forwarding a raw JSON blob inside a 502.
+ */
+export class HcloudApiError extends Error {
+  status: number;
+  code: string | null;
+  hcloudMessage: string | null;
+
+  constructor(method: string, path: string, status: number, bodyText: string) {
+    let code: string | null = null;
+    let msg: string | null = null;
+    try {
+      const parsed = JSON.parse(bodyText);
+      code = parsed?.error?.code ?? null;
+      msg = parsed?.error?.message ?? null;
+    } catch {
+      // non-JSON body — keep the raw text in the Error message below
+    }
+    super(`Hetzner API ${method} ${path} failed (${status}): ${msg || bodyText}`);
+    this.status = status;
+    this.code = code;
+    this.hcloudMessage = msg;
+  }
+}
+
 async function hcloud(method: string, path: string, body?: any): Promise<any> {
   const res = await fetch(`${HCLOUD_API}${path}`, {
     method,
@@ -288,10 +316,35 @@ async function hcloud(method: string, path: string, body?: any): Promise<any> {
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Hetzner API ${method} ${path} failed (${res.status}): ${text}`);
+    throw new HcloudApiError(method, path, res.status, text);
   }
   if (res.status === 204) return null;
   return res.json();
+}
+
+// ── Platform-capacity circuit breaker ─────────────────────────
+//
+// `resource_limit_exceeded` (e.g. "Primary IP limit exceeded") is OUR Hetzner
+// project hitting an account-wide quota — every deploy will fail identically
+// until ops raises the limit or a server is deleted. Once we've seen it,
+// fail deploys BEFORE payment for a cool-off window instead of charging each
+// agent $6 just to refund them seconds later.
+
+const CAPACITY_COOLOFF_MS = 10 * 60 * 1000;
+let capacityErrorAt = 0;
+
+export function notePlatformCapacityError(): void {
+  capacityErrorAt = Date.now();
+}
+
+export function clearPlatformCapacityError(): void {
+  capacityErrorAt = 0;
+}
+
+/** Seconds until deploys should be retried, or 0 when the breaker is closed. */
+export function platformCapacityRetryAfterSeconds(): number {
+  const remaining = capacityErrorAt + CAPACITY_COOLOFF_MS - Date.now();
+  return remaining > 0 ? Math.ceil(remaining / 1000) : 0;
 }
 
 /**
@@ -364,6 +417,9 @@ export async function createServer(
 
   const data = await hcloud("POST", "/servers", payload);
   const s = data.server;
+
+  // A successful create proves the account-wide quota has headroom again.
+  clearPlatformCapacityError();
 
   // Cloud-init disables password auth — once it runs, the password Hetzner
   // returned is no good. Tell the caller so they don't ship it to the user.
@@ -587,7 +643,16 @@ export function getLocations(): LocationInfo[] {
 
 // Re-exports so route code can stay on the `computeService.*` namespace
 // instead of pulling from two different services.
-export { isValidLocation, isTypeAvailableInLocation, locationsForType } from "./hcloud-types";
+export {
+  isValidLocation,
+  isTypeAvailableInLocation,
+  isTypeSupportedInLocation,
+  locationsForType,
+  ensureFreshAvailability,
+  hasLocationData,
+  isValidServerType,
+  getServerPlans,
+} from "./hcloud-types";
 
 /**
  * Hetzner's hostname rules per their docs: lowercase RFC 1123 hostname, up

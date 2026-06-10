@@ -51,7 +51,7 @@ router.get("/", (_req, res) => {
         step: 5,
         title: "Launch Compute Instance",
         description: "Spin up an isolated server for your agent",
-        curl: `curl -X POST ${baseUrl}/api/compute/provision -H "X-Agent-Id: your-agent-name" -d '{"type":"cx22","image":"ubuntu-22.04"}'`,
+        curl: `curl -X POST ${baseUrl}/api/compute/provision -H "X-Agent-Id: your-agent-name" -d '{"type":"cx23","image":"ubuntu-24.04"}'`,
         whatYouGet: "Server IP, SSH credentials, specs"
       },
       {

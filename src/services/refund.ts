@@ -69,26 +69,35 @@ db.exec(`
 
 let _solKeypair: Keypair | null = null;
 let _evmWallet: any = null;
+// Why the treasury signer is unusable — surfaced in the refund error instead
+// of a blanket "not configured" that hides key-mismatch/parse problems.
+let _solDisabledReason: string | null = null;
+let _evmDisabledReason: string | null = null;
 
 function loadSolTreasury(): Keypair | null {
   if (_solKeypair) return _solKeypair;
   const raw = process.env.TREASURY_SOL_PRIVATE_KEY || process.env.SVM_PRIVATE_KEY;
-  if (!raw) return null;
+  if (!raw) {
+    _solDisabledReason = "TREASURY_SOL_PRIVATE_KEY not configured";
+    return null;
+  }
   try {
     _solKeypair = Keypair.fromSecretKey(bs58.decode(raw));
     // Sanity: refunds MUST originate from the address advertised as `payTo`
     // in x402 responses, otherwise treasury funds drain from the wrong wallet
     // and the payer can't reconcile the refund tx against their original payment.
     if (_solKeypair.publicKey.toBase58() !== config.treasuryWallet) {
-      console.error(
-        `[refund] TREASURY_SOL_PRIVATE_KEY pubkey ${_solKeypair.publicKey.toBase58()} ` +
-        `does not match TREASURY_WALLET ${config.treasuryWallet}. Refunds disabled on Solana.`
-      );
+      _solDisabledReason =
+        `TREASURY_SOL_PRIVATE_KEY pubkey ${_solKeypair.publicKey.toBase58()} ` +
+        `does not match TREASURY_WALLET ${config.treasuryWallet}`;
+      console.error(`[refund] ${_solDisabledReason}. Refunds disabled on Solana.`);
       _solKeypair = null;
       return null;
     }
+    _solDisabledReason = null;
     return _solKeypair;
   } catch (e: any) {
+    _solDisabledReason = `TREASURY_SOL_PRIVATE_KEY failed to parse: ${e.message}`;
     console.error("[refund] Failed to load TREASURY_SOL_PRIVATE_KEY:", e.message);
     return null;
   }
@@ -97,21 +106,26 @@ function loadSolTreasury(): Keypair | null {
 function loadEvmTreasury(): any {
   if (_evmWallet) return _evmWallet;
   const raw = process.env.TREASURY_EVM_PRIVATE_KEY;
-  if (!raw) return null;
+  if (!raw) {
+    _evmDisabledReason = "TREASURY_EVM_PRIVATE_KEY not configured";
+    return null;
+  }
   try {
     const { ethers } = require("ethers");
     const provider = new ethers.JsonRpcProvider(BASE_RPC);
     const wallet = new ethers.Wallet(raw, provider);
     if (wallet.address.toLowerCase() !== config.treasuryEvmWallet.toLowerCase()) {
-      console.error(
-        `[refund] TREASURY_EVM_PRIVATE_KEY address ${wallet.address} ` +
-        `does not match TREASURY_EVM_WALLET ${config.treasuryEvmWallet}. Refunds disabled on Base.`
-      );
+      _evmDisabledReason =
+        `TREASURY_EVM_PRIVATE_KEY address ${wallet.address} ` +
+        `does not match TREASURY_EVM_WALLET ${config.treasuryEvmWallet}`;
+      console.error(`[refund] ${_evmDisabledReason}. Refunds disabled on Base.`);
       return null;
     }
     _evmWallet = wallet;
+    _evmDisabledReason = null;
     return wallet;
   } catch (e: any) {
+    _evmDisabledReason = `TREASURY_EVM_PRIVATE_KEY failed to parse: ${e.message}`;
     console.error("[refund] Failed to load TREASURY_EVM_PRIVATE_KEY:", e.message);
     return null;
   }
@@ -179,25 +193,45 @@ export async function refundUsdcToPayer(opts: RefundOpts): Promise<RefundResult>
     return { ok: false, refundId, reason: "db_insert_failed: " + e.message };
   }
 
-  // Execute the on-chain transfer.
+  return executeRefundTransfer(refundId, opts.chain, opts.payer, opts.amountUsdc, opts.reason);
+}
+
+/**
+ * Run the on-chain transfer for an existing 'pending'/'failed' refund row and
+ * update its status. The tx hash is persisted AT BROADCAST (via onBroadcast),
+ * before confirmation — so a confirm timeout can never leave a row that looks
+ * never-attempted. Retry logic relies on this: rows with refund_tx IS NULL
+ * are guaranteed to have had nothing hit the chain and are safe to re-send.
+ */
+async function executeRefundTransfer(
+  refundId: string,
+  chain: "solana" | "base",
+  payer: string,
+  amountUsdc: number,
+  reason: string,
+): Promise<RefundResult> {
+  const onBroadcast = (tx: string) => {
+    db.prepare("UPDATE refunds SET refund_tx = ? WHERE id = ?").run(tx, refundId);
+  };
+
   let refundTx: string | null = null;
   let error: string | null = null;
   try {
-    if (opts.chain === "solana") {
-      refundTx = await sendSolanaRefund(opts.payer, opts.amountUsdc);
+    if (chain === "solana") {
+      refundTx = await sendSolanaRefund(payer, amountUsdc, onBroadcast);
     } else {
-      refundTx = await sendBaseRefund(opts.payer, opts.amountUsdc);
+      refundTx = await sendBaseRefund(payer, amountUsdc, onBroadcast);
     }
   } catch (e: any) {
     error = e?.message || String(e);
-    console.error(`[refund] [REFUND_FAILED] ${refundId} chain=${opts.chain} payer=${opts.payer} amount=${opts.amountUsdc} reason="${opts.reason}":`, error);
+    console.error(`[refund] [REFUND_FAILED] ${refundId} chain=${chain} payer=${payer} amount=${amountUsdc} reason="${reason}":`, error);
   }
 
   if (refundTx) {
     db.prepare(
-      "UPDATE refunds SET refund_tx = ?, status = 'sent', completed_at = datetime('now', 'utc') WHERE id = ?"
+      "UPDATE refunds SET refund_tx = ?, status = 'sent', error = NULL, completed_at = datetime('now', 'utc') WHERE id = ?"
     ).run(refundTx, refundId);
-    console.log(`[refund] [REFUND_SENT] ${refundId} ${opts.chain} ${opts.amountUsdc} USDC → ${opts.payer} tx=${refundTx} reason="${opts.reason}"`);
+    console.log(`[refund] [REFUND_SENT] ${refundId} ${chain} ${amountUsdc} USDC → ${payer} tx=${refundTx} reason="${reason}"`);
     return { ok: true, refundId, refundTx };
   }
 
@@ -207,7 +241,69 @@ export async function refundUsdcToPayer(opts: RefundOpts): Promise<RefundResult>
   return { ok: false, refundId, reason: error || "refund_failed" };
 }
 
-async function sendSolanaRefund(payerAddress: string, amountUsdc: number): Promise<string> {
+// Don't let two retry sweeps run concurrently — the refund_tx IS NULL guard
+// is read-then-send, so overlapping sweeps could double-pay the same row.
+let retryInflight = false;
+
+/**
+ * Re-attempt refunds that failed BEFORE anything was broadcast on-chain
+ * (refund_tx IS NULL — typically "treasury key not configured" or an RPC
+ * outage). Rows with a recorded tx are never retried automatically: the tx
+ * may have landed even if confirmation timed out, so those stay manual.
+ *
+ * Called at boot and on an interval, so configuring the treasury keys on a
+ * running deployment automatically drains the backlog of owed refunds.
+ */
+export async function retryFailedRefunds(limit: number = 50): Promise<{ retried: number; sent: number }> {
+  if (retryInflight) return { retried: 0, sent: 0 };
+  retryInflight = true;
+  try {
+    const rows = db.prepare(
+      "SELECT id, chain, payer, amount_usdc, reason FROM refunds " +
+      "WHERE status = 'failed' AND refund_tx IS NULL ORDER BY created_at ASC LIMIT ?"
+    ).all(limit) as Array<{ id: string; chain: "solana" | "base"; payer: string; amount_usdc: number; reason: string }>;
+    if (rows.length === 0) return { retried: 0, sent: 0 };
+
+    // Fast skip per chain when its treasury key still isn't loadable — no
+    // point re-failing every row just to rewrite the same error string.
+    const solReady = !!loadSolTreasury();
+    const evmReady = !!loadEvmTreasury();
+
+    let retried = 0;
+    let sent = 0;
+    for (const row of rows) {
+      if (row.chain === "solana" ? !solReady : !evmReady) continue;
+      retried++;
+      const result = await executeRefundTransfer(row.id, row.chain, row.payer, row.amount_usdc, row.reason);
+      if (result.ok) sent++;
+    }
+    if (retried > 0) {
+      console.log(`[refund] retry sweep: ${sent}/${retried} previously-failed refunds sent`);
+    }
+    return { retried, sent };
+  } finally {
+    retryInflight = false;
+  }
+}
+
+/**
+ * Boot hook: warn loudly when refunds can't work, then sweep the failed
+ * backlog now and every hour. Safe to call exactly once from index.ts.
+ */
+export function startRefundRetryLoop(): void {
+  if (!process.env.TREASURY_SOL_PRIVATE_KEY && !process.env.SVM_PRIVATE_KEY) {
+    console.warn("[refund] TREASURY_SOL_PRIVATE_KEY not set — Solana refunds will fail until configured");
+  }
+  if (!process.env.TREASURY_EVM_PRIVATE_KEY) {
+    console.warn("[refund] TREASURY_EVM_PRIVATE_KEY not set — Base refunds will fail until configured");
+  }
+  retryFailedRefunds().catch(err => console.error("[refund] boot retry sweep failed:", err?.message ?? err));
+  setInterval(() => {
+    retryFailedRefunds().catch(err => console.error("[refund] retry sweep failed:", err?.message ?? err));
+  }, 60 * 60 * 1000).unref();
+}
+
+async function sendSolanaRefund(payerAddress: string, amountUsdc: number, onBroadcast?: (tx: string) => void): Promise<string> {
   const kp = loadSolTreasury();
   if (!kp) throw new Error("TREASURY_SOL_PRIVATE_KEY not configured — ops must refund manually");
 
@@ -235,13 +331,16 @@ async function sendSolanaRefund(payerAddress: string, amountUsdc: number): Promi
   tx.sign(kp);
 
   const sig = await conn.sendRawTransaction(tx.serialize());
+  // Persist the signature the moment it's broadcast — a confirm timeout must
+  // not leave this refund looking like it never touched the chain.
+  onBroadcast?.(sig);
   // Confirm so the caller can include the signature in their error response
   // with confidence that it landed. 30s cap matches x402 maxTimeoutSeconds.
   await conn.confirmTransaction(sig, "confirmed");
   return sig;
 }
 
-async function sendBaseRefund(payerAddress: string, amountUsdc: number): Promise<string> {
+async function sendBaseRefund(payerAddress: string, amountUsdc: number, onBroadcast?: (tx: string) => void): Promise<string> {
   const wallet = loadEvmTreasury();
   if (!wallet) throw new Error("TREASURY_EVM_PRIVATE_KEY not configured — ops must refund manually");
 
@@ -255,6 +354,7 @@ async function sendBaseRefund(payerAddress: string, amountUsdc: number): Promise
     data,
     gasLimit: 65000,
   });
+  onBroadcast?.(tx.hash);
   const receipt = await tx.wait(1);
   if (!receipt || receipt.status !== 1) {
     throw new Error(`Refund tx reverted: ${tx.hash}`);
@@ -285,16 +385,27 @@ async function sendBaseRefund(payerAddress: string, amountUsdc: number): Promise
 export async function refundAndRespond(
   req: AuthenticatedRequest,
   res: Response,
-  opts: { reason: string; userMessage?: string; httpStatus?: number },
+  opts: {
+    reason: string;
+    userMessage?: string;
+    httpStatus?: number;
+    /** Top-level `error` field for the response. Defaults to "Upstream failure". */
+    errorLabel?: string;
+    /** Extra top-level fields merged into the JSON response (e.g. availableIn). */
+    extra?: Record<string, unknown>;
+  },
 ): Promise<void> {
+  const errorLabel = opts.errorLabel || "Upstream failure";
+  const extra = opts.extra || {};
   const payment = req.payment;
   if (!payment) {
     // No settled payment to refund. Should never happen on a paid route —
     // the x402 middleware populates this before next() — but be defensive.
     console.error("[refund] refundAndRespond called with no req.payment:", opts.reason);
     res.status(opts.httpStatus || 502).json({
-      error: "Upstream failure",
+      error: errorLabel,
       message: opts.userMessage || opts.reason,
+      ...extra,
       hint: "No payment record found to refund. Contact support if you were charged.",
     });
     return;
@@ -303,8 +414,9 @@ export async function refundAndRespond(
   if (!payment.chain) {
     console.error("[refund] req.payment.chain missing for", opts.reason);
     res.status(opts.httpStatus || 502).json({
-      error: "Upstream failure",
+      error: errorLabel,
       message: opts.userMessage || opts.reason,
+      ...extra,
       hint: "Refund could not be issued automatically (missing chain info). Contact ops with your payment signature: " + payment.signature,
       payment_signature: payment.signature,
     });
@@ -323,8 +435,9 @@ export async function refundAndRespond(
 
   if (result.ok) {
     res.status(opts.httpStatus || 502).json({
-      error: "Upstream failure",
+      error: errorLabel,
       message: opts.userMessage || opts.reason,
+      ...extra,
       refund: {
         ok: true,
         tx: result.refundTx,
@@ -336,8 +449,9 @@ export async function refundAndRespond(
     });
   } else {
     res.status(opts.httpStatus || 502).json({
-      error: "Upstream failure",
+      error: errorLabel,
       message: opts.userMessage || opts.reason,
+      ...extra,
       refund: {
         ok: false,
         id: result.refundId,
@@ -346,7 +460,7 @@ export async function refundAndRespond(
         chain: payment.chain,
       },
       payment_signature: payment.signature,
-      hint: "Automatic refund failed. Contact ops with refund ID + payment_signature for a manual refund.",
+      hint: "Automatic refund failed. It will be retried automatically; the refund ID + payment_signature are your receipt.",
     });
   }
 }

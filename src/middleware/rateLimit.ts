@@ -9,13 +9,14 @@ interface RateLimitEntry {
 
 const store = new Map<string, RateLimitEntry>();
 
-// Cleanup stale entries every 5 minutes
+// Cleanup stale entries every 5 minutes. unref: a housekeeping timer must
+// not keep the process alive (tests importing route files would hang).
 setInterval(() => {
   const now = Date.now();
   for (const [key, entry] of store) {
     if (now > entry.resetAt) store.delete(key);
   }
-}, 5 * 60_000);
+}, 5 * 60_000).unref();
 
 /**
  * Simple in-memory rate limiter keyed by the caller's authenticated identity,

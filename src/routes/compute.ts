@@ -3,7 +3,9 @@ import { requireAuth } from "../middleware/auth";
 import { rateLimit } from "../middleware/rateLimit";
 import { AuthenticatedRequest, ServerAction } from "../types";
 import * as computeService from "../services/compute";
+import { HcloudApiError } from "../services/compute";
 import { refundAndRespond } from "../services/refund";
+import { config } from "../config";
 import { db } from "../db";
 
 const router = Router();
@@ -133,7 +135,7 @@ router.get("/install-recipes", (_req, res: Response) => {
     recipes: computeService.listInstallRecipes(),
     usage: {
       api: "POST /compute/servers with body { install: \"hermes\" } or { install: [\"hermes\", \"openclaw\"] }",
-      cli: "palmyr compute deploy --type cx22 --install hermes",
+      cli: "palmyr compute deploy --type cx23 --install hermes",
       marker: "Cloud-init writes /etc/palmyr/install-status.json when all requested recipes finish. The CLI's deploy --wait polls this as gate 4.",
     },
   });
@@ -170,9 +172,9 @@ router.post("/ssh-keys", rateLimit(10, 60_000), requireAuth(0.10, 'general'), as
     const id = await computeService.uploadSshKey(name, publicKey);
     res.status(201).json({ id, name, message: "SSH key uploaded. Use this ID when creating servers." });
   } catch (err: any) {
-    res.status(500).json({
-      error: "SSH Key Upload Failed",
-      message: err.message || "Failed to upload SSH key",
+    await refundAndRespond(req, res, {
+      reason: `SSH key upload failed: ${err?.message || String(err)}`,
+      userMessage: "Could not upload SSH key — your payment is being refunded.",
     });
   }
 });
@@ -211,15 +213,17 @@ router.delete("/ssh-keys/:id", requireAuth(0.01, 'general'), async (req: Authent
  */
 /**
  * Pre-payment validation for POST /compute/servers. Runs BEFORE requireAuth
- * so an obviously-bad request (typo in install recipe, malformed SSH key)
- * fails as a 400 without the caller paying $6 USDC.
+ * so a request that cannot possibly deploy fails WITHOUT the caller paying
+ * $6 USDC: missing/typo'd fields, deprecated server types (Hetzner retires
+ * them — 'cx22' burned real agents $6 each), sold-out capacity, and our own
+ * Hetzner account quota being maxed out.
  *
- * Anything that depends on application state (existing server count,
- * Hetzner-side conflicts, etc.) is left to the post-payment route handler —
- * those can't be cheaply checked up-front and the failure mode is rare
- * enough that paying first is acceptable.
+ * Availability is checked against a ≤60s-fresh capacity snapshot (deploys
+ * are worth one blocking refresh; the 6h browse TTL is not deploy-grade).
+ * When Hetzner is unreachable the checks degrade open — the post-payment
+ * handler still refunds on failure, so a stale answer can't pocket money.
  */
-function validateCreateServerBody(req: AuthenticatedRequest, res: Response, next: any): void {
+export async function validateCreateServerBody(req: AuthenticatedRequest, res: Response, next: any): Promise<void> {
   const { name, serverType, install, sshPublicKey, location } = req.body as {
     name?: string;
     serverType?: string;
@@ -228,40 +232,95 @@ function validateCreateServerBody(req: AuthenticatedRequest, res: Response, next
     location?: string;
   };
 
-  // Validate hostname BEFORE Hetzner so a typo (uppercase, underscores,
-  // leading hyphen) doesn't burn $6 USDC just to bounce off a 422.
-  if (name !== undefined) {
-    try {
-      computeService.assertServerName(name);
-    } catch (e: any) {
-      res.status(400).json({ error: 'Invalid server name', message: e.message });
-      return;
-    }
+  // Required fields — was previously checked in the post-payment handler,
+  // meaning a missing serverType cost $6 to discover.
+  if (!name || !serverType) {
+    res.status(400).json({
+      error: "Missing Required Fields",
+      message: "Both 'name' and 'serverType' are required. You have not been charged.",
+      hint: "GET /compute/plans for available types. Include sshPublicKey or sshKeyIds for SSH access.",
+    });
+    return;
   }
 
-  // Type + location compatibility: pre-flight against the live cache so
-  // 'cpx11 in some-eu-location' fails as 400 before payment, not as
-  // Hetzner's 422 'unsupported location for server type' after.
-  if (serverType !== undefined && location !== undefined) {
-    if (!computeService.isValidLocation(location)) {
-      res.status(400).json({
-        error: 'Invalid location',
-        message: `Unknown location '${location}'.`,
-        hint: 'GET /compute/locations (free) for the live list.',
-      });
-      return;
-    }
-    if (!computeService.isTypeAvailableInLocation(serverType, location)) {
-      const where = computeService.locationsForType(serverType);
-      res.status(400).json({
-        error: 'Type not available in location',
-        message: `Server type '${serverType}' is not deployable in location '${location}'.`,
+  // Validate hostname BEFORE Hetzner so a typo (uppercase, underscores,
+  // leading hyphen) doesn't burn $6 USDC just to bounce off a 422.
+  try {
+    computeService.assertServerName(name);
+  } catch (e: any) {
+    res.status(400).json({ error: 'Invalid server name', message: e.message });
+    return;
+  }
+
+  // Our Hetzner project hit an account-wide quota (e.g. primary IP limit)
+  // moments ago — every deploy fails identically until it clears. Reject
+  // up-front instead of charging + refunding each attempt.
+  const retryAfter = computeService.platformCapacityRetryAfterSeconds();
+  if (retryAfter > 0) {
+    res.set("Retry-After", String(retryAfter));
+    res.status(503).json({
+      error: 'Platform at capacity',
+      message: 'Our hosting capacity is temporarily maxed out. You have not been charged.',
+      retryAfterSeconds: retryAfter,
+      hint: 'Retry after the indicated delay. GET /compute/locations (free) to monitor availability.',
+    });
+    return;
+  }
+
+  // Capacity data fresh enough to bet $6 on. Failure degrades to stale data.
+  await computeService.ensureFreshAvailability();
+
+  // Reject unknown/deprecated server types pre-payment. Only enforced when
+  // the live catalog is loaded — the static fallback list is too small to
+  // treat as authoritative.
+  if (computeService.hasLocationData() && !computeService.isValidServerType(serverType)) {
+    const valid = computeService.getServerPlans().map(p => p.type);
+    res.status(400).json({
+      error: 'Unknown server type',
+      message: `'${serverType}' is not a current Hetzner server type (it may have been retired). You have not been charged.`,
+      validTypes: valid,
+      hint: 'GET /compute/plans (free) for live specs + pricing.',
+    });
+    return;
+  }
+
+  if (location !== undefined && !computeService.isValidLocation(location)) {
+    res.status(400).json({
+      error: 'Invalid location',
+      message: `Unknown location '${location}'.`,
+      hint: 'GET /compute/locations (free) for the live list.',
+    });
+    return;
+  }
+
+  // Type availability in the EFFECTIVE location — the default location
+  // counts too (previously this check only ran when `location` was given
+  // explicitly, so default-location deploys skipped it entirely).
+  // "Sold out where it's normally offered" is a 409 with retry guidance;
+  // "never offered there" is a 400 with the right locations.
+  const effectiveLocation = location || config.hcloudLocation;
+  if (!computeService.isTypeAvailableInLocation(serverType, effectiveLocation)) {
+    const where = computeService.locationsForType(serverType);
+    if (computeService.isTypeSupportedInLocation(serverType, effectiveLocation)) {
+      res.status(409).json({
+        error: 'Out of capacity',
+        message: `Server type '${serverType}' is temporarily out of capacity in '${effectiveLocation}'. You have not been charged.`,
+        availableIn: where,
         hint: where.length > 0
-          ? `Try one of: ${where.join(', ')}.`
-          : 'GET /compute/locations (free) to see per-location availability.',
+          ? `Retry with \`location\` set to one of: ${where.join(', ')} — or pick another type via GET /compute/plans?location=${effectiveLocation}.`
+          : 'This type is currently sold out everywhere. Pick another type via GET /compute/plans, or retry later.',
       });
       return;
     }
+    res.status(400).json({
+      error: 'Type not available in location',
+      message: `Server type '${serverType}' is not deployable in location '${effectiveLocation}'. You have not been charged.`,
+      availableIn: where,
+      hint: where.length > 0
+        ? `Try one of: ${where.join(', ')}.`
+        : 'GET /compute/locations (free) to see per-location availability.',
+    });
+    return;
   }
 
   if (install !== undefined) {
@@ -313,14 +372,9 @@ router.post("/servers", validateCreateServerBody, requireAuth(6.0, 'server'), ra
       install?: string | string[];
     };
 
-    if (!name || !serverType) {
-      res.status(400).json({
-        error: "Missing Required Fields",
-        message: "Both 'name' and 'serverType' are required",
-        hint: "GET /compute/plans for available types. Include sshPublicKey or sshKeyIds for SSH access."
-      });
-      return;
-    }
+    // name/serverType presence + validity were checked pre-payment by
+    // validateCreateServerBody — by the time we're here the caller has paid
+    // and the request is structurally sound.
 
     // Resolve the install list. `install` (new, explicit) wins over the legacy
     // `installOpenClaw` boolean. Either format normalizes to a string[] of
@@ -455,9 +509,57 @@ router.post("/servers", validateCreateServerBody, requireAuth(6.0, 'server'), ra
     console.error("[compute] Create error:", err);
     // The $6 was already settled on-chain by requireAuth before this handler
     // ran, but Hetzner never provisioned the box — refund the payer instead of
-    // pocketing the payment. Same pattern as phone-number provision failure.
+    // pocketing the payment, and translate Hetzner's error code into guidance
+    // the agent can act on (retry where? with what type?).
+    const reason = `Hetzner provision failed: ${err?.message || String(err)}`;
+    const requestedType = String(req.body?.serverType || '');
+    const requestedLocation = String(req.body?.location || config.hcloudLocation);
+
+    if (err instanceof HcloudApiError && err.code === 'resource_unavailable') {
+      // Type sold out between our preflight snapshot and Hetzner's allocator.
+      // Re-pull availability so the NEXT caller is rejected pre-payment.
+      void computeService.ensureFreshAvailability(0);
+      await refundAndRespond(req, res, {
+        reason,
+        userMessage: `Server type '${requestedType}' just ran out of capacity in '${requestedLocation}' — your payment is being refunded.`,
+        errorLabel: 'Out of capacity',
+        httpStatus: 409,
+        extra: {
+          availableIn: computeService.locationsForType(requestedType),
+          retryHint: 'Retry with a different `location`, or pick another type via GET /compute/plans.',
+        },
+      });
+      return;
+    }
+
+    if (err instanceof HcloudApiError && err.code === 'resource_limit_exceeded') {
+      // OUR account quota (primary IPs, servers, ...) — every deploy fails
+      // until ops intervenes. Open the breaker so further deploys are
+      // rejected pre-payment instead of charge-then-refund.
+      computeService.notePlatformCapacityError();
+      console.error(`[compute] [CAPACITY] Hetzner account limit hit: ${err.hcloudMessage || err.message} — deploys paused pre-payment for 10min`);
+      await refundAndRespond(req, res, {
+        reason,
+        userMessage: 'Our hosting capacity is temporarily maxed out — your payment is being refunded.',
+        errorLabel: 'Platform at capacity',
+        httpStatus: 503,
+        extra: { retryAfterSeconds: computeService.platformCapacityRetryAfterSeconds() },
+      });
+      return;
+    }
+
+    if (err instanceof HcloudApiError && err.code === 'uniqueness_error') {
+      await refundAndRespond(req, res, {
+        reason,
+        userMessage: `A server named '${String(req.body?.name || '')}' already exists in our Hetzner project — your payment is being refunded. Retry with a different name.`,
+        errorLabel: 'Name already taken',
+        httpStatus: 409,
+      });
+      return;
+    }
+
     await refundAndRespond(req, res, {
-      reason: `Hetzner provision failed: ${err?.message || String(err)}`,
+      reason,
       userMessage: "Could not provision server — your payment is being refunded.",
     });
   }
@@ -557,7 +659,11 @@ router.post("/servers/:id/actions", requireAuth(0.10, 'general'), requireServerO
         : `Server ${action} initiated.`,
     });
   } catch (err: any) {
-    res.status(500).json({ error: "Action Failed", message: err.message });
+    await refundAndRespond(req, res, {
+      reason: `Server action failed: ${err?.message || String(err)}`,
+      userMessage: "Could not perform the server action — your payment is being refunded.",
+      errorLabel: "Action Failed",
+    });
   }
 });
 
@@ -1535,7 +1641,11 @@ router.post("/servers/:id/resize", requireAuth(0.10, 'general', { discoverable: 
       message: "Server resize initiated. Server must be off first.",
     });
   } catch (err: any) {
-    res.status(500).json({ error: "Resize Failed", message: err.message });
+    await refundAndRespond(req, res, {
+      reason: `Server resize failed: ${err?.message || String(err)}`,
+      userMessage: "Could not resize the server — your payment is being refunded. Note: the server must be powered off to resize.",
+      errorLabel: "Resize Failed",
+    });
   }
 });
 
@@ -1576,7 +1686,11 @@ router.put("/servers/:id", validateRenameBody, requireAuth(0.01, 'general'), req
       res.status(404).json({ error: "Server not found", message: msg });
       return;
     }
-    res.status(500).json({ error: "Rename failed", message: msg });
+    await refundAndRespond(req, res, {
+      reason: `Server rename failed: ${msg}`,
+      userMessage: "Could not rename the server — your payment is being refunded.",
+      errorLabel: "Rename failed",
+    });
   }
 });
 
@@ -1589,7 +1703,11 @@ router.delete("/servers/:id", requireAuth(0.10, 'general'), requireServerOwner, 
     await computeService.deleteServer(String(req.params.id));
     res.json({ deleted: true, id: String(req.params.id), message: "Server permanently destroyed." });
   } catch (err: any) {
-    res.status(404).json({ error: "Deletion Failed", message: err.message });
+    await refundAndRespond(req, res, {
+      reason: `Server deletion failed: ${err?.message || String(err)}`,
+      userMessage: "Could not destroy the server — your payment is being refunded.",
+      errorLabel: "Deletion Failed",
+    });
   }
 });
 

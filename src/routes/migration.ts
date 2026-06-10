@@ -41,7 +41,7 @@ router.get("/", (req: Request, res: Response) => {
         title: "Replace AWS/Hetzner with Palmyr Compute",
         before: "Cloud provider account, SSH key management, server provisioning scripts, monitoring",
         after: "API-driven compute with automatic lifecycle management",
-        curl: "curl -X POST http://77.42.89.233:3001/api/compute/provision -H \"X-Agent-Id: your-agent\" -H \"Content-Type: application/json\" -d \x27{\"type\": \"cx22\", \"image\": \"ubuntu-22.04\"}\x27",
+        curl: "curl -X POST http://77.42.89.233:3001/api/compute/provision -H \"X-Agent-Id: your-agent\" -H \"Content-Type: application/json\" -d \x27{\"type\": \"cx23\", \"image\": \"ubuntu-24.04\"}\x27",
         savings: "No cloud provider account, no SSH key management, auto-cleanup"
       },
       {
