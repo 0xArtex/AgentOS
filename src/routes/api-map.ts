@@ -20,7 +20,7 @@ router.get("/api/api-map", (_req: Request, res: Response) => {
     "Hackathon": ["hackathon", "hackathon-stats", "hackathon-status", "countdown", "deadline", "deadlines", "final-push", "final-sprint", "submit-checklist", "submission-ready", "judge-ready", "judge-brief", "judge-summary", "for-judges", "colosseum-ready", "live-demo"],
     "Ecosystem": ["ecosystem", "network", "partners", "partner-workflows", "agent-toolkit", "integrations", "compatibility", "templates", "leaderboard"],
     "Business": ["pricing", "calculator", "grants", "invoice", "demo-request", "pitch", "why-palmyr", "comparison", "migration"],
-    "Configuration": ["config", "webhooks", "events", "feedback", "apikeys", "ratelimits", "sla", "security"]
+    "Configuration": ["config", "webhooks", "events", "feedback", "ratelimits", "sla", "security"]
   };
 
   const categorized = new Set<string>();

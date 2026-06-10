@@ -217,30 +217,6 @@ export interface Server {
   rootPassword: string | null;
 }
 
-// ── API Key Service ───────────────────────────────────────────
-
-export type ApiKeyProvider = "brave_search" | "helius" | "openai" | "anthropic" | "elevenlabs" | "custom";
-
-export const API_KEY_PRICING: Record<ApiKeyProvider, string> = {
-  brave_search: "1.00",
-  helius: "2.00",
-  openai: "1.00",
-  anthropic: "1.00",
-  elevenlabs: "1.00",
-  custom: "0.50",
-};
-
-export interface ApiKey {
-  id: string;
-  provider: ApiKeyProvider;
-  label: string;
-  secret: string;
-  owner: string;
-  priceUsdc: string;
-  active: boolean;
-  createdAt: string;
-}
-
 // ── Pricing ───────────────────────────────────────────────────
 
 export interface PricingTier {

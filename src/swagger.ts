@@ -43,7 +43,7 @@ export const swaggerSpec = {
                     services: {
                       type: 'array',
                       items: { type: 'string' },
-                      example: ['phone', 'email', 'domains', 'compute', 'apikeys']
+                      example: ['phone', 'email', 'domains', 'compute']
                     }
                   }
                 }
@@ -124,14 +124,6 @@ export const swaggerSpec = {
                             get_server: { type: 'string', example: '0.01' },
                             delete_server: { type: 'string', example: '0.10' },
                             upload_ssh_key: { type: 'string', example: '0.10' }
-                          }
-                        },
-                        apikeys: {
-                          type: 'object',
-                          properties: {
-                            provision_key: { type: 'string', example: '1.00' },
-                            list_keys: { type: 'string', example: '0.01' },
-                            revoke_key: { type: 'string', example: '0.01' }
                           }
                         }
                       }
@@ -275,38 +267,6 @@ export const swaggerSpec = {
         }
       }
     },
-    '/apikeys/provision': {
-      post: {
-        summary: 'Provision API key',
-        description: 'Provision a new API key for external services',
-        security: [{ x402: [] }],
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                properties: {
-                  provider: { 
-                    type: 'string',
-                    enum: ['brave_search', 'helius', 'openai', 'anthropic', 'elevenlabs', 'custom'],
-                    example: 'openai'
-                  },
-                  label: { type: 'string', example: 'My OpenAI Key' }
-                },
-                required: ['provider', 'label']
-              }
-            }
-          }
-        },
-        responses: {
-          '200': {
-            description: 'API key provisioned successfully'
-          },
-          '402': { $ref: '#/components/responses/PaymentRequired' }
-        }
-      }
-    },
     '/demo/provision-phone': {
       get: {
         summary: 'Demo: Phone number provisioning',
@@ -382,33 +342,6 @@ export const swaggerSpec = {
                     cost: { type: 'string', example: '5.00 USDC' },
                     demo: { type: 'boolean', example: true },
                     note: { type: 'string', example: 'This is demo data. Real endpoint: POST /compute/servers' }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    '/demo/provision-apikey': {
-      get: {
-        summary: 'Demo: API key provisioning',
-        description: 'Simulate API key provisioning without payment (returns mock data)',
-        tags: ['Demo'],
-        responses: {
-          '200': {
-            description: 'Mock API key data',
-            content: {
-              'application/json': {
-                schema: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string', example: 'demo_key_abc123' },
-                    provider: { type: 'string', example: 'openai' },
-                    keyPreview: { type: 'string', example: 'sk-proj-abc123...xyz789' },
-                    cost: { type: 'string', example: '1.00 USDC' },
-                    demo: { type: 'boolean', example: true },
-                    note: { type: 'string', example: 'This is demo data. Real endpoint: POST /apikeys' }
                   }
                 }
               }

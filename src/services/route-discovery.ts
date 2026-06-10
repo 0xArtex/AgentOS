@@ -101,7 +101,7 @@ export function enumeratePaidRoutes(
   walk(stack, "", out);
 
   // Normalize trailing-slash duplicates: Express's stack walker can produce
-  // both "/apikeys" and "/apikeys/" depending on how a router was mounted.
+  // both "/agents" and "/agents/" depending on how a router was mounted.
   // x402scan probes the canonical form, so anything ending in "/" (other
   // than the root) is the duplicate — drop the trailing slash.
   for (const r of out) {

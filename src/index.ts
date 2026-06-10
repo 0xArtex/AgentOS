@@ -56,7 +56,6 @@ import domainRoutes from "./routes/domains";
 import xAccountRoutes from "./routes/xaccounts";
 import skillsRoutes from "./routes/skills";
 import computeRoutes from "./routes/compute";
-import apikeysRoutes from "./routes/apikeys";
 import demoRoutes from "./routes/demo";
 import demoInteractiveRoutes from "./routes/demo-interactive";
 import webhookRoutes from "./routes/webhooks";
@@ -200,7 +199,7 @@ app.get("/api", (_req, res) => {
     version: getVersion().version,
     status: "operational",
     docs: "https://github.com/0xArtex/Palmyr",
-    services: ["phone", "email", "domains", "compute", "apikeys", "agents", "messages", "stats", "activity"],
+    services: ["phone", "email", "domains", "compute", "agents", "messages", "stats", "activity"],
   });
 
 });
@@ -266,7 +265,6 @@ import balanceRoutes from "./routes/balance";
 app.use("/balance", balanceRoutes);
 import projectRoutes from "./routes/projects";
 app.use("/projects", projectRoutes);
-app.use("/apikeys", apikeysRoutes);
 
 // ── Agent Management (free) ──────────────────────────────────
 app.use("/agents", agentRoutes);

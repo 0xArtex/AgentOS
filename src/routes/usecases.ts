@@ -40,16 +40,9 @@ router.get("/", (_req: Request, res: Response) => {
       {
         name: "Full-Stack Autonomous Agent",
         description: "The ultimate setup: phone + email + server + domain. An agent with a complete digital identity, able to interact with the real world.",
-        services: ["phone", "email", "compute", "domains", "apikeys"],
+        services: ["phone", "email", "compute", "domains"],
         example: "POST /onboarding/quickstart → provisions everything in one call",
         difficulty: "advanced"
-      },
-      {
-        name: "API Key Broker",
-        description: "Provisions API keys for various services (OpenAI, Brave Search, Helius) and manages them for sub-agents.",
-        services: ["apikeys"],
-        example: "POST /apikeys → GET /apikeys → DELETE /apikeys/{id}",
-        difficulty: "beginner"
       }
     ],
     hackathonMode: {
