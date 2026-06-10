@@ -95,7 +95,11 @@ router.post("/accounts", (_req: Request, res: Response) => {
  * this endpoint from leaking every X account's password to anyone with a
  * wallet address.
  */
-router.get("/accounts/mine", requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: Request, res: Response) => {
+router.get("/accounts/mine", requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
+  description: "List X accounts your wallet owns or has shared access to (returns full credentials).",
+  category: "social",
+  tags: ["twitter", "x", "accounts", "mine"],
+}), async (req: Request, res: Response) => {
   try {
     const wallet = callerWallet(req);
     if (!wallet) {
@@ -168,7 +172,11 @@ router.get("/accounts", async (_req: Request, res: Response) => {
  * the response to the *transferring* wallet, so the prior owner can't
  * retain a copy of the post-rotation login.
  */
-router.post("/accounts/:id/transfer", requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: Request, res: Response) => {
+router.post("/accounts/:id/transfer", requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
+  description: "Transfer an X account to another wallet (rotates the password). Owner-only.",
+  category: "social",
+  tags: ["twitter", "x", "transfer", "ownership"],
+}), async (req: Request, res: Response) => {
   try {
     const caller = callerWallet(req);
     if (!caller) {
@@ -239,7 +247,11 @@ router.post("/accounts/:id/transfer", requireAuth(OWNERSHIP_PROOF_USDC, 'general
  * password / auth_token. Effectively "shared login," same as handing someone
  * your Netflix password. Owner can revoke at any time with /unshare.
  */
-router.post("/accounts/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: Request, res: Response) => {
+router.post("/accounts/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
+  description: "Grant another wallet shared access to an X account you own.",
+  category: "social",
+  tags: ["twitter", "x", "share"],
+}), async (req: Request, res: Response) => {
   try {
     const caller = callerWallet(req);
     if (!caller) {
@@ -287,7 +299,11 @@ router.post("/accounts/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, 'general', 
  * credentials are returned to the caller (still the owner) so the local
  * vault can be updated.
  */
-router.post("/accounts/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: Request, res: Response) => {
+router.post("/accounts/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
+  description: "Revoke a wallet's shared access to an X account you own.",
+  category: "social",
+  tags: ["twitter", "x", "unshare"],
+}), async (req: Request, res: Response) => {
   try {
     const caller = callerWallet(req);
     if (!caller) {

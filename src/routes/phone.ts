@@ -579,7 +579,11 @@ router.get("/messages/:id", requireAuth(0.005, "general", {
  * GET /phone/calls/:id — Get call details
  * Cost: 0.01 USDC
  */
-router.get("/calls/:id", requireAuth(0.02, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/calls/:id", requireAuth(0.02, "general", {
+  description: "Get details of a call on a phone number you own or have shared access to.",
+  category: "communications",
+  tags: ["phone", "voice", "call", "status"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const call = voiceService.getCall(String(req.params.id));
     if (!call) {
@@ -616,7 +620,11 @@ router.post("/calls/:callControlId/speak", requireAuth(0.08, "general"), async (
  * POST /phone/calls/:callControlId/play — Play audio URL on active call
  * Cost: 0.05 USDC
  */
-router.post("/calls/:callControlId/play", requireAuth(0.08, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/calls/:callControlId/play", requireAuth(0.08, "general", {
+  description: "Play an audio URL into a live call on a number you control.",
+  category: "communications",
+  tags: ["phone", "voice", "call", "play", "audio"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     const { audioUrl } = req.body as { audioUrl: string };
@@ -635,7 +643,11 @@ router.post("/calls/:callControlId/play", requireAuth(0.08, "general", { discove
  * POST /phone/calls/:callControlId/dtmf — Send DTMF tones
  * Cost: 0.02 USDC
  */
-router.post("/calls/:callControlId/dtmf", requireAuth(0.02, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/calls/:callControlId/dtmf", requireAuth(0.02, "general", {
+  description: "Send DTMF tones into a live call on a number you control.",
+  category: "communications",
+  tags: ["phone", "voice", "call", "dtmf"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     const { digits } = req.body as { digits: string };
@@ -714,7 +726,11 @@ router.post("/calls/:callControlId/hangup", requireAuth(0.02, "general"), async 
  * POST /phone/calls/:callControlId/answer — Answer an inbound call
  * Cost: free
  */
-router.post("/calls/:callControlId/answer", requireAuth(0.02, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/calls/:callControlId/answer", requireAuth(0.02, "general", {
+  description: "Answer an inbound call on a number you control.",
+  category: "communications",
+  tags: ["phone", "voice", "call", "answer", "inbound"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     await voiceService.answer(String(req.params.callControlId));

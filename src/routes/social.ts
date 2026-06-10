@@ -271,7 +271,7 @@ router.post(
 router.post(
   "/twitter/list-my-tweets",
   requireXEnabled,
-  requireAuth(0.005, "general", { discoverable: false }),
+  requireAuth(0.005, "general", { description: "List recent tweets from an X account you control.", category: "social", tags: ["twitter","x","tweets","list"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -393,7 +393,7 @@ router.post(
 router.post(
   "/twitter/delete",
   requireXEnabled,
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "Delete a tweet from an X account you control.", category: "social", tags: ["twitter","x","delete"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -414,7 +414,7 @@ router.post(
 router.post(
   "/twitter/profile",
   requireXEnabled,
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "Update the profile (name/bio/location/url) of an X account you control.", category: "social", tags: ["twitter","x","profile"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -438,7 +438,7 @@ router.post(
 router.post(
   "/twitter/avatar",
   requireXEnabled,
-  requireAuth(0.005, "general", { discoverable: false }),
+  requireAuth(0.005, "general", { description: "Update the avatar image of an X account you control.", category: "social", tags: ["twitter","x","avatar"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -459,7 +459,7 @@ router.post(
 router.post(
   "/twitter/banner",
   requireXEnabled,
-  requireAuth(0.005, "general", { discoverable: false }),
+  requireAuth(0.005, "general", { description: "Update the banner image of an X account you control.", category: "social", tags: ["twitter","x","banner"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -709,7 +709,7 @@ router.delete(
   // "invalid_payload", so wallet-only callers (no API key) can't hit free
   // routes today. Workaround until middleware learns to short-circuit
   // minUsdc===0 + wallet-auth without round-tripping CDP.
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "Unregister an X account from the server (removes stored credentials). Owner-only.", category: "social", tags: ["twitter","x","unregister"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -735,7 +735,7 @@ router.get(
   requireXEnabled,
   // See note on /twitter/register/:id above — $0.001 instead of free
   // until the middleware free-route + x402-wallet bug is fixed properly.
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "List X accounts registered on the server.", category: "social", tags: ["twitter","x","registered","list"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -775,7 +775,7 @@ const isWalletAddr = (s: any) => typeof s === "string" && (SOL_PUBKEY_RE.test(s)
 router.get(
   "/twitter/registered/mine",
   requireXEnabled,
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "List registered X accounts your wallet owns or has shared access to.", category: "social", tags: ["twitter","x","registered","mine"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -801,7 +801,7 @@ router.get(
 router.post(
   "/twitter/registered/:id/transfer",
   requireXEnabled,
-  requireAuth(0.0001, "general", { discoverable: false }),
+  requireAuth(0.0001, "general", { description: "Transfer a registered X account to another wallet (rotates the password). Owner-only.", category: "social", tags: ["twitter","x","transfer","ownership"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     if (!caller) {
@@ -856,7 +856,7 @@ router.post(
 router.post(
   "/twitter/registered/:id/share",
   requireXEnabled,
-  requireAuth(0.0001, "general", { discoverable: false }),
+  requireAuth(0.0001, "general", { description: "Grant another wallet shared access to a registered X account. Owner-only.", category: "social", tags: ["twitter","x","share"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     if (!caller) {
@@ -894,7 +894,7 @@ router.post(
 router.post(
   "/twitter/registered/:id/unshare",
   requireXEnabled,
-  requireAuth(0.0001, "general", { discoverable: false }),
+  requireAuth(0.0001, "general", { description: "Revoke a wallet's shared access to a registered X account. Owner-only.", category: "social", tags: ["twitter","x","unshare"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     if (!caller) {
@@ -1082,7 +1082,7 @@ router.get(
   "/scheduled",
   requireXEnabled,
   // See note on /twitter/register/:id above — $0.001 instead of free.
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "List scheduled posts for X accounts your wallet controls.", category: "social", tags: ["twitter","x","scheduled","list"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -1107,7 +1107,7 @@ router.delete(
   "/scheduled/:id",
   requireXEnabled,
   // See note on /twitter/register/:id above — $0.001 instead of free.
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "Cancel a scheduled X post you created.", category: "social", tags: ["twitter","x","scheduled","cancel"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -1353,7 +1353,7 @@ const DISPUTE_PROOF_USDC = 0.01;
 router.post(
   "/twitter/dispute",
   requireXEnabled,
-  requireAuth(DISPUTE_PROOF_USDC, "general", { discoverable: false }),
+  requireAuth(DISPUTE_PROOF_USDC, "general", { description: "File a dispute for a pool-bought X account (e.g. dead/suspended) to request a refund.", category: "social", tags: ["twitter","x","dispute","refund"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -1390,7 +1390,7 @@ router.post(
 router.get(
   "/twitter/dispute/:id",
   requireXEnabled,
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "Check the status of an X account dispute you filed.", category: "social", tags: ["twitter","x","dispute","status"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -1460,7 +1460,7 @@ router.post(
 router.get(
   "/twitter/pool/mine",
   requireXEnabled,
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "List pool-bought X accounts your wallet owns or has shared access to.", category: "social", tags: ["twitter","x","pool","mine"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const wallet = req.payment?.payer || req.agentId;
     if (!wallet) {
@@ -1479,7 +1479,7 @@ router.get(
 router.post(
   "/twitter/pool/:id/share",
   requireXEnabled,
-  requireAuth(0.0001, "general", { discoverable: false }),
+  requireAuth(0.0001, "general", { description: "Grant another wallet shared access to a pool-bought X account. Owner-only.", category: "social", tags: ["twitter","x","pool","share"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     if (!caller) {
@@ -1508,7 +1508,7 @@ router.post(
 router.post(
   "/twitter/pool/:id/unshare",
   requireXEnabled,
-  requireAuth(0.0001, "general", { discoverable: false }),
+  requireAuth(0.0001, "general", { description: "Revoke a wallet's shared access to a pool-bought X account. Owner-only.", category: "social", tags: ["twitter","x","pool","unshare"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     if (!caller) {
@@ -1537,7 +1537,7 @@ router.post(
 router.post(
   "/twitter/username",
   requireXEnabled,
-  requireAuth(0.005, "general", { discoverable: false }),
+  requireAuth(0.005, "general", { description: "Change the @handle of an X account you control.", category: "social", tags: ["twitter","x","username","handle"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -1589,7 +1589,7 @@ function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | 
 router.post(
   "/tiktok/login",
   requireTikTokEnabled,
-  requireAuth(0.02, "general", { discoverable: false }),
+  requireAuth(0.02, "general", { description: "Open an authenticated TikTok session for an account you control.", category: "social", tags: ["tiktok","login","session"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const {
       account_id,
@@ -1655,7 +1655,7 @@ router.post(
 router.post(
   "/tiktok/post",
   requireTikTokEnabled,
-  requireAuth(0.01, "general", { discoverable: false }),
+  requireAuth(0.01, "general", { description: "Post a video to a TikTok account you control (from video_base64 or video_url).", category: "social", tags: ["tiktok","post","video"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -1695,7 +1695,7 @@ router.post(
 router.post(
   "/tiktok/follow",
   requireTikTokEnabled,
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "Follow a TikTok user from an account you control.", category: "social", tags: ["tiktok","follow"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -1713,7 +1713,7 @@ router.post(
 router.post(
   "/tiktok/like",
   requireTikTokEnabled,
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "Like a TikTok video from an account you control.", category: "social", tags: ["tiktok","like"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -1731,7 +1731,7 @@ router.post(
 router.post(
   "/tiktok/delete",
   requireTikTokEnabled,
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "Delete a video from a TikTok account you control.", category: "social", tags: ["tiktok","delete"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -1749,7 +1749,7 @@ router.post(
 router.post(
   "/tiktok/profile",
   requireTikTokEnabled,
-  requireAuth(0.001, "general", { discoverable: false }),
+  requireAuth(0.001, "general", { description: "Update the bio/display name of a TikTok account you control.", category: "social", tags: ["tiktok","profile"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -1766,7 +1766,7 @@ router.post(
 router.post(
   "/tiktok/avatar",
   requireTikTokEnabled,
-  requireAuth(0.005, "general", { discoverable: false }),
+  requireAuth(0.005, "general", { description: "Update the avatar of a TikTok account you control.", category: "social", tags: ["tiktok","avatar"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -1784,7 +1784,7 @@ router.post(
 router.post(
   "/tiktok/analytics",
   requireTikTokEnabled,
-  requireAuth(0.005, "general", { discoverable: false }),
+  requireAuth(0.005, "general", { description: "Fetch post analytics for a TikTok account you control.", category: "social", tags: ["tiktok","analytics"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
