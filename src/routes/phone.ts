@@ -387,7 +387,11 @@ function getNumberAsOwner(req: AuthenticatedRequest, res: Response): PhoneNumber
  * POST /phone/numbers/:id/transfer-ownership — hand the number to another wallet.
  * Body: { new_owner: "<wallet>" }
  */
-router.post("/numbers/:id/transfer-ownership", requireAuth(OWNERSHIP_PROOF_USDC, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/numbers/:id/transfer-ownership", requireAuth(OWNERSHIP_PROOF_USDC, "general", {
+  description: "Transfer a phone number you own to another wallet. Clears shared access. Body: { new_owner: wallet }",
+  category: "communications",
+  tags: ["phone", "transfer", "ownership"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { new_owner } = req.body || {};
     if (!new_owner || typeof new_owner !== "string" || !isWalletAddress(new_owner)) {
@@ -421,7 +425,11 @@ router.post("/numbers/:id/transfer-ownership", requireAuth(OWNERSHIP_PROOF_USDC,
  * (send SMS, place calls, read messages and call history). Owner-only.
  * Body: { with: "<wallet>" }
  */
-router.post("/numbers/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/numbers/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, "general", {
+  description: "Grant another wallet shared use of a phone number you own (send/read SMS, place calls). Owner-only. Body: { with: wallet }",
+  category: "communications",
+  tags: ["phone", "share"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const withWallet = (req.body || {}).with;
     if (!withWallet || typeof withWallet !== "string" || !isWalletAddress(withWallet)) {
@@ -451,7 +459,11 @@ router.post("/numbers/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, "general", {
  * POST /phone/numbers/:id/unshare — revoke a wallet's shared use. Owner-only.
  * Body: { wallet: "<wallet>" }
  */
-router.post("/numbers/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, "general", { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/numbers/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, "general", {
+  description: "Revoke a wallet's shared use of a phone number you own. Owner-only. Body: { wallet }",
+  category: "communications",
+  tags: ["phone", "unshare"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const targetWallet = (req.body || {}).wallet;
     if (!targetWallet || typeof targetWallet !== "string" || !isWalletAddress(targetWallet)) {
