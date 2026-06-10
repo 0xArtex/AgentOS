@@ -23,6 +23,65 @@ export interface PaidRoute {
 }
 
 /**
+ * Curated set of routes we advertise on `/.well-known/x402` and `/openapi.json`.
+ *
+ * WHY an allowlist: x402scan flags catalogs with >50 routes as `L2_ROUTE_COUNT_HIGH`,
+ * which hurts ranking and buries the headline capabilities under a long tail of
+ * call-control, OpenClaw, ownership/sharing, and account-admin sub-operations.
+ * Rather than scatter `discoverable: false` across ~65 handlers, we advertise the
+ * *happy path* for each primitive here — provision, list, and the primary actions —
+ * and keep the bounded surface high-signal and easy to audit.
+ *
+ * Everything not listed is still fully callable and still 402-gated; it's just not
+ * advertised. To advertise a route, add `"<METHOD> <path>"` (express-style `:param`).
+ * Keep this under 50 entries.
+ */
+const DISCOVERABLE_ALLOWLIST = new Set<string>([
+  // i402 intent planner
+  "POST /chat",
+  // Phone — provision, messaging, calling, lifecycle
+  "POST /phone/numbers",
+  "GET /phone/numbers",
+  "POST /phone/numbers/:id/send",
+  "GET /phone/numbers/:id/messages",
+  "GET /phone/messages/:id",
+  "POST /phone/numbers/:id/call",
+  "DELETE /phone/numbers/:id",
+  // Email — provision, list, send, read
+  "POST /email/inboxes",
+  "GET /email/inboxes",
+  "POST /email/inboxes/:id/send",
+  "GET /email/inboxes/:id/messages",
+  "GET /email/inboxes/:id/threads",
+  // Domains — list, inspect, DNS
+  "GET /domains",
+  "GET /domains/:domain",
+  "GET /domains/:domain/dns",
+  "POST /domains/:domain/dns",
+  // Compute — deploy, list, inspect, exec, lifecycle, terminate, ssh handoff
+  "POST /compute/servers",
+  "GET /compute/servers",
+  "GET /compute/servers/:id",
+  "POST /compute/servers/:id/exec",
+  "POST /compute/servers/:id/actions",
+  "DELETE /compute/servers/:id",
+  "POST /compute/servers/:id/setup-ssh",
+  // Social — X core
+  "POST /social/twitter/buy",
+  "POST /social/twitter/register",
+  "POST /social/twitter/login",
+  "POST /social/twitter/post",
+  "POST /social/twitter/post-thread",
+  "POST /social/twitter/reply",
+  "POST /social/twitter/like",
+  "POST /social/twitter/follow",
+  "POST /social/twitter/retweet",
+  // Social — TikTok core
+  "POST /social/tiktok/login",
+  "POST /social/tiktok/post",
+]);
+
+/**
  * Decode an Express layer's mount path. Express stores it as a regex but
  * exposes `fast_slash` / `fast_star` flags for the simple cases we care about.
  * Falls back to parsing the regex source.
@@ -117,9 +176,14 @@ export function enumeratePaidRoutes(
     return true;
   });
 
+  // Discovery surfaces advertise only the curated allowlist (and never a route
+  // that explicitly opted out via `discoverable: false`). includeNonDiscoverable
+  // callers (audits, internal tooling) still get the full paid set.
   const filtered = opts.includeNonDiscoverable
     ? deduped
-    : deduped.filter(r => r.metadata?.discoverable !== false);
+    : deduped.filter(
+        r => r.metadata?.discoverable !== false && DISCOVERABLE_ALLOWLIST.has(r.method + " " + r.path),
+      );
 
   // Stable order so the well-known doc and OpenAPI don't shuffle on each call.
   filtered.sort((a, b) => (a.path + a.method).localeCompare(b.path + b.method));
