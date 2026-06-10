@@ -53,7 +53,8 @@ const DISCOVERABLE_ALLOWLIST = new Set<string>([
   "POST /email/inboxes/:id/send",
   "GET /email/inboxes/:id/messages",
   "GET /email/inboxes/:id/threads",
-  // Domains — list, inspect, DNS
+  // Domains — register, list, inspect, DNS
+  "POST /domains/register",
   "GET /domains",
   "GET /domains/:domain",
   "GET /domains/:domain/dns",

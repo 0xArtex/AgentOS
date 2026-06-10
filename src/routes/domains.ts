@@ -226,7 +226,22 @@ router.get('/pricing', async (_req: Request, res: Response) => {
  *   - Namecheap account has enough balance to actually register
  * Only after those checks pass do we defer to requireAuth for the x402 cycle.
  */
+const DOMAIN_REGISTER_TYPICAL_USDC = 10.0;
+const DOMAIN_REGISTER_META = {
+  description: "Register a domain for one year via Namecheap. Pricing is dynamic per-TLD — the 402 challenge returns the exact USDC amount (~$10 typical). Body: { domain }",
+  category: "domains",
+  tags: ["domain", "register", "namecheap"],
+};
+
 async function requireDomainPayment(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  // Discovery probe (x402scan/Bazaar crawl an empty body with no payment header):
+  // issue a representative 402 challenge so the advertised route is indexable.
+  // Real callers who supply a domain fall through to the exact per-TLD price.
+  const hasPayment = !!(req.headers['payment-signature'] || req.headers['x-payment']);
+  if (!hasPayment && !req.body?.domain) {
+    return requireAuth(DOMAIN_REGISTER_TYPICAL_USDC, 'general', DOMAIN_REGISTER_META)(req, res, next);
+  }
+
   const domain = typeof req.body?.domain === 'string' ? req.body.domain : null;
   if (!domain) {
     res.status(400).json({ error: 'domain is required' });
@@ -305,6 +320,17 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
 
   return requireAuth(finalPrice, 'general')(req, res, next);
 }
+
+// Discovery markers. requireDomainPayment computes the real per-TLD price and
+// delegates to requireAuth() *dynamically* at request time, so the price tag
+// never lands on a registered layer for route-discovery.ts to find — leaving
+// the headline "register a domain" op invisible in /openapi.json and
+// /.well-known/x402. Tag the middleware itself so the walker enumerates it.
+// The advertised amount is representative (matches the i402 registry seed);
+// the 402 challenge returns the exact per-TLD price.
+(requireDomainPayment as any)._x402PaidMin = DOMAIN_REGISTER_TYPICAL_USDC;
+(requireDomainPayment as any)._x402ServiceType = 'general';
+(requireDomainPayment as any)._x402Metadata = DOMAIN_REGISTER_META;
 
 /**
  * POST /domains/register
