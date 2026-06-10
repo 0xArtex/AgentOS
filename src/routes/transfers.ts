@@ -18,7 +18,11 @@ const POLL_FEE_USDC = 0.0001;
 
 router.get(
   "/:id",
-  requireAuth(POLL_FEE_USDC, "general", { discoverable: false }),
+  requireAuth(POLL_FEE_USDC, "general", {
+    description: "Poll the status of an in-flight account transfer (caller must be the from or to wallet).",
+    category: "ownership",
+    tags: ["transfer", "status", "poll"],
+  }),
   (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     if (!caller) {

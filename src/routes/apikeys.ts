@@ -10,7 +10,11 @@ const router = Router();
  * POST /apikeys — Provision a new API key
  * Cost: 1.00 USDC
  */
-router.post("/", rateLimit(10, 60_000), x402(1.0, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/", rateLimit(10, 60_000), x402(1.0, {
+  description: "Provision a managed upstream API key (e.g. Brave, Helius, OpenAI) billed per use via x402. Body: { provider, label? }",
+  category: "infrastructure",
+  tags: ["apikey", "provision", "byok"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { provider, label } = req.body as { provider: ApiKeyProvider; label?: string };
 
@@ -31,7 +35,11 @@ router.post("/", rateLimit(10, 60_000), x402(1.0, { discoverable: false }), asyn
  * GET /apikeys — List active keys
  * Cost: 0.01 USDC
  */
-router.get("/", x402(0.01, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/", x402(0.01, {
+  description: "List the managed API keys your wallet owns.",
+  category: "infrastructure",
+  tags: ["apikey", "list"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const keys = await apikeysService.listKeys(req.agentId || req.payment?.payer || "unknown");
     res.json({ keys });
@@ -44,7 +52,11 @@ router.get("/", x402(0.01, { discoverable: false }), async (req: AuthenticatedRe
  * DELETE /apikeys/:id — Revoke a key
  * Cost: 0.01 USDC. Only the original owner can revoke.
  */
-router.delete("/:id", x402(0.01, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/:id", x402(0.01, {
+  description: "Revoke a managed API key you own.",
+  category: "infrastructure",
+  tags: ["apikey", "revoke"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const owner = req.payment?.payer || req.agentId;
     if (!owner) {

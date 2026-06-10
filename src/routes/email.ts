@@ -645,7 +645,11 @@ router.get("/inboxes/:id/threads", x402(0.02), async (req: AuthenticatedRequest,
 /**
  * GET /email/threads/:threadId/messages — Get messages in a thread
  */
-router.get("/threads/:threadId/messages", x402(0.02, { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.get("/threads/:threadId/messages", x402(0.02, {
+  description: "Read all messages in an email thread on an inbox you own.",
+  category: "communications",
+  tags: ["email", "thread", "messages", "read"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const threadId = req.params.threadId as string;
     const thread = storage.getEmailThread?.(threadId);

@@ -709,7 +709,11 @@ const SOL_PUBKEY = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const EVM_ADDR = /^0x[a-fA-F0-9]{40}$/;
 const isWalletAddress = (s: string) => SOL_PUBKEY.test(s) || EVM_ADDR.test(s);
 
-router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
+  description: "Transfer a domain you own to another wallet. Clears shared access. Body: { new_owner }",
+  category: "domains",
+  tags: ["domain", "transfer", "ownership"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
     const { new_owner } = req.body || {};
@@ -749,7 +753,11 @@ router.post('/:domain/transfer-ownership', requireAuth(OWNERSHIP_PROOF_USDC, 'ge
  * Grant another wallet shared access (visibility + DNS edits). Owner-only.
  * Body: { with: "<wallet>" }
  */
-router.post('/:domain/share', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:domain/share', requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
+  description: "Grant another wallet shared access (view + DNS edits) to a domain you own. Body: { with }",
+  category: "domains",
+  tags: ["domain", "share", "dns"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
     const withWallet = (req.body || {}).with;
@@ -787,7 +795,11 @@ router.post('/:domain/share', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { dis
  * Revoke shared access from a wallet. Owner-only.
  * Body: { wallet: "<wallet>" }
  */
-router.post('/:domain/unshare', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:domain/unshare', requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
+  description: "Revoke a wallet's shared access to a domain you own. Body: { wallet }",
+  category: "domains",
+  tags: ["domain", "unshare"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
     const targetWallet = (req.body || {}).wallet;
@@ -819,7 +831,11 @@ router.post('/:domain/unshare', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { d
  * POST /domains/:domain/transfer
  * Initiate domain transfer out. Requires x402 ownership proof.
  */
-router.post('/:domain/transfer', requireAuth(OWNERSHIP_PROOF_USDC, 'general', { discoverable: false }), async (req: AuthenticatedRequest, res: Response) => {
+router.post('/:domain/transfer', requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
+  description: "Initiate an outbound registrar transfer for a domain you own (returns the EPP/auth code). Owner-only.",
+  category: "domains",
+  tags: ["domain", "transfer", "registrar", "epp"],
+}), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { domain } = req.params;
 
