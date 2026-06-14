@@ -837,6 +837,7 @@ router.post(
     res.status(202).json({
       success: true,
       transfer_id: transfer.id,
+      operation_id: transfer.id,
       status: transfer.status,
       account_id: state.row.id,
       username: state.row.username,
@@ -937,6 +938,8 @@ router.post(
       rotated: false,
       rotation_in_progress: true,
       transfer_id: transfer.id,
+      operation_id: transfer.id,
+      status: transfer.status,
       poll_url: `/transfers/${transfer.id}`,
     });
   }

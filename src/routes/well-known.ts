@@ -327,6 +327,7 @@ export function buildOpenApiDoc(app: Express, host: string): any {
         "Solana uses a server-paid fee-payer pattern — payers only need USDC, never SOL.",
         "Some routes price dynamically (x-payment-info.price.mode === 'dynamic', e.g. POST /social/twitter/buy) — never assume a fixed amount for these; send the request unpaid to get a 402 whose `accepts` carry the live price, then pay that.",
         "Check before you pay: free preflight routes (x-payment-info.price.mode === 'free') let you probe availability and price first — GET /pricing, GET /domains/check, GET /domains/pricing, GET /phone/numbers/search, plus free POST /agents/register. Other free helpers: GET /api, /health, /version.",
+        "Async operations that aren't finished when they respond return a `poll_url` alongside `operation_id` and a `status` (and sometimes `poll_after_seconds`) — e.g. POST /compute/servers (server provisioning ~60s) and the /transfers endpoints. Treat any response carrying `poll_url` as in-progress: GET the poll_url until `status` is terminal (completed/failed; for servers, running).",
       ].join(" "),
     },
     servers: [{ url: `https://${host}` }],
