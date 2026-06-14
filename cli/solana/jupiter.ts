@@ -93,10 +93,10 @@ export async function executeSwap(params: SwapParams): Promise<SwapResult> {
   let fetchedAt = Date.now();
 
   if (dryRun) {
-    const quotedOutRaw = Number(quote.outAmount);
+    const quotedOutRaw = BigInt(quote.outAmount);
     return {
       txSignature: `dryrun_${Date.now()}`,
-      inputAmountRaw: Number(quote.inAmount),
+      inputAmountRaw: BigInt(quote.inAmount),
       outputAmountRaw: quotedOutRaw, // no realized in dry-run; quoted stands in
       quotedOutRaw,
       priceImpactPct: Number(quote.priceImpactPct),
@@ -182,7 +182,7 @@ export async function executeSwap(params: SwapParams): Promise<SwapResult> {
 
       // Fetch the confirmed tx once for both actual fee AND realized out.
       // Makes cost-basis post-fee real and lets forensics see actual slippage.
-      const quotedOutRaw = Number(quote.outAmount);
+      const quotedOutRaw = BigInt(quote.outAmount);
       const { feeLamports, realizedOutRaw } = await fetchTxOutcome(
         connection,
         sig,
@@ -194,7 +194,7 @@ export async function executeSwap(params: SwapParams): Promise<SwapResult> {
 
       return {
         txSignature: sig,
-        inputAmountRaw: Number(quote.inAmount),
+        inputAmountRaw: BigInt(quote.inAmount),
         outputAmountRaw: realizedOutRaw,
         quotedOutRaw,
         priceImpactPct: Number(quote.priceImpactPct),
@@ -260,9 +260,9 @@ async function fetchTxOutcome(
   sig: string,
   wallet: Keypair,
   outputMint: string,
-  quotedOutRaw: number,
+  quotedOutRaw: bigint,
   tipLamports: number,
-): Promise<{ feeLamports: number; realizedOutRaw: number }> {
+): Promise<{ feeLamports: number; realizedOutRaw: bigint }> {
   try {
     const tx = await connection.getTransaction(sig, {
       commitment: "confirmed",
@@ -277,16 +277,20 @@ async function fetchTxOutcome(
       // SOL output: balance change is net of fee AND tip. Add both back to
       // recover the gross swap proceeds. Tip is not counted in tx.meta.fee —
       // it's a separate SystemProgram.transfer that Jupiter built into the tx.
-      const pre = tx.meta.preBalances?.[0] ?? 0;
-      const post = tx.meta.postBalances?.[0] ?? 0;
-      const realized = post - pre + feeLamports + tipLamports;
+      // Lamport amounts fit JS Number, but do the math in BigInt so the raw
+      // output never round-trips through float.
+      const pre = BigInt(tx.meta.preBalances?.[0] ?? 0);
+      const post = BigInt(tx.meta.postBalances?.[0] ?? 0);
+      const realized = post - pre + BigInt(feeLamports) + BigInt(tipLamports);
       return {
         feeLamports,
-        realizedOutRaw: realized > 0 ? realized : quotedOutRaw,
+        realizedOutRaw: realized > 0n ? realized : quotedOutRaw,
       };
     }
 
-    // SPL output: diff the owner's token balance for the output mint.
+    // SPL output: diff the owner's token balance for the output mint. Keep the
+    // delta as a bigint — high-supply tokens (raw ≥ 2^53) would corrupt under
+    // Number(), silently diverging the trade book from on-chain reality.
     const preList = tx.meta.preTokenBalances ?? [];
     const postList = tx.meta.postTokenBalances ?? [];
     const preBal =
@@ -295,10 +299,10 @@ async function fetchTxOutcome(
     const postBal =
       postList.find((b) => b.owner === owner && b.mint === outputMint)
         ?.uiTokenAmount.amount ?? "0";
-    const realized = Number(BigInt(postBal) - BigInt(preBal));
+    const realized = BigInt(postBal) - BigInt(preBal);
     return {
       feeLamports,
-      realizedOutRaw: realized > 0 ? realized : quotedOutRaw,
+      realizedOutRaw: realized > 0n ? realized : quotedOutRaw,
     };
   } catch {
     return { feeLamports: 5000, realizedOutRaw: quotedOutRaw };

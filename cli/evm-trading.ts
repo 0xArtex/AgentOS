@@ -397,16 +397,26 @@ export async function executeEvmSwap(params: EvmSwapParams): Promise<EvmSwapResu
       if (change > 0n) destAmount = change.toString()
     } else {
       const userLower = userAddr.toLowerCase()
+      // ParaSwap multi-path routes can deliver the destination token to the
+      // user across several Transfer events (one per path/DEX leg). Taking the
+      // first and breaking under-counts the realized output, so SUM every
+      // Transfer of the destination token whose recipient is the user. We scope
+      // strictly on (a) the dest token's contract address and (b) the user as
+      // `to`, so unrelated tokens or intermediate hops in the same tx don't leak
+      // into the total. BigInt throughout — u256 amounts overflow Number.
+      let received = 0n
+      let matched = false
       for (const log of receipt.logs) {
         if (log.topics[0] !== ERC20_TRANSFER_TOPIC) continue
         if (log.address.toLowerCase() !== destTokenLower) continue
+        if (log.topics.length < 3) continue
         // topics[2] is the padded "to" address. Lower 20 bytes.
         const toAddr = ('0x' + log.topics[2].slice(26)).toLowerCase()
-        if (toAddr === userLower) {
-          destAmount = BigInt(log.data).toString()
-          break
-        }
+        if (toAddr !== userLower) continue
+        received += BigInt(log.data)
+        matched = true
       }
+      if (matched) destAmount = received.toString()
     }
   } catch {
     // Best-effort — fall back to quoted on any parse failure.

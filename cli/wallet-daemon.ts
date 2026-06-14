@@ -52,6 +52,33 @@ const PID_FILE = join(DAEMON_DIR, 'daemon.pid')
 const STATUS_FILE = join(DAEMON_DIR, 'daemon.status.json')
 const LOG_FILE = join(DAEMON_DIR, 'daemon.log')
 const PENDING_FILE = join(TRIGGERS_DIR, 'pending.jsonl')
+/**
+ * Bug 3 — cooperative shutdown flag. `process.kill(pid, 'SIGTERM')` hard-kills
+ * on Windows (handlers never run), which can terminate the daemon mid-tick —
+ * e.g. between a confirmed on-chain sell and the `writePosition` that records
+ * it. Instead, `stopDaemon` writes this file and the loop checks for it at safe
+ * points (between ticks, never mid-sell) and exits cleanly. Cross-platform.
+ */
+const STOP_FILE = join(DAEMON_DIR, 'daemon.stop')
+
+/**
+ * Bug 5 — floor for the tick interval. `Number(flags.interval)` can yield
+ * NaN/0/negative, which made `sleepEnd = tickStart + NaN*1000` and spun the
+ * loop with no delay, hammering RPCs. We clamp to this minimum.
+ */
+const MIN_INTERVAL_SECONDS = 5
+const DEFAULT_INTERVAL_SECONDS = 30
+
+/**
+ * Coerce an interval to a safe positive number of seconds. Rejects NaN, ≤0, and
+ * non-finite input (falling back to the default), then enforces a hard floor so
+ * the daemon can never busy-loop.
+ */
+export function normalizeIntervalSeconds(seconds: number): number {
+  const n = Number(seconds)
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_INTERVAL_SECONDS
+  return Math.max(MIN_INTERVAL_SECONDS, Math.floor(n))
+}
 
 function ensureDaemonDirs() {
   for (const d of [DAEMON_DIR, TRIGGERS_DIR]) {
@@ -363,6 +390,12 @@ export interface TickReport {
  * and adds an error to the report but doesn't abort the tick.
  */
 export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
+  // Bug 6 — the one-shot `daemon tick` path doesn't go through runDaemonLoop, so
+  // on a fresh install the daemon dirs may not exist yet. Several error paths
+  // below `appendFileSync(LOG_FILE, ...)`; without the dir that throws ENOENT and
+  // masks the real failure. Cheap + idempotent, so do it unconditionally here.
+  ensureDaemonDirs()
+
   const fires: TriggerFire[] = []
   const errors: TickReport['errors'] = []
 
@@ -413,6 +446,55 @@ export async function daemonTick(opts: DaemonOpts): Promise<TickReport> {
 }
 
 /**
+ * Bug-7 guard: detect a threshold whose sign is almost certainly inverted, so
+ * `--auto` doesn't market-sell a healthy position on its very first tick. A
+ * `cut` (stop-loss) is meant to be negative ("get me out at -25%"), so a
+ * non-negative `cut` fires immediately at 0% PnL. A `takeProfit` is meant to be
+ * positive, so a non-positive `takeProfit` fires immediately too. `trailingStop`
+ * is a drawdown magnitude and `timeLimit`/`thesis_falsified` carry no PnL sign,
+ * so they're never flagged here.
+ */
+function isLikelyInvertedThreshold(fire: TriggerFire): boolean {
+  if (fire.thresholdPct === undefined) return false
+  if (fire.trigger === 'cut') return fire.thresholdPct >= 0
+  if (fire.trigger === 'takeProfit') return fire.thresholdPct <= 0
+  return false
+}
+
+/**
+ * Re-read the position fresh from disk and stamp the fire-once watermark for
+ * this trigger, then write the FRESH copy back. Never writes a pre-sell
+ * snapshot: when auto-execute ran a successful sell, `sell()`/`sellBase()` have
+ * already re-read → appended the sell → set `status:'closed'` → written the
+ * file, so stamping must happen on top of that fresh state (otherwise the
+ * executed sell + realized PnL are clobbered and the position reverts to
+ * "open"). If the file is gone (e.g. archived on a same-tick re-entry) we do
+ * nothing rather than resurrect a stale copy.
+ */
+function stampFiredWatermark(
+  chain: 'solana' | 'base',
+  mint: string,
+  wallet: string,
+  fire: TriggerFire,
+): void {
+  const fresh = readPosition(chain, mint, wallet)
+  if (!fresh) return
+  if (!fresh.monitorState) {
+    fresh.monitorState = { peakUnrealizedPct: fresh.pnl.unrealizedPct, peakAt: fire.ts }
+  }
+  if (fire.trigger === 'thesis_falsified') {
+    fresh.monitorState.lastThesisFiredAt = fire.ts
+  } else if (
+    fire.trigger === 'cut' || fire.trigger === 'takeProfit' ||
+    fire.trigger === 'trailingStop' || fire.trigger === 'timeLimit'
+  ) {
+    if (!fresh.monitorState.firedTriggers) fresh.monitorState.firedTriggers = {}
+    fresh.monitorState.firedTriggers[fire.trigger] = fire.ts
+  }
+  writePosition(fresh)
+}
+
+/**
  * Phase 5d — extracted per-position fire processing so we can run it for
  * both Solana and Base positions without duplicating the logic. Chain-dispatch
  * happens inside (sell vs sellBase, sync chain stamp on log line).
@@ -421,7 +503,29 @@ async function processPositionFires(p: PositionFile, opts: DaemonOpts): Promise<
   const positionFires = evaluateTriggers(p)
   const out: TriggerFire[] = []
   for (const fire of positionFires) {
-    if (opts.autoExecute) {
+    // Bug 7 — refuse to auto-execute an obviously-inverted threshold (e.g.
+    // `--cut 25%` with a forgotten minus fires at 0% PnL). We still surface the
+    // fire (pending + trade log) so it's visible, but we do NOT sell and we do
+    // NOT arm the watermark, so correcting the exit plan re-enables monitoring.
+    const invertedUnderAuto = opts.autoExecute && isLikelyInvertedThreshold(fire)
+    if (invertedUnderAuto) {
+      fire.error =
+        `refused: ${fire.trigger} threshold ${fire.thresholdPct}% looks inverted ` +
+        `(fires at ${fire.currentPct.toFixed(2)}% PnL). Did you mean ` +
+        `${fire.trigger === 'cut' ? '-' : '+'}${Math.abs(fire.thresholdPct ?? 0)}%? Not auto-selling.`
+      appendFileSync(
+        LOG_FILE,
+        `[${new Date().toISOString()}] ${fire.chain} ${fire.mint}: ${fire.error}\n`,
+      )
+    }
+
+    // Track whether a sell actually hit the chain this tick. Only a genuinely
+    // executed sell arms the fire-once watermark; a failed sell (RPC hiccup,
+    // 429, blockhash expiry) leaves the trigger un-armed so it retries next
+    // tick instead of silently disarming a stop-loss (bug 2).
+    let sellExecuted = false
+    let sellWallet = p.wallet
+    if (opts.autoExecute && !invertedUnderAuto) {
       try {
         const sellReason = formatTriggerReason(fire)
         if (p.chain === 'solana') {
@@ -433,6 +537,8 @@ async function processPositionFires(p: PositionFile, opts: DaemonOpts): Promise<
           })
           fire.autoExecuted = true
           fire.linkedSellTx = sellResult.txSignature
+          sellWallet = sellResult.wallet
+          sellExecuted = true
         } else {
           const sellResult = await sellBase({
             ca: fire.mint,
@@ -442,6 +548,8 @@ async function processPositionFires(p: PositionFile, opts: DaemonOpts): Promise<
           })
           fire.autoExecuted = true
           fire.linkedSellTx = sellResult.txHash
+          sellWallet = sellResult.wallet
+          sellExecuted = true
         }
       } catch (e: any) {
         fire.error = e?.message ?? String(e)
@@ -469,19 +577,20 @@ async function processPositionFires(p: PositionFile, opts: DaemonOpts): Promise<
       note: fire.error,
     }
     appendTradeLog(logLine)
-    if (fire.trigger === 'thesis_falsified' && p.monitorState) {
-      p.monitorState.lastThesisFiredAt = fire.ts
-      writePosition(p)
-    } else if (
-      fire.trigger === 'cut' || fire.trigger === 'takeProfit' ||
-      fire.trigger === 'trailingStop' || fire.trigger === 'timeLimit'
-    ) {
-      // Stamp the watermark so this trigger doesn't re-append every tick when
-      // auto-execute is off (auto-exec closes the position, making this a no-op).
-      if (!p.monitorState) p.monitorState = { peakUnrealizedPct: p.pnl.unrealizedPct, peakAt: fire.ts }
-      if (!p.monitorState.firedTriggers) p.monitorState.firedTriggers = {}
-      p.monitorState.firedTriggers[fire.trigger] = fire.ts
-      writePosition(p)
+
+    // Arm the fire-once watermark only when it's safe to stop re-firing:
+    //   - auto-execute OFF: the position stays open, so we MUST stamp or the
+    //     trigger re-appends to pending.jsonl every tick.
+    //   - auto-execute ON + sell EXECUTED: the exit happened; stamp so a
+    //     partial/closed position never re-sells (idempotent — for a closed
+    //     position this is cosmetic, but it future-proofs partial exits).
+    //   - auto-execute ON + sell FAILED (or refused as inverted): do NOT stamp,
+    //     so the trigger re-evaluates next tick and retries the safety exit.
+    // Bug 1 — stamp on a FRESH re-read of the position, never the pre-sell
+    // in-memory snapshot, so a successful sell isn't reverted to "open".
+    const shouldStamp = !opts.autoExecute || sellExecuted
+    if (shouldStamp) {
+      stampFiredWatermark(p.chain, fire.mint, sellWallet, fire)
     }
     out.push(fire)
   }
@@ -521,38 +630,84 @@ export function getDaemonStatus(): DaemonStatus {
   return { pid, running, lastTick, opts }
 }
 
+/**
+ * Atomically claim the PID lock for `pid`. Uses an exclusive-create write
+ * (`flag: 'wx'`, O_EXCL) so two concurrent `startDaemon` callers can't both
+ * win — the second create throws EEXIST. If the existing file is owned by a
+ * DEAD process (stale lock from a crash), it's removed and the claim retried
+ * once. Returns true on success; false if a LIVE daemon already holds the lock.
+ */
+function tryAcquirePidLock(pid: number): boolean {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      writeFileSync(PID_FILE, String(pid), { flag: 'wx' })
+      return true
+    } catch (e: any) {
+      if (e?.code !== 'EEXIST') throw e
+      // Someone holds the lock. Only reclaim it if that process is dead.
+      const holder = isDaemonRunning()
+      if (holder.running) return false
+      try { unlinkSync(PID_FILE) } catch {}
+      // loop and retry the exclusive create exactly once
+    }
+  }
+  return false
+}
+
 export async function startDaemon(opts: DaemonOpts): Promise<{ pid: number }> {
-  const status = isDaemonRunning()
-  if (status.running) {
+  ensureDaemonDirs()
+  const intervalSeconds = normalizeIntervalSeconds(opts.intervalSeconds)
+  const normalizedOpts: DaemonOpts = { ...opts, intervalSeconds }
+
+  // Bug 4 — atomic check-and-claim. We seed the lock with our OWN pid via an
+  // exclusive create so two racing `daemon start`s can't both spawn (the loser
+  // gets a live-holder rejection here). A stale lock from a dead pid is cleaned
+  // up inside tryAcquirePidLock.
+  if (!tryAcquirePidLock(process.pid)) {
+    const status = isDaemonRunning()
     throw new Error(`Daemon already running (PID ${status.pid}). Run \`palmyr wallet daemon stop\` first.`)
   }
-  // Clean up a stale PID file from a previous crash
-  if (existsSync(PID_FILE)) {
-    try { unlinkSync(PID_FILE) } catch {}
+
+  // A leftover stop-flag from a previous run would make the fresh daemon exit on
+  // its first loop check — clear it now that we hold the lock.
+  if (existsSync(STOP_FILE)) {
+    try { unlinkSync(STOP_FILE) } catch {}
   }
-  ensureDaemonDirs()
 
   // argv[0] = node, argv[1] = dist/cli.js. Re-invoke ourselves in _run mode.
   const args = [
     process.argv[1],
     'wallet', 'daemon', '_run',
-    '--interval', String(opts.intervalSeconds),
+    '--interval', String(intervalSeconds),
   ]
-  if (opts.autoExecute) args.push('--auto')
-  if (opts.walletRef) args.push('--wallet', opts.walletRef)
+  if (normalizedOpts.autoExecute) args.push('--auto')
+  if (normalizedOpts.walletRef) args.push('--wallet', normalizedOpts.walletRef)
 
-  const child = spawn(process.argv[0], args, {
-    detached: true,
-    stdio: 'ignore',
-    windowsHide: true,
-  })
-  if (!child.pid) throw new Error('Failed to spawn daemon child process.')
+  let child
+  try {
+    child = spawn(process.argv[0], args, {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+  } catch (e) {
+    // Don't strand the lock if spawn throws synchronously.
+    try { unlinkSync(PID_FILE) } catch {}
+    throw e
+  }
+  if (!child.pid) {
+    try { unlinkSync(PID_FILE) } catch {}
+    throw new Error('Failed to spawn daemon child process.')
+  }
   child.unref()
 
+  // Hand the lock over from our placeholder pid to the actual child pid. The
+  // child also writes its own pid on startup (runDaemonLoop), so this is belt-
+  // and-suspenders — but it makes `status` correct immediately.
   writeFileSync(PID_FILE, String(child.pid))
   writeFileSync(
     STATUS_FILE,
-    JSON.stringify({ lastTick: null, opts, pid: child.pid }, null, 2),
+    JSON.stringify({ lastTick: null, opts: normalizedOpts, pid: child.pid }, null, 2),
   )
   return { pid: child.pid }
 }
@@ -560,22 +715,48 @@ export async function startDaemon(opts: DaemonOpts): Promise<{ pid: number }> {
 export async function stopDaemon(): Promise<{ wasRunning: boolean; pid: number | null }> {
   const status = isDaemonRunning()
   if (!status.running) {
+    // Clean up any leftover lock/flag from a crashed run.
     if (existsSync(PID_FILE)) {
       try { unlinkSync(PID_FILE) } catch {}
     }
+    if (existsSync(STOP_FILE)) {
+      try { unlinkSync(STOP_FILE) } catch {}
+    }
     return { wasRunning: false, pid: status.pid ?? null }
   }
-  try {
-    process.kill(status.pid!, 'SIGTERM')
-  } catch {}
-  // Give the daemon up to ~2s to clean up gracefully.
-  for (let i = 0; i < 20; i++) {
+
+  // Bug 3 — cooperative shutdown. Write the stop flag and let the loop notice it
+  // at a safe point (between ticks, never mid-sell). This works on Windows,
+  // where SIGTERM would hard-kill and could interrupt a sell→writePosition.
+  ensureDaemonDirs()
+  try { writeFileSync(STOP_FILE, new Date().toISOString()) } catch {}
+
+  // Wait for the daemon to exit on its own. It removes its PID file on a clean
+  // exit, so we poll liveness. Bound the wait generously: a tick may be mid-sync
+  // (network) when the flag lands, and we only exit between ticks. ~30s budget.
+  let exited = false
+  for (let i = 0; i < 300; i++) {
     await new Promise((r) => setTimeout(r, 100))
-    const re = isDaemonRunning()
-    if (!re.running) break
+    if (!isDaemonRunning().running) { exited = true; break }
   }
+
+  // Bounded fallback: if the daemon is wedged (e.g. stuck in a hung RPC call and
+  // never reached a flag check), escalate to a signal so `stop` still works.
+  if (!exited) {
+    try { process.kill(status.pid!, 'SIGTERM') } catch {}
+    for (let i = 0; i < 20; i++) {
+      await new Promise((r) => setTimeout(r, 100))
+      if (!isDaemonRunning().running) { exited = true; break }
+    }
+  }
+
+  // Clean up the lock + flag regardless (the daemon usually clears the PID file
+  // itself on clean exit; this covers the signal-fallback path too).
   if (existsSync(PID_FILE)) {
     try { unlinkSync(PID_FILE) } catch {}
+  }
+  if (existsSync(STOP_FILE)) {
+    try { unlinkSync(STOP_FILE) } catch {}
   }
   return { wasRunning: true, pid: status.pid }
 }
@@ -587,24 +768,39 @@ export async function stopDaemon(): Promise<{ wasRunning: boolean; pid: number |
 export async function runDaemonLoop(opts: DaemonOpts): Promise<void> {
   ensureDaemonDirs()
 
+  // Bug 5 — clamp the interval where it's actually consumed, so a NaN/0/negative
+  // value (e.g. `--interval abc`) can't spin the loop with no delay.
+  const intervalSeconds = normalizeIntervalSeconds(opts.intervalSeconds)
+  const runOpts: DaemonOpts = { ...opts, intervalSeconds }
+
   let shouldExit = false
   const handleExit = () => { shouldExit = true }
+  // Secondary shutdown paths: Ctrl-C (SIGINT) when run in a foreground shell,
+  // and the SIGTERM fallback from stopDaemon if the cooperative flag is missed.
+  // On Windows these may not run before a hard kill, which is exactly why the
+  // STOP_FILE flag (checked below) is the primary mechanism.
   process.on('SIGTERM', handleExit)
   process.on('SIGINT', handleExit)
+
+  // Bug 3 — a stop is requested either via the cooperative flag file (primary,
+  // works on Windows) or via a signal that set `shouldExit`.
+  const stopRequested = () => shouldExit || existsSync(STOP_FILE)
 
   // Always write our PID on startup (in case the parent didn't manage to before
   // we got here, or to overwrite a stale one).
   writeFileSync(PID_FILE, String(process.pid))
 
-  while (!shouldExit) {
+  // Check once up front: if a stop flag is somehow already present, exit before
+  // running any tick.
+  while (!stopRequested()) {
     const tickStart = Date.now()
     try {
-      const report = await daemonTick(opts)
+      const report = await daemonTick(runOpts)
       writeFileSync(
         STATUS_FILE,
         JSON.stringify({
           lastTick: new Date().toISOString(),
-          opts,
+          opts: runOpts,
           pid: process.pid,
           lastTickFiredCount: report.fires.length,
         }, null, 2),
@@ -616,15 +812,20 @@ export async function runDaemonLoop(opts: DaemonOpts): Promise<void> {
       )
     }
 
-    // Sleep with early-exit checks every 100ms so SIGTERM gets handled promptly.
-    const sleepEnd = tickStart + opts.intervalSeconds * 1000
-    while (Date.now() < sleepEnd && !shouldExit) {
+    // Sleep with early-exit checks every 100ms so a stop request (flag or
+    // signal) is handled promptly — but only ever BETWEEN ticks, never mid-sell.
+    const sleepEnd = tickStart + intervalSeconds * 1000
+    while (Date.now() < sleepEnd && !stopRequested()) {
       await new Promise((r) => setTimeout(r, 100))
     }
   }
 
-  // Graceful shutdown
+  // Graceful shutdown — release the lock and clear the cooperative stop flag so
+  // the next `daemon start` isn't tricked into exiting immediately.
   if (existsSync(PID_FILE)) {
     try { unlinkSync(PID_FILE) } catch {}
+  }
+  if (existsSync(STOP_FILE)) {
+    try { unlinkSync(STOP_FILE) } catch {}
   }
 }

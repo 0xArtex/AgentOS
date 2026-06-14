@@ -669,6 +669,40 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_balance_tx_user ON balance_transactions(user_id);
   `);
 
+  // Real (not advisory) idempotency for deposit()/refund(): a UNIQUE index on
+  // reference_id lets the credit transaction itself reject a replayed deposit
+  // via a constraint violation, instead of relying on a SELECT-then-INSERT race
+  // outside the transaction. SQLite treats every NULL as distinct, so the many
+  // existing NULL reference_id rows (all debits, legacy refunds) are unaffected.
+  //
+  // Wrapped in try/catch: if a pre-existing prod DB somehow holds duplicate
+  // non-NULL reference_ids, the index build would throw and brick startup. In
+  // that case we log for reconciliation and continue — the in-transaction
+  // dup-check in balance.deposit() still guards against double-credit.
+  try {
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS uq_balance_tx_reference ON balance_transactions(reference_id)");
+  } catch (err) {
+    const dups = db.prepare(
+      "SELECT reference_id, COUNT(*) AS n FROM balance_transactions WHERE reference_id IS NOT NULL GROUP BY reference_id HAVING n > 1"
+    ).all();
+    console.error(
+      `[db] [WARNING] Could not create UNIQUE index on balance_transactions.reference_id — duplicate reference_ids exist. ` +
+      `Reconcile these before relying on DB-level deposit idempotency:`, dups
+    );
+  }
+
+  // Per-chain deposit scan cursor. Persisting the last fully-scanned block per
+  // chain lets the Base deposit monitor resume across restarts instead of only
+  // looking back a fixed window (which would miss deposits during any downtime
+  // longer than that window).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS scan_cursor (
+      chain TEXT PRIMARY KEY,
+      last_block INTEGER NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS deposit_wallets (
       id TEXT PRIMARY KEY,
