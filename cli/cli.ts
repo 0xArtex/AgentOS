@@ -734,6 +734,7 @@ const CHAT_HELP: Record<string, Array<{ flag: string; desc: string; hint?: strin
     { flag: '--quality <q>', desc: 'Quality tier', hint: 'fast | cheap | best (default best)' },
     { flag: '--execute', desc: 'Auto-execute the plan once generated' },
     { flag: '--auto-approve-under <USDC>', desc: 'Skip approval prompts for steps cheaper than this' },
+    { flag: '--max-usdc <USDC>', desc: 'Hard spend ceiling per payment; aborts before signing if exceeded (env: PALMYR_MAX_USDC)' },
     { flag: '(price)', desc: '$0.10 orchestration fee + sum of per-step costs (capped by --budget)' },
     { flag: '(example)', desc: 'palmyr chat run "launch a sneaker brand" --budget 50' },
   ],
@@ -5164,7 +5165,8 @@ async function main() {
               if (!AGENT_MODE) console.log(`${c.cyan}Executing plan${c.white} (streaming)...\n`)
               let spent = 0
               const stepOutputs: Record<string, any> = {}
-              for await (const event of ao.chatExecute(plan)) {
+              const maxUsdc = flags['max-usdc'] ? parseFloat(flags['max-usdc'] as string) : undefined
+              for await (const event of ao.chatExecute(plan, { maxUsdc })) {
                 if (AGENT_MODE) {
                   // NDJSON: one event per line. Agents can stream-parse.
                   process.stdout.write(JSON.stringify(event) + '\n')
@@ -5257,7 +5259,8 @@ async function main() {
                 console.log(`  plan_id: ${plan.plan_id}  cost: $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'}`)
               }
               if (!autoExecute) break
-              for await (const event of ao.chatExecute(plan)) {
+              const maxUsdc = flags['max-usdc'] ? parseFloat(flags['max-usdc'] as string) : undefined
+              for await (const event of ao.chatExecute(plan, { maxUsdc })) {
                 if (AGENT_MODE) {
                   process.stdout.write(JSON.stringify(event) + '\n')
                   continue

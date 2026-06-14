@@ -16,7 +16,13 @@ export interface QuoteResponse {
 export interface JupiterQuoteParams {
   inputMint: string;
   outputMint: string;
-  amount: number;
+  /**
+   * Raw input amount (u64). Accepts bigint (preferred — high-supply token
+   * amounts ≥ 2^53 stay exact) or number (small, fixed request sizes such as
+   * readiness probes). Only ever stringified into the quote URL, so both
+   * round-trip losslessly; the realized OUTPUT amount is what must stay bigint.
+   */
+  amount: bigint | number;
   slippageBps: number;
 }
 
@@ -25,7 +31,11 @@ export interface SwapParams {
   wallet: Keypair;
   inputMint: string;
   outputMint: string;
-  inputAmountRaw: number;
+  /**
+   * Raw input amount (u64) as a bigint — lamports for SOL, 6-dec raw for USDC,
+   * or raw token units when selling. bigint so it never rounds through Number.
+   */
+  inputAmountRaw: bigint;
   slippageBps: number;
   dryRun?: boolean;
   quoteMaxAgeMs?: number;
@@ -41,16 +51,17 @@ export interface SwapParams {
 
 export interface SwapResult {
   txSignature: string;
-  inputAmountRaw: number;
+  /** Raw input amount (u64) as bigint — never coerced through Number. */
+  inputAmountRaw: bigint;
   /**
-   * Actual realized output from parsing the confirmed transaction's
+   * Actual realized output (raw u64) from parsing the confirmed transaction's
    * pre/post balance changes. Falls back to `quotedOutRaw` if the tx parse
    * fails (e.g. RPC doesn't return meta yet). Equal to `quotedOutRaw` in
-   * dry-run mode.
+   * dry-run mode. bigint so high-supply token amounts (≥ 2^53) stay exact.
    */
-  outputAmountRaw: number;
-  /** Output amount as promised by the Jupiter quote, before slippage. */
-  quotedOutRaw: number;
+  outputAmountRaw: bigint;
+  /** Output amount (raw u64) as promised by the Jupiter quote, before slippage. */
+  quotedOutRaw: bigint;
   priceImpactPct: number;
   /** Actual network fee paid (lamports). Populated after confirmation. */
   feeLamports?: number;

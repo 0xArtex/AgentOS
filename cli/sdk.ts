@@ -1175,12 +1175,22 @@ export class Palmyr {
    */
   async *chatExecute(
     plan: any,
-    options: { stopOnFailure?: boolean } = {},
+    options: { stopOnFailure?: boolean; maxUsdc?: number } = {},
   ): AsyncGenerator<any, void, undefined> {
     if (!plan?.plan_id || !Array.isArray(plan?.steps)) {
       throw new Error('chatExecute requires a plan returned from chat()')
     }
     const stopOnFailure = options.stopOnFailure !== false
+
+    // Resolve the global per-call spend ceiling once (flag/option wins, else
+    // PALMYR_MAX_USDC env, else none). Every step's payment is additionally
+    // capped at its own quoted cost + a small tolerance below, so a single
+    // compromised step can't drain the wallet even if it sits under the global
+    // ceiling. Tolerance absorbs benign rounding / minor server-side price
+    // drift between planning and execution without rejecting honest charges.
+    const { resolveSpendCeiling } = await import('./pay.js')
+    const globalCeiling = resolveSpendCeiling(options.maxUsdc)
+    const STEP_COST_TOLERANCE_USDC = 0.001
 
     yield { type: 'session', sessionId: plan.session_id }
     yield {
@@ -1254,7 +1264,23 @@ export class Palmyr {
         const path = url.pathname + url.search
         const api = `${url.protocol}//${url.host}`
         const method = (step.x402?.method ?? 'POST').toUpperCase()
-        const result = await paidRequest(api, method, path, postBody, this.passphrase)
+
+        // Per-step spend ceiling = min(global ceiling, this step's quoted cost
+        // + tolerance). paidRequest enforces this BEFORE signing: if the step's
+        // live 402 advertises more than its planned cost (beyond tolerance), or
+        // more than the global ceiling, it aborts without paying. This is the
+        // per-step guard against a malicious/misconfigured endpoint charging
+        // more than the plan quoted the agent.
+        const quoted = Number(step.cost_usdc ?? 0)
+        const quotedCeiling = quoted > 0 ? quoted + STEP_COST_TOLERANCE_USDC : undefined
+        let stepCeiling: number | undefined
+        if (quotedCeiling !== undefined && globalCeiling !== undefined) {
+          stepCeiling = Math.min(quotedCeiling, globalCeiling)
+        } else {
+          stepCeiling = quotedCeiling ?? globalCeiling
+        }
+
+        const result = await paidRequest(api, method, path, postBody, this.passphrase, 1, { maxUsdc: stepCeiling })
         const latencyMs = Date.now() - startMs
         const output = result.data
         priorOutputs[step.step_id] = output
