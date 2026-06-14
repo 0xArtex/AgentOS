@@ -1093,10 +1093,32 @@ router.get(
     const status = (req.query.status as any) || undefined;
     const from = (req.query.from as string) || undefined;
     const to = (req.query.to as string) || undefined;
-    const limit = req.query.limit ? Number(req.query.limit) : undefined;
+    // Pagination: ?limit= (default 50, hard-cap 200) + ?cursor= (the `id` of the
+    // last scheduled post from the previous page). listScheduled returns a
+    // stable post_at ASC ordering with a unique `id` per row, so the row id is a
+    // stable continuation cursor. Backward-compatible: with no cursor this still
+    // returns the first page under the `items` key (now defaulting to 50).
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 50;
+    const cursor = (req.query.cursor as string) || undefined;
     try {
-      const items = listScheduled({ wallet, account_id: accountId, status, from, to, limit });
-      res.json({ success: true, items });
+      // Fetch the full stable-ordered window (service caps at 500) so the cursor
+      // row is always in range, then slice the page in-route — no service change.
+      const all = listScheduled({ wallet, account_id: accountId, status, from, to, limit: 500 });
+
+      let startIdx = 0;
+      if (cursor) {
+        const found = all.findIndex(it => it.id === cursor);
+        // Unknown cursor → start from the top (defensive, never 500s).
+        startIdx = found >= 0 ? found + 1 : 0;
+      }
+
+      const pageRows = all.slice(startIdx, startIdx + limit + 1);
+      const hasMore = pageRows.length > limit;
+      const items = hasMore ? pageRows.slice(0, limit) : pageRows;
+      const nextCursor = hasMore ? items[items.length - 1].id : null;
+
+      res.json({ success: true, items, limit, next_cursor: nextCursor });
     } catch (err: any) {
       res.status(500).json({ error: err.message || "List scheduled failed" });
     }
