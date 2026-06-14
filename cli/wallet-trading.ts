@@ -961,7 +961,7 @@ export type BaseInputAsset = 'ETH' | 'USDC'
 
 export interface SolanaParsedAmount {
   asset: SolanaInputAsset
-  raw: number               // lamports for SOL, 6-dec raw for USDC (both fit JS Number for typical sizes)
+  raw: bigint               // lamports for SOL, 6-dec raw for USDC. bigint + exact decimal parsing (no float scaling)
   display: string           // e.g. "0.5000 SOL" or "10.00 USDC"
 }
 
@@ -988,20 +988,68 @@ export function parseAmountFlag(input: string): number {
 export function parseSolanaInputAmount(input: string): SolanaParsedAmount {
   const m = input.trim().match(/^(\d+(?:\.\d+)?)\s*(sol|usdc)$/i)
   if (!m) throw new Error(`Invalid --amount: "${input}". Expected e.g. "0.5sol" or "10usdc".`)
-  const value = Number(m[1])
+  const n = m[1]
   const unit = m[2].toLowerCase()
+  const value = Number(n)
   if (unit === 'sol') {
     return {
       asset: 'SOL',
-      raw: Math.floor(value * 1e9),
+      // Exact decimal → lamports (9 dec) via integer-string math; no float
+      // scaling, so we never drop the trailing lamport.
+      raw: scaleDecimal(n, 9),
       display: `${value.toFixed(4)} SOL`,
     }
   }
   return {
     asset: 'USDC',
-    raw: Math.floor(value * 1e6),
+    raw: scaleDecimal(n, 6),
     display: `${value.toFixed(2)} USDC`,
   }
+}
+
+/**
+ * Exact decimal-string → raw integer scaling. `scaleDecimal("1.5", 9)` ⇒
+ * 1_500_000_000n. Truncates any fractional units beyond `decimals` (consistent
+ * with the prior `Math.floor`), but does it on the digit string so no float
+ * rounding error can creep in. Input is pre-validated to `\d+(\.\d+)?`.
+ */
+function scaleDecimal(n: string, decimals: number): bigint {
+  const [intPart, fracPart = ''] = n.split('.')
+  const padded = (fracPart + '0'.repeat(decimals)).slice(0, decimals)
+  return BigInt(intPart) * 10n ** BigInt(decimals) + BigInt(padded || '0')
+}
+
+/**
+ * Parse an on-disk raw token amount (decimal string) to a bigint, healing the
+ * legacy `"1e+21"` corruption. Older buys serialized raw amounts via
+ * `String(number)`, which emits exponential notation for high-supply tokens
+ * (raw ≥ 1e21); `BigInt("1e+21")` then throws, bricking the position. We now
+ * always write a plain decimal string, but existing files may still hold the
+ * exponential form — recover it here so those positions stay sellable.
+ * Plain integer strings pass straight through `BigInt`.
+ */
+export function parseRawTokenAmount(s: string): bigint {
+  const str = s.trim()
+  // Exponential form "1e+21" / "1.5e21" — expand without floats.
+  const m = str.match(/^(\d+)(?:\.(\d+))?[eE]\+?(\d+)$/)
+  if (m) {
+    const intPart = m[1]
+    const fracPart = m[2] ?? ''
+    const exp = Number(m[3])
+    const digits = intPart + fracPart
+    // Decimal point sits after intPart; shifting right by `exp` appends
+    // (exp - fracPart.length) zeros. exp ≥ fracPart.length for an integer value
+    // (which raw token amounts always are), so this is exact.
+    const zeros = exp - fracPart.length
+    if (zeros < 0) {
+      // Fractional raw amount — shouldn't happen for u64 token units; truncate.
+      return BigInt(digits.slice(0, digits.length + zeros) || '0')
+    }
+    return BigInt(digits + '0'.repeat(zeros))
+  }
+  // Plain decimal string (possibly with a fractional part from older writers):
+  // take the integer part — raw token units are whole numbers.
+  return BigInt(str.split('.')[0] || '0')
 }
 
 export function lamportsToSol(lamports: number): number {
@@ -1867,7 +1915,12 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
   // USDC-aware amount parsing: suffix on --amount picks the input asset.
   const parsed = parseSolanaInputAmount(opts.amount)
   const inputAsset = parsed.asset
+  // Raw input amount (lamports / 6-dec USDC) as a bigint for the swap. The
+  // on-disk `amountInRaw*` fields stay JS numbers (input amounts are
+  // wallet-bounded and only ever consumed as floats for PnL display), so we
+  // also keep a Number view for those persistence/display sites.
   const amountInRaw = parsed.raw
+  const amountInRawNum = Number(amountInRaw)
   const inputMint = inputAsset === 'USDC' ? USDC_MINT_SOLANA : SOL_MINT.toBase58()
 
   const cfg = loadTradingConfig()
@@ -1929,7 +1982,7 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
   const tipLamports = swap.tipLamports ?? 0
   const forensics: FillForensics | undefined = opts.dryRun
     ? undefined
-    : analyzeFill(swap.quotedOutRaw, swap.outputAmountRaw, slippageBps)
+    : analyzeFill(swap.quotedOutRaw.toString(), swap.outputAmountRaw.toString(), slippageBps)
 
   let tokenDecimals = 0
   try {
@@ -1938,8 +1991,11 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
   } catch {
     tokenDecimals = 0
   }
-  const tokensOutRaw = String(swap.outputAmountRaw)
-  const tokensOutUi = swap.outputAmountRaw / Math.pow(10, tokenDecimals)
+  // Raw token amount is a bigint end-to-end; serialize as an exact decimal
+  // string (never String(number), which emits "1e+21" for high-supply tokens
+  // and makes the position unsellable via BigInt(entry.tokensOutRaw)).
+  const tokensOutRaw = swap.outputAmountRaw.toString()
+  const tokensOutUi = Number(swap.outputAmountRaw) / Math.pow(10, tokenDecimals)
   const tokensOut = formatTokensHuman(tokensOutUi, 6)
 
   const entryMcap = opts.dryRun
@@ -1957,9 +2013,9 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
       time: nowIso,
       amountIn: parsed.display,
       // Keep legacy lamports field populated when SOL-funded; 0 otherwise.
-      amountInRawSol: inputAsset === 'SOL' ? amountInRaw : 0,
+      amountInRawSol: inputAsset === 'SOL' ? amountInRawNum : 0,
       inputAsset,
-      amountInRaw,
+      amountInRaw: amountInRawNum,
       tokensOut,
       tokensOutRaw,
       tokenDecimals,
@@ -2005,7 +2061,7 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
       mint: opts.ca,
       tx: swap.txSignature,
       // For SOL-funded: actual SOL in. For USDC-funded: 0 (legacy log shape; keep semantics consistent).
-      solIn: inputAsset === 'SOL' ? amountInRaw / 1e9 : 0,
+      solIn: inputAsset === 'SOL' ? amountInRawNum / 1e9 : 0,
       tokensOut,
       tokenDecimals,
       entryMcap,
@@ -2024,7 +2080,7 @@ export async function buy(opts: BuyOpts): Promise<BuyResult> {
       : positionPath('solana', opts.ca, signer.address),
     txSignature: swap.txSignature,
     amountIn: position.entry.amountIn,
-    amountInRawSol: inputAsset === 'SOL' ? amountInRaw : 0,
+    amountInRawSol: inputAsset === 'SOL' ? amountInRawNum : 0,
     tokensOut,
     tokensOutRaw,
     tokenDecimals,
@@ -2128,16 +2184,42 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
 
   const connection: Connection = makeConnection(rpcUrl)
 
-  // FIFO remaining = totalEntry - sumOfSells (in raw u64)
-  const totalRaw = BigInt(position.entry.tokensOutRaw)
+  // FIFO remaining = totalEntry - sumOfSells (in raw u64). All BigInt — the
+  // book is never coerced through Number, so high-supply tokens stay exact.
+  const totalRaw = parseRawTokenAmount(position.entry.tokensOutRaw)
   const soldRaw = position.sells.reduce(
-    (acc, s) => acc + BigInt(s.tokensInRaw),
+    (acc, s) => acc + parseRawTokenAmount(s.tokensInRaw),
     0n,
   )
-  const remainingRaw = totalRaw - soldRaw
-  if (remainingRaw <= 0n) throw new Error('No tokens remaining to sell.')
+  const remainingRawBook = totalRaw - soldRaw
+  if (remainingRawBook <= 0n) throw new Error('No tokens remaining to sell.')
 
-  // BigInt-safe sizing: percent×100 ÷ 10000
+  // Reconcile book vs. on-chain balance and cap at min(book, onchain), mirroring
+  // sellBase. A 100% sell of a book that rounded UP (legacy float corruption) or
+  // drifted from off-platform transfers would otherwise over-request and fail
+  // on-chain. Dry-run trusts the book; an RPC failure falls back to the book.
+  let onchainBalance: bigint
+  if (opts.dryRun) {
+    onchainBalance = remainingRawBook
+  } else {
+    try {
+      const bal = await getSplTokenBalance(connection, signer.keypair.publicKey, mintPk)
+      onchainBalance = bal.raw
+    } catch {
+      onchainBalance = remainingRawBook
+    }
+  }
+  const remainingRaw = onchainBalance < remainingRawBook ? onchainBalance : remainingRawBook
+  const reconcileDriftRaw = remainingRawBook - remainingRaw // 0 when book ≤ chain
+  if (remainingRaw <= 0n) {
+    throw new Error(
+      `No on-chain balance for ${opts.ca} on ${signer.address} (book says ${remainingRawBook.toString()} but chain says 0). ` +
+      `Re-sync with \`palmyr wallet sync --wallet <ref>\` and inspect the position.`,
+    )
+  }
+
+  // BigInt-safe sizing: percent×100 ÷ 10000. For 100% this is exactly
+  // remainingRaw; partial sells truncate at most one raw unit.
   const percentScaled = BigInt(Math.round(opts.percent * 100))
   const tokensToSellRaw = (remainingRaw * percentScaled) / 10000n
   if (tokensToSellRaw <= 0n) {
@@ -2154,21 +2236,24 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     wallet: signer.keypair,
     inputMint: mintPk.toBase58(),
     outputMint,
-    inputAmountRaw: Number(tokensToSellRaw),
+    // Raw token amount in — bigint, never Number(): a high-supply token's raw
+    // u64 can exceed 2^53 and would otherwise round.
+    inputAmountRaw: tokensToSellRaw,
     slippageBps,
     dryRun: opts.dryRun,
     quoteMaxAgeMs,
     jitoTipLamports,
   })
 
-  const solOutRaw = swap.outputAmountRaw          // raw output in `outputAsset` units (gross — fee+tip added back)
+  const solOutRaw = swap.outputAmountRaw          // raw output (bigint) in `outputAsset` units (gross — fee+tip added back)
+  const solOutRawNum = Number(solOutRaw)          // float view for PnL/display (proceeds are lamports/6-dec, well under 2^53)
   const feeLamports = swap.feeLamports ?? 0
   const tipLamports = swap.tipLamports ?? 0
   const tokensInUi = Number(tokensToSellRaw) / Math.pow(10, position.entry.tokenDecimals)
   const tokensInDisplay = formatTokensHuman(tokensInUi, 6)
   const solOutDisplay = outputAsset === 'USDC'
-    ? formatUsdcHuman(solOutRaw)
-    : formatSolHuman(solOutRaw, 6)
+    ? formatUsdcHuman(solOutRawNum)
+    : formatSolHuman(solOutRawNum, 6)
 
   // FIFO realized PnL in the position's input asset (SOL or USDC).
   //   entryCost = entry amount + entry fee + entry tip (all in input asset units)
@@ -2186,21 +2271,21 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     const entryCostLamports = entryAssetRaw + entryFee + entryTip
     const entryCostSol = entryCostLamports / 1e9
     const costSol = proportion * entryCostSol
-    const netProceedsSol = (solOutRaw - feeLamports - tipLamports) / 1e9
+    const netProceedsSol = (solOutRawNum - feeLamports - tipLamports) / 1e9
     realizedSol = netProceedsSol - costSol
     netProceedsForLog = netProceedsSol
   } else {
     // USDC: entry raw is in 6-decimal USDC units. Sell proceeds also in USDC.
     const entryCostUsdc = entryAssetRaw / 1e6
     const costUsdc = proportion * entryCostUsdc
-    const netProceedsUsdc = solOutRaw / 1e6
+    const netProceedsUsdc = solOutRawNum / 1e6
     realizedSol = netProceedsUsdc - costUsdc
     netProceedsForLog = netProceedsUsdc
   }
 
   const forensics: FillForensics | undefined = opts.dryRun
     ? undefined
-    : analyzeFill(swap.quotedOutRaw, swap.outputAmountRaw, slippageBps)
+    : analyzeFill(swap.quotedOutRaw.toString(), swap.outputAmountRaw.toString(), slippageBps)
 
   const nowIso = new Date().toISOString()
   position.sells.push({
@@ -2216,15 +2301,21 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     protectedExec: !!opts.protectedExec,
     forensics,
     outputAsset,
-    output: { asset: outputAsset, raw: String(solOutRaw), display: solOutDisplay },
+    output: { asset: outputAsset, raw: solOutRaw.toString(), display: solOutDisplay },
     realized: { asset: outputAsset, amount: realizedSol },
   })
 
   const totalRealized = position.sells.reduce((a, s) => a + (s.realized?.amount ?? 0), 0)
   position.pnl.realized = { asset: position.entry.inputAsset ?? 'SOL', amount: totalRealized }
 
+  // Position closes when (a) the user explicitly sold 100% — even if the
+  // on-chain balance was less than the book amount due to drift — or (b) the
+  // sum of recorded sells plus the reconciled drift covers the book entry.
   const newSoldRaw = soldRaw + tokensToSellRaw
-  if (newSoldRaw >= totalRaw) {
+  const fullyExited =
+    opts.percent >= 100 ||
+    newSoldRaw + reconcileDriftRaw >= totalRaw
+  if (fullyExited) {
     position.status = 'closed'
     position.pnl.unrealizedPct = 0
     position.pnl.unrealized = { asset: position.entry.inputAsset ?? 'SOL', amount: 0 }
@@ -2275,7 +2366,7 @@ export async function sell(opts: SellOpts): Promise<SellResult> {
     protectedExec: !!opts.protectedExec,
     forensics,
     outputAsset,
-    output: { asset: outputAsset, raw: String(solOutRaw), display: solOutDisplay },
+    output: { asset: outputAsset, raw: solOutRaw.toString(), display: solOutDisplay },
     realized: { asset: outputAsset, amount: realizedSol },
     summary,
   }
@@ -2325,8 +2416,8 @@ export async function sync(opts: SyncOpts = {}): Promise<SyncReport> {
 
   for (const p of positions) {
     const onchain = await getSplTokenBalance(connection, owner, new PublicKey(p.mint))
-    const totalRaw = BigInt(p.entry.tokensOutRaw)
-    const soldRaw = p.sells.reduce((acc, s) => acc + BigInt(s.tokensInRaw), 0n)
+    const totalRaw = parseRawTokenAmount(p.entry.tokensOutRaw)
+    const soldRaw = p.sells.reduce((acc, s) => acc + parseRawTokenAmount(s.tokensInRaw), 0n)
     const bookRaw = totalRaw - soldRaw
     const onchainRaw = onchain.raw
 
@@ -2349,7 +2440,9 @@ export async function sync(opts: SyncOpts = {}): Promise<SyncReport> {
         const q = await fetchQuote({
           inputMint: p.mint,
           outputMint,
-          amount: Number(bookRaw),
+          // Raw token amount in — bigint, never Number() (high-supply tokens
+          // would corrupt the price quote above 2^53).
+          amount: bookRaw,
           slippageBps: slippageBpsForQuote,
         })
         const entryAssetRaw = p.entry.amountInRaw ?? p.entry.amountInRawSol
@@ -2491,14 +2584,20 @@ async function delay(ms: number): Promise<void> {
  */
 function splitSolAmount(totalAmount: string, n: number): string {
   const parsed = parseSolanaInputAmount(totalAmount)
-  const perLeg = Math.floor(parsed.raw / n)
-  if (perLeg <= 0) {
-    throw new Error(`Cohort split: per-leg amount is 0 (total=${parsed.raw} ${parsed.asset} raw, n=${n}). Increase --total or reduce wallet count.`)
+  // BigInt-exact split, then re-emit as an exact decimal string so buy()'s
+  // parser round-trips to the same raw amount (no toFixed → no dropped lamport).
+  const perLeg = parsed.raw / BigInt(n)
+  if (perLeg <= 0n) {
+    throw new Error(`Cohort split: per-leg amount is 0 (total=${parsed.raw.toString()} ${parsed.asset} raw, n=${n}). Increase --total or reduce wallet count.`)
   }
   if (parsed.asset === 'SOL') {
-    return `${(perLeg / 1e9).toFixed(9)}sol`
+    const whole = perLeg / 1_000_000_000n
+    const frac = (perLeg % 1_000_000_000n).toString().padStart(9, '0')
+    return `${whole}.${frac}sol`
   }
-  return `${(perLeg / 1e6).toFixed(6)}usdc`
+  const whole = perLeg / 1_000_000n
+  const frac = (perLeg % 1_000_000n).toString().padStart(6, '0')
+  return `${whole}.${frac}usdc`
 }
 
 /**

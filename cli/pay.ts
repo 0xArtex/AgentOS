@@ -416,6 +416,13 @@ export async function paidStreamRequest(
   }
 
   const amountUsdc = Number(selected.amount) / 1e6
+
+  // Spend ceiling (money-safety): honor PALMYR_MAX_USDC here too so streaming
+  // auto-pay can't be drained by a malicious 402 advertising a huge amount.
+  // Env-only on this path (no flag is threaded into streaming today); aborts
+  // before signing with the same EXIT.PAYMENT-mapped error as paidRequest.
+  assertWithinCeiling(amountUsdc, resolveSpendCeiling(), path)
+
   let paymentPayload: any
   let payer: string
 
@@ -476,6 +483,141 @@ function isTransientSolanaError(message: string): boolean {
   )
 }
 
+/**
+ * Options bag threaded through paidRequest. Kept entirely optional so existing
+ * positional callers (`paidRequest(api, method, path, body, passphrase)`) keep
+ * working untouched — the money-safety guards default to off unless a ceiling
+ * is supplied (by flag/env) or the caller opts in.
+ */
+export interface PaidRequestOptions {
+  /**
+   * Hard upper bound (in whole USDC) on a single auto-pay. When the 402
+   * advertises a `required` amount above this, paidRequest ABORTS before
+   * signing anything. `undefined` = no client-side ceiling (server amount is
+   * trusted, legacy behaviour). Resolve with `resolveSpendCeiling` so the
+   * PALMYR_MAX_USDC env floor is always honoured even when no flag is passed.
+   */
+  maxUsdc?: number
+}
+
+/**
+ * Resolve the effective per-call spend ceiling.
+ *
+ * Precedence: explicit flag/option value (caller passes `flagMaxUsdc`) wins;
+ * otherwise fall back to the `PALMYR_MAX_USDC` env var; otherwise no ceiling.
+ *
+ * A ceiling of `<= 0` or non-finite is treated as "no ceiling" rather than
+ * "reject everything" — a zero ceiling would brick every paid call, which is
+ * never what an operator means by setting the knob. Invalid env values are
+ * ignored (fail-open on parse, fail-closed only on a real numeric over-limit)
+ * so a typo in the environment can't silently wedge an agent loop.
+ */
+export function resolveSpendCeiling(flagMaxUsdc?: number): number | undefined {
+  if (typeof flagMaxUsdc === 'number' && isFinite(flagMaxUsdc) && flagMaxUsdc > 0) {
+    return flagMaxUsdc
+  }
+  const raw = process.env.PALMYR_MAX_USDC
+  if (raw && raw.trim() !== '') {
+    const parsed = Number(raw)
+    if (isFinite(parsed) && parsed > 0) return parsed
+  }
+  return undefined
+}
+
+/**
+ * Guard a pending payment against the spend ceiling BEFORE any signing happens.
+ * Throws a `Payment Required:`-prefixed error (so cli.ts maps it to EXIT.PAYMENT
+ * = 6, the payment/preflight failure code) when `amountUsdc` exceeds `ceiling`.
+ * No-op when `ceiling` is undefined (no ceiling configured).
+ */
+function assertWithinCeiling(amountUsdc: number, ceiling: number | undefined, path: string): void {
+  if (ceiling === undefined) return
+  if (amountUsdc > ceiling) {
+    throw new Error(
+      `Payment Required: refusing to pay ${amountUsdc} USDC for ${path} — exceeds the spend ceiling of ${ceiling} USDC. ` +
+      `Raise it with --max-usdc <N> or PALMYR_MAX_USDC=<N> if this charge is expected, ` +
+      `or investigate the endpoint (a 402 above your cap can indicate a misconfigured or malicious server).`,
+    )
+  }
+}
+
+/**
+ * Pull a base58 Solana transaction signature out of a server settlement-error
+ * message. On a settlement failure our server forwards the on-chain signature
+ * verbatim in the 402 body (`x402-svm-verify.ts`):
+ *   - "settlement_timeout: tx may still land — reconcile signature <SIG>"
+ *   - "confirmation_failed: ... signature: <SIG>"  (carried as result.signature)
+ * The client never submits the tx itself, so this forwarded signature is the
+ * ONLY handle we have on whether the first payment actually landed.
+ *
+ * Returns the first 64-88 char base58 token found, or null if none present.
+ */
+function extractSolanaSignature(message: string): string | null {
+  if (!message) return null
+  // Prefer an explicit "signature[:] <token>" capture — that's exactly how the
+  // server frames it ("reconcile signature <SIG>"). This avoids accidentally
+  // grabbing some other long token in the message.
+  const labelled = message.match(/signature[:\s]+([1-9A-HJ-NP-Za-km-z]{43,88})/i)
+  if (labelled) return labelled[1]
+  // Fallback: scan for a full-length base58 signature. Real Solana signatures
+  // are 64-byte values → 86-88 base58 chars; bound tightly so a 64-char hex
+  // nonce can't be misread as a signature. Base58 excludes 0 O I l.
+  const m = message.match(/[1-9A-HJ-NP-Za-km-z]{86,88}/)
+  return m ? m[0] : null
+}
+
+/**
+ * Query the Solana cluster for whether a given transaction signature has
+ * landed (confirmed or finalized) and did NOT fail on-chain.
+ *
+ * Mirrors the server's own settlement check (`x402-svm-verify.ts` uses
+ * `getSignatureStatus`) so client and server agree on "did it land". Searches
+ * transaction history because by the time a transient error surfaces the tx
+ * may have aged out of the recent-status cache.
+ *
+ * Returns:
+ *   'confirmed'  — landed successfully on-chain (money moved): do NOT re-pay.
+ *   'failed'     — landed but the tx itself errored (no transfer): safe to re-pay.
+ *   'dropped'    — no status at all: the tx never landed (or not yet visible).
+ *   'unknown'    — RPC error; we couldn't determine status this attempt.
+ */
+async function solanaSignatureLanded(
+  signature: string,
+): Promise<'confirmed' | 'failed' | 'dropped' | 'unknown'> {
+  try {
+    const { Connection } = await import('@solana/web3.js')
+    const connection = new Connection(SOLANA_RPC, 'confirmed')
+    const st = await connection.getSignatureStatus(signature, { searchTransactionHistory: true })
+    const v = st.value
+    if (!v) return 'dropped'
+    if (v.err) return 'failed'
+    if (v.confirmationStatus === 'confirmed' || v.confirmationStatus === 'finalized') {
+      return 'confirmed'
+    }
+    // Seen but only 'processed' — not yet durable. Treat as landed-pending so we
+    // do NOT mint a competing payment; the safe move is to resubmit the same
+    // header (idempotent) rather than sign a fresh transfer against a new nonce.
+    return 'confirmed'
+  } catch {
+    return 'unknown'
+  }
+}
+
+/**
+ * Internal recursion state. Public callers never see these fields — they're
+ * carried across the transient-retry recursion to decide, on each retry,
+ * whether we are allowed to MINT A NEW payment (definitively-dropped tx) or
+ * must RESUBMIT THE SAME payment header (the prior tx may have landed).
+ */
+interface PaidRequestInternal extends PaidRequestOptions {
+  /** Encoded X-PAYMENT header from the prior attempt, to replay idempotently. */
+  reuseHeader?: string
+  /** Pre-resolved spend ceiling so we resolve env/flag exactly once. */
+  resolvedCeiling?: number | undefined
+  /** True once `resolvedCeiling` has been computed (distinguishes "no ceiling"). */
+  ceilingResolved?: boolean
+}
+
 export async function paidRequest(
   api: string,
   method: string,
@@ -483,7 +625,17 @@ export async function paidRequest(
   body?: Record<string, unknown>,
   passphrase?: string,
   attempt: number = 1,
+  opts: PaidRequestOptions = {},
 ): Promise<{ data: any; paid: boolean; txHash?: string }> {
+  const internal = opts as PaidRequestInternal
+  // Resolve the spend ceiling once (flag wins, else PALMYR_MAX_USDC env, else
+  // none) and carry it through retries so env/flag are read a single time.
+  if (!internal.ceilingResolved) {
+    internal.resolvedCeiling = resolveSpendCeiling(internal.maxUsdc)
+    internal.ceilingResolved = true
+  }
+  const ceiling = internal.resolvedCeiling
+
   // Only preflight on the FIRST attempt — on retry (attempt > 1) we've already
   // signed once successfully, so re-running the local checks would only burn
   // a few ms before discovering nothing changed.
@@ -491,16 +643,41 @@ export async function paidRequest(
     await preflightOrThrow(passphrase)
   }
 
-  const opts: RequestInit = {
+  const reqOpts: RequestInit = {
     method,
     headers: { 'Content-Type': 'application/json' },
   }
   const allowsBody = method !== 'GET' && method !== 'HEAD'
-  if (body && allowsBody) opts.body = JSON.stringify(body)
+  if (body && allowsBody) reqOpts.body = JSON.stringify(body)
 
-  // First attempt
-  const res = await fetch(api + path, opts)
-  const data = await res.json() as any
+  // First (probe) request — no payment header. Elicits the 402 so the server
+  // can advertise the exact amount due.
+  const res = await fetch(api + path, reqOpts)
+
+  // Guard JSON.parse: an edge layer (Cloudflare/nginx) can return a 5xx HTML
+  // page on the FIRST request too. Without this, a transient CDN error crashes
+  // the whole call with "Unexpected token '<'" before we ever reach payment.
+  // Mirrors the paid-response guard below. No payment has been made yet here,
+  // so this is safe to surface as a retryable transient error.
+  const probeContentType = res.headers.get('content-type') || ''
+  let data: any
+  if (probeContentType.includes('application/json')) {
+    data = await res.json() as any
+  } else {
+    const text = await res.text().catch(() => '')
+    if (res.status === 402) {
+      // 402 with a non-JSON body: no payment metadata to act on. Treat as empty
+      // so the "did not offer <chain>" path below produces a clear message.
+      data = {}
+    } else {
+      throw new Error(
+        `Server returned ${res.status} ${res.statusText} with non-JSON body ` +
+        `(${probeContentType || 'no content-type'}) before any payment was made. ` +
+        `This is usually a transient CDN/nginx error — retry in a moment. ` +
+        `First 200 chars: ${text.slice(0, 200)}`,
+      )
+    }
+  }
 
   // Not a 402 — return as-is
   if (res.status !== 402) {
@@ -522,6 +699,14 @@ export async function paidRequest(
   }
 
   const amountUsdc = Number(selected.amount) / 1e6
+
+  // ── Spend ceiling (money-safety) ──────────────────────────────────────────
+  // Enforce BEFORE signing anything. A compromised/misconfigured endpoint can
+  // advertise an arbitrarily large `required` amount in its 402; without this
+  // gate paidRequest would sign for whatever it asks. Re-checked every attempt
+  // (the server could advertise a different amount on a retry's fresh 402).
+  assertWithinCeiling(amountUsdc, ceiling, path)
+
   let paymentPayload: any
   let payer: string
 
@@ -536,39 +721,55 @@ export async function paidRequest(
     spinner.start(`Paying ${amountUsdc} USDC on ${chainLabel}`)
   }
 
+  // Track the encoded header we actually submit this attempt so a transient
+  // failure can replay the SAME payment (idempotent) instead of double-paying.
+  let submittedHeader: string | undefined
+
   try {
-    if (preferredChain === 'base') {
-      const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
-      if (!auth) throw new Error(noEvmWalletError())
-
-      paymentPayload = buildSpecCompliantPayload({
-        payload: {
-          signature: auth.signature,
-          authorization: auth.authorization,
-        },
-        requirements: selected.requirements,
-        resource: options.resource,
-        extensions: options.extensions,
-      })
-      payer = auth.payer
-    } else {
-      const tx = await buildPaymentTransaction(selected.payTo, selected.amount, selected.feePayer, undefined, passphrase)
-      if (!tx) throw new Error('Failed to build Solana payment transaction — no wallet configured. Create one with: palmyr wallet create. Or configure a keyfile: palmyr setup --keyfile /path/to/keypair.json')
-
-      paymentPayload = buildSpecCompliantPayload({
-        payload: { transaction: tx.transaction },
-        requirements: selected.requirements,
-        resource: options.resource,
-        extensions: options.extensions,
-      })
-      payer = tx.payer
-    }
-
-    if (spinner) spinner.update(`Waiting for server...`)
-
     const chosenChain = preferredChain
 
-    const encoded = Buffer.from(JSON.stringify(paymentPayload)).toString('base64')
+    let encoded: string
+    if (internal.reuseHeader) {
+      // RETRY — resubmit the EXACT payment from the prior attempt. We reach here
+      // only when the prior tx may have landed (see decision logic below), so
+      // we must NOT sign a fresh transfer. The server replays the original
+      // response for a duplicate same-payment submission (or re-settles
+      // idempotently); the on-chain status check already proved the money moved.
+      encoded = internal.reuseHeader
+      payer = 'reused'
+      if (spinner) spinner.update(`Re-submitting prior payment...`)
+    } else {
+      if (preferredChain === 'base') {
+        const auth = await buildEvmPaymentAuthorization(selected.payTo, selected.amount, undefined, passphrase)
+        if (!auth) throw new Error(noEvmWalletError())
+
+        paymentPayload = buildSpecCompliantPayload({
+          payload: {
+            signature: auth.signature,
+            authorization: auth.authorization,
+          },
+          requirements: selected.requirements,
+          resource: options.resource,
+          extensions: options.extensions,
+        })
+        payer = auth.payer
+      } else {
+        const tx = await buildPaymentTransaction(selected.payTo, selected.amount, selected.feePayer, undefined, passphrase)
+        if (!tx) throw new Error('Failed to build Solana payment transaction — no wallet configured. Create one with: palmyr wallet create. Or configure a keyfile: palmyr setup --keyfile /path/to/keypair.json')
+
+        paymentPayload = buildSpecCompliantPayload({
+          payload: { transaction: tx.transaction },
+          requirements: selected.requirements,
+          resource: options.resource,
+          extensions: options.extensions,
+        })
+        payer = tx.payer
+      }
+      encoded = Buffer.from(JSON.stringify(paymentPayload)).toString('base64')
+      if (spinner) spinner.update(`Waiting for server...`)
+    }
+    submittedHeader = encoded
+
     const paidOpts: RequestInit = {
       method,
       headers: {
@@ -607,14 +808,56 @@ export async function paidRequest(
         ? `${paidData.error}: ${paidData.message}`
         : paidData.error
 
-      // Transient Solana errors (blockhash expired etc.) self-heal with a
-      // rebuilt tx that picks up a fresh blockhash. Retry once before
-      // surfacing the failure to the user.
+      // ── Transient settlement error: decide reuse-vs-mint WITHOUT double-pay ──
+      //
+      // A confirmation timeout / "block height exceeded" / "blockhash not found"
+      // does NOT prove the first transaction was dropped — it may still settle.
+      // Naively re-signing a brand-new transfer here is the double-pay bug.
+      //
+      // Decision logic (Solana):
+      //   1. Extract the on-chain signature the server forwarded in its error
+      //      (settlement_timeout / confirmation_failed both carry it).
+      //   2. If we have a signature, query getSignatureStatus:
+      //        confirmed/finalized → the money ALREADY MOVED. Do NOT mint a new
+      //          payment. RESUBMIT THE SAME header so the server replays the
+      //          original response / settles idempotently.
+      //        failed              → tx errored on-chain, no transfer happened →
+      //          safe to MINT A NEW payment.
+      //        dropped (no status) → tx never landed → safe to MINT A NEW one.
+      //        unknown (RPC error) → cannot prove it's safe to re-pay →
+      //          conservatively RESUBMIT THE SAME header (never double-pay on
+      //          uncertainty).
+      //   3. If NO signature was forwarded, the failure happened at verify time
+      //      (before submit) → nothing landed → safe to MINT A NEW payment.
+      //
+      // Base/EVM: EIP-3009 authorizations are nonce-bound, so resubmitting the
+      // same signed authorization is inherently idempotent (a consumed nonce
+      // can't transfer twice). On a transient EVM error we therefore always
+      // RESUBMIT THE SAME header rather than mint a fresh nonce.
+      //
+      // Cap: at most one transient retry (attempt < 2) to avoid loops.
       if (attempt < 2 && isTransientSolanaError(String(detail))) {
-        if (spinner) spinner.update(`Retrying with fresh blockhash...`)
+        let reuse = true // default to the SAFE path (no new payment)
+        if (preferredChain !== 'base') {
+          const sig = extractSolanaSignature(String(detail))
+          if (sig) {
+            if (spinner) spinner.update(`Checking if prior payment landed...`)
+            const status = await solanaSignatureLanded(sig)
+            // Only mint a brand-new payment when the prior tx definitively did
+            // NOT move funds: it failed on-chain, or it never landed at all.
+            reuse = !(status === 'failed' || status === 'dropped')
+          } else {
+            // No signature → never submitted → safe to mint a fresh payment.
+            reuse = false
+          }
+        }
+        if (spinner) spinner.update(reuse ? `Re-submitting prior payment...` : `Retrying with fresh blockhash...`)
         await new Promise(r => setTimeout(r, 500))
         if (spinner) spinner.cancel()
-        return paidRequest(api, method, path, body, passphrase, attempt + 1)
+        return paidRequest(api, method, path, body, passphrase, attempt + 1, {
+          ...internal,
+          reuseHeader: reuse ? submittedHeader : undefined,
+        } as PaidRequestOptions)
       }
 
       if (spinner) spinner.cancel()
@@ -628,10 +871,17 @@ export async function paidRequest(
   } catch (e: any) {
     if (spinner) spinner.cancel()
     // Also retry on transient errors that surface as exceptions (network
-    // hiccups, RPC errors thrown before paidData parsing).
+    // hiccups, RPC errors thrown before paidData parsing). Same double-pay
+    // guard: if we already submitted a payment this attempt, the tx may have
+    // landed even though the response never arrived — RESUBMIT THE SAME header
+    // rather than minting a new one. If we threw before submitting (no
+    // submittedHeader), nothing landed → safe to mint fresh.
     if (attempt < 2 && isTransientSolanaError(String(e?.message ?? e))) {
       await new Promise(r => setTimeout(r, 500))
-      return paidRequest(api, method, path, body, passphrase, attempt + 1)
+      return paidRequest(api, method, path, body, passphrase, attempt + 1, {
+        ...internal,
+        reuseHeader: submittedHeader,
+      } as PaidRequestOptions)
     }
     throw e
   }

@@ -26,7 +26,17 @@ import {
   randomBytes,
   scryptSync,
 } from 'crypto'
-import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs'
+import {
+  existsSync,
+  readFileSync,
+  writeFileSync,
+  mkdirSync,
+  unlinkSync,
+  renameSync,
+  openSync,
+  fsyncSync,
+  closeSync,
+} from 'fs'
 import { dirname, join } from 'path'
 
 import { TRADING_DIR } from './wallet-trading.js'
@@ -236,6 +246,42 @@ function ensureKeystoreDir() {
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
 }
 
+/**
+ * Crash-safe write for keystore.json — the ONLY encrypted copy of the trading
+ * mnemonic. A plain `writeFileSync` can truncate the file mid-write on a crash
+ * or power loss, destroying the ciphertext and bricking every derived wallet.
+ *
+ * We write to a temp file in the same directory (so the final `rename` is a
+ * same-filesystem atomic swap), fsync the bytes to disk, then rename over the
+ * target. `rename` is atomic on POSIX and replaces an existing file on Windows,
+ * so a reader/crash sees either the complete old file or the complete new one —
+ * never a zero-byte or half-written keystore. The temp file is created 0600 and
+ * cleaned up on any failure so we never leak the mnemonic ciphertext to a stray
+ * world-readable file. Mirrors `atomicWriteFile` in cli/wallet-trading.ts (used
+ * for position files) but adds fsync + restrictive perms given the stakes.
+ */
+function atomicWriteKeystore(target: string, content: string) {
+  const dir = dirname(target)
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  const base = target.split(/[\\/]/).pop()
+  const tmp = join(dir, `.${base}.${randomBytes(6).toString('hex')}.tmp`)
+  try {
+    writeFileSync(tmp, content, { mode: 0o600 })
+    // Flush the temp file's contents to stable storage before the rename so a
+    // power loss right after the rename can't leave a metadata-only (empty) file.
+    const fd = openSync(tmp, 'r')
+    try {
+      fsyncSync(fd)
+    } finally {
+      closeSync(fd)
+    }
+    renameSync(tmp, target)
+  } catch (err) {
+    try { unlinkSync(tmp) } catch {}
+    throw err
+  }
+}
+
 // ───────── Public API ─────────
 
 export interface InitKeystoreOpts {
@@ -293,7 +339,7 @@ export function initKeystore(opts: InitKeystoreOpts): KeystoreFile {
   }
 
   ensureKeystoreDir()
-  writeFileSync(KEYSTORE_FILE, JSON.stringify(file, null, 2))
+  atomicWriteKeystore(KEYSTORE_FILE, JSON.stringify(file, null, 2))
   // Auto-cache the seed — user just authenticated, no point making them
   // unlock again on the next command in the same session.
   cacheSeedHex(seedHex, opts.cacheTtlMs ?? DEFAULT_KEYSTORE_CACHE_TTL_MS)
@@ -435,7 +481,7 @@ export function deriveMoreWallets(count: number, passphrase?: string): KeystoreF
     file.addresses.push({ index: i, address: kp.publicKey.toBase58() })
   }
 
-  writeFileSync(KEYSTORE_FILE, JSON.stringify(file, null, 2))
+  atomicWriteKeystore(KEYSTORE_FILE, JSON.stringify(file, null, 2))
   return file
 }
 
