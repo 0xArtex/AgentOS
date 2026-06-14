@@ -25,9 +25,22 @@ const isWalletAddress = (s: string) => typeof s === "string" && (SOL_PUBKEY.test
 // on Base — keep the two constants in lockstep.
 const OWNERSHIP_PROOF_USDC = 0.01;
 
-function callerWallet(req: Request): string | null {
+/**
+ * Cryptographically PROVEN caller identity. Deliberately does NOT fall back to
+ * req.body.wallet / req.query.wallet — those are caller-asserted strings, and
+ * since wallet addresses are public on-chain, anyone could pass `?wallet=<owner>`
+ * to impersonate an owner and scrape their credentials. Only the x402 payer
+ * (proven by the USDC payment signature) or an authenticated agentId counts as
+ * identity.
+ *
+ * Use this for every route where a positive ownership decision releases secrets
+ * or mutates ownership. The paid owner-only routes funnel through requireAuth,
+ * which always sets payment.payer / agentId on the success path, so dropping the
+ * query/body fallback removes a spoofable path without changing legitimate flows.
+ */
+function provenCallerWallet(req: Request): string | null {
   const r = req as AuthenticatedRequest;
-  const w = r.payment?.payer || r.agentId || (req as any).payerAddress || req.body?.wallet || req.query?.wallet;
+  const w = r.payment?.payer || r.agentId || (req as any).payerAddress;
   return typeof w === "string" && w ? w : null;
 }
 
@@ -101,9 +114,13 @@ router.get("/accounts/mine", requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
   tags: ["twitter", "x", "accounts", "mine"],
 }), async (req: Request, res: Response) => {
   try {
-    const wallet = callerWallet(req);
+    // PROVEN identity only — this returns full credentials, so an asserted
+    // ?wallet= must never satisfy it. requireAuth guarantees payment.payer or
+    // agentId is set on the success path, so requiring the proven identity here
+    // changes no legitimate flow while staying regression-proof.
+    const wallet = provenCallerWallet(req);
     if (!wallet) {
-      res.status(401).json({ error: "Unauthorized", message: "Provide a wallet via x402 payment or ?wallet=…" });
+      res.status(401).json({ error: "Unauthorized", message: "Provide a wallet via x402 payment (your signature proves ownership)" });
       return;
     }
 
@@ -122,8 +139,18 @@ router.get("/accounts/mine", requireAuth(OWNERSHIP_PROOF_USDC, 'general', {
 });
 
 /**
- * GET /x/accounts/:id — Account status. Returns full credentials to the
- * owner and to any wallet in shared_with; otherwise returns public-only info.
+ * GET /x/accounts/:id — Account status (public, non-sensitive view only).
+ *
+ * This route is UNAUTHENTICATED, so it can NEVER return credentials: a
+ * `?wallet=<owner>` param is not proof of identity (wallet addresses are
+ * public on-chain), and serving secrets off an asserted wallet let anyone
+ * who knew an account id scrape every password/cookie/auth_token. Secrets are
+ * released only through the paid, payer-proven GET /x/accounts/mine route,
+ * whose x402 signature actually proves the caller controls the wallet.
+ *
+ * We still honour a PROVEN identity (agent token / x402 payer) if one happens
+ * to be present, so an authenticated owner hitting this path gets their own
+ * credentials — but an asserted query/body `wallet` never does.
  */
 router.get("/accounts/:id", async (req: Request, res: Response) => {
   try {
@@ -134,7 +161,7 @@ router.get("/accounts/:id", async (req: Request, res: Response) => {
       return;
     }
 
-    const wallet = callerWallet(req);
+    const wallet = provenCallerWallet(req);
     const hasAccess = !!wallet && xAccountService.canAccess(account, wallet);
     res.json(serializeAccount(account, hasAccess));
   } catch (error: any) {
@@ -178,7 +205,7 @@ router.post("/accounts/:id/transfer", requireAuth(OWNERSHIP_PROOF_USDC, 'general
   tags: ["twitter", "x", "transfer", "ownership"],
 }), async (req: Request, res: Response) => {
   try {
-    const caller = callerWallet(req);
+    const caller = provenCallerWallet(req);
     if (!caller) {
       res.status(401).json({ error: "Unauthorized", message: "Caller wallet required" });
       return;
@@ -253,7 +280,7 @@ router.post("/accounts/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, 'general', 
   tags: ["twitter", "x", "share"],
 }), async (req: Request, res: Response) => {
   try {
-    const caller = callerWallet(req);
+    const caller = provenCallerWallet(req);
     if (!caller) {
       res.status(401).json({ error: "Unauthorized" });
       return;
@@ -305,7 +332,7 @@ router.post("/accounts/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, 'general'
   tags: ["twitter", "x", "unshare"],
 }), async (req: Request, res: Response) => {
   try {
-    const caller = callerWallet(req);
+    const caller = provenCallerWallet(req);
     if (!caller) {
       res.status(401).json({ error: "Unauthorized" });
       return;

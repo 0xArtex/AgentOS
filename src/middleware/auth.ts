@@ -130,13 +130,70 @@ export function requireAuth(
         res.status(401).json({ error: "Invalid session for dashboard user" });
         return;
       }
-      // Dashboard users must have sufficient balance for any paid service.
+      // Dashboard users pay from their deposited balance instead of settling
+      // on-chain via x402. Unlike wallet payers (Methods 1-3) — who are charged
+      // by the x402 middleware's on-chain settlement BEFORE the handler runs —
+      // the dashboard identity is never debited by any route handler. So we
+      // meter it HERE: verify sufficient balance up front, then debit on a
+      // successful response via a res.on('finish') hook below.
+      //
+      // Mutual exclusivity with the wallet/x402 path is guaranteed by ordering:
+      // Method 3 (hasPayment) returns before we ever reach here, so a request
+      // that settled on-chain can never also be debited from a balance, and a
+      // dashboard request never has req.payment set. No double-charge.
       if (price > 0) {
         const bal = balanceService.getBalance(dashboardUser);
         if (bal.balance_usdc < price) {
-          res.status(402).json({ error: "Insufficient balance", required: price, balance: bal.balance_usdc });
+          res.status(402).json({
+            error: "Insufficient balance",
+            code: "insufficient_balance",
+            required: price,
+            balance: bal.balance_usdc,
+          });
           return;
         }
+
+        // Charge on SUCCESS only (statusCode < 400), exactly once, after the
+        // handler finishes. Charging on success avoids billing for failed
+        // operations (e.g. no inventory → 400, domain taken → 409, provider
+        // error → 5xx) and mirrors how wallet payers are made whole on failure
+        // by the refund path.
+        //
+        // Dynamic-price routes: the `price` resolved above is the amount a
+        // wallet payer would settle on-chain for this same request — it is
+        // deterministic for /social/twitter/buy (resolveBuyPrice) and already a
+        // concrete per-TLD number for /domains/register (requireDomainPayment
+        // resolves it before delegating here). A handler that computes a
+        // different actual charge can override the metered amount by setting
+        // `res.locals.x402ActualCharge`; absent that, we charge the resolved
+        // `price`, which is exact for every paid route today.
+        let debited = false;
+        res.on("finish", () => {
+          if (debited) return; // guard against double-debit
+          debited = true;
+          if (res.statusCode >= 400) return; // only charge successful responses
+          const localCharge = (res.locals && (res.locals as any).x402ActualCharge);
+          const amount = typeof localCharge === "number" && localCharge >= 0 ? localCharge : price;
+          if (amount <= 0) return;
+          try {
+            balanceService.debit(
+              dashboardUser,
+              amount,
+              serviceType,
+              `${req.method} ${req.originalUrl.split("?")[0]}`,
+            );
+          } catch (err: any) {
+            // Response already sent — we can't change it. This only happens if
+            // a concurrent dashboard request drained the balance between the
+            // up-front check and here; debit() refuses to go negative, so the
+            // platform never over-refunds and the balance never desyncs. Log
+            // for reconciliation.
+            console.error(
+              `[auth] dashboard debit failed for ${dashboardUser} ($${amount} ${serviceType} on ${req.method} ${req.originalUrl.split("?")[0]}):`,
+              err?.message ?? err,
+            );
+          }
+        });
       }
       req.agentId = `dashboard:${dashboardUser}`;
       next();

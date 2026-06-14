@@ -673,11 +673,29 @@ router.get("/threads/:threadId/messages", x402(0.02, {
 
 /**
  * GET /email/attachments/:attachmentId — Download an attachment
+ *
+ * Like every other email read route, the x402 payer must own the inbox the
+ * attachment belongs to. Attachments link to a message (message_id) and the
+ * message links to an inbox (inbox_id), so we walk attachment → message → inbox
+ * and apply the same `payer === inbox.solanaPublicKey || inbox.owner` check the
+ * sibling routes use. Without this, any paying wallet could enumerate attachment
+ * ids and pull other inboxes' (possibly E2E-encrypted, but still private)
+ * content.
  */
 router.get("/attachments/:attachmentId", x402(0.02), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const att = storage.getEmailAttachment?.(req.params.attachmentId as string);
     if (!att) { res.status(404).json({ error: "Attachment not found" }); return; }
+
+    // Resolve the owning inbox via the attachment's parent message.
+    const msg = db.prepare("SELECT inbox_id FROM email_messages WHERE id = ?").get(att.message_id) as { inbox_id?: string } | undefined;
+    const inbox = msg?.inbox_id ? emailService.getInbox(msg.inbox_id) : undefined;
+    if (!inbox) { res.status(404).json({ error: "Attachment not found" }); return; }
+
+    const payer = req.payment?.payer;
+    if (payer !== inbox.solanaPublicKey && payer !== inbox.owner) {
+      res.status(403).json({ error: "Wallet mismatch" }); return;
+    }
 
     res.json({
       id: att.id,
