@@ -1,10 +1,17 @@
-import { Router, Request, Response } from "express";
+import { Router, Response } from "express";
 import Database from "better-sqlite3";
 import path from "path";
 import { DATA_DIR } from "../db";
+import { requireAuth } from "../middleware/auth";
+import { AuthenticatedRequest } from "../types";
 
 const router = Router();
 const dbPath = path.join(DATA_DIR, "palmyr.db");
+
+// Every route requires a verified identity. requireAuth(0) lets registered
+// agents (aos_/agt_ token) through for free and sets req.agentId to the
+// VERIFIED wallet identity — never the raw X-Agent-Id header.
+router.use(requireAuth(0, "general"));
 
 function getDb() {
   const db = new Database(dbPath);
@@ -25,8 +32,9 @@ function getDb() {
   return db;
 }
 
-router.get("/", (req: Request, res: Response) => {
-  const agentId = (req.headers["x-agent-id"] as string) || "anonymous";
+router.get("/", (req: AuthenticatedRequest, res: Response) => {
+  const agentId = req.agentId || req.payment?.payer;
+  if (!agentId) return res.status(401).json({ error: "authentication required" });
   const db = getDb();
   const jobs = db.prepare("SELECT * FROM agent_cron_jobs WHERE agent_id = ? ORDER BY created_at DESC").all(agentId);
   db.close();
@@ -38,8 +46,9 @@ router.get("/", (req: Request, res: Response) => {
   });
 });
 
-router.post("/", (req: Request, res: Response) => {
-  const agentId = (req.headers["x-agent-id"] as string) || "anonymous";
+router.post("/", (req: AuthenticatedRequest, res: Response) => {
+  const agentId = req.agentId || req.payment?.payer;
+  if (!agentId) return res.status(401).json({ error: "authentication required" });
   const { name, schedule, endpoint, method, payload } = req.body || {};
   if (!name || !schedule || !endpoint) {
     return res.status(400).json({ error: "name, schedule, and endpoint are required" });
@@ -52,8 +61,9 @@ router.post("/", (req: Request, res: Response) => {
   res.status(201).json({ id, name, schedule, endpoint, method: method || "GET", enabled: true, message: "Cron job created" });
 });
 
-router.get("/:id", (req: Request, res: Response) => {
-  const agentId = (req.headers["x-agent-id"] as string) || "anonymous";
+router.get("/:id", (req: AuthenticatedRequest, res: Response) => {
+  const agentId = req.agentId || req.payment?.payer;
+  if (!agentId) return res.status(401).json({ error: "authentication required" });
   const db = getDb();
   const job = db.prepare("SELECT * FROM agent_cron_jobs WHERE id = ? AND agent_id = ?").get(req.params.id, agentId);
   db.close();
@@ -61,22 +71,24 @@ router.get("/:id", (req: Request, res: Response) => {
   res.json(job);
 });
 
-router.patch("/:id", (req: Request, res: Response) => {
-  const agentId = (req.headers["x-agent-id"] as string) || "anonymous";
+router.patch("/:id", (req: AuthenticatedRequest, res: Response) => {
+  const agentId = req.agentId || req.payment?.payer;
+  if (!agentId) return res.status(401).json({ error: "authentication required" });
   const { enabled, schedule, name } = req.body || {};
   const db = getDb();
   const job = db.prepare("SELECT * FROM agent_cron_jobs WHERE id = ? AND agent_id = ?").get(req.params.id, agentId);
   if (!job) { db.close(); return res.status(404).json({ error: "Job not found" }); }
-  if (enabled !== undefined) db.prepare("UPDATE agent_cron_jobs SET enabled = ? WHERE id = ?").run(enabled ? 1 : 0, req.params.id);
-  if (schedule) db.prepare("UPDATE agent_cron_jobs SET schedule = ? WHERE id = ?").run(schedule, req.params.id);
-  if (name) db.prepare("UPDATE agent_cron_jobs SET name = ? WHERE id = ?").run(name, req.params.id);
-  const updated = db.prepare("SELECT * FROM agent_cron_jobs WHERE id = ?").get(req.params.id);
+  if (enabled !== undefined) db.prepare("UPDATE agent_cron_jobs SET enabled = ? WHERE id = ? AND agent_id = ?").run(enabled ? 1 : 0, req.params.id, agentId);
+  if (schedule) db.prepare("UPDATE agent_cron_jobs SET schedule = ? WHERE id = ? AND agent_id = ?").run(schedule, req.params.id, agentId);
+  if (name) db.prepare("UPDATE agent_cron_jobs SET name = ? WHERE id = ? AND agent_id = ?").run(name, req.params.id, agentId);
+  const updated = db.prepare("SELECT * FROM agent_cron_jobs WHERE id = ? AND agent_id = ?").get(req.params.id, agentId);
   db.close();
   res.json(updated);
 });
 
-router.delete("/:id", (req: Request, res: Response) => {
-  const agentId = (req.headers["x-agent-id"] as string) || "anonymous";
+router.delete("/:id", (req: AuthenticatedRequest, res: Response) => {
+  const agentId = req.agentId || req.payment?.payer;
+  if (!agentId) return res.status(401).json({ error: "authentication required" });
   const db = getDb();
   const result = db.prepare("DELETE FROM agent_cron_jobs WHERE id = ? AND agent_id = ?").run(req.params.id, agentId);
   db.close();
