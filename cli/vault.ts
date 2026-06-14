@@ -6,7 +6,7 @@
  * passphrase-based decryption for legacy wallets.
  */
 import { randomBytes, createCipheriv, createDecipheriv, scryptSync } from 'crypto'
-import { existsSync, readFileSync, readdirSync, writeFileSync, mkdirSync, renameSync, openSync, closeSync, statSync, unlinkSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, writeFileSync, writeSync, mkdirSync, renameSync, openSync, closeSync, statSync, unlinkSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
 import { createRequire } from 'module'
@@ -82,7 +82,16 @@ function loadWalletFile(nameOrId: string): WalletFile {
   if (!existsSync(dir)) throw new Error(`Vault directory not found: ${dir}`)
 
   for (const f of readdirSync(dir).filter(x => x.endsWith('.json'))) {
-    const data = JSON.parse(readFileSync(join(dir, f), 'utf8')) as WalletFile
+    // Guard the per-file parse so one truncated/corrupt wallet file can't make
+    // EVERY vault operation (pay/sign/export/trade) throw. Mirrors the skip+warn
+    // already used by listVaultWallets() and findWalletFile().
+    let data: WalletFile
+    try {
+      data = JSON.parse(readFileSync(join(dir, f), 'utf8')) as WalletFile
+    } catch (e: any) {
+      console.warn(`[vault] skipping ${f}: ${e.message.split('\n')[0]}`)
+      continue
+    }
     if (data.id === nameOrId || data.name === nameOrId) {
       return data
     }
@@ -379,29 +388,64 @@ const LOCK_STALE_MS = 30_000
 const LOCK_RETRY_MS = 50
 const LOCK_TIMEOUT_MS = 5_000
 
+/**
+ * Synchronous sleep that yields the CPU instead of spinning. `acquireLock` and
+ * `withLock` are synchronous (every caller — createLocalWallet, tagWallet,
+ * rekeyWallet, … — is sync), so we can't `await` a timer without breaking those
+ * signatures. `Atomics.wait` on a throwaway SharedArrayBuffer parks the thread
+ * for `ms` without burning a core (unlike the old `while (Date.now() < …) {}`),
+ * and works identically on Windows + POSIX. Falls back to a bounded spin only if
+ * SharedArrayBuffer is unavailable (it isn't in any supported Node).
+ */
+function sleepSync(ms: number): void {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms)
+  } catch {
+    const until = Date.now() + ms
+    while (Date.now() < until) { /* fallback spin */ }
+  }
+}
+
 function acquireLock(targetPath: string): () => void {
   const lockPath = targetPath + '.lock'
   const deadline = Date.now() + LOCK_TIMEOUT_MS
   while (true) {
     try {
+      // Exclusive create — only one process/wins per round.
       const fd = openSync(lockPath, 'wx')
-      writeFileSync(lockPath, `${process.pid}\n${Date.now()}`)
-      closeSync(fd)
+      try { writeSync(fd, `${process.pid}\n${Date.now()}`) } finally { closeSync(fd) }
       return () => { try { unlinkSync(lockPath) } catch {} }
     } catch (err: any) {
       if (err.code !== 'EEXIST') throw err
+      // A lock exists. If it's verifiably stale, try to take it over WITHOUT a
+      // racy delete-then-recreate. Two waiters that both judged the old lock
+      // stale must not both unlink it (the second would delete the winner's
+      // fresh lock). Instead we atomically rename the stale file to a private
+      // name: renameSync of a specific path is atomic, so exactly one waiter
+      // "steals" it; the others get ENOENT and fall through to retry openSync,
+      // where they'll see the winner's now-fresh lock and wait normally.
       try {
         const stat = statSync(lockPath)
         if (Date.now() - stat.mtimeMs > LOCK_STALE_MS) {
-          try { unlinkSync(lockPath) } catch {}
+          const stealPath = `${lockPath}.stale.${process.pid}.${randomBytes(4).toString('hex')}`
+          try {
+            renameSync(lockPath, stealPath)
+            // We won the steal. Drop the stale file and loop to re-create.
+            try { unlinkSync(stealPath) } catch {}
+          } catch {
+            // Lost the steal (another waiter renamed it first, or the holder
+            // released it). Either way the path is no longer ours to remove.
+          }
           continue
         }
-      } catch { continue }
+      } catch {
+        // statSync failed (lock vanished between openSync and statSync) — retry.
+        continue
+      }
       if (Date.now() >= deadline) {
         throw new Error(`Timed out waiting for lock on ${targetPath}`)
       }
-      const waitUntil = Date.now() + LOCK_RETRY_MS
-      while (Date.now() < waitUntil) { /* spin */ }
+      sleepSync(LOCK_RETRY_MS)
     }
   }
 }

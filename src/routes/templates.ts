@@ -223,7 +223,28 @@ router.post("/:id/deploy", requireDashboardAuth, async (req: DashboardRequest, r
   const template = db.prepare("SELECT * FROM templates WHERE id = ? AND status = 'published'").get(req.params.id) as any;
   if (!template) return res.status(404).json({ error: "Template not found" });
 
-  // Check balance and debit
+  // Validate ALL inputs BEFORE charging. Anything that can return 4xx has to
+  // run ahead of the debit so a rejected request is never billed (the user
+  // previously got charged and then a 400 with no refund). Parse the blueprint
+  // and services here too — a malformed template row would otherwise throw
+  // AFTER the debit and surface as a charged-then-500.
+  let blueprint: any;
+  let services: any[];
+  try {
+    blueprint = JSON.parse(template.blueprint);
+    services = JSON.parse(template.services);
+  } catch {
+    return res.status(400).json({ error: "Template is malformed (invalid blueprint or services)" });
+  }
+
+  // Wallet passphrase (only required if the template needs wallet provisioning)
+  const walletPassphrase = (req.body as any)?.walletPassphrase as string | undefined;
+  const needsWallet = services.some((s: any) => s.type?.startsWith("wallet"));
+  if (needsWallet && !walletPassphrase) {
+    return res.status(400).json({ error: "walletPassphrase is required for templates that include wallet services" });
+  }
+
+  // Check balance and debit — only after every validation above has passed.
   const totalPrice = template.total_price_usdc || 0;
   if (totalPrice > 0) {
     try {
@@ -243,23 +264,12 @@ router.post("/:id/deploy", requireDashboardAuth, async (req: DashboardRequest, r
   // Increment deploy count
   db.prepare("UPDATE templates SET deploys = deploys + 1 WHERE id = ?").run(template.id);
 
-  // Start provisioning asynchronously
-  const blueprint = JSON.parse(template.blueprint);
-  const services = JSON.parse(template.services);
-
   // Create a new project from the blueprint
   const projectId = crypto.randomUUID();
   db.prepare(`
     INSERT INTO projects (id, user_id, name, canvas_state, created_at, updated_at)
     VALUES (?, ?, ?, ?, datetime('now'), datetime('now'))
   `).run(projectId, userId, `${template.name} (deployed)`, JSON.stringify(blueprint));
-
-  // Wallet passphrase (only required if the template needs wallet provisioning)
-  const walletPassphrase = (req.body as any)?.walletPassphrase as string | undefined;
-  const needsWallet = services.some((s: any) => s.type?.startsWith("wallet"));
-  if (needsWallet && !walletPassphrase) {
-    return res.status(400).json({ error: "walletPassphrase is required for templates that include wallet services" });
-  }
 
   // Start async provisioning
   provisionTemplate(deployId, userId, projectId, blueprint, services, walletPassphrase).catch(err => {
