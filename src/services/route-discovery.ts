@@ -19,6 +19,13 @@ export interface PaidRoute {
   method: string;       // 'GET' | 'POST' | 'PUT' | 'DELETE' | 'PATCH'
   path: string;         // full path including mount prefix, e.g. "/email/inboxes/:id/send"
   priceUsdc: number;
+  // True when the route prices dynamically from request data (e.g.
+  // /social/twitter/buy charges a per-country price). For these `priceUsdc` is a
+  // sentinel 0 and is NOT a real charge — discovery surfaces advertise them as
+  // `mode:"dynamic"` and tell agents to probe the 402 for the live amount.
+  // Sourced from the `_x402DynamicPrice` marker requireAuth() sets when given a
+  // price function (mirrors how `priceUsdc` is read from `_x402PaidMin`).
+  dynamicPrice: boolean;
   metadata?: X402Metadata;
 }
 
@@ -130,6 +137,7 @@ function walk(stack: any[], prefix: string, out: PaidRoute[]): void {
             method: method.toUpperCase(),
             path: fullPath,
             priceUsdc: handle._x402PaidMin,
+            dynamicPrice: handle._x402DynamicPrice === true,
             metadata: handle._x402Metadata,
           });
         }

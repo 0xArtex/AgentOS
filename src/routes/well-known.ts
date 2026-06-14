@@ -15,13 +15,80 @@
  */
 
 import type { Express, Request, Response } from "express";
+import { createHash } from "crypto";
 import { enumeratePaidRoutes } from "../services/route-discovery";
+
+/**
+ * Stamp the spec's `info.version` from the root package.json so crawlers can
+ * tell two snapshots apart. Read once at module load, behind a try/catch — a
+ * missing/garbled package.json must never make a discovery request throw. Falls
+ * back to "0.0.0" so the field is always a valid semver-ish string.
+ */
+function readPackageVersion(): string {
+  try {
+    // require() resolves relative to this file (dist/routes or src/routes), so
+    // ../../package.json points at the project root in both layouts.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pkg = require("../../package.json");
+    const v = pkg && typeof pkg.version === "string" ? pkg.version : "";
+    return v || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+const PACKAGE_VERSION = readPackageVersion();
+
+/**
+ * Strong ETag over the JSON body the endpoint is about to return, so crawlers
+ * can cache and revalidate (If-None-Match → 304) instead of re-fetching the
+ * whole spec on every poll. Pure hash; cannot throw on well-formed JSON input.
+ */
+function etagFor(body: string): string {
+  return `"${createHash("sha256").update(body).digest("hex").slice(0, 32)}"`;
+}
+
+/**
+ * Serialize `doc`, attach a content-derived ETag + a short Cache-Control, and
+ * honor a matching If-None-Match with a 304. Used by both discovery endpoints.
+ * `maxAgeSeconds` is intentionally short — the surface is cheap to regenerate
+ * and we'd rather crawlers pick up route/price changes quickly.
+ */
+function sendCacheable(req: Request, res: Response, doc: unknown, maxAgeSeconds = 300): void {
+  const body = JSON.stringify(doc);
+  const etag = etagFor(body);
+  res.setHeader("ETag", etag);
+  res.setHeader("Cache-Control", `public, max-age=${maxAgeSeconds}`);
+  if (req.headers["if-none-match"] === etag) {
+    res.status(304).end();
+    return;
+  }
+  res.type("application/json").send(body);
+}
 
 interface WellKnownX402Doc {
   version: 1;
   resources: string[];
+  openapi?: string;
   ownershipProofs?: string[];
 }
+
+/**
+ * Essential FREE preflight routes, hand-curated. The paid-route walker only sees
+ * 402-gated handlers, so the "check before you pay" steps an agent needs —
+ * availability/pricing probes and free registration — exist only in prose
+ * otherwise. We advertise a deliberately SHORT list here (price 0, mode "free")
+ * so agents can discover them, while staying well under x402scan's >50-route
+ * `L2_ROUTE_COUNT_HIGH` threshold. Keep this list tight and high-signal.
+ *
+ * Each entry is "<METHOD> <full path>" with a one-line description.
+ */
+const FREE_ROUTES: { route: string; description: string }[] = [
+  { route: "GET /pricing", description: "Transparent pricing for every Palmyr service. Read this before paying." },
+  { route: "GET /domains/check", description: "Check if a domain is available (query: ?domain=example.com). Free preflight before POST /domains/register." },
+  { route: "GET /domains/pricing", description: "Per-TLD domain registration pricing. Free preflight before POST /domains/register." },
+  { route: "GET /phone/numbers/search", description: "Search available phone numbers before provisioning one. Free preflight before POST /phone/numbers." },
+  { route: "POST /agents/register", description: "Register an agent and receive an agent token. Free — wallet payments work without it, but a token is handy for identity." },
+];
 
 /**
  * Ownership proofs let x402scan / agentcash bind on-chain volume (including the
@@ -50,7 +117,14 @@ export function buildWellKnownDoc(app: Express, host: string): WellKnownX402Doc 
       resources.push(url);
     }
   }
-  const doc: WellKnownX402Doc = { version: 1, resources };
+  // Keep `resources` as the canonical bare-URL array (x402scan's format). Add a
+  // sibling `openapi` link so a crawler can hop straight to the priced spec
+  // (methods, prices, dynamic-vs-fixed) instead of re-deriving it from the URLs.
+  const doc: WellKnownX402Doc = {
+    version: 1,
+    resources,
+    openapi: `https://${host}/openapi.json`,
+  };
   const proofs = ownershipProofs();
   if (proofs.length) doc.ownershipProofs = proofs;
   return doc;
@@ -117,14 +191,27 @@ export function buildOpenApiDoc(app: Express, host: string): any {
       description: r.metadata?.description,
       tags: r.metadata?.category ? [r.metadata.category] : undefined,
       parameters: params,
-      "x-payment-info": {
-        price: {
-          mode: "fixed",
-          currency: "USD",
-          amount: r.priceUsdc.toFixed(6).replace(/\.?0+$/, ""),
-        },
-        protocols: [{ x402: {} }],
-      },
+      // Dynamic-priced routes (e.g. /social/twitter/buy charges per country)
+      // must NOT advertise a fixed amount — `priceUsdc` is a sentinel 0 here, so
+      // a fixed block would tell agents to build a 0-USDC payment that the route
+      // rejects. Advertise `mode:"dynamic"` and point them at the live 402.
+      "x-payment-info": r.dynamicPrice
+        ? {
+            price: {
+              mode: "dynamic",
+              currency: "USD",
+              hint: "Price depends on request parameters. Send the request with no payment to get a 402 challenge whose `accepts` entries carry the live amount, then pay that.",
+            },
+            protocols: [{ x402: {} }],
+          }
+        : {
+            price: {
+              mode: "fixed",
+              currency: "USD",
+              amount: r.priceUsdc.toFixed(6).replace(/\.?0+$/, ""),
+            },
+            protocols: [{ x402: {} }],
+          },
       // Bazaar extension on the OpenAPI op — x402scan's discovery validator
       // looks for input/output schemas at this exact path. Permissive object
       // shapes resolve SCHEMA_INPUT_MISSING / SCHEMA_OUTPUT_MISSING at
@@ -167,18 +254,79 @@ export function buildOpenApiDoc(app: Express, host: string): any {
     paths[oasPath][r.method.toLowerCase()] = op;
   }
 
+  // Advertise the curated FREE preflight routes (price 0). The paid walker can't
+  // see them — they're not 402-gated — so without this an agent never discovers
+  // the "check before you pay" steps. Mark them `mode:"free"` and never attach a
+  // 402 response so crawlers don't misclassify them as paid. Skip any whose
+  // (method, path) a paid route already claimed, so we never overwrite a real
+  // priced op with a free stub.
+  for (const free of FREE_ROUTES) {
+    const sp = free.route.indexOf(" ");
+    const method = free.route.slice(0, sp).toUpperCase();
+    const path = free.route.slice(sp + 1);
+    const oasPath = path.replace(/:([^/]+)/g, "{$1}");
+    if (!paths[oasPath]) paths[oasPath] = {};
+    if (paths[oasPath][method.toLowerCase()]) continue; // don't clobber a paid op
+
+    const params: any[] = [];
+    const paramMatches = path.match(/:([a-zA-Z0-9_]+)/g) || [];
+    for (const raw of paramMatches) {
+      const name = raw.slice(1);
+      params.push({
+        name,
+        in: "path",
+        required: true,
+        description: `Path parameter: ${name}`,
+        schema: { type: "string" },
+      });
+    }
+
+    const freeOp: any = {
+      summary: free.description,
+      description: free.description,
+      tags: ["free"],
+      ...(params.length ? { parameters: params } : {}),
+      "x-payment-info": {
+        price: { mode: "free", currency: "USD", amount: "0" },
+      },
+      extensions: {
+        bazaar: {
+          discoverable: true,
+          category: "free",
+          schema: {
+            properties: {
+              input: permissiveJsonSchema,
+              output: permissiveJsonSchema,
+            },
+          },
+        },
+      },
+      responses: {
+        "200": {
+          description: "OK",
+          content: jsonContent,
+        },
+      },
+    };
+    if (mutatingMethods.has(method)) {
+      freeOp.requestBody = { required: false, content: jsonContent };
+    }
+    paths[oasPath][method.toLowerCase()] = freeOp;
+  }
+
   const doc: any = {
     openapi: "3.1.0",
     info: {
       title: "Palmyr",
       description: "Autonomous infrastructure for AI agents — pay with USDC on Solana or Base via x402.",
-      version: "1.0.0",
+      version: PACKAGE_VERSION,
       "x-guidance": [
         "Palmyr is a paid HTTP API that lets agents buy and operate their own infrastructure: phone numbers, email inboxes, custom domains, cloud servers, third-party API keys.",
         "Identity = wallet address. Pay with USDC; the wallet that pays becomes the owner of the resource.",
         "Every paid endpoint returns 402 with a valid x402 challenge. Use the `extra.facilitator` field on each accepts entry to route the settlement (CDP for EVM, self-hosted for Solana).",
         "Solana uses a server-paid fee-payer pattern — payers only need USDC, never SOL.",
-        "Free helper endpoints: GET /api, /health, /version, /pricing.",
+        "Some routes price dynamically (x-payment-info.price.mode === 'dynamic', e.g. POST /social/twitter/buy) — never assume a fixed amount for these; send the request unpaid to get a 402 whose `accepts` carry the live price, then pay that.",
+        "Check before you pay: free preflight routes (x-payment-info.price.mode === 'free') let you probe availability and price first — GET /pricing, GET /domains/check, GET /domains/pricing, GET /phone/numbers/search, plus free POST /agents/register. Other free helpers: GET /api, /health, /version.",
       ].join(" "),
     },
     servers: [{ url: `https://${host}` }],
@@ -208,11 +356,12 @@ export function buildOpenApiDoc(app: Express, host: string): any {
 export function mountDiscoveryRoutes(app: Express): void {
   app.get("/.well-known/x402", (req: Request, res: Response) => {
     const host = req.get("host") || "palmyr.ai";
-    res.json(buildWellKnownDoc(app, host));
+    // ETag + short Cache-Control so indexers can poll cheaply and revalidate.
+    sendCacheable(req, res, buildWellKnownDoc(app, host));
   });
 
   app.get("/openapi.json", (req: Request, res: Response) => {
     const host = req.get("host") || "palmyr.ai";
-    res.json(buildOpenApiDoc(app, host));
+    sendCacheable(req, res, buildOpenApiDoc(app, host));
   });
 }
