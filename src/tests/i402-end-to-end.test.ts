@@ -278,7 +278,7 @@ describe("i402 end-to-end (fake Palmyr + real CLI binary)", () => {
     assert.match(result.stdout, /register_domain/, "stdout should mention register_domain");
     assert.match(result.stdout, /send_sms/, "stdout should mention send_sms");
     assert.match(result.stdout, /deploy_vps/, "stdout should mention deploy_vps");
-    assert.match(result.stdout, /status=completed/, "stdout should show 'status=completed' in the summary");
+    assert.match(result.stdout, /"status":\s*"completed"/, "stdout should show the summary status 'completed'");
   });
 
   it("respects topological order — step with depends_on runs after its prerequisite", async () => {
