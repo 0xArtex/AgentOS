@@ -44,6 +44,163 @@ function pruneOldPayments(): void {
   } catch {}
 }
 
+// --- Idempotent response replay -------------------------------------------
+// Goal: if a client resubmits the SAME signed payment (e.g. its response was
+// lost to a dropped connection / CDN error and it retried with the same
+// payment header), replay the original success response instead of returning a
+// bare 402 the agent can't recover from. The agent already paid; don't make it
+// pay again, and don't leak a fresh challenge that could induce a second pay.
+//
+// The `used_payments` table is created in db.ts (owned by another agent this
+// wave), so we additively widen it from here with guarded ALTER TABLE at module
+// init. SQLite has no `ADD COLUMN IF NOT EXISTS`, so we swallow the
+// "duplicate column name" error that fires on every run after the first.
+const REPLAY_BODY_MAX_BYTES = 64 * 1024; // don't buffer huge/stream bodies
+
+function ensureReplayColumns(): void {
+  const cols = [
+    "ADD COLUMN response_status INTEGER",
+    "ADD COLUMN response_body TEXT",
+    "ADD COLUMN response_content_type TEXT",
+  ];
+  for (const col of cols) {
+    try {
+      db.exec("ALTER TABLE used_payments " + col);
+    } catch (e: any) {
+      // Ignore "duplicate column name: ..." (column already added on a prior
+      // boot). Re-throw anything genuinely unexpected so we don't silently run
+      // without the replay store.
+      if (!/duplicate column name/i.test(e?.message || "")) {
+        console.warn("[x402] ensureReplayColumns:", e?.message);
+      }
+    }
+  }
+}
+ensureReplayColumns();
+
+type StoredReplay = {
+  status: number;
+  body: string;
+  contentType: string | null;
+  verifiedAt: string;
+};
+
+// Persist a success response against an already-claimed fingerprint. Best
+// effort: a write failure here only costs us the replay convenience, never
+// correctness (the payment is still recorded as consumed).
+function storeReplayResponse(fp: string, status: number, body: string, contentType: string | null): void {
+  try {
+    db.prepare(
+      "UPDATE used_payments SET response_status = ?, response_body = ?, response_content_type = ? WHERE signature = ?"
+    ).run(status, body, contentType, fp);
+  } catch (e: any) {
+    console.warn("[x402] storeReplayResponse failed:", e?.message);
+  }
+}
+
+// Fetch a previously-stored success response for a seen fingerprint, but only
+// if it's still inside the replay TTL window (mirrors pruneOldPayments — a row
+// older than the window is logically gone even if prune hasn't swept it yet).
+function getStoredReplay(fp: string): StoredReplay | null {
+  try {
+    const row = db.prepare(
+      "SELECT response_status, response_body, response_content_type, verified_at FROM used_payments WHERE signature = ?"
+    ).get(fp) as any;
+    if (!row || row.response_status == null || row.response_body == null) return null;
+    const verifiedAtMs = Date.parse(row.verified_at);
+    if (!Number.isNaN(verifiedAtMs) && Date.now() - verifiedAtMs > PAYMENT_REPLAY_TTL_MS) {
+      return null; // outside the replay window
+    }
+    return {
+      status: row.response_status,
+      body: row.response_body,
+      contentType: row.response_content_type ?? null,
+      verifiedAt: row.verified_at,
+    };
+  } catch (e: any) {
+    console.warn("[x402] getStoredReplay failed:", e?.message);
+    return null;
+  }
+}
+
+// Wrap res.json/res.send so that when a paid handler finishes with a success
+// status (< 400) we capture (status, body, content-type) and persist it against
+// the fingerprint. Only JSON and string/Buffer bodies are captured; streaming
+// responses (res.write/res.end/sendFile/pipe) never call these, so they're
+// simply not stored and replay falls back to the 402-with-code path. Bodies
+// over REPLAY_BODY_MAX_BYTES are skipped to avoid buffering large payloads.
+function captureSuccessResponse(res: Response, fp: string): void {
+  const origJson = res.json.bind(res);
+  const origSend = res.send.bind(res);
+  let stored = false;
+
+  const persist = (body: any, isJson: boolean): void => {
+    if (stored) return;
+    stored = true; // guard against json()→send() double-fire and multiple sends
+    try {
+      const status = res.statusCode;
+      if (status >= 400) return; // only replay successful responses
+      let serialized: string;
+      if (isJson) {
+        serialized = JSON.stringify(body);
+      } else if (typeof body === "string") {
+        serialized = body;
+      } else if (Buffer.isBuffer(body)) {
+        serialized = body.toString("utf8");
+      } else if (body == null) {
+        return; // nothing meaningful to replay
+      } else {
+        // Non-string/Buffer object passed to res.send() — Express will JSON it.
+        serialized = JSON.stringify(body);
+      }
+      if (serialized == null) return;
+      if (Buffer.byteLength(serialized, "utf8") > REPLAY_BODY_MAX_BYTES) return; // too big to buffer
+      const contentType = res.getHeader("Content-Type");
+      const ctStr = typeof contentType === "string"
+        ? contentType
+        : (isJson ? "application/json; charset=utf-8" : null);
+      storeReplayResponse(fp, status, serialized, ctStr);
+    } catch (e: any) {
+      console.warn("[x402] captureSuccessResponse persist failed:", e?.message);
+    }
+  };
+
+  res.json = ((body: any) => {
+    persist(body, true);
+    return origJson(body);
+  }) as any;
+
+  res.send = ((body?: any) => {
+    // Express routes objects through send()→json() internally; let that path
+    // (isJson=true) win and avoid double-serializing here.
+    if (body !== null && typeof body === "object" && !Buffer.isBuffer(body)) {
+      return origSend(body);
+    }
+    persist(body, false);
+    return origSend(body);
+  }) as any;
+}
+
+// Write a stored success response back to the client verbatim, tagged as a
+// replay (header + a JSON marker field when the body is a JSON object). Shared
+// by both replay paths (pre-settlement seen, and post-settlement claim-race).
+function sendReplay(res: Response, replay: StoredReplay): void {
+  res.setHeader("X-Idempotent-Replay", "true");
+  if (replay.contentType) res.setHeader("Content-Type", replay.contentType);
+  res.status(replay.status);
+  const ct = (replay.contentType || "").toLowerCase();
+  if (ct.includes("application/json")) {
+    try {
+      const parsed = JSON.parse(replay.body);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        res.json({ ...parsed, idempotent_replay: true });
+        return;
+      }
+    } catch { /* fall through to raw send */ }
+  }
+  res.send(replay.body);
+}
+
 const payToEvm = config.treasuryEvmWallet;
 const payToSolana = config.treasuryWallet;
 
@@ -351,9 +508,24 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
     const fingerprint = paymentFingerprint(paymentHeader, req.method, req.originalUrl.split("?")[0]);
     const alreadySeen = db.prepare("SELECT signature FROM used_payments WHERE signature = ?").get(fingerprint);
     if (alreadySeen) {
+      // This exact payment was already consumed for this method+path. Two cases:
+      //  (a) we stored the original success response → replay it verbatim so a
+      //      client that lost the first response (dropped connection / CDN) can
+      //      recover the resource it already paid for, instead of a bare 402.
+      //  (b) no stored response yet (original still in-flight, or it failed) →
+      //      still a 402, but with a stable `code` so the agent can tell this
+      //      "you already paid" case from a fresh "pay now" challenge. We do NOT
+      //      emit another payment challenge here (no headers/accepts) — doing so
+      //      could induce a second payment for an already-paid request.
+      const replay = getStoredReplay(fingerprint);
+      if (replay) {
+        sendReplay(res, replay);
+        return;
+      }
       res.status(402).json({
         error: "Payment Required",
-        message: "Payment header already consumed. Build a fresh x402 payment for each request.",
+        code: "payment_replay",
+        message: "This payment was already consumed for this endpoint and its result is not available to replay. If you are retrying, wait for the original request to complete; otherwise build a fresh x402 payment.",
       });
       return;
     }
@@ -418,12 +590,27 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
         req.method + " " + req.originalUrl.split("?")[0],
       );
       if (claim === "replay") {
+        // Lost the post-settlement INSERT race to a parallel request carrying
+        // the same payment. Same recovery semantics as the pre-settlement path:
+        // replay the stored success response if the winner already produced one,
+        // else a 402 with the stable `payment_replay` code (no fresh challenge).
+        const replay = getStoredReplay(fingerprint);
+        if (replay) {
+          sendReplay(res, replay);
+          return;
+        }
         res.status(402).json({
           error: "Payment Required",
-          message: "Payment already consumed (replay detected). Submit a fresh x402 payment.",
+          code: "payment_replay",
+          message: "Payment already consumed (concurrent replay detected). If retrying, wait for the original request to complete; otherwise submit a fresh x402 payment.",
         });
         return;
       }
+
+      // Fingerprint is freshly claimed and the payment settled. Capture this
+      // request's success response so a later resubmission of the SAME payment
+      // can replay it (idempotency) rather than getting a bare 402.
+      captureSuccessResponse(res, fingerprint);
 
       req.payment = {
         signature: result.signature || "x402-verified",
