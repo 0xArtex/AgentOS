@@ -45,7 +45,6 @@ import express from "express";
 import path from "path";
 import swaggerUi from "swagger-ui-express";
 import { config } from "./config";
-import { swaggerSpec } from "./swagger";
 import "./db"; // Initialize database
 import { DATA_DIR, db } from "./db";
 import { classifyAgent } from "./utils/agent-classifier";
@@ -70,7 +69,6 @@ import whyUsRouter from "./routes/why-us";
 import whyRouter from "./routes/why";
 import { errorHandler, notFoundHandler } from "./middleware/errors";
 import agentNetworkRouter from "./routes/agent-network";
-import agentSearchHub from "./routes/agent-search-hub";
 import { requestLogger } from "./middleware/requestLog";
 import { cors } from "./middleware/cors";
 import { requestTimeout } from "./middleware/timeout";
@@ -168,9 +166,18 @@ app.use("/wallet", walletPasskeyRoutes);
 // Social routes run a headless browser and can legitimately take 60-90s
 // through a residential proxy. /chat (i402) streams multi-step plan execution
 // which can run 10-30 minutes for compound outcomes like a product launch.
-// Skip the default 30s timeout for both.
+// /domains/register blocks on Namecheap (availability + balance preflight, then
+// the actual registration), which can exceed 30s — killing it mid-flight after
+// x402 settlement would charge the payer for a registration that never lands.
+// Skip the default 30s timeout for these slow synchronous ops.
 app.use((req, res, next) => {
-  if (req.path.startsWith("/social") || req.path.startsWith("/chat")) return next();
+  if (
+    req.path.startsWith("/social") ||
+    req.path.startsWith("/chat") ||
+    req.path === "/domains/register"
+  ) {
+    return next();
+  }
   return requestTimeout(30_000)(req, res, next);
 });
 
@@ -193,13 +200,27 @@ app.get("/", (_req, res) => {
 
 });
 // ── API info (moved from GET /) ──────────────────────────────
-app.get("/api", (_req, res) => {
+// Single machine entry point. Deliberately does NOT hand-enumerate services
+// (that list always drifts) — it links to the generated, drift-free surfaces.
+// The full, live, x402-priced route list lives in /openapi.json (built by
+// walking the router) and /.well-known/x402.
+import { enumeratePaidRoutes } from "./services/route-discovery";
+app.get("/api", (req, res) => {
+  const host = req.get("host") || "palmyr.ai";
+  const base = `https://${host}`;
   res.json({
     service: "Palmyr",
+    description: "Autonomous infrastructure for AI agents — pay with USDC on Solana or Base via x402.",
     version: getVersion().version,
     status: "operational",
-    docs: "https://github.com/0xArtex/Palmyr",
-    services: ["phone", "email", "domains", "compute", "agents", "messages", "stats", "activity"],
+    identity: "Your wallet is your identity. Pay via x402; the wallet that pays owns the resource.",
+    discovery: {
+      openapi: `${base}/openapi.json`,
+      x402: `${base}/.well-known/x402`,
+      pricing: `${base}/pricing`,
+      agent_guide: `${base}/skill.md`,
+    },
+    paid_routes: enumeratePaidRoutes(app).length,
   });
 
 });
@@ -231,7 +252,15 @@ app.get("/connect/:token/status", (req, res) => {
 });
 
 // ── API Documentation ─────────────────────────────────────────
-app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+// Swagger UI renders the SAME generated spec served at /openapi.json
+// (buildOpenApiDoc walks the live router), so /docs can never drift from the
+// real, x402-priced surface. Pointing the UI at the URL keeps a single source
+// of truth instead of a hand-maintained spec.
+app.use(
+  "/docs",
+  swaggerUi.serve,
+  swaggerUi.setup(undefined, { swaggerOptions: { url: "/openapi.json" } }),
+);
 
 // ── Dashboard session resolution (global) ────────────────────
 import { resolveDashboardSession } from "./middleware/dashboard-session";
@@ -295,73 +324,41 @@ app.use("/api", submissionReadyRoutes);
 import partnerHealthRoutes from "./routes/partner-health";app.use("/api/partner-health", partnerHealthRoutes);
 
 // ── Pricing info (no auth required) ──────────────────────────
-app.get("/pricing", (_req, res) => {
+// Generated from the live paid-route registry (route-discovery walks the
+// router), so it can NEVER drift from the actual x402 prices the way the old
+// hand-maintained map did. Dynamically-priced routes (e.g. per-TLD domain
+// registration) report "dynamic" — hit the route's 402 challenge for the exact
+// amount. Treasury addresses come from config so wallet rotation is env-only.
+app.get("/pricing", (req, res) => {
+  const host = req.get("host") || "palmyr.ai";
+  const routes = enumeratePaidRoutes(app).map((r) => {
+    const meta: any = r.metadata || {};
+    // A route is "dynamic" if it explicitly flags it (forward-compatible with a
+    // future PaidRoute.dynamicPrice) or its description says so — the advertised
+    // priceUsdc is then only a representative figure, not the charged amount.
+    const isDynamic =
+      (r as any).dynamicPrice === true ||
+      /\bdynamic(ally)?\b/i.test(meta.description || "");
+    return {
+      method: r.method,
+      path: r.path,
+      price_usdc: isDynamic ? "dynamic" : r.priceUsdc,
+      ...(isDynamic ? { price_note: "Exact amount returned in the route's 402 challenge." } : {}),
+      description: meta.description || `${r.method} ${r.path}`,
+      ...(meta.category ? { category: meta.category } : {}),
+    };
+  });
   res.json({
     currency: "USDC",
     networks: ["solana", "base"],
     auth: "Your wallet is your identity. Pay via x402 — your wallet address owns the resource.",
-    services: {
-      phone: {
-        // Source of truth: src/routes/phone.ts requireAuth(price, ...) calls.
-        // Ordered roughly by the CLI subcommand grouping (search → number ops →
-        // call ops). Keep in sync when route prices change — agents read this
-        // endpoint for the canonical per-op price list.
-        search_numbers: "0.00",
-        list_numbers: "0.01",
-        provision_number: "3.00",
-        release_number: "0.01",
-        read_messages: "0.02",
-        send_sms: "0.05",
-        place_call: "0.10",
-        list_calls: "0.02",
-        call_info: "0.02",
-        speak_tts: "0.08",
-        play_audio: "0.08",
-        send_dtmf: "0.02",
-        gather_input: "0.08",
-        record_call: "0.10",
-        record_stop: "0.02",
-        hangup: "0.02",
-        answer_inbound: "0.02",
-        transfer_call: "0.10",
-      },
-      email: {
-        create_inbox: "2.00",
-        read_messages: "0.02",
-        send_email: "0.08",
-        list_threads: "0.02",
-        thread_messages: "0.02",
-        download_attachment: "0.02",
-        register_webhook: "0.02",
-        encryption: "E2E (NaCl box — server cannot read)",
-      },
-      compute: {
-        create_server: "8.00-40.00",
-        server_actions: "0.10",
-        resize_server: "0.10",
-        delete_server: "0.10",
-      },
-      domains: {
-        register: "dynamic (25% markup)",
-        check_availability: "free",
-        pricing: "free",
-        dns_management: "free",
-      },
-      wallet: {
-        create: "free",
-        import: "free",
-        sign: "free",
-        "sign-message": "free",
-        "sign-typed": "free",
-        "api-key": "free",
-        note: "OWS-backed non-custodial wallet. 10 chain families, policy engine, EIP-712.",
-      },
-    },
+    note: "Generated from the live route registry; see /openapi.json for the full machine-readable spec.",
+    routes,
     treasury: {
-      solana: "B1YEboAH3ZDscqni7cyVnGkcDroB2kqLXCwLs3Ez8oX3",
-      base: "0x7fA8aC4b42fd0C97ca983Bc73135EdbeA5bD6ab2",
+      solana: config.treasuryWallet,
+      base: config.treasuryEvmWallet,
     },
-    docs: "https://palmyr.ai/skill.md",
+    docs: `https://${host}/skill.md`,
   });
 
 });
@@ -695,7 +692,10 @@ import submissionStatus from "./routes/submission-status";
 app.use(submissionStatus);
 import agentInboxRouter from "./routes/agent-inbox";
 app.use("/api/inbox", agentInboxRouter);
-app.use("/api/search", agentSearchHub);
+// /api/search is served by agentSearchV2Router (mounted below) — the more
+// complete impl (also searches logs + marketplace). A second router was
+// previously also mounted here at /api/search and, registering first, shadowed
+// v2 entirely; removed to keep a single canonical search handler.
 app.use("/api/agent-network", agentNetworkRouter);
 import deadlineFinalRouter from "./routes/deadline-final";
 app.use("/api/deadline-final", deadlineFinalRouter);
@@ -761,6 +761,13 @@ app.all("/x402/*", async (req, res) => {
   }
 });
 
+// builder-status / builder-stats were previously mounted AFTER notFoundHandler
+// (and even after `export default app`), so every request 404'd before reaching
+// them. Mount them here, ABOVE the catch-all, so they actually serve.
+app.use(builderStatusRouter);
+import builderStatsRoute from "./routes/builder-stats";
+app.use("/api/builder-stats", builderStatsRoute);
+
 app.use(notFoundHandler);
 app.use(errorHandler);
 
@@ -822,6 +829,3 @@ app.listen(config.port, () => {
   warnIfSelfHosted();
 });
 export default app;
-app.use(builderStatusRouter);
-
-import builderStatsRoute from "./routes/builder-stats";app.use("/api/builder-stats", builderStatsRoute);
