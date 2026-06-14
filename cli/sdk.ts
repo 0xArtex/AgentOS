@@ -619,8 +619,34 @@ export class Palmyr {
     return this.request('GET', `/domains/pricing?domain=${domain}`)
   }
 
+  /**
+   * Register a domain. As of the async migration this is a non-blocking call:
+   * the server responds **202** with `{ operation_id, status: 'pending',
+   * poll_url, poll_after_seconds, domain, expiresAt, cost, message }` and the
+   * registrar order runs in the background. Poll {@link domainOperation} with
+   * the returned `operation_id` until `done === true` to learn the final
+   * outcome (`active` or `failed`). A legacy server may still answer **201**
+   * with the registered domain synchronously — callers should treat a payload
+   * lacking `operation_id` as already-done.
+   *
+   * Charged via x402 (registrar cost × markup); auto-paid when autoPay is on.
+   */
   async domainBuy(domain: string): Promise<any> {
     return this.request('POST', '/domains/register', { domain })
+  }
+
+  /**
+   * Poll a domain-registration operation started by {@link domainBuy}.
+   * Returns `{ operation_id, status, done, domain, expiresAt, cost,
+   * registrar_order_id, error, error_code, refund_status, dnsManagement,
+   * created_at, started_at, completed_at }`. `status` ∈
+   * `pending|registering|active|failed`; `done` is true once status is `active`
+   * or `failed`. On `failed`, `refund_status` (`'sent'|'failed'|'manual_needed'`)
+   * reflects the AUTOMATIC refund. Each call is paid via x402 (0.01 USDC,
+   * owner-only) and auto-paid when autoPay is on.
+   */
+  async domainOperation(operationId: string): Promise<any> {
+    return this.request('GET', `/domains/operations/${encodeURIComponent(operationId)}`)
   }
 
   async domainDns(domain: string): Promise<any> {

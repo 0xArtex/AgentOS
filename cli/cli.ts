@@ -757,7 +757,9 @@ const DOMAIN_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   buy: [
     { flag: '--name <domain>', desc: 'Fully-qualified domain (required, e.g. example.dev)' },
-    { flag: '(price)', desc: 'Dynamic — registrar cost × 1.25 markup (charged via x402)' },
+    { flag: '--no-wait', desc: 'Return the operation_id immediately instead of polling to completion' },
+    { flag: '(async)', desc: 'Registration is async: returns an operation that is polled until active/failed (~5s cadence, ~120s cap). On timeout it stays pending server-side; re-check with the printed poll_url.' },
+    { flag: '(price)', desc: 'Dynamic registrar cost × markup (charged via x402); each status poll costs 0.01 USDC' },
     { flag: '(example)', desc: 'palmyr domain buy --name example.dev' },
   ],
   list: [
@@ -2687,17 +2689,169 @@ async function main() {
           case 'buy': {
             const name = flags.name as string || positional[0]
             if (!name) err('--name domain.dev required')
+            // Registration is async: POST returns 202 with an operation_id, and
+            // the registrar order completes in the background. We poll the
+            // operation to completion unless the caller opts out with --no-wait.
+            // `--no-wait` parses to flags.wait === false (see the no- prefix in
+            // parse()); default (undefined) means poll until done.
+            const noWait = flags.wait === false
+            const ndjson = AGENT_MODE // mirror compute/trade: NDJSON progress → stderr, final JSON → stdout
             const spin = new Spinner()
             spin.start('Registering domain...')
-            const data = await ao.domainBuy(name)
+
+            const initial = await ao.domainBuy(name)
+
+            // Legacy/sync path: a server that still returns 201 with the
+            // registered domain and no operation_id is treated as already-done.
+            const opId = initial?.operation_id
+            const looksDone = initial?.done === true || initial?.status === 'active'
+            if (!opId || looksDone) {
+              spin.stop('Domain registered', true)
+              const final = initial
+              const domain = final?.domain || name
+              addDomain({ domain, createdAt: new Date().toISOString() })
+              log(`domain buy: ${domain}`)
+              if (AGENT_MODE) return print(final)
+              render(React.createElement(SuccessScreen, {
+                version: VERSION,
+                title: 'Domain registered',
+                subtitle: domain,
+                footerLeft: 'Domain secured',
+                details: [{ label: 'Domain', value: domain }],
+              }))
+              break
+            }
+
+            // We have an async operation. Surface the handle so it's never lost,
+            // even if polling times out or the user opted out.
+            const pollUrl = initial.poll_url || `/domains/operations/${opId}`
+            const pollAfter = Math.max(1, Number(initial.poll_after_seconds) || 5)
+
+            if (noWait) {
+              // Hand back the operation handle and exit cleanly. Registration
+              // continues server-side; the user re-checks with the poll_url.
+              spin.stop('Registration started', true)
+              log(`domain buy (async): ${name} op=${opId}`)
+              if (AGENT_MODE) return print(initial)
+              render(React.createElement(SuccessScreen, {
+                version: VERSION,
+                title: 'Registration started',
+                subtitle: name,
+                footerLeft: 'Polling skipped (--no-wait)',
+                details: [
+                  { label: 'Domain', value: initial.domain || name },
+                  { label: 'Operation', value: opId },
+                  { label: 'Poll', value: `palmyr domain buy is async — GET ${pollUrl}` },
+                  { label: 'Status', value: initial.status || 'pending' },
+                ],
+              }))
+              break
+            }
+
+            // Poll loop. Hard caps prevent an infinite loop even if the server
+            // never reports done: an overall ~120s deadline AND a max-attempt
+            // ceiling derived from it. Each GET costs 0.01 USDC, so we keep the
+            // interval at ~5s (don't hammer).
+            const POLL_TIMEOUT_MS = 120_000
+            const intervalMs = pollAfter * 1000
+            const deadline = Date.now() + POLL_TIMEOUT_MS
+            const maxAttempts = Math.ceil(POLL_TIMEOUT_MS / intervalMs) + 1
+            const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+            let final: any = null
+            let attempt = 0
+            while (attempt < maxAttempts && Date.now() < deadline) {
+              // Wait first — the server told us nothing is ready before
+              // poll_after_seconds, so there's no point polling immediately.
+              await sleep(intervalMs)
+              attempt++
+              let op: any
+              try {
+                op = await ao.domainOperation(opId)
+              } catch (e: any) {
+                // Transient poll failure (network/CDN). Don't abort the whole
+                // registration over one bad GET — note it and keep polling
+                // until the deadline.
+                if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status: 'error', attempt, message: e?.message ?? String(e) }) + '\n')
+                else spin.update(`polling… (attempt ${attempt}, retrying after error)`)
+                continue
+              }
+              const status = op?.status || 'pending'
+              if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status, attempt }) + '\n')
+              else spin.update(`${status === 'registering' ? 'registering' : status}… (attempt ${attempt})`)
+              if (op?.done === true || status === 'active' || status === 'failed') {
+                final = op
+                break
+              }
+            }
+
+            // ── Timeout: still pending after the cap. Not a failure — the
+            // registration continues server-side. Communicate the handle and
+            // exit 0.
+            if (!final) {
+              spin.stop('Still pending — registration continues server-side', false)
+              log(`domain buy (pending): ${name} op=${opId}`)
+              const pendingOut = {
+                operation_id: opId,
+                status: 'pending',
+                done: false,
+                domain: initial.domain || name,
+                poll_url: pollUrl,
+                message: `Timed out after ${Math.round(POLL_TIMEOUT_MS / 1000)}s of polling. Registration is still in progress — re-check with GET ${pollUrl}.`,
+              }
+              if (AGENT_MODE) return print(pendingOut)
+              render(React.createElement(SuccessScreen, {
+                version: VERSION,
+                title: 'Registration still pending',
+                subtitle: initial.domain || name,
+                footerLeft: 'Re-check later — it continues server-side',
+                details: [
+                  { label: 'Operation', value: opId },
+                  { label: 'Poll', value: `GET ${pollUrl}` },
+                  { label: 'Status', value: 'pending' },
+                ],
+              }))
+              break
+            }
+
+            // ── Failed: render the error + automatic-refund status. Exit with
+            // the operation-failure code (EXIT.GENERAL — the convention used by
+            // trade buy/sell and other async ops). The x402 payment itself
+            // settled; the registrar order failed and was auto-refunded, so
+            // EXIT.PAYMENT would be misleading here.
+            if (final.status === 'failed' || (final.done === true && final.status !== 'active')) {
+              spin.stop('Registration failed', false)
+              log(`domain buy (failed): ${name} op=${opId} refund=${final.refund_status || 'unknown'}`)
+              if (AGENT_MODE) {
+                // Keep stdout a single clean final JSON object; signal failure
+                // on stderr + via exit code (don't route through err(), which
+                // would replace the final object on stdout).
+                print(final)
+                process.stderr.write(JSON.stringify({ error: final.error || 'domain registration failed', error_code: final.error_code, refund_status: final.refund_status, exitCode: EXIT.GENERAL }) + '\n')
+                process.exit(EXIT.GENERAL)
+              }
+              const refundLine = final.refund_status === 'sent'
+                ? 'Refund sent automatically'
+                : final.refund_status === 'manual_needed'
+                  ? 'Refund needs manual review — contact support'
+                  : final.refund_status === 'failed'
+                    ? 'Automatic refund failed — contact support'
+                    : 'Refund status unknown'
+              render(React.createElement(ErrorScreen, {
+                version: VERSION,
+                title: 'Domain registration failed',
+                message: `${final.error || 'Registration failed'}${final.error_code ? ` (${final.error_code})` : ''}. ${refundLine}.`,
+                footerLeft: refundLine,
+              }))
+              process.exit(EXIT.GENERAL)
+            }
+
+            // ── Success.
             spin.stop('Domain registered', true)
-            const domain = data.domain || name
-            // Cache the domain locally in BOTH modes — was previously dead code
-            // behind an unconditional `return print`, so bought domains never
-            // landed in the local registry.
+            const domain = final.domain || name
             addDomain({ domain, createdAt: new Date().toISOString() })
-            log(`domain buy: ${data.domain || name}`)
-            if (AGENT_MODE) return print(data)
+            log(`domain buy: ${domain}`)
+            if (AGENT_MODE) return print(final)
             render(React.createElement(SuccessScreen, {
               version: VERSION,
               title: 'Domain registered',
@@ -2705,6 +2859,7 @@ async function main() {
               footerLeft: 'Domain secured',
               details: [
                 { label: 'Domain', value: domain },
+                ...(final.expiresAt ? [{ label: 'Expires', value: String(final.expiresAt).slice(0, 10) }] : []),
               ],
             }))
             break

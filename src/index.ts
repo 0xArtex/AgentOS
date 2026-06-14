@@ -773,6 +773,7 @@ app.use(errorHandler);
 
 // ── Start ─────────────────────────────────────────────────────
 import { startDepositMonitor } from "./services/deposit-monitor";
+import { startDomainRegistrationRecovery } from "./services/domain-registration";
 import { seedPalmyrPrimitives } from "./services/i402-providers";
 import { ensureProviderEmbeddings, embeddingsAvailable } from "./services/i402-embeddings";
 import { refreshFederatedCatalogs } from "./services/i402-agentic-market";
@@ -809,6 +810,9 @@ app.listen(config.port, () => {
   // Drain any refunds that previously failed before broadcast (e.g. treasury
   // key was missing) — warns at boot when refunds can't work, retries hourly.
   startRefundRetryLoop();
+  // Reconcile domain registrations left in-flight by a previous process — the
+  // registrar tells us which completed (mark active) vs never registered (refund).
+  startDomainRegistrationRecovery();
   if (embeddingsAvailable()) {
     // Non-blocking: compute any missing provider embeddings in the background.
     ensureProviderEmbeddings().catch(err =>
