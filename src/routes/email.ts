@@ -447,11 +447,33 @@ router.get("/inboxes/:id/messages", x402(0.02, {
       return;
     }
 
-    // Get messages and handle decryption based on type
-    const encryptedMsgs = emailService.getMessages(inboxId);
+    // Get messages and handle decryption based on type.
+    // Stored newest-first (timestamp DESC) with a unique `id` per row, so the
+    // row id is a stable continuation cursor under that fixed ordering.
+    const allMsgs = emailService.getMessages(inboxId);
     const isE2E = inbox.e2eEnabled;
 
-    const messages = encryptedMsgs.map(msg => {
+    // Pagination: ?limit= (default 50, hard-cap 200) + ?cursor= (id of the
+    // last message from the previous page). Backward-compatible — with no
+    // query params this returns the same first page, capped at 50.
+    const rawLimit = Number(req.query.limit);
+    const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(Math.floor(rawLimit), 200) : 50;
+    const cursor = (req.query.cursor as string) || undefined;
+
+    let startIdx = 0;
+    if (cursor) {
+      const found = allMsgs.findIndex(m => m.id === cursor);
+      // Unknown cursor → start from the top (defensive, never 500s).
+      startIdx = found >= 0 ? found + 1 : 0;
+    }
+
+    // Fetch one extra to detect whether a further page exists.
+    const pageRows = allMsgs.slice(startIdx, startIdx + limit + 1);
+    const hasMore = pageRows.length > limit;
+    const pageMsgs = hasMore ? pageRows.slice(0, limit) : pageRows;
+    const nextCursor = hasMore ? pageMsgs[pageMsgs.length - 1].id : null;
+
+    const messages = pageMsgs.map(msg => {
       if (!msg.encrypted) {
         return { id: msg.id, direction: msg.direction, from: msg.from, to: msg.to, subject: msg.subject, body: msg.body, html: msg.html, timestamp: msg.timestamp };
       }
@@ -494,7 +516,9 @@ router.get("/inboxes/:id/messages", x402(0.02, {
     res.json({
       inbox: inbox.address,
       messages,
-      totalMessages: messages.length,
+      totalMessages: allMsgs.length,
+      limit,
+      next_cursor: nextCursor,
       paidBy: payer,
       e2eEnabled: isE2E,
       security: isE2E
