@@ -499,6 +499,13 @@ router.post("/servers", validateCreateServerBody, requireAuth(6.0, 'server'), ra
 
     res.status(201).json({
       ...response,
+      // Async-operation envelope (see /.well-known guidance): provisioning isn't
+      // complete at response time — cloud-init runs ~60s. Poll the status URL
+      // until `status` is terminal. `status` is already present from the server
+      // record above; these add the standard operation_id + poll_url.
+      operation_id: server.id,
+      poll_url: `/compute/servers/${server.id}`,
+      poll_after_seconds: 60,
       message: passwordUsable
         ? `Server created at ${ip}.${installSummary}`
         : userKeyAttached
