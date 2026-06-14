@@ -207,7 +207,7 @@ Costs in the tables below are paid in **USDC** at request time via x402. Endpoin
 | `palmyr phone buy --country US [--area 415]` | $3.00 | Provisions a real number. Local numbers preferred over toll-free. |
 | `palmyr phone messages --id <ID>` | $0.02 | Read inbound SMS history. |
 | `palmyr phone sms --id <ID> --to +1... --body "..."` | $0.05 | Send SMS. Pre-flight rejects malformed E.164 and unsupported destinations before charging. |
-| `palmyr phone delete --id <ID>` | $0.01 | Release the number. |
+| `palmyr phone release --id <ID>` | $0.01 | Release the number. Stops monthly carrier billing. |
 
 ### Voice Calls
 
@@ -421,12 +421,12 @@ palmyr compute exec my-vps -- bash -c 'cloud-init clean && cloud-init init --all
 |---|---|---|
 | `palmyr domain check --name example.dev` | free | Availability check. |
 | `palmyr domain pricing --name example.dev` | free | TLD pricing. |
-| `palmyr domain buy --name example.dev` | $20.00 | One-year registration. Renewals are charged annually. |
-| `palmyr domain list` | $0.01 *(ownership proof)* | List domains your wallet owns plus any shared with you. Each row tagged `access: owner | shared`. |
-| `palmyr domain dns --name example.dev` | $0.01 *(ownership proof)* | View DNS records. Owners and shared wallets allowed. |
-| `palmyr domain transfer-ownership --name example.dev --to <wallet>` | $0.01 *(ownership proof)* | Hand the domain to another wallet. Clears `shared_with` — the prior owner's collaborators don't travel with the domain. |
-| `palmyr domain share --name example.dev --with <wallet>` | $0.01 *(ownership proof)* | Grant another wallet shared access (visible in `domain list`, can edit DNS). Owner-only. |
-| `palmyr domain unshare --name example.dev --from <wallet>` | $0.01 *(ownership proof)* | Revoke a shared wallet's access. Owner-only. |
+| `palmyr domain buy --name example.dev` | Dynamic — registrar cost × 1.25 | One-year registration, priced live (registrar cost plus a 1.25× markup, charged via x402). Renewals are charged annually. |
+| `palmyr domain list` | $0.0001 *(ownership proof)* | List domains your wallet owns plus any shared with you. Each row tagged `access: owner | shared`. |
+| `palmyr domain dns --name example.dev` | $0.0001 *(ownership proof)* | View DNS records. Owners and shared wallets allowed. |
+| `palmyr domain transfer-ownership --name example.dev --to <wallet>` | $0.0001 *(ownership proof)* | Hand the domain to another wallet. Clears `shared_with` — the prior owner's collaborators don't travel with the domain. |
+| `palmyr domain share --name example.dev --with <wallet>` | $0.0001 *(ownership proof)* | Grant another wallet shared access (visible in `domain list`, can edit DNS). Owner-only. |
+| `palmyr domain unshare --name example.dev --from <wallet>` | $0.0001 *(ownership proof)* | Revoke a shared wallet's access. Owner-only. |
 
 ### Wallet
 

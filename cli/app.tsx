@@ -157,8 +157,9 @@ export function Dashboard(props: DashboardProps) {
     { name: 'Email', actions: 'create · read · send' },
     { name: 'Domains', actions: 'check · pricing · buy · dns' },
     { name: 'Compute', actions: 'plans · deploy · list' },
-    { name: 'Wallet', actions: 'create · status · keygen' },
-    { name: 'Accounts', actions: 'X · TikTok · Reddit' },
+    { name: 'Wallet', actions: 'create · list · use' },
+    { name: 'Twitter', actions: 'buy · post · login' },
+    { name: 'TikTok', actions: 'connect · post · login' },
   ]
 
   return (
@@ -183,6 +184,7 @@ export function Dashboard(props: DashboardProps) {
           <Box marginTop={1}>
             <Text color={C.accent} bold>Examples</Text>
           </Box>
+          <Text color={C.muted}>  palmyr wallet create   → wallet use → fund USDC</Text>
           <Text color={C.muted}>  palmyr phone search --country US</Text>
           <Text color={C.muted}>  palmyr compute plans</Text>
           <Text color={C.muted}>  palmyr domain check --name my.dev</Text>
@@ -191,6 +193,17 @@ export function Dashboard(props: DashboardProps) {
       </Box>
     </Shell>
   )
+}
+
+// Slice a list to `max` rows and, when it was truncated, append a footer row so
+// the user can see data was hidden instead of silently dropping it. Truncated
+// TTY screens always point at --json for the complete list.
+function withMore<T>(items: T[], max: number, toRow: (item: T) => { label: string; value: string }): Array<{ label: string; value: string }> {
+  const rows = items.slice(0, max).map(toRow)
+  if (items.length > max) {
+    rows.push({ label: `+${items.length - max} more`, value: 'use --json for the full list' })
+  }
+  return rows
 }
 
 // ─── Screens ───
@@ -217,7 +230,7 @@ export function SetupScreen(props: SetupScreenProps & ScreenControls) {
 
 export function ComputePlansScreen(props: ComputePlansScreenProps & ScreenControls) {
   return <Screen title="compute plans" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="deploy --type <plan>" rows={
-    props.plans.slice(0, 6).map(p => ({ label: p.name, value: `${p.cpu} · ${p.ram} · $${p.price}/mo` }))
+    withMore(props.plans, 6, p => ({ label: p.name, value: `${p.cpu} · ${p.ram} · $${p.price}/mo` }))
   } />
 }
 
@@ -230,7 +243,7 @@ export function DomainCheckScreen(props: DomainCheckScreenProps & ScreenControls
 
 export function DomainPricingScreen(props: DomainPricingScreenProps & ScreenControls) {
   return <Screen title="pricing" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="domain check --name <n>" rows={
-    props.items.slice(0, 6).map(i => ({ label: `.${i.tld}`, value: `$${i.price}` }))
+    withMore(props.items, 6, i => ({ label: `.${i.tld}`, value: `$${i.price}` }))
   } />
 }
 
@@ -299,7 +312,7 @@ export function ComputeDeployScreen(props: ComputeDeployScreenProps & ScreenCont
 
 export function ComputeListScreen(props: ComputeListScreenProps & ScreenControls) {
   return <Screen title="servers" version={props.version} interactive={props.interactive} onBack={props.onBack} footer={`${props.servers.length} server(s)`} rows={
-    props.servers.slice(0, 6).map(s => ({ label: s.ip, value: `${s.type} · ${s.status}` }))
+    withMore(props.servers, 6, s => ({ label: s.ip, value: `${s.type} · ${s.status}` }))
   } />
 }
 
@@ -309,7 +322,7 @@ export function SuccessScreen(props: SuccessScreenProps & ScreenControls) {
 
 export function PricingScreen(props: PricingScreenProps & ScreenControls) {
   return <Screen title="pricing" version={props.version} interactive={props.interactive} onBack={props.onBack} footer="All prices USD/USDC" rows={
-    props.services.slice(0, 6).map(s => ({ label: s.name, value: s.items.map(i => `${i.label} $${i.value}`).join(' · ') }))
+    withMore(props.services, 6, s => ({ label: s.name, value: s.items.map(i => `${i.label} $${i.value}`).join(' · ') }))
   } />
 }
 
@@ -329,7 +342,7 @@ export function MenuScreen(props: MenuScreenProps & ScreenControls) {
 
 export function RecordsScreen(props: RecordsScreenProps & ScreenControls) {
   return <Screen title={props.title} version={props.version} interactive={props.interactive} onBack={props.onBack} footer={props.footerLeft} rows={
-    props.records.slice(0, 8).map(r => ({ label: r.primary, value: [r.secondary, r.status].filter(Boolean).join(' · ') || '-' }))
+    withMore(props.records, 8, r => ({ label: r.primary, value: [r.secondary, r.status].filter(Boolean).join(' · ') || '-' }))
   } />
 }
 

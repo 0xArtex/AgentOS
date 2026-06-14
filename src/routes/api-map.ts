@@ -1,45 +1,26 @@
 import { Router, Request, Response } from "express";
-import fs from "fs";
-import path from "path";
 
 const router = Router();
 
+/**
+ * GET /api/api-map — Pointer to the canonical, machine-readable API surfaces.
+ *
+ * The authoritative route list and pricing live in the generated OpenAPI spec
+ * and the x402 discovery document, not in a hand-curated map. This endpoint
+ * just directs agents there instead of advertising a stale category list,
+ * a raw-IP base URL, or "free during hackathon" pricing.
+ */
 router.get("/api/api-map", (_req: Request, res: Response) => {
-  // Dynamically list all route files as a browsable API map
-  const routesDir = path.join(__dirname);
-  const files = fs.readdirSync(routesDir)
-    .filter(f => f.endsWith(".ts") || f.endsWith(".js"))
-    .map(f => f.replace(/\.(ts|js)$/, ""))
-    .sort();
-
-  const categories: Record<string, string[]> = {
-    "Core Services": ["phone", "email", "compute", "domain", "wallet", "messages"],
-    "Identity & Trust": ["agents", "verify", "reputation", "directory", "agent-directory", "whoami"],
-    "Analytics & Monitoring": ["analytics", "metrics", "logs", "alerts", "agent-activity", "system-metrics", "system-health", "service-health", "healthmatrix", "health-summary", "uptime", "ping"],
-    "Developer Experience": ["sdk", "examples", "faq", "quickstart", "walkthrough", "demo", "demo-flow", "demo-interactive", "demo-walkthrough", "playground", "sandbox", "starter-kit", "debug", "integration-test", "integration-guide"],
-    "Hackathon": ["hackathon", "hackathon-stats", "hackathon-status", "countdown", "deadline", "deadlines", "final-push", "final-sprint", "submit-checklist", "submission-ready", "judge-ready", "judge-brief", "judge-summary", "for-judges", "colosseum-ready", "live-demo"],
-    "Ecosystem": ["ecosystem", "network", "partners", "partner-workflows", "agent-toolkit", "integrations", "compatibility", "templates", "leaderboard"],
-    "Business": ["pricing", "calculator", "grants", "invoice", "demo-request", "pitch", "why-palmyr", "comparison", "migration"],
-    "Configuration": ["config", "webhooks", "events", "feedback", "ratelimits", "sla", "security"]
-  };
-
-  const categorized = new Set<string>();
-  for (const cat of Object.values(categories)) {
-    cat.forEach(c => categorized.add(c));
-  }
-  
-  const uncategorized = files.filter(f => !categorized.has(f) && f !== "api-map");
-
   res.json({
     name: "Palmyr API Map",
-    version: "v1.2.3",
-    totalRouteFiles: files.length,
-    baseUrl: "http://77.42.89.233:3001",
-    docs: "http://77.42.89.233:3001/docs",
-    categories,
-    uncategorized,
-    tip: "All endpoints accept X-Agent-Id header. Free during hackathon!",
-    hackathonDeadline: "2026-02-12T17:00:00Z"
+    description: "Use the machine-readable surfaces below for the authoritative route list and pricing.",
+    discovery: {
+      openapi: "GET /openapi.json — full OpenAPI 3.1 spec with x-payment-info per route",
+      x402: "GET /.well-known/x402 — x402 payable-resource discovery",
+      pricing: "GET /pricing — per-action USDC pricing",
+      registration: "POST /agents/register — register an agent, receive an aos_ token",
+    },
+    auth: "Authenticate with Authorization: Bearer <aos_ token>. Pay per action with USDC via x402 — your wallet is your identity.",
   });
 });
 

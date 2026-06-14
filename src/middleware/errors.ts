@@ -51,27 +51,23 @@ export function errorHandler(err: any, _req: Request, res: Response, _next: Next
  * 404 handler for unmatched routes.
  */
 export function notFoundHandler(req: Request, res: Response): void {
-  res.status(404).json({ 
+  res.status(404).json({
     error: "Not Found",
     message: `No endpoint matches ${req.method} ${req.path}`,
-    hint: "Check /docs for available endpoints, or GET /api for service info",
+    hint: "See GET /openapi.json for the full route list, or GET /api for service info",
     availableRoutes: [
+      "GET  /openapi.json",
+      "GET  /.well-known/x402",
       "GET  /api",
       "GET  /health",
       "GET  /version",
       "GET  /pricing",
-      "GET  /hackathon/status",
-      "GET  /stats",
-      "GET  /activity",
-      "GET  /skill.md",
-      "GET  /docs",
       "POST /agents/register",
       "GET  /agents/:id",
       "POST /phone/numbers",
       "POST /email/inboxes",
       "POST /compute/servers",
       "POST /messages/send",
-      "GET  /demo/phone",
     ]
   });
 }

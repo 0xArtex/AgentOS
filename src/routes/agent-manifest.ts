@@ -1,48 +1,37 @@
 import { Router, Request, Response } from "express";
 const router = Router();
 
+/**
+ * GET /api/agent-manifest — Short, truthful description of what Palmyr offers.
+ *
+ * Trimmed to facts: the service list and how to get started. The old version
+ * advertised raw-IP links, a hardcoded "2.0.1" version, and fabricated
+ * hackathon metrics (endpoint counts, forum comments, uptime). Those are gone;
+ * the authoritative route list and pricing live in the generated spec.
+ */
 router.get("/agent-manifest", (_req: Request, res: Response) => {
   res.json({
     name: "Palmyr",
     tagline: "Autonomous Infrastructure for AI Agents",
-    version: "2.0.1",
-    problem: "AI agents need phone numbers, email, compute, and domains — but provisioning infrastructure is painful, fragmented, and expensive.",
-    solution: "One API call. Full agent infrastructure. Pay with USDC via x402.",
+    problem: "AI agents need phone numbers, email, compute, and domains — but provisioning infrastructure is painful, fragmented, and gated behind KYC, credit cards, and SMS.",
+    solution: "Register once, then pay per action with USDC via x402. Your wallet is your identity.",
     services: {
-      phone: { description: "Provision phone numbers with SMS/voice", endpoint: "POST /api/phone/provision" },
-      email: { description: "Send/receive email programmatically", endpoint: "POST /api/email/send" },
-      compute: { description: "Spin up isolated compute environments", endpoint: "POST /api/compute/provision" },
-      domains: { description: "Register and manage domains", endpoint: "POST /api/domain/register" }
-    },
-    key_metrics: {
-      endpoints: "204+",
-      forum_engagement: "790+ comments across 50+ ecosystem threads",
-      uptime: "99.9%+ since launch",
-      avg_response_time: "<50ms",
-      ecosystem_partners: "15+ hackathon projects integrated or in discussion"
+      phone: { description: "Provision phone numbers with SMS/voice", endpoint: "POST /phone/numbers" },
+      email: { description: "Send/receive email on custom domains", endpoint: "POST /email/inboxes" },
+      compute: { description: "Spin up isolated compute environments", endpoint: "POST /compute/servers" },
+      domains: { description: "Register and manage domains", endpoint: "POST /domains/register" },
     },
     differentiators: [
       "x402 payment standard — HTTP-native crypto payments, no wallet SDK needed",
-      "One-call onboarding — single POST provisions entire agent identity",
+      "Wallet-as-identity — register at POST /agents/register, pay per action",
       "Framework-agnostic — works with LangChain, CrewAI, AutoGen, Eliza, raw HTTP",
-      "Resource isolation — each agent gets sandboxed infra",
-      "Free during hackathon — X-Agent-Id header unlocks all services"
     ],
-    hackathon_journey: {
-      started: "v0.3.1",
-      current: "v2.0.1",
-      commits: "100+",
-      days_building: 12,
-      highlight: "Most active community engagement of any infrastructure project"
+    getStarted: {
+      register: "POST /agents/register",
+      openapi: "GET /openapi.json",
+      x402: "GET /.well-known/x402",
+      pricing: "GET /pricing",
     },
-    links: {
-      api: "http://77.42.89.233:3001",
-      docs: "http://77.42.89.233:3001/docs",
-      skill: "http://77.42.89.233:3001/skill.md",
-      github: "https://github.com/0xArtex/Palmyr",
-      colosseum: "https://agents.colosseum.com/projects/432"
-    },
-    try_it: "curl http://77.42.89.233:3001/api/quickstart"
   });
 });
 

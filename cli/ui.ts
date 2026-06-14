@@ -19,25 +19,35 @@ export function setAgentMode(v: boolean): void { agentMode = v }
 export function isAgentMode(): boolean { return agentMode }
 
 // ─── Theme ───
+//
+// When NO_COLOR is set (https://no-color.org — the cli.ts entrypoint also sets
+// this env when `--no-color` is passed) every escape code below collapses to an
+// empty string. The API is unchanged: callers keep interpolating `${theme.x}`
+// and `${theme.reset}` around their text — those just insert nothing, so the
+// output is plain ASCII with no ANSI sequences. Glyphs (✔, ✘, ●) are content,
+// not color, so they stay.
+const NO_COLOR = !!process.env.NO_COLOR
+const ansi = (code: string): string => (NO_COLOR ? '' : code)
+
 export const theme = {
   // Brand
-  accent: '\x1b[38;5;208m',     // orange
-  
+  accent: ansi('\x1b[38;5;208m'),     // orange
+
   // Semantic
-  success: '\x1b[38;5;78m',     // soft green
-  error: '\x1b[38;5;203m',      // soft red
-  warn: '\x1b[38;5;220m',       // yellow
-  info: '\x1b[38;5;111m',       // soft blue
-  
+  success: ansi('\x1b[38;5;78m'),     // soft green
+  error: ansi('\x1b[38;5;203m'),      // soft red
+  warn: ansi('\x1b[38;5;220m'),       // yellow
+  info: ansi('\x1b[38;5;111m'),       // soft blue
+
   // Text
-  text: '\x1b[37m',             // white
-  muted: '\x1b[38;5;243m',      // gray
-  dim: '\x1b[38;5;238m',        // darker gray
-  
+  text: ansi('\x1b[37m'),             // white
+  muted: ansi('\x1b[38;5;243m'),      // gray
+  dim: ansi('\x1b[38;5;238m'),        // darker gray
+
   // Formatting
-  bold: '\x1b[1m',
-  reset: '\x1b[0m',
-  underline: '\x1b[4m',
+  bold: ansi('\x1b[1m'),
+  reset: ansi('\x1b[0m'),
+  underline: ansi('\x1b[4m'),
 }
 
 // ─── Icons ───

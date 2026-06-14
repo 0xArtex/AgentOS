@@ -4,6 +4,10 @@
 // the server and the CLI. Process env (set in shell) still wins over .env.
 import 'dotenv/config'
 
+// Must stay ABOVE the ./app.js and ./ui.js imports below: it sets NO_COLOR from
+// `--no-color`/env before ui.ts freezes the theme. See no-color-init.ts.
+import './no-color-init.js'
+
 // Silence the noisy `bigint: Failed to load bindings, pure JS will be used`
 // warning from bigint-buffer (transitive dep of @solana/web3.js). The pure JS
 // fallback is fine for CLI one-shot use — the warning is cosmetic noise.
@@ -25,6 +29,9 @@ import { existsSync, readFileSync } from 'fs'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
 import { dirname, extname, join } from 'path'
+
+// (NO_COLOR / --no-color is handled by the ./no-color-init.js import above,
+// which runs before ./ui.js freezes the theme.)
 
 // Alias for backwards compat in help text
 const c = { ...t, cyan: t.info, green: t.success, red: t.error, yellow: t.warn, white: t.text, gray: t.muted, orange: t.accent }
@@ -229,6 +236,50 @@ function emitSessionOnlyWarning(write: (s: string) => void) {
   write(`\n  ${t.warn}⚠  session-only wallet — NOT recoverable from the JSON file alone.${t.reset}\n`)
   write(`     Reboot, OS-keychain password change, or host copy permanently breaks decryption.\n`)
   write(`     Back up the mnemonic externally, or run \`palmyr wallet rekey <id> --passphrase <p>\` later.\n\n`)
+}
+
+/**
+ * Progress feedback for the long (10-60s) trade calls (`wallet buy` / `sell`).
+ * On a TTY we drive a Spinner with stage labels; in AGENT_MODE we mirror the
+ * compute-deploy convention and emit `{event:'progress', stage, message}`
+ * NDJSON lines to stderr so the final JSON on stdout stays clean. Returns an
+ * object with `update(stage,msg)`, `done()`, and `fail()` so the caller can
+ * bracket the await and signal completion from either branch.
+ *
+ * `wantNdjson` (default true) gates only the agent-mode stderr stream — pass
+ * `--no-progress` to silence it (parity with `compute deploy`). The TTY spinner
+ * is always shown; it's the whole point of the feature.
+ *
+ * Caller is responsible for calling done()/fail() exactly once.
+ */
+function tradeProgress(initialStage: string, initialMessage: string, wantNdjson = true) {
+  const spin = new Spinner()
+  const ndjson = AGENT_MODE && wantNdjson
+  const emit = (stage: string, message: string) => {
+    // Spinner self-suppresses in agent mode, so the NDJSON line is the only
+    // signal agents get; on a TTY the Spinner is the signal and we skip NDJSON.
+    if (AGENT_MODE) {
+      if (ndjson) process.stderr.write(JSON.stringify({ event: 'progress', stage, message }) + '\n')
+    } else {
+      spin.update(message)
+    }
+  }
+  // Kick off the spinner (no-op in agent mode) and emit the first stage.
+  if (!AGENT_MODE) spin.start(initialMessage)
+  else if (ndjson) process.stderr.write(JSON.stringify({ event: 'progress', stage: initialStage, message: initialMessage }) + '\n')
+  return {
+    update: emit,
+    done(message = 'done') {
+      if (AGENT_MODE) { if (ndjson) process.stderr.write(JSON.stringify({ event: 'progress', stage: 'confirmed', message }) + '\n') }
+      else spin.stop(message, true)
+    },
+    fail(message = 'failed') {
+      if (!AGENT_MODE) spin.cancel()
+      // In agent mode the err() path emits the structured failure to stderr;
+      // no extra progress line needed.
+      void message
+    },
+  }
 }
 
 // ─── Subcommand help definitions ───
@@ -682,7 +733,14 @@ const COMPUTE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: st
   ],
   delete: [
     { flag: '--id <SERVER_ID>', desc: 'Server id (required; positional also accepted)' },
+    { flag: '--confirm', desc: 'Required — destroys the server + disk irreversibly' },
     { flag: '(price)', desc: '$0.10 per deletion (Hetzner billing stops on confirm)' },
+  ],
+  rebuild: [
+    { flag: '<name|id>', desc: 'Re-image the server from a fresh OS image' },
+    { flag: '--image <image>', desc: 'Optional image to rebuild from (default: same image)' },
+    { flag: '--confirm', desc: 'Required — wipes ALL data on disk irreversibly' },
+    { flag: '(price)', desc: '$0.10 per action' },
   ],
 }
 
@@ -713,6 +771,7 @@ const DOMAIN_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   'transfer-ownership': [
     { flag: '--name <domain>', desc: 'Domain to transfer (required)' },
     { flag: '--to <wallet>', desc: 'Recipient wallet address (required)' },
+    { flag: '--confirm', desc: 'Required — you lose ownership irreversibly' },
     { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
   ],
   share: [
@@ -1274,11 +1333,15 @@ function formatStepOutput(output: any): string {
 // Single source of truth for the top-level command catalog. Used by both the
 // Ink help screen and the JSON path so agents and humans see the same surface.
 const TOP_LEVEL_COMMANDS: Array<{ name: string; description: string }> = [
+  { name: 'chat', description: 'i402 intent layer: describe an outcome, pay USDC, get a plan (run · resume · status · sessions)' },
   { name: 'phone', description: 'search · buy · sms · call' },
   { name: 'email', description: 'create · read · send · threads' },
   { name: 'compute', description: 'plans · deploy · list · delete' },
   { name: 'domain', description: 'check · pricing · buy · dns' },
-  { name: 'wallet', description: 'create · import · list · export · sign · api-key' },
+  { name: 'wallet', description: 'create · import · list · export · sign · api-key · buy · sell · positions' },
+  { name: 'twitter', description: 'X/Twitter accounts: import · buy · login · post · reply · like · follow' },
+  { name: 'tiktok', description: 'TikTok accounts: connect · import · post · schedule · follow · like · analytics' },
+  { name: 'note', description: 'Append a quick note to your local memory file' },
   { name: 'setup', description: 'Configure wallets + chain preference' },
   { name: 'status', description: 'Show config, wallets, and API health' },
   { name: 'config', description: 'Show current configuration' },
@@ -1289,22 +1352,40 @@ const TOP_LEVEL_COMMANDS: Array<{ name: string; description: string }> = [
 ]
 
 // ─── Help ───
+// Single source of truth for the global-flag catalog so the agent-mode JSON
+// help and the human TTY help can't drift. `--max-usdc`, `--token`, etc. are
+// honored across commands; surfacing them here keeps scripted discovery honest.
+const GLOBAL_FLAGS: Array<{ flag: string; desc: string }> = [
+  { flag: '--json', desc: 'Force machine-parseable JSON output (auto-on when stdout isn\'t a TTY)' },
+  { flag: '--quiet', desc: 'Suppress decorative log lines' },
+  { flag: '--no-color', desc: 'Disable ANSI color (also honors the NO_COLOR env var)' },
+  { flag: '--token <api-key>', desc: 'Bearer token for authenticated calls' },
+  { flag: '--passphrase <pass>', desc: 'Wallet passphrase (or PALMYR_WALLET_PASSPHRASE env)' },
+  { flag: '--max-usdc <USDC>', desc: 'Hard spend ceiling per payment; aborts before signing if exceeded (env: PALMYR_MAX_USDC)' },
+]
+
 function help() {
   if (AGENT_MODE) {
     print({
       version: VERSION,
       commands: TOP_LEVEL_COMMANDS,
       flags: {
-        global: [
-          { flag: '--json', desc: 'Force machine-parseable JSON output (auto-on when stdout isn\'t a TTY)' },
-          { flag: '--quiet', desc: 'Suppress decorative log lines' },
-          { flag: '--token <api-key>', desc: 'Bearer token for authenticated calls' },
-          { flag: '--passphrase <pass>', desc: 'Wallet passphrase (or PALMYR_WALLET_PASSPHRASE env)' },
-        ],
+        global: GLOBAL_FLAGS,
       },
       exitCodes: EXIT_CODE_DOCS,
     })
     return
+  }
+  // Human TTY help: the Ink MenuScreen render lives in app.tsx. Print the
+  // global-flag list + exit-code contract here first so the human path surfaces
+  // the same contract agents get — these scroll above the Ink frame.
+  console.log(`\n  ${t.accent}global flags${t.reset}`)
+  for (const f of GLOBAL_FLAGS) {
+    console.log(`  ${t.info}${f.flag.padEnd(22)}${t.reset}${f.desc}`)
+  }
+  console.log(`\n  ${t.accent}exit codes${t.reset}`)
+  for (const e of EXIT_CODE_DOCS) {
+    console.log(`  ${t.warn}${String(e.code).padEnd(3)}${t.reset}${t.muted}${e.name.padEnd(12)}${t.reset}${e.description}`)
   }
   render(React.createElement(MenuScreen, {
     version: VERSION,
@@ -1319,6 +1400,14 @@ function help() {
 async function main() {
   const { command, subcommand, positional, flags } = parse(process.argv)
   const fromHome = process.env.PALMYR_FROM_HOME === '1'
+
+  // Reinforce NO_COLOR. The parser turns `--no-color` into `flags.color ===
+  // false` (its generic `--no-<x>` handling), so check that form here. The
+  // authoritative early set is the module-top raw-argv scan; this is an
+  // idempotent backstop that also covers the env var.
+  if (flags.color === false || process.env.NO_COLOR) {
+    process.env.NO_COLOR = '1'
+  }
 
   // Agent-mode detection: piped stdout (no TTY) or explicit --json. Once set,
   // it drives everything — Ink screens flip to JSON output, Spinner/decorators
@@ -1534,7 +1623,7 @@ async function main() {
             if (data && Array.isArray(data.numbers) && data.numbers.length === 0 && !data.note) {
               data.note = `No numbers available for ${country}. Try a different country code (US, GB, CA, DE, etc.).`
             }
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(RecordsScreen, {
               version: VERSION,
               title: 'phone search',
@@ -1560,8 +1649,13 @@ async function main() {
             spin.start('Provisioning phone number...')
             const data = await ao.phoneBuy(country, flags.area as string)
             spin.stop('Phone number provisioned', true)
-            return print(data)
             const number = data.phoneNumber || data.phone_number || 'provisioned'
+            // Local bookkeeping MUST run in both modes — agents and humans
+            // alike rely on the cached number record. (Previously dead behind an
+            // unconditional `return print`.)
+            addPhone({ id: data.id, number, country, createdAt: new Date().toISOString() })
+            log(`phone buy: ${data.phoneNumber || data.phone_number || 'unknown'} (${country})`)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(SuccessScreen, {
               version: VERSION,
               title: 'Phone provisioned',
@@ -1572,15 +1666,13 @@ async function main() {
                 { label: 'Country', value: country },
               ],
             }))
-            addPhone({ id: data.id, number, country, createdAt: new Date().toISOString() })
-            log(`phone buy: ${data.phoneNumber || data.phone_number || 'unknown'} (${country})`)
             break
           }
           case 'sms': {
             const id = flags.id as string; const to = flags.to as string; const body = flags.body as string
             if (!id || !to || !body) err('--id, --to, --body required')
             const data = await ao.phoneSms(id, to, body)
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(SuccessScreen, { version: VERSION, title: 'SMS sent', subtitle: to, details: [{ label: 'To', value: to }], footerLeft: 'Message delivered' }))
             break
           }
@@ -1588,7 +1680,7 @@ async function main() {
             const id = flags.id as string; const to = flags.to as string
             if (!id || !to) err('--id, --to required')
             const data = await ao.phoneCall(id, to, flags.tts as string)
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(SuccessScreen, { version: VERSION, title: 'calling', subtitle: to, details: [{ label: 'To', value: to }, { label: 'Call ID', value: data.callControlId || data.id || '' }], footerLeft: 'Call initiated' }))
             break
           }
@@ -1733,7 +1825,7 @@ async function main() {
             const data = await ao.phoneTransfer(callId, to)
             return print(data)
           }
-          default: err(`Unknown phone command: ${subcommand}. Try: search, buy, list, release, transfer-ownership, share, unshare, sms, messages, call, calls, call-info, speak, play, dtmf, gather, record, record-stop, hangup, answer, transfer`)
+          default: err(`Unknown phone command: ${subcommand}. Try: search, buy, list, release, transfer-ownership, share, unshare, sms, messages, message, call, calls, call-info, speak, play, dtmf, gather, record, record-stop, hangup, answer, transfer`)
         }
         break
       }
@@ -1834,7 +1926,7 @@ async function main() {
             const id = flags.id as string || positional[0]
             if (!id) err('--id INBOX_ID required')
             const data = await ao.emailRead(id)
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(RecordsScreen, {
               version: VERSION,
               title: 'email read',
@@ -1859,7 +1951,7 @@ async function main() {
             const subject = flags.subject as string; const body = flags.body as string
             if (!id || !to || !subject || !body) err('--id, --to, --subject, --body required')
             const data = await ao.emailSend(id, to, subject, body)
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(SuccessScreen, { version: VERSION, title: 'email sent', subtitle: to, details: [{ label: 'To', value: to }], footerLeft: 'Email delivered' }))
             break
           }
@@ -1867,7 +1959,7 @@ async function main() {
             const id = flags.id as string || positional[0]
             if (!id) err('--id INBOX_ID required')
             const data = await ao.emailThreads(id)
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(RecordsScreen, {
               version: VERSION,
               title: 'email threads',
@@ -1880,7 +1972,7 @@ async function main() {
             }))
             break
           }
-          default: err(`Unknown email command: ${subcommand}. Try: create, read, send, threads`)
+          default: err(`Unknown email command: ${subcommand}. Try: create, list, status, register, read, send, threads`)
         }
         break
       }
@@ -2373,6 +2465,14 @@ async function main() {
           case 'delete': {
             const id = flags.id as string || positional[0]
             if (!id) err('--id SERVER_ID required')
+            if (!flags.confirm) {
+              err(
+                `This permanently destroys server "${id}" and all its data. Hetzner billing stops, but the disk is wiped and cannot be recovered.\n\n` +
+                '  Re-run with --confirm to proceed:\n' +
+                `  palmyr compute delete ${id} --confirm`,
+                EXIT.BAD_INPUT,
+              )
+            }
             const data = await ao.computeDelete(id)
             try {
               const csshMod = await import('./compute-ssh.js')
@@ -2482,6 +2582,18 @@ async function main() {
             const cached = csshMod.findCachedServer(target)
             const serverId = cached?.id || (/^\d+$/.test(target) ? target : null)
             if (!serverId) err(`Server "${target}" not in local cache.`, EXIT.NOT_FOUND)
+            // `rebuild` re-images the server from scratch — every byte on disk is
+            // destroyed. Gate it behind --confirm like the other irreversible
+            // siblings. reboot/poweroff/poweron/reset are recoverable, so they
+            // stay one-shot.
+            if (subcommand === 'rebuild' && !flags.confirm) {
+              err(
+                `This re-images server "${target}" from a fresh OS image — ALL data on disk is destroyed irreversibly.\n\n` +
+                '  Re-run with --confirm to proceed:\n' +
+                `  palmyr compute rebuild ${target} --confirm`,
+                EXIT.BAD_INPUT,
+              )
+            }
             const opts = subcommand === 'rebuild' && flags.image ? { image: String(flags.image) } : {}
             const data = await ao.computeAction(serverId, subcommand, opts)
             return print(data)
@@ -2536,7 +2648,7 @@ async function main() {
               console.log('')
               return
             }
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(DomainCheckScreen, {
               version: VERSION,
               domain: name,
@@ -2554,7 +2666,7 @@ async function main() {
             const name = flags.name as string || positional[0]
             if (!name) err('--name domain required')
             const data = await ao.domainPricing(name)
-            return print(data)
+            if (AGENT_MODE) return print(data)
             const items = Object.entries(data.tlds || data.pricing || data).map(([tld, price]) => ({
               tld,
               price: String(price),
@@ -2579,8 +2691,13 @@ async function main() {
             spin.start('Registering domain...')
             const data = await ao.domainBuy(name)
             spin.stop('Domain registered', true)
-            return print(data)
             const domain = data.domain || name
+            // Cache the domain locally in BOTH modes — was previously dead code
+            // behind an unconditional `return print`, so bought domains never
+            // landed in the local registry.
+            addDomain({ domain, createdAt: new Date().toISOString() })
+            log(`domain buy: ${data.domain || name}`)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(SuccessScreen, {
               version: VERSION,
               title: 'Domain registered',
@@ -2590,8 +2707,6 @@ async function main() {
                 { label: 'Domain', value: domain },
               ],
             }))
-            addDomain({ domain, createdAt: new Date().toISOString() })
-            log(`domain buy: ${data.domain || name}`)
             break
           }
           case 'list': {
@@ -2618,6 +2733,15 @@ async function main() {
             const to = flags.to as string || positional[1]
             if (!name) err('--name domain.dev required')
             if (!to) err('--to <wallet> required')
+            if (!flags.confirm) {
+              const tail = to.slice(-6)
+              err(
+                `This hands "${name}" to a wallet ending in …${tail}. You lose ownership immediately and irreversibly.\n\n` +
+                '  Re-run with --confirm to proceed:\n' +
+                `  palmyr domain transfer-ownership --name ${name} --to ${to} --confirm`,
+                EXIT.BAD_INPUT,
+              )
+            }
             const data = await ao.domainTransferOwnership(name, to)
             return print(data)
           }
@@ -2643,7 +2767,7 @@ async function main() {
             const name = flags.name as string || positional[0]
             if (!name) err('--name domain.dev required')
             const data = await ao.domainDns(name)
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(RecordsScreen, {
               version: VERSION,
               title: 'domain dns',
@@ -3132,7 +3256,7 @@ async function main() {
             const signPass = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
             const { signMessageLocal } = await import('./vault.js')
             const data = signMessageLocal(walletId, chain, msg, signPass)
-            return print({ success: true, ...data })
+            if (AGENT_MODE) return print({ success: true, ...data })
             render(React.createElement(SuccessScreen, {
               version: VERSION,
               title: 'Message signed',
@@ -3154,7 +3278,7 @@ async function main() {
             const sessionSecret = retrieveSecret(walletId)
             if (!sessionSecret) err('No session secret found. Was this wallet created on this machine?')
             const data = await ao.walletApiKey(walletId, name, sessionSecret!)
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(SuccessScreen, {
               version: VERSION,
               title: 'API key created',
@@ -3178,17 +3302,23 @@ async function main() {
             return print(data)
           }
           case 'use': {
-            const walletId = positional[0] || flags.id as string
-            if (!walletId) err('Wallet ID required')
+            const walletRef = positional[0] || flags.id as string
+            if (!walletRef) err('Wallet ID required')
             const chain = (flags.chain as string)?.toLowerCase()
             if (chain && chain !== 'solana' && chain !== 'base') {
               err(`--chain must be 'solana' or 'base', got: ${chain}`)
             }
+            // Resolve against the vault by id OR name before persisting, so a
+            // typo surfaces here as a clean NOT_FOUND instead of a confusing
+            // decryption failure on the next paid call. Store the canonical id.
+            const { listVaultWallets } = await import('./vault.js')
+            const match = listVaultWallets().find(w => w.id === walletRef || w.name === walletRef)
+            if (!match) err(`Wallet "${walletRef}" not found. Run \`palmyr wallet list\` to see available wallets.`, EXIT.NOT_FOUND)
             const cfg = loadConfig()
-            cfg.defaultPayWalletId = walletId
+            cfg.defaultPayWalletId = match!.id
             if (chain) (cfg as any).defaultPayChain = chain as 'solana' | 'base'
             saveConfig(cfg)
-            print({ success: true, defaultPayWalletId: walletId, defaultPayChain: (cfg as any).defaultPayChain || 'solana' })
+            print({ success: true, defaultPayWalletId: match!.id, defaultPayChain: (cfg as any).defaultPayChain || 'solana' })
             break
           }
           case 'request-approval': {
@@ -3199,7 +3329,7 @@ async function main() {
             if (flags.daily) params.daily_usdc = Number(flags.daily)
             if (flags['per-tx'] || flags.tx) params.per_tx_usdc = Number(flags['per-tx'] || flags.tx)
             const data = await ao.walletRequestApproval(walletId, action, params)
-            return print(data)
+            if (AGENT_MODE) return print(data)
             render(React.createElement(SuccessScreen, {
               version: VERSION,
               title: 'Approval requested',
@@ -3365,12 +3495,15 @@ async function main() {
               if (!opts.amount) err(`--amount required (e.g. --amount 0.01eth) — not in template or CLI`, EXIT.BAD_INPUT)
               const { buyBase } = await import('./wallet-trading.js')
               let baseResult: Awaited<ReturnType<typeof buyBase>>
+              const prog = tradeProgress('submitting', `Buying on Base — quoting & submitting ${ca}...`, flags.progress !== false)
               try {
                 baseResult = await buyBase(opts)
               } catch (e: any) {
+                prog.fail()
                 emitRouteErrorIfApplicable(e)
                 err(e.message || 'buy (base) failed', EXIT.GENERAL)
               }
+              prog.done('Base buy confirmed')
               log(`wallet buy: base ${ca} (${baseResult!.txHash})`)
               if (!AGENT_MODE) {
                 const tag = baseResult!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
@@ -3423,12 +3556,15 @@ async function main() {
 
             const { buy } = await import('./wallet-trading.js')
             let result: Awaited<ReturnType<typeof buy>>
+            const buyProg = tradeProgress('submitting', `Buying on Solana — quoting & submitting ${ca}...`, flags.progress !== false)
             try {
               result = await buy(solOpts)
             } catch (e: any) {
+              buyProg.fail()
               emitRouteErrorIfApplicable(e)
               err(e.message || 'buy failed', EXIT.GENERAL)
             }
+            buyProg.done('Solana buy confirmed')
 
             log(`wallet buy: ${ca} (${result!.txSignature})`)
 
@@ -3912,6 +4048,7 @@ async function main() {
                 : undefined
               const { sellBase } = await import('./wallet-trading.js')
               let baseResult: Awaited<ReturnType<typeof sellBase>>
+              const prog = tradeProgress('submitting', `Selling ${percent}% on Base — quoting & submitting ${ca}...`, flags.progress !== false)
               try {
                 baseResult = await sellBase({
                   ca,
@@ -3925,9 +4062,11 @@ async function main() {
                   priorityFeeWei,
                 })
               } catch (e: any) {
+                prog.fail()
                 emitRouteErrorIfApplicable(e)
                 err(e.message || 'sell (base) failed', EXIT.GENERAL)
               }
+              prog.done('Base sell confirmed')
               log(`wallet sell: base ${ca} ${percent}% (${baseResult!.txHash})`)
               if (!AGENT_MODE) {
                 const tag = baseResult!.dryRun ? `${t.warn}[dry-run]${t.reset} ` : ''
@@ -3962,6 +4101,7 @@ async function main() {
 
             const { sell } = await import('./wallet-trading.js')
             let result: Awaited<ReturnType<typeof sell>>
+            const sellProg = tradeProgress('submitting', `Selling ${percent}% on Solana — quoting & submitting ${ca}...`, flags.progress !== false)
             try {
               result = await sell({
                 ca,
@@ -3975,9 +4115,11 @@ async function main() {
                 jitoTipLamports,
               })
             } catch (e: any) {
+              sellProg.fail()
               emitRouteErrorIfApplicable(e)
               err(e.message || 'sell failed', EXIT.GENERAL)
             }
+            sellProg.done('Solana sell confirmed')
 
             log(`wallet sell: ${ca} ${percent}% (${result!.txSignature})`)
 
@@ -5051,7 +5193,7 @@ async function main() {
 
             err(`Unknown trading-keystore subcommand: ${sub}. Try: init, unlock, lock, list, status, derive, export`, EXIT.BAD_INPUT)
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, tags, tag, tag-delete, export, addresses, sign-message, api-key, config, use, request-approval, buy, cohort, template, positions, position, sell, sync, pnl, journal, watch, brief, daemon, triggers, trading-keystore, evm-quote`)
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, tags, tag, tag-delete, export, rekey, addresses, sign-message, api-key, config, use, request-approval, buy, cohort, template, positions, position, sell, sync, pnl, journal, watch, brief, doctor, pay-preflight, smoke-test, readiness, live-test, daemon, triggers, trading-keystore, evm-quote`)
         }
         break
       }
@@ -5698,6 +5840,18 @@ async function main() {
             let ct0 = ((flags.ct0 as string) || '').trim()
 
             if (!authToken || !ct0) {
+              // No TTY → no interactive prompt. Erroring out (rather than
+              // blocking on readline forever and polluting stdout JSON with
+              // prompt text) matches the NoTTYError convention in
+              // passphrase-prompt.ts. Agents must pass --auth-token and --ct0.
+              if (!process.stdin.isTTY) {
+                err(
+                  `--auth-token and --ct0 required in non-interactive mode (no TTY for the manual paste prompt).\n` +
+                  `  Log into X as ${username} in any browser, open DevTools → Application → Cookies → https://x.com, then:\n` +
+                  `  palmyr twitter manual-login ${username} --auth-token <hex40> --ct0 <hex160>`,
+                  EXIT.BAD_INPUT,
+                )
+              }
               const readline = await import('readline')
               const rl = readline.createInterface({ input: process.stdin, output: process.stdout })
               const ask = (q: string) => new Promise<string>(r => rl.question(q, r))
@@ -6192,7 +6346,16 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 if (!text) err('--display "Display Name" required')
                 data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { display_name: text }, psid)
               } else if (subcommand === 'location') {
-                const text = (flags.text as string) || ''
+                // `--location` is the documented flag (TWITTER_HELP); `--text`
+                // is accepted as an alias. Refuse to submit an empty value
+                // UNLESS the caller explicitly passed an empty string — a bare
+                // `twitter location <user>` used to default to '' and silently
+                // (and billably) wipe the field.
+                const explicit = flags.location !== undefined ? flags.location : flags.text
+                if (explicit === undefined) {
+                  err('--location "..." required (pass --location "" to deliberately clear it)', EXIT.BAD_INPUT)
+                }
+                const text = String(explicit)
                 data = await ao.socialTwitterProfile(acc!.id, sess!.cookies, { location: text }, psid)
               } else if (subcommand === 'website') {
                 const url = (flags.url as string) || (flags.text as string) || ''
@@ -6956,7 +7119,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, manual-login, session, post, reply, like, retweet, follow, unfollow, delete, list-tweets, bio, name, location, website, pfp, banner, username, buy, transfer, share, unshare, claim`)
+            err(`Unknown twitter command: ${subcommand}. Try: import, list, info, rename, remove, totp, login, manual-login, session, register, registered, schedule, post, thread, reply, like, retweet, follow, unfollow, delete, list-tweets, bio, name, location, website, pfp, banner, username, buy, transfer, share, unshare, claim`)
         }
         break
       }

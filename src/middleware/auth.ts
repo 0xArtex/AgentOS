@@ -203,12 +203,20 @@ export function requireAuth(
     // No auth at all — send 402 so x402-compatible agents can pay
     send402Response(res, req, price, "Pay with USDC to use this service. Your wallet address becomes the owner.", metadata);
   };
-  // Discovery markers — read by route-discovery.ts at boot to enumerate paid
-  // routes for /.well-known/x402 and /openapi.json. Free endpoints (minUsdc=0)
-  // are also identified-only and don't belong in the discoverable list.
-  // Dynamic-priced routes (function form) get marked as paid with a sentinel
-  // value of 0 so discovery shows them as "see the route for actual price"
-  // rather than advertising a misleading static amount.
+  // Discovery markers — read by route-discovery.ts (which walks the live router
+  // and reads these off each route layer's `handle`) to enumerate paid routes
+  // for /.well-known/x402 and /openapi.json. Free endpoints (minUsdc=0) are also
+  // identified-only and don't belong in the discoverable list.
+  //
+  // Dynamic-priced routes (function form) can't advertise a single honest amount
+  // — the price depends on request data resolved at call time. We still tag them
+  // as paid (so the walker enumerates them) with a sentinel `_x402PaidMin = 0`,
+  // and additionally set `_x402DynamicPrice = true`. route-discovery.ts mirrors
+  // this onto `PaidRoute.dynamicPrice`, and well-known.ts uses it to emit
+  // `x-payment-info: {mode:"dynamic"}` (probe the 402 for the live amount)
+  // instead of a misleading `{mode:"fixed", amount:"0"}`. The marker lives on
+  // this `handler` object, which is exactly what becomes the route layer's
+  // `handle`, so the walker reads it the same way it reads `_x402PaidMin`.
   if (typeof minUsdc === "function") {
     (handler as any)._x402PaidMin = 0;
     (handler as any)._x402ServiceType = serviceType;
