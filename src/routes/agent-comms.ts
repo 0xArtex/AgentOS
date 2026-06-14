@@ -1,48 +1,50 @@
 import { Router, Request, Response } from "express";
+import { randomBytes } from "crypto";
 import { db } from "../db";
 
 const router = Router();
 
-// Agent-to-agent messaging system
+// Agent-to-agent messaging system. Writes/reads the SAME `agent_messages`
+// table that src/routes/messages.ts owns — schema is defined once in db.ts
+// (id, from_agent, to_agent, subject, body, reply_to, read, created_at).
+// The message text lives in the `body` column; there is no `priority` column,
+// so priority is normalized for the response only (not persisted) to keep the
+// schema dead-simple and shared with messages.ts.
+//
+// Every handler is wrapped in try/catch: a synchronous throw inside an async
+// Express handler becomes an unhandled rejection Express can't trap, hanging
+// the request until timeout. Catching here always returns clean JSON.
+
 // POST /api/agent-comms/send - send message between agents
 router.post("/send", async (req: Request, res: Response) => {
-  const fromAgent = req.headers["x-agent-id"] as string || "anonymous";
-  const { toAgent, subject, message, priority } = req.body;
-  
-  if (!toAgent || !message) {
-    return res.status(400).json({ error: "toAgent and message required" });
+  try {
+    const fromAgent = req.headers["x-agent-id"] as string || "anonymous";
+    const { toAgent, subject, message, priority } = req.body ?? {};
+
+    if (!toAgent || !message) {
+      return res.status(400).json({ error: "toAgent and message required" });
+    }
+
+    const id = `msg_${Date.now()}_${randomBytes(4).toString("hex")}`;
+    const validPriority = ["low", "normal", "high", "urgent"].includes(priority) ? priority : "normal";
+    const now = new Date().toISOString();
+
+    db.prepare(`
+      INSERT INTO agent_messages (id, from_agent, to_agent, subject, body, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, fromAgent, toAgent, subject || "(no subject)", message, now);
+
+    res.json({
+      id,
+      status: "delivered",
+      from: fromAgent,
+      to: toAgent,
+      priority: validPriority,
+      timestamp: now
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: "Send failed", message: err?.message ?? "Could not send message" });
   }
-
-  
-  const id = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const validPriority = ["low", "normal", "high", "urgent"].includes(priority) ? priority : "normal";
-  
-  db.prepare(`
-    CREATE TABLE IF NOT EXISTS agent_messages (
-      id TEXT PRIMARY KEY,
-      from_agent TEXT NOT NULL,
-      to_agent TEXT NOT NULL,
-      subject TEXT,
-      message TEXT NOT NULL,
-      priority TEXT DEFAULT "normal",
-      read INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT ''
-    )
-  `).run();
-
-  db.prepare(`
-    INSERT INTO agent_messages (id, from_agent, to_agent, subject, message, priority)
-    VALUES (?, ?, ?, ?, ?, ?)
-  `).run(id, fromAgent, toAgent, subject || "(no subject)", message, validPriority);
-
-  res.json({
-    id,
-    status: "delivered",
-    from: fromAgent,
-    to: toAgent,
-    priority: validPriority,
-    timestamp: new Date().toISOString()
-  });
 });
 
 // GET /api/agent-comms/inbox - get messages for an agent
