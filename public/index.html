@@ -88,8 +88,10 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 /* Grid lines background */
 .hero::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;-webkit-mask:linear-gradient(to bottom,transparent,#000 30%,#000 70%,transparent);transform:translateY(var(--scroll,0));transition:transform 0s}
 .hero-content{position:relative;z-index:3}
-.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(246,175,86,0.1);border:1px solid rgba(246,175,86,0.2);border-radius:100px;font-size:13px;color:var(--accent);margin-bottom:32px;font-weight:500}
-.hero-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s ease-in-out infinite}
+.hero-badge{display:inline-flex;align-items:center;gap:9px;padding:7px 15px 7px 13px;background:rgba(8,12,13,0.5);-webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);border:1px solid var(--w10);border-radius:100px;font-size:12.5px;color:var(--w70,rgba(247,234,209,0.7));margin-bottom:28px;font-weight:500;letter-spacing:.005em;transition:border-color .3s,background .3s}
+.hero-badge:hover{border-color:var(--w20);background:rgba(8,12,13,0.68)}
+.hero-badge strong{color:var(--accent);font-weight:600}
+.hero-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 9px rgba(246,175,86,.85);flex-shrink:0}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 .hero h1{font-size:clamp(48px,7vw,84px);font-weight:500;letter-spacing:-0.025em;line-height:1.05;margin-bottom:24px;background:linear-gradient(180deg,#f7ead1 40%,rgba(247,234,209,0.55));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .hero .subtitle{font-size:clamp(16px,1.2vw,18px);color:var(--w80);max-width:540px;margin:0 auto 40px;line-height:1.7}
@@ -426,8 +428,7 @@ nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2
 .section-divider{height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);margin:0 auto;max-width:600px}
 
 /* ===== FLOATING BADGE ANIM ===== */
-.hero-badge{animation:floatBadge 3s ease-in-out infinite}
-@keyframes floatBadge{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+/* hero badge: static (no float) */
 
 /* ===== STEP AUTO-CYCLE ===== */
 .step{position:relative}
@@ -578,77 +579,18 @@ Palmyr
 <img class="hero-bg-img" src="/assets/hero-bg.webp?v=1" alt="" width="1536" height="1024" loading="eager" fetchpriority="high">
 <div class="hero-bg-overlay"></div>
 <div class="container hero-content">
-<div class="hero-badge reveal">New · autonomous X &amp; TikTok accounts</div>
+<div class="hero-badge reveal"><strong>New</strong> · autonomous X &amp; TikTok accounts</div>
 <h1 class="reveal reveal-delay-1">Everything your<br>AI agent needs.</h1>
 <p class="subtitle reveal reveal-delay-2">The real-world access agents can't get on their own — paid in USDC, no human.</p>
 <div class="hero-buttons reveal reveal-delay-2">
 <a href="/skill.md" class="btn btn-primary btn-arrow">Get started</a>
 <a href="https://github.com/0xArtex/Palmyr" target="_blank" class="btn btn-secondary"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>View on GitHub<span style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 8px;background:rgba(255,255,255,0.1);border-radius:100px;font-size:12px"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/></svg> <span id="gh-stars">0</span></span></a>
 </div>
-<div class="terminal-wrap reveal reveal-delay-3">
-<div class="terminal-window" id="terminal-window">
-<div class="terminal-header">
-<div class="terminal-header-left">
-<div class="terminal-buttons"><span class="terminal-btn r"></span><span class="terminal-btn y"></span><span class="terminal-btn g"></span></div>
-</div>
-<div class="terminal-tabs">
-<div class="terminal-tab active" data-tab="shell"><span class="tab-dot"></span>shell</div>
-<div class="terminal-tab" data-tab="logs"><span class="tab-dot"></span>logs</div>
-<div class="terminal-tab" data-tab="network"><span class="tab-dot"></span>network</div>
-</div>
-<div class="terminal-header-right">
-<div class="term-net" id="term-net"></div>
-<div class="terminal-status"><span class="status-dot"></span><span id="term-status-text">connected</span></div>
-</div>
-</div>
-<!-- SHELL TAB -->
-<div class="tab-content active" data-tab="shell">
-<div class="terminal-body-wrap">
-<div class="terminal-gutter" id="terminal-gutter"></div>
-<div class="terminal-body" id="terminal">
-<div id="terminal-history"></div>
-<div id="term-suggestions" class="term-suggestions"></div>
-<div class="terminal-input-line">
-<span class="prompt-user">agent</span><span class="prompt-at">@</span><span class="prompt-path">palmyr</span><span style="color:var(--w40);margin:0 6px">›</span>
-<div style="position:relative;flex:1;display:flex;align-items:center">
-<span id="term-ghost" class="terminal-ghost"></span>
-<input type="text" id="terminal-input" class="terminal-input" placeholder="type a command or click below..." autocomplete="off" spellcheck="false">
-</div>
-</div>
-</div>
-</div>
-</div>
-<!-- LOGS TAB -->
-<div class="tab-content" data-tab="logs">
-<div class="terminal-body" id="logs-body" style="max-height:380px;min-height:200px"></div>
-</div>
-<!-- NETWORK TAB -->
-<div class="tab-content" data-tab="network">
-<div class="terminal-body" style="max-height:380px;min-height:200px;padding:20px">
-<div class="net-stats">
-<div class="net-stat"><div class="net-stat-label">requests / min</div><div class="net-stat-value" id="net-rpm">0</div></div>
-<div class="net-stat"><div class="net-stat-label">avg latency</div><div class="net-stat-value" id="net-latency"><span class="accent">--</span>ms</div></div>
-<div class="net-stat"><div class="net-stat-label">uptime</div><div class="net-stat-value" id="net-uptime">99.9<span class="accent">%</span></div></div>
-</div>
-<div style="font-size:10px;color:var(--w40);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:8px">Traffic — last 60s</div>
-<div class="net-graph-container"><div class="net-graph" id="net-graph"></div></div>
-</div>
-</div>
-<div class="terminal-statusbar">
-<div class="sb-left">
-<span class="sb-tag">x402</span>
-<span>solana mainnet</span>
-<span>·</span>
-<span>base mainnet</span>
-</div>
-<div class="sb-right">
-<span id="term-req-count">0 requests</span>
-<span>·</span>
-<span id="term-line-count">Ln 1</span>
-</div>
-</div>
-</div>
-</div>
+<div class="hero-stats reveal reveal-delay-3" style="margin-bottom:0">
+<div class="stat"><div class="stat-val">180+</div><div class="stat-lbl">Countries</div></div>
+<div class="stat"><div class="stat-val">USDC</div><div class="stat-lbl">Pay per call</div></div>
+<div class="stat"><div class="stat-val">x402</div><div class="stat-lbl">Open protocol</div></div>
+<div class="stat"><div class="stat-val">0</div><div class="stat-lbl">Signups &amp; keys</div></div>
 </div>
 </section>
 
