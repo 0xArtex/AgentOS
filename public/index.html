@@ -87,7 +87,7 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .hero::before{content:'';position:absolute;top:-300px;left:50%;transform:translateX(-50%);width:1200px;height:900px;background:radial-gradient(ellipse 50% 50%,rgba(246,175,86,0.08) 0%,rgba(246,175,86,0.03) 40%,transparent 70%);pointer-events:none}
 /* Grid lines background */
 .hero::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;-webkit-mask:linear-gradient(to bottom,transparent,#000 30%,#000 70%,transparent);transform:translateY(var(--scroll,0));transition:transform 0s}
-.hero-content{position:relative;z-index:1}
+.hero-content{position:relative;z-index:3}
 .hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(246,175,86,0.1);border:1px solid rgba(246,175,86,0.2);border-radius:100px;font-size:13px;color:var(--accent);margin-bottom:32px;font-weight:500}
 .hero-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
@@ -468,20 +468,21 @@ nav{top:12px;max-width:calc(100% - 24px)}
    ============================================================ */
 
 /* --- Brand classical figures (extracted from brand kit) --- */
-.brand-figure{position:absolute;pointer-events:none;z-index:0;opacity:0}
-.brand-figure img{width:100%;height:auto;display:block;filter:drop-shadow(0 14px 50px rgba(0,0,0,.4))}
-.hero-figure-l{left:max(8px,calc(50% - 680px));top:172px;width:clamp(112px,13vw,208px);animation:figIn 1.6s ease .5s forwards,figFloat 9s ease-in-out 2.2s infinite}
-.hero-figure-r{right:max(8px,calc(50% - 680px));top:140px;width:clamp(120px,14vw,232px);animation:figIn 1.6s ease .8s forwards,figFloatB 11s ease-in-out 2.2s infinite}
+.brand-figure{position:absolute;pointer-events:none;z-index:2;opacity:0;animation:figIn 1.6s ease .5s forwards;will-change:transform}
+.brand-figure img{width:100%;height:auto;display:block;filter:drop-shadow(0 16px 55px rgba(0,0,0,.5));animation:figFloat 9s ease-in-out 2.2s infinite}
+.hero-figure-l{left:max(6px,calc(50% - 700px));top:150px;width:clamp(120px,14vw,226px)}
+.hero-figure-l img{filter:drop-shadow(0 16px 55px rgba(0,0,0,.45)) brightness(1.22) contrast(1.05)}
+.hero-figure-r{right:max(6px,calc(50% - 700px));top:118px;width:clamp(132px,15.5vw,256px)}
+.hero-figure-r img{animation:figFloatB 11s ease-in-out 2.2s infinite}
 @keyframes figIn{to{opacity:.62}}
 @keyframes figFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
 @keyframes figFloatB{0%,100%{transform:translateY(0)}50%{transform:translateY(-18px)}}
 @media(max-width:1180px){.hero-figure-l,.hero-figure-r{display:none}}
 
 /* Slowly rotating brand star behind the hero */
-.hero-mark{position:absolute;top:-180px;left:50%;width:760px;height:760px;margin-left:-380px;opacity:.05;z-index:0;pointer-events:none;animation:slowSpin 100s linear infinite}
-.hero-mark img{width:100%;height:100%}
-@keyframes slowSpin{to{transform:rotate(360deg)}}
-@media(prefers-reduced-motion:reduce){.hero-mark,.brand-figure{animation:none!important}.brand-figure{opacity:.5}}
+.hero-bg-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 16%;opacity:.6;z-index:0;pointer-events:none;-webkit-mask:linear-gradient(180deg,#000 0%,#000 42%,transparent 80%);mask:linear-gradient(180deg,#000 0%,#000 42%,transparent 80%)}
+.hero-bg-overlay{position:absolute;inset:0;z-index:1;pointer-events:none;background:radial-gradient(ellipse 58% 42% at 50% 20%,transparent 0%,rgba(17,45,50,.32) 60%,var(--bg) 100%),linear-gradient(180deg,rgba(17,45,50,.55) 0%,transparent 22%,transparent 58%,var(--bg) 94%)}
+@media(prefers-reduced-motion:reduce){.brand-figure,.brand-figure img{animation:none!important}.brand-figure{opacity:.55}}
 
 /* Star tick on every section label */
 .section-label{display:inline-flex;align-items:center;gap:9px}
@@ -572,13 +573,14 @@ Palmyr
 
 <!-- HERO -->
 <section class="hero">
-<div class="hero-mark"><img src="/assets/logo-mark-on-dark.svg" alt=""></div>
+<video class="hero-bg-video" autoplay muted loop playsinline preload="auto"><source src="/assets/hero-loop.mp4" type="video/mp4"></video>
+<div class="hero-bg-overlay"></div>
 <div class="brand-figure hero-figure-l"><img src="/assets/illustrations/philosopher-cream.webp" alt="" width="472" height="620" loading="eager"></div>
 <div class="brand-figure hero-figure-r"><img src="/assets/illustrations/orator-amber.webp" alt="" width="380" height="712" loading="eager"></div>
 <div class="container hero-content">
 <div class="hero-badge reveal">New · autonomous X &amp; TikTok accounts</div>
 <h1 class="reveal reveal-delay-1">Everything your<br>AI agent needs.</h1>
-<p class="subtitle reveal reveal-delay-2">Real phone numbers, email, servers, domains, and X &amp; TikTok accounts — the real-world access agents can't get on their own. Provisioned on demand, paid in USDC. No signup, no API keys, no human.</p>
+<p class="subtitle reveal reveal-delay-2">The real-world access agents can't get on their own — paid in USDC, no human.</p>
 <div class="hero-buttons reveal reveal-delay-2">
 <a href="/skill.md" class="btn btn-primary btn-arrow">Get started</a>
 <a href="https://github.com/0xArtex/Palmyr" target="_blank" class="btn btn-secondary"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>View on GitHub<span style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 8px;background:rgba(255,255,255,0.1);border-radius:100px;font-size:12px"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/></svg> <span id="gh-stars">0</span></span></a>
@@ -1793,6 +1795,25 @@ function toggleFaq(el) {
   else { a.style.maxHeight = '0'; }
 }
 document.querySelectorAll('.faq-item.open .faq-a').forEach(a => { a.style.maxHeight = a.scrollHeight + 'px'; });
+</script>
+<script>
+// ===== HERO MOUSE PARALLAX =====
+(function(){
+  var hero=document.querySelector('.hero');
+  if(!hero||window.matchMedia('(prefers-reduced-motion:reduce)').matches)return;
+  var l=document.querySelector('.hero-figure-l'),r=document.querySelector('.hero-figure-r'),v=document.querySelector('.hero-bg-video');
+  var tx=0,ty=0,cx=0,cy=0,active=false;
+  window.addEventListener('mousemove',function(e){
+    tx=(e.clientX/window.innerWidth-0.5);ty=(e.clientY/window.innerHeight-0.5);active=true;
+  },{passive:true});
+  (function loop(){
+    cx+=(tx-cx)*0.06;cy+=(ty-cy)*0.06;
+    if(l)l.style.transform='translate('+(cx*26).toFixed(1)+'px,'+(cy*18).toFixed(1)+'px)';
+    if(r)r.style.transform='translate('+(cx*-30).toFixed(1)+'px,'+(cy*-20).toFixed(1)+'px)';
+    if(v)v.style.transform='scale(1.05) translate('+(cx*-14).toFixed(1)+'px,'+(cy*-10).toFixed(1)+'px)';
+    requestAnimationFrame(loop);
+  })();
+})();
 </script>
 </body>
 </html>
