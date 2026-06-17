@@ -16,8 +16,9 @@
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{
 /* Palmyr brand palette */
---accent:#a89774;          /* warm gold — primary accent (was orange #f54900) */
---accent-glow:rgba(168,151,116,0.18);
+--accent:#F6AF56;          /* amber — primary brand accent (brand kit) */
+--accent-ink:#112d32;      /* dark teal — text on amber surfaces */
+--accent-glow:rgba(246,175,86,0.18);
 --accent-2:#3f857b;        /* sage secondary */
 --bg:#112d32;              /* deep teal — primary brand bg */
 --surface:#0f2631;         /* one shade darker than bg */
@@ -51,7 +52,7 @@ img{max-width:100%;display:block}
 }
 
 .subtle-border{border:1px solid var(--border);border-radius:var(--radius);transition:border-color .3s}
-.subtle-border:hover{border-color:rgba(168,151,116,0.3)}
+.subtle-border:hover{border-color:rgba(246,175,86,0.3)}
 
 /* ===== GRAIN OVERLAY ===== */
 body::after{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:0.015;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
@@ -68,13 +69,13 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .nav-links a::after{content:'';position:absolute;bottom:-4px;left:0;width:0;height:1px;background:var(--accent);transition:width .3s cubic-bezier(0.22,1,0.36,1)}
 .nav-links a:hover{color:var(--w100)}
 .nav-links a:hover::after{width:100%}
-.nav-cta{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 18px;background:var(--accent);color:#fff;font-family:inherit;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;border:none;cursor:pointer;border-radius:100px;transition:all .2s;white-space:nowrap;margin-left:8px}
+.nav-cta{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 18px;background:var(--accent);color:var(--accent-ink);font-family:inherit;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;border:none;cursor:pointer;border-radius:100px;transition:all .2s;white-space:nowrap;margin-left:8px}
 .nav-cta:hover{filter:brightness(1.15)}
 .nav-mobile{display:none;background:none;border:none;color:#fff;cursor:pointer;position:absolute;right:16px;top:50%;transform:translateY(-50%)}
 
 /* ===== BUTTONS ===== */
 .btn{display:inline-flex;align-items:center;gap:8px;height:48px;padding:0 28px;font-family:inherit;font-size:14px;font-weight:500;cursor:pointer;border:none;transition:all .25s;border-radius:100px;letter-spacing:-0.01em}
-.btn-primary{background:var(--accent);color:#fff}
+.btn-primary{background:var(--accent);color:var(--accent-ink);font-weight:600}
 .btn-primary:hover{filter:brightness(1.15);transform:translateY(-1px)}
 .btn-secondary{background:rgba(255,255,255,0.06);color:#fff;border:1px solid var(--border)}
 .btn-secondary:hover{border-color:var(--w20);background:rgba(255,255,255,0.1)}
@@ -83,11 +84,11 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 
 /* ===== HERO ===== */
 .hero{padding:180px 0 100px;position:relative;text-align:center;overflow:hidden}
-.hero::before{content:'';position:absolute;top:-300px;left:50%;transform:translateX(-50%);width:1200px;height:900px;background:radial-gradient(ellipse 50% 50%,rgba(168,151,116,0.08) 0%,rgba(168,151,116,0.03) 40%,transparent 70%);pointer-events:none}
+.hero::before{content:'';position:absolute;top:-300px;left:50%;transform:translateX(-50%);width:1200px;height:900px;background:radial-gradient(ellipse 50% 50%,rgba(246,175,86,0.08) 0%,rgba(246,175,86,0.03) 40%,transparent 70%);pointer-events:none}
 /* Grid lines background */
 .hero::after{content:'';position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.02) 1px,transparent 1px);background-size:60px 60px;pointer-events:none;-webkit-mask:linear-gradient(to bottom,transparent,#000 30%,#000 70%,transparent);transform:translateY(var(--scroll,0));transition:transform 0s}
 .hero-content{position:relative;z-index:1}
-.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(168,151,116,0.1);border:1px solid rgba(168,151,116,0.2);border-radius:100px;font-size:13px;color:var(--accent);margin-bottom:32px;font-weight:500}
+.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:rgba(246,175,86,0.1);border:1px solid rgba(246,175,86,0.2);border-radius:100px;font-size:13px;color:var(--accent);margin-bottom:32px;font-weight:500}
 .hero-badge::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--accent);animation:pulse 2s ease-in-out infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 .hero h1{font-size:clamp(48px,7vw,84px);font-weight:500;letter-spacing:-0.025em;line-height:1.05;margin-bottom:24px;background:linear-gradient(180deg,#f7ead1 40%,rgba(247,234,209,0.55));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
@@ -130,10 +131,10 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .terminal-body.expanded{max-height:450px}
 .terminal-body::-webkit-scrollbar{width:3px}.terminal-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.06)}
 /* Status bar */
-.terminal-statusbar{display:flex;align-items:center;justify-content:space-between;padding:5px 16px;background:rgba(168,151,116,0.06);border-top:1px solid rgba(255,255,255,0.06);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--w40)}
+.terminal-statusbar{display:flex;align-items:center;justify-content:space-between;padding:5px 16px;background:rgba(246,175,86,0.06);border-top:1px solid rgba(255,255,255,0.06);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--w40)}
 .terminal-statusbar .sb-left{display:flex;align-items:center;gap:12px}
 .terminal-statusbar .sb-right{display:flex;align-items:center;gap:12px}
-.sb-tag{padding:1px 6px;background:rgba(168,151,116,0.15);color:var(--accent);font-weight:600;border-radius:0}
+.sb-tag{padding:1px 6px;background:rgba(246,175,86,0.15);color:var(--accent);font-weight:600;border-radius:0}
 /* Activity bars */
 .terminal-activity{display:flex;align-items:flex-end;gap:1px;height:12px}
 .terminal-activity span{width:2px;background:var(--accent);animation:eqBar 0.8s ease-in-out infinite alternate;border-radius:0}
@@ -150,8 +151,8 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .terminal-ghost{position:absolute;left:0;top:0;pointer-events:none;color:rgba(255,255,255,0.12);font-family:'JetBrains Mono',monospace;font-size:13px;white-space:nowrap;height:100%;display:flex;align-items:center}
 .term-suggestions{display:flex;flex-wrap:wrap;gap:6px;padding:8px 20px 4px;min-height:0}
 .term-chip{font-family:'JetBrains Mono',monospace;font-size:11px;padding:4px 12px;border:1px solid rgba(255,255,255,0.06);color:var(--w40);cursor:pointer;transition:all .15s;background:rgba(255,255,255,0.02);user-select:none}
-.term-chip:hover{border-color:var(--accent);color:var(--accent);background:rgba(168,151,116,0.06)}
-.term-chip.popular{border-color:rgba(168,151,116,0.2);color:rgba(255,255,255,0.5)}
+.term-chip:hover{border-color:var(--accent);color:var(--accent);background:rgba(246,175,86,0.06)}
+.term-chip.popular{border-color:rgba(246,175,86,0.2);color:rgba(255,255,255,0.5)}
 .term-welcome{font-size:12px;line-height:1.8;color:var(--w40);margin-bottom:8px}
 .term-welcome .tw-accent{color:var(--accent);font-weight:600}
 .term-welcome .tw-dim{color:rgba(255,255,255,0.15)}
@@ -171,7 +172,7 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 /* Progress bar */
 .term-progress{height:2px;background:rgba(255,255,255,0.06);margin:8px 0;position:relative;overflow:hidden}
 .term-progress-bar{height:100%;background:var(--accent);transition:width .4s ease-out}
-.term-progress-bar::after{content:'';position:absolute;top:0;right:0;bottom:0;width:40px;background:linear-gradient(90deg,transparent,rgba(168,151,116,0.4));animation:progressShine 1s ease-in-out infinite}
+.term-progress-bar::after{content:'';position:absolute;top:0;right:0;bottom:0;width:40px;background:linear-gradient(90deg,transparent,rgba(246,175,86,0.4));animation:progressShine 1s ease-in-out infinite}
 @keyframes progressShine{0%,100%{opacity:0}50%{opacity:1}}
 /* Tab content areas */
 .tab-content{display:none}.tab-content.active{display:block}
@@ -239,9 +240,9 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .feature-code .hl{color:var(--accent);font-weight:700}
 .feature-demo{margin-top:auto;font-family:'JetBrains Mono',monospace;font-size:11px;border:1px solid rgba(255,255,255,0.06);background:rgba(0,0,0,0.4)}
 .fd-bar{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,0.04);color:var(--w40);font-size:11px}
-.fd-method{color:var(--accent);font-weight:700;font-size:10px;padding:1px 6px;border:1px solid rgba(168,151,116,0.2);margin-right:4px}
+.fd-method{color:var(--accent);font-weight:700;font-size:10px;padding:1px 6px;border:1px solid rgba(246,175,86,0.2);margin-right:4px}
 .fd-run{margin-left:auto;padding:3px 12px;border:1px solid rgba(255,255,255,0.1);color:#e6edf3;cursor:pointer;font-size:10px;font-weight:600;transition:all .15s;user-select:none}
-.fd-run:hover{border-color:var(--accent);color:var(--accent);background:rgba(168,151,116,0.06)}
+.fd-run:hover{border-color:var(--accent);color:var(--accent);background:rgba(246,175,86,0.06)}
 .fd-run.running{pointer-events:none;color:var(--w40);border-color:rgba(255,255,255,0.04)}
 .fd-output{padding:12px;min-height:60px;line-height:1.6;transition:all .3s}
 .fd-output .fd-status{font-weight:700;font-size:10px;margin-bottom:6px}
@@ -249,8 +250,8 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .fd-output .fd-status.ok{color:#3fb950}
 .feature-tag{display:inline-flex;align-items:center;gap:6px;padding:3px 10px;font-size:10px;font-family:'JetBrains Mono',monospace;color:var(--w40);border:1px solid rgba(255,255,255,0.06);letter-spacing:0.05em;text-transform:uppercase;margin-top:16px;width:fit-content}
 .feature-tag .ft-dot{width:5px;height:5px;background:var(--accent)}
-.feature-card:hover .feature-icon{border-color:var(--accent);background:rgba(168,151,116,0.08)}
-.feature-card::after{content:'';position:absolute;inset:0;opacity:0;transition:opacity .4s;background:linear-gradient(135deg,rgba(168,151,116,0.03) 0%,transparent 50%);pointer-events:none}
+.feature-card:hover .feature-icon{border-color:var(--accent);background:rgba(246,175,86,0.08)}
+.feature-card::after{content:'';position:absolute;inset:0;opacity:0;transition:opacity .4s;background:linear-gradient(135deg,rgba(246,175,86,0.03) 0%,transparent 50%);pointer-events:none}
 .feature-card:hover::after{opacity:1}
 
 /* ===== HOW IT WORKS ===== */
@@ -259,7 +260,7 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .step{padding:28px 0;border-bottom:1px solid var(--border);cursor:pointer;transition:all .3s}
 .step:first-child{border-top:1px solid var(--border)}
 .step-header{display:flex;align-items:center;gap:16px}
-.step-num{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--accent);border:1px solid rgba(168,151,116,0.3);flex-shrink:0;font-family:'JetBrains Mono',monospace;transition:all .3s}
+.step-num{width:36px;height:36px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:600;color:var(--accent);border:1px solid rgba(246,175,86,0.3);flex-shrink:0;font-family:'JetBrains Mono',monospace;transition:all .3s}
 .step-title{font-size:16px;font-weight:500}
 .step-body{padding-left:52px;margin-top:12px;font-size:14px;color:var(--w60);line-height:1.7;max-height:0;overflow:hidden;transition:max-height .4s ease}
 .step.active .step-body{max-height:200px}
@@ -272,8 +273,8 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .pricing-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .pricing-card{padding:36px;display:flex;flex-direction:column;transition:all .3s}
 .pricing-card:hover{transform:translateY(-4px)}
-.pricing-card.pop{border-color:rgba(168,151,116,0.3) !important}
-.pricing-card.pop::before{content:'';position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from var(--angle,0deg),transparent 30%,rgba(168,151,116,0.5) 50%,transparent 70%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:rotateBorder 6s linear infinite;pointer-events:none}
+.pricing-card.pop{border-color:rgba(246,175,86,0.3) !important}
+.pricing-card.pop::before{content:'';position:absolute;inset:-1px;border-radius:inherit;padding:1px;background:conic-gradient(from var(--angle,0deg),transparent 30%,rgba(246,175,86,0.5) 50%,transparent 70%);-webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:rotateBorder 6s linear infinite;pointer-events:none}
 .tier-name{font-size:18px;font-weight:600;margin-bottom:4px;letter-spacing:-0.02em}
 .tier-badge{display:inline-block;font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--accent);margin-bottom:8px;font-weight:600}
 .tier-desc{font-size:14px;color:var(--w40);margin-bottom:28px}
@@ -284,11 +285,11 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 .pricing-card .features-label{font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--w40);margin-bottom:16px;font-weight:500}
 .pricing-card ul{list-style:none;display:flex;flex-direction:column;gap:12px;flex:1}
 .pricing-card li{font-size:14px;color:var(--w60);display:flex;align-items:flex-start;gap:10px}
-.pricing-card li::before{content:'';width:16px;height:16px;flex-shrink:0;margin-top:2px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23f54900' stroke-width='2'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center/contain no-repeat}
+.pricing-card li::before{content:'';width:16px;height:16px;flex-shrink:0;margin-top:2px;background:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23F6AF56' stroke-width='2'%3E%3Cpath d='M5 12l5 5L20 7'/%3E%3C/svg%3E") center/contain no-repeat}
 .calc-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;transition:all .15s;font-size:14px;color:var(--w60)}
 .calc-row:hover{color:#e6edf3}
 .calc-row input[type=checkbox]{appearance:none;width:16px;height:16px;border:1px solid rgba(255,255,255,0.15);background:transparent;cursor:pointer;flex-shrink:0;position:relative;transition:all .15s}
-.calc-row input[type=checkbox]:checked{border-color:var(--accent);background:rgba(168,151,116,0.15)}
+.calc-row input[type=checkbox]:checked{border-color:var(--accent);background:rgba(246,175,86,0.15)}
 .calc-row input[type=checkbox]:checked::after{content:'✓';position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:11px;font-weight:700}
 .calc-name{flex:1}
 .calc-price{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--w40)}
@@ -296,7 +297,7 @@ nav{position:fixed;top:20px;left:50%;transform:translateX(-50%);z-index:100;widt
 /* ===== RESOURCES ===== */
 .resources-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px}
 .resource-card{padding:32px;transition:all .3s}
-.resource-card:hover{transform:translateY(-2px);border-color:rgba(168,151,116,0.3) !important}
+.resource-card:hover{transform:translateY(-2px);border-color:rgba(246,175,86,0.3) !important}
 .resource-label{font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--w40);margin-bottom:12px;font-weight:500}
 .resource-card h3{font-size:18px;font-weight:600;margin-bottom:8px;letter-spacing:-0.02em}
 .resource-card p{font-size:14px;color:var(--w60)}
@@ -418,7 +419,7 @@ nav{animation:navSlideIn .6s cubic-bezier(0.22,1,0.36,1) both;animation-delay:.2
 .logo-item span{font-size:15px;font-weight:600;color:rgba(255,255,255,0.35);letter-spacing:-0.01em}
 
 /* ===== CARD SHINE ON HOVER ===== */
-.resource-card::after,.pricing-card::after{content:'';position:absolute;inset:0;border-radius:inherit;opacity:0;transition:opacity .4s;background:linear-gradient(135deg,rgba(168,151,116,0.04) 0%,transparent 50%);pointer-events:none}
+.resource-card::after,.pricing-card::after{content:'';position:absolute;inset:0;border-radius:inherit;opacity:0;transition:opacity .4s;background:linear-gradient(135deg,rgba(246,175,86,0.04) 0%,transparent 50%);pointer-events:none}
 .resource-card:hover::after,.pricing-card:hover::after{opacity:1}
 
 /* ===== SMOOTH SECTION DIVIDER ===== */
@@ -461,6 +462,87 @@ nav{top:12px;max-width:calc(100% - 24px)}
 .logos-row{gap:24px}
 .logos-row span{font-size:14px}
 }
+
+/* ============================================================
+   REFRESH — brand illustrations, social, capabilities, demo
+   ============================================================ */
+
+/* --- Brand classical figures (extracted from brand kit) --- */
+.brand-figure{position:absolute;pointer-events:none;z-index:0;opacity:0}
+.brand-figure img{width:100%;height:auto;display:block;filter:drop-shadow(0 14px 50px rgba(0,0,0,.4))}
+.hero-figure-l{left:max(8px,calc(50% - 680px));top:172px;width:clamp(112px,13vw,208px);animation:figIn 1.6s ease .5s forwards,figFloat 9s ease-in-out 2.2s infinite}
+.hero-figure-r{right:max(8px,calc(50% - 680px));top:140px;width:clamp(120px,14vw,232px);animation:figIn 1.6s ease .8s forwards,figFloatB 11s ease-in-out 2.2s infinite}
+@keyframes figIn{to{opacity:.62}}
+@keyframes figFloat{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+@keyframes figFloatB{0%,100%{transform:translateY(0)}50%{transform:translateY(-18px)}}
+@media(max-width:1180px){.hero-figure-l,.hero-figure-r{display:none}}
+
+/* Slowly rotating brand star behind the hero */
+.hero-mark{position:absolute;top:-180px;left:50%;width:760px;height:760px;margin-left:-380px;opacity:.05;z-index:0;pointer-events:none;animation:slowSpin 100s linear infinite}
+.hero-mark img{width:100%;height:100%}
+@keyframes slowSpin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.hero-mark,.brand-figure{animation:none!important}.brand-figure{opacity:.5}}
+
+/* Star tick on every section label */
+.section-label{display:inline-flex;align-items:center;gap:9px}
+.section-label::before{content:'';width:13px;height:13px;flex-shrink:0;background:var(--accent);-webkit-mask:url('/assets/logo-mark.svg') center/contain no-repeat;mask:url('/assets/logo-mark.svg') center/contain no-repeat}
+
+/* Decorative olive accent */
+.olive-accent{position:absolute;width:clamp(110px,13vw,180px);opacity:.45;pointer-events:none;z-index:0}
+
+/* ===== SOCIAL AUTOMATION ===== */
+.social-sec{position:relative;overflow:hidden;background:var(--surface)}
+.social-toggle{display:inline-flex;gap:4px;padding:4px;border:1px solid var(--border);border-radius:100px;margin-bottom:40px;background:var(--bg)}
+.social-toggle button{display:inline-flex;align-items:center;gap:8px;padding:9px 22px;border:none;background:none;color:var(--w60);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer;border-radius:100px;transition:all .25s}
+.social-toggle button svg{width:15px;height:15px}
+.social-toggle button.active{background:var(--accent);color:var(--accent-ink)}
+.social-panel{display:none}
+.social-panel.active{display:block;animation:termFadeIn .45s ease}
+.social-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:30px;align-items:stretch}
+@media(max-width:900px){.social-grid{grid-template-columns:1fr}}
+.social-ops{display:grid;grid-template-columns:1fr 1fr;gap:1px;background:var(--border);border:1px solid var(--border)}
+.social-op{background:var(--surface);padding:17px 20px;transition:background .25s}
+.social-op:hover{background:var(--surface-2)}
+.social-op-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-bottom:5px}
+.social-op h4{font-size:14px;font-weight:600;letter-spacing:-.01em}
+.social-op .op-price{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--accent);white-space:nowrap}
+.social-op p{font-size:12px;color:var(--w60);line-height:1.55}
+.social-op code{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--w80)}
+
+/* social showcase terminal card */
+.social-card{background:#06080c;border:1px solid rgba(255,255,255,.08);overflow:hidden;display:flex;flex-direction:column}
+.social-card-bar{display:flex;align-items:center;gap:8px;padding:11px 15px;border-bottom:1px solid rgba(255,255,255,.07);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--w40)}
+.social-card-bar .sc-dot{width:8px;height:8px;border:1px solid rgba(255,255,255,.15)}
+.social-card-body{padding:18px 20px;font-family:'JetBrains Mono',monospace;font-size:12.5px;line-height:1.95;color:#c9d1d9;flex:1}
+.social-card-body .cl{color:var(--accent);font-weight:600}
+.social-card-body .ok{color:#3fb950}
+.social-card-body .dim{color:var(--w40)}
+.social-card-body .seq>div{opacity:0;animation:termLineIn .5s ease forwards}
+.social-card-body .seq>div:nth-child(1){animation-delay:.2s}
+.social-card-body .seq>div:nth-child(2){animation-delay:.7s}
+.social-card-body .seq>div:nth-child(3){animation-delay:1.2s}
+.social-card-body .seq>div:nth-child(4){animation-delay:1.8s}
+.social-card-body .seq>div:nth-child(5){animation-delay:2.4s}
+.social-card-body .seq>div:nth-child(6){animation-delay:3s}
+
+/* ===== CAPABILITIES ROW (trading / intent / wallet) ===== */
+.cap-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);border:1px solid var(--border)}
+@media(max-width:900px){.cap-grid{grid-template-columns:1fr}}
+.cap-card{background:var(--bg);padding:34px 30px;position:relative;overflow:hidden;transition:background .3s;display:flex;flex-direction:column}
+.cap-card:hover{background:var(--surface-2)}
+.cap-icon{width:40px;height:40px;display:flex;align-items:center;justify-content:center;border:1px solid var(--border);color:var(--accent);background:rgba(246,175,86,.04)}
+.cap-card h3{font-size:18px;font-weight:600;margin:16px 0 8px;letter-spacing:-.02em}
+.cap-card p{font-size:13px;color:var(--w60);line-height:1.7;margin-bottom:14px}
+.cap-card code{display:block;font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--w80);background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.05);padding:9px 12px;margin-top:auto}
+.cap-card code .cl{color:var(--accent)}
+
+/* ===== DEMO VIDEO ===== */
+.demo-sec{text-align:center;position:relative;overflow:hidden;border-top:1px solid var(--border)}
+.demo-frame{max-width:880px;margin:44px auto 0;border:1px solid var(--border);border-radius:14px;overflow:hidden;position:relative;background:#000;box-shadow:0 50px 130px rgba(0,0,0,.55)}
+.demo-frame video{width:100%;display:block}
+.demo-chrome{display:flex;align-items:center;gap:7px;padding:11px 15px;background:rgba(247,234,209,.04);border-bottom:1px solid var(--border)}
+.demo-chrome .sc-dot{width:10px;height:10px;border-radius:50%;background:rgba(247,234,209,.18)}
+.demo-chrome .demo-url{margin-left:12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--w40)}
 </style>
 </head>
 <body>
@@ -490,9 +572,13 @@ Palmyr
 
 <!-- HERO -->
 <section class="hero">
+<div class="hero-mark"><img src="/assets/logo-mark-on-dark.svg" alt=""></div>
+<div class="brand-figure hero-figure-l"><img src="/assets/illustrations/philosopher-cream.webp" alt="" width="472" height="620" loading="eager"></div>
+<div class="brand-figure hero-figure-r"><img src="/assets/illustrations/orator-amber.webp" alt="" width="380" height="712" loading="eager"></div>
 <div class="container hero-content">
-<h1 class="reveal reveal-delay-1">Give your AI agent<br>a phone, email, server, and more.</h1>
-<p class="subtitle reveal reveal-delay-2">Your AI agent gets real phone numbers, email inboxes, and cloud servers. It pays with crypto. No human needed.</p>
+<div class="hero-badge reveal">New · autonomous X &amp; TikTok accounts</div>
+<h1 class="reveal reveal-delay-1">Everything your<br>AI agent needs.</h1>
+<p class="subtitle reveal reveal-delay-2">Real phone numbers, email, servers, domains, and X &amp; TikTok accounts — the real-world access agents can't get on their own. Provisioned on demand, paid in USDC. No signup, no API keys, no human.</p>
 <div class="hero-buttons reveal reveal-delay-2">
 <a href="/skill.md" class="btn btn-primary btn-arrow">Get started</a>
 <a href="https://github.com/0xArtex/Palmyr" target="_blank" class="btn btn-secondary"><svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" style="flex-shrink:0"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>View on GitHub<span style="display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:2px 8px;background:rgba(255,255,255,0.1);border-radius:100px;font-size:12px"><svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style="flex-shrink:0"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/></svg> <span id="gh-stars">0</span></span></a>
@@ -593,6 +679,83 @@ Palmyr
 </div>
 </section>
 
+<!-- SOCIAL AUTOMATION -->
+<section class="section social-sec" id="social">
+<img class="olive-accent" src="/assets/illustrations/olive-cream.webp" alt="" style="top:40px;right:4%;transform:rotate(10deg)">
+<div class="container">
+<div class="section-label reveal">Social presence</div>
+<h2 class="reveal">A real face on X and TikTok.</h2>
+<p class="section-sub reveal" style="max-width:620px">X and TikTok hide behind phone numbers, captchas, and KYC — walls an agent can't climb on its own. Palmyr hands it a warmed-up account on a sticky residential IP, plus the full toolkit to run it: post, reply, schedule, and analyze. Every action paid per call in USDC.</p>
+
+<div class="social-toggle reveal">
+<button class="active" onclick="switchSocial(this,'x')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>X / Twitter</button>
+<button onclick="switchSocial(this,'tiktok')"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12.53.02C13.84 0 15.14.01 16.44 0c.08 1.53.63 3.09 1.75 4.17 1.12 1.11 2.7 1.62 4.24 1.79v4.03c-1.44-.05-2.89-.35-4.2-.97-.57-.26-1.1-.59-1.62-.93-.01 2.92.01 5.84-.02 8.75-.08 1.4-.54 2.79-1.35 3.94-1.31 1.92-3.58 3.17-5.91 3.21-1.43.08-2.86-.31-4.08-1.03-2.02-1.19-3.44-3.37-3.65-5.71-.02-.5-.03-1-.01-1.49.18-1.9 1.12-3.72 2.58-4.96 1.66-1.44 3.98-2.13 6.15-1.72.02 1.48-.04 2.96-.04 4.44-.99-.32-2.15-.23-3.02.37-.63.41-1.11 1.04-1.36 1.75-.21.51-.15 1.07-.14 1.61.24 1.64 1.82 3.02 3.5 2.87 1.12-.01 2.19-.66 2.77-1.61.19-.33.4-.67.41-1.06.1-1.79.06-3.57.07-5.36.01-4.03-.01-8.05.02-12.07z"/></svg>TikTok</button>
+</div>
+
+<!-- X / Twitter panel -->
+<div class="social-panel active reveal" data-platform="x">
+<div class="social-grid">
+<div class="social-ops">
+<div class="social-op"><div class="social-op-top"><h4>Buy or bring an account</h4><span class="op-price">$5 / free</span></div><p>Aged, ready-to-post accounts on a sticky residential IP — or <code>import</code> your own.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>Post &amp; engage</h4><span class="op-price">$0.001</span></div><p><code>post</code>, <code>reply</code>, <code>like</code>, <code>retweet</code>, <code>follow</code> — each signed by your wallet.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>Schedule — fires offline</h4><span class="op-price">from $0.001</span></div><p>Credentials sealed server-side (AES-256-GCM). Posts go out on time even if the agent is off.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>Profile &amp; identity</h4><span class="op-price">$0.005</span></div><p><code>bio</code>, <code>name</code>, <code>pfp</code>, <code>banner</code>, handle — all programmatic.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>Transfer &amp; share</h4><span class="op-price">$0.01</span></div><p>Hand an account to another wallet or share access — ownership is wallet-keyed.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>List &amp; audit</h4><span class="op-price">free</span></div><p><code>list</code> and <code>registered</code> show every account you own, local and server-side.</p></div>
+</div>
+<div class="social-card">
+<div class="social-card-bar"><span class="sc-dot"></span><span class="sc-dot"></span><span class="sc-dot"></span><span style="margin-left:6px">palmyr twitter — live session</span></div>
+<div class="social-card-body"><div class="seq">
+<div><span class="dim">agent@palmyr ›</span> <span class="cl">twitter buy</span> --country US</div>
+<div class="dim">402 · 5.00 USDC → paid · 200 OK</div>
+<div>@oracle_agent <span class="ok">✓ ready</span> <span class="dim">· sticky IP 84.x · session live</span></div>
+<div><span class="dim">agent@palmyr ›</span> <span class="cl">twitter schedule</span> @oracle_agent --at 18:00Z</div>
+<div class="dim">402 · 0.001 USDC → paid</div>
+<div><span class="ok">✓ queued</span> <span class="dim">— fires server-side, agent can go offline</span></div>
+</div></div>
+</div>
+</div>
+</div>
+
+<!-- TikTok panel -->
+<div class="social-panel reveal" data-platform="tiktok">
+<div class="social-grid">
+<div class="social-ops">
+<div class="social-op"><div class="social-op-top"><h4>Connect by QR</h4><span class="op-price">free</span></div><p>Scan a QR with the TikTok app — no install, no password. Or connect a local browser.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>Post &amp; schedule</h4><span class="op-price">$0.01</span></div><p>Upload videos with captions; <code>schedule</code> via TikTok's own native scheduler.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>Human-in-the-loop drafts</h4><span class="op-price">free → $0.01</span></div><p><code>draft</code> stages a video for approval. Charged only when you <code>approve</code> and it publishes.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>Self-learning analytics</h4><span class="op-price">$0.005</span></div><p><code>analytics</code> tiers each post against the account's own history; <code>review</code> summarizes trends.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>Autonomous monitor</h4><span class="op-price">free</span></div><p><code>monitor start</code> re-runs analytics on a schedule so the agent learns what works.</p></div>
+<div class="social-op"><div class="social-op-top"><h4>Engage &amp; organize</h4><span class="op-price">$0.001</span></div><p><code>like</code>, <code>follow</code>, and <code>list --tag</code> to file 30+ accounts into folders.</p></div>
+</div>
+<div class="social-card">
+<div class="social-card-bar"><span class="sc-dot"></span><span class="sc-dot"></span><span class="sc-dot"></span><span style="margin-left:6px">palmyr tiktok — draft loop</span></div>
+<div class="social-card-body"><div class="seq">
+<div><span class="dim">agent@palmyr ›</span> <span class="cl">tiktok connect</span> @studio_agent</div>
+<div class="dim">scan QR with TikTok app… <span class="ok">✓ linked</span></div>
+<div><span class="dim">agent@palmyr ›</span> <span class="cl">tiktok draft</span> @studio_agent --file ep1.mp4</div>
+<div class="dim">draft_a91 staged · awaiting human approval (free)</div>
+<div><span class="dim">agent@palmyr ›</span> <span class="cl">tiktok approve</span> draft_a91</div>
+<div><span class="ok">✓ published</span> <span class="dim">· 0.01 USDC · analytics monitor armed</span></div>
+</div></div>
+</div>
+</div>
+</div>
+
+</div>
+</section>
+<script>
+function switchSocial(btn, platform){
+  document.querySelectorAll('.social-toggle button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  document.querySelectorAll('.social-panel').forEach(p => {
+    const on = p.dataset.platform === platform;
+    p.classList.toggle('active', on);
+    if (on) p.querySelectorAll('.reveal').forEach(r => r.classList.add('visible'));
+  });
+}
+</script>
+
 <!-- FEATURES -->
 <section class="section" id="features">
 <div class="container">
@@ -630,25 +793,54 @@ Palmyr
 <div class="feature-powered">powered by <img src="/assets/logos/hetzner-icon.svg" alt="Hetzner"></div>
 <div class="feature-card-top">
 <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="0"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
-<h3>Cloud servers & domains</h3>
+<h3>Cloud servers</h3>
 </div>
-<p>Spin up Linux VPS instances from 2 to 16 vCPUs. Register domains. Your agent picks the specs, pays, and gets root SSH access instantly.</p>
+<p>Spin up Linux VPS instances from 2 to 16 vCPUs on Hetzner. Your agent picks the specs, pays, and gets root SSH access in seconds.</p>
 <div class="feature-tag"><span class="ft-dot"></span>9 server tiers</div>
 </div>
 </div>
 
 <div class="feature-card reveal reveal-delay-2">
 <div class="feature-card-inner">
-<div class="feature-powered">powered by <svg width="10" height="10" viewBox="0 0 24 24" fill="rgba(255,255,255,0.2)"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></div>
+<div class="feature-powered">powered by <img src="/assets/logos/cloudflare-icon.svg" alt="Cloudflare"></div>
 <div class="feature-card-top">
-<div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></div>
-<h3>X account — ready to post</h3>
+<div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg></div>
+<h3>Domains &amp; DNS</h3>
 </div>
-<p>Your agent gets a fully configured X account with active session cookies, browser profile, and API access. Log in and start posting. No setup, no captchas.</p>
-<div class="feature-tag"><span class="ft-dot"></span>Pre-authenticated</div>
+<p>Register domains, manage DNS records, and transfer or share ownership — all wallet-keyed. From $12/yr via Cloudflare.</p>
+<div class="feature-tag"><span class="ft-dot"></span>instant DNS</div>
 </div>
 </div>
 
+</div>
+</div>
+</section>
+
+<!-- CAPABILITIES -->
+<section class="section" id="capabilities">
+<div class="container">
+<div class="section-label reveal">More it can do</div>
+<h2 class="reveal">Not just access — autonomy.</h2>
+<p class="section-sub reveal">Beyond the primitives, your agent can trade, plan, and pay for itself — with no human in the loop.</p>
+<div class="cap-grid reveal">
+<div class="cap-card">
+<div class="cap-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg></div>
+<h3>Autonomous trading</h3>
+<p>Open long or short positions on any token across Solana and Base. FIFO PnL, stop-loss, take-profit, trailing stops — and a monitor daemon that fires triggers while the agent sleeps.</p>
+<code><span class="cl">palmyr</span> wallet trade buy SOL --amount 0.5 --tp 30% --cut 10%</code>
+</div>
+<div class="cap-card">
+<div class="cap-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+<h3>Intent resolver</h3>
+<p>Describe a goal in plain language. Palmyr returns a composed, priced x402 plan — provision, post, register — that the agent executes step by step. Multi-turn sessions reuse what's already built.</p>
+<code><span class="cl">palmyr</span> chat run "launch a brand on X + TikTok" --execute</code>
+</div>
+<div class="cap-card">
+<div class="cap-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="6" width="20" height="13" rx="2"/><path d="M2 10h20"/><circle cx="17" cy="14" r="1.4" fill="currentColor" stroke="none"/></svg></div>
+<h3>The wallet is the identity</h3>
+<p>One self-custodied wallet on Solana + Base. No signup, no API keys — the wallet that pays for a resource owns it. Day-one autonomy, secured by x402.</p>
+<code><span class="cl">palmyr</span> wallet create  <span class="dim" style="color:var(--w40)"># Solana + Base, ready to pay</span></code>
+</div>
 </div>
 </div>
 </section>
@@ -736,6 +928,19 @@ Palmyr
 </div>
 </section>
 
+<!-- DEMO VIDEO -->
+<section class="section demo-sec" id="demo">
+<div class="container section-center">
+<div class="section-label reveal">See it in action</div>
+<h2 class="reveal">We gave an agent $100.</h2>
+<p class="section-sub reveal" style="margin-left:auto;margin-right:auto">No human, no dashboard — just a wallet and a goal. Here's what it provisioned and shipped entirely on its own.</p>
+<div class="demo-frame reveal">
+<div class="demo-chrome"><span class="sc-dot"></span><span class="sc-dot"></span><span class="sc-dot"></span><span class="demo-url">palmyr.ai</span></div>
+<video src="/assets/demo-video.mp4" autoplay muted loop playsinline controls preload="metadata"></video>
+</div>
+</div>
+</section>
+
 <!-- RESOURCES -->
 <section class="section" id="resources">
 <div class="container">
@@ -790,7 +995,9 @@ Palmyr
 <div class="calc-row"><input type="checkbox" data-price="0.50"><span class="calc-name">Email inbox</span><span class="calc-price">$0.50</span></div>
 <div class="calc-row"><input type="checkbox" data-price="8.00"><span class="calc-name">Cloud server</span><span class="calc-price">from $8</span></div>
 <div class="calc-row"><input type="checkbox" data-price="12.00"><span class="calc-name">Domain (.dev)</span><span class="calc-price">$12.00</span></div>
-<div class="calc-row"><input type="checkbox" data-price="5.00"><span class="calc-name">X account</span><span class="calc-price">$5.00</span></div>
+<div class="calc-row"><input type="checkbox" data-price="5.00"><span class="calc-name">X account (aged)</span><span class="calc-price">$5.00</span></div>
+<div class="calc-row"><input type="checkbox" data-price="0.10"><span class="calc-name">100 X posts</span><span class="calc-price">$0.10</span></div>
+<div class="calc-row"><input type="checkbox" data-price="0.10"><span class="calc-name">10 TikTok videos</span><span class="calc-price">$0.10</span></div>
 <div class="calc-row"><input type="checkbox" data-price="0.20"><span class="calc-name">10 SMS messages</span><span class="calc-price">$0.20</span></div>
 <div class="calc-row"><input type="checkbox" data-price="0.50"><span class="calc-name">5 voice calls</span><span class="calc-price">$0.50</span></div>
 <div class="calc-row"><input type="checkbox" data-price="0.50"><span class="calc-name">50 emails</span><span class="calc-price">$0.50</span></div>
@@ -829,7 +1036,11 @@ Palmyr
 <div class="faq-list reveal">
 <div class="faq-item open">
 <div class="faq-q" onclick="toggleFaq(this)">What is Palmyr?</div>
-<div class="faq-a"><p>It's an API that lets AI agents buy real-world services — phone numbers, email, servers, domains — and pay with USDC on Solana. Think of it as a store for AI agents.</p></div>
+<div class="faq-a"><p>It's the infrastructure layer for AI agents: phone numbers, email, servers, domains, and X &amp; TikTok accounts — provisioned on demand and paid with USDC on Solana or Base. Your agent's wallet is its identity, so there's no signup and no API keys.</p></div>
+</div>
+<div class="faq-item">
+<div class="faq-q" onclick="toggleFaq(this)">Can my agent run X and TikTok accounts?</div>
+<div class="faq-a"><p>Yes — this is what most agents come for. Buy an aged, ready-to-post X account ($5) or connect a TikTok by QR (free), then post, reply, schedule, and pull analytics, each paid per action in USDC. X posts can be scheduled server-side and fire even while your agent is offline; TikTok adds a human-in-the-loop draft → approve flow.</p></div>
 </div>
 <div class="faq-item">
 <div class="faq-q" onclick="toggleFaq(this)">How does the payment work?</div>
@@ -870,9 +1081,10 @@ Palmyr
 
 <!-- CTA -->
 <section class="cta-section">
+<img src="/assets/illustrations/seated-zeus-amber.webp" alt="" style="position:absolute;right:5%;bottom:-24px;width:clamp(130px,15vw,250px);opacity:.12;pointer-events:none;z-index:0">
 <div class="container">
 <h2 class="reveal">Give your agent superpowers.</h2>
-<p class="reveal">Phone, email, servers, domains. One API. Paid with crypto. Ready in minutes.</p>
+<p class="reveal">Phone, email, servers, domains, and a presence on X &amp; TikTok. One CLI, paid in USDC. No signup, no human.</p>
 <div class="hero-buttons reveal">
 <a href="/skill.md" class="btn btn-primary btn-arrow">Get started</a>
 <a href="/docs" class="btn btn-secondary">Read the docs</a>
@@ -940,6 +1152,10 @@ Palmyr
 
   // Command definitions with suggested next commands
   const commandList = [
+    { cmd:'twitter post', label:'Post to X', icon:'𝕏', popular:true },
+    { cmd:'tiktok post', label:'Post to TikTok', icon:'🎵', popular:true },
+    { cmd:'chat run', label:'Plan from intent', icon:'✨', popular:true },
+    { cmd:'trade buy', label:'Open a position', icon:'📈' },
     { cmd:'provision phone', label:'Get a phone number', icon:'📞', popular:true },
     { cmd:'send sms', label:'Send a text', icon:'💬' },
     { cmd:'dial call', label:'Make a voice call', icon:'🔊' },
@@ -968,6 +1184,10 @@ Palmyr
     'pricing': ['provision phone','create inbox','create server'],
     'whoami': ['status','provision phone','pricing'],
     'help': ['provision phone','create inbox','create server'],
+    'twitter post': ['tiktok post','chat run','status'],
+    'tiktok post': ['twitter post','chat run','status'],
+    'chat run': ['twitter post','tiktok post','create server'],
+    'trade buy': ['status','chat run','pricing'],
   };
 
   const commands = {
@@ -981,6 +1201,10 @@ Palmyr
   create server    ─── spin up cloud compute
   register domain  ─── register a domain
   check domain     ─── check availability
+  twitter post     ─── post to an X account
+  tiktok post      ─── post to TikTok
+  chat run         ─── plan from a goal, then execute
+  trade buy        ─── open a trading position
   status           ─── agent dashboard
   pricing          ─── per-action costs
   whoami           ─── agent identity
@@ -1025,6 +1249,17 @@ Palmyr
 
   <span style="color:var(--accent)">━━ Full Stack Agent ━━ $20 one-time ━━</span>`
     },
+    'twitter post': {
+      pay:true, payAmount:'0.001', payDesc:'Post to X',
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">𝕏</span> @oracle_agent</div><div style="color:#e6edf3;margin:2px 0 8px">gm. shipping autonomy today.</div><div class="tcard-row"><span>Account IP</span><span>sticky · 84.x</span></div><span class="tcard-tag sent">posted</span></div>`},
+    'tiktok post': {
+      pay:true, payAmount:'0.01', payDesc:'Post to TikTok',
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">🎵</span> @studio_agent</div><div class="tcard-row"><span>Video</span><span>ep1.mp4 · 0:42</span></div><div class="tcard-row"><span>Caption</span><span>day 1 of building…</span></div><div class="tcard-row"><span>Monitor</span><span style="color:#3fb950">armed</span></div><span class="tcard-tag active">published</span></div>`},
+    'chat run': {
+      rich:`<div class="tcard" style="max-width:400px"><div class="tcard-header"><span class="tcard-icon">✨</span> plan · "launch a brand on X + TikTok"</div><div class="tcard-row"><span>1 · buy X account</span><span>5.00</span></div><div class="tcard-row"><span>2 · connect TikTok</span><span>free</span></div><div class="tcard-row"><span>3 · register domain</span><span>12.00</span></div><div class="tcard-row"><span>4 · schedule 7 posts</span><span>0.01</span></div><div class="tcard-row" style="border-top:1px solid var(--w10);margin-top:4px;padding-top:6px"><span>total</span><span style="color:var(--accent)">17.01 USDC</span></div><span class="tcard-tag running">ready to execute</span></div>`, success:true },
+    'trade buy': {
+      pay:true, payAmount:'0.50', payDesc:'Open position (SOL)',
+      rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">📈</span> LONG SOL</div><div class="tcard-row"><span>Size</span><span>0.5 SOL</span></div><div class="tcard-row"><span>Entry</span><span>$172.40</span></div><div class="tcard-row"><span>Take-profit</span><span style="color:#3fb950">+30%</span></div><div class="tcard-row"><span>Stop-loss</span><span style="color:#f85149">−10%</span></div><span class="tcard-tag running">monitoring</span></div>`},
   };
 
   // === RENDER SUGGESTION CHIPS ===
@@ -1245,7 +1480,7 @@ Palmyr
   // === LOGS TAB ===
   const logsBody = document.getElementById('logs-body');
   const logMethods = ['GET','POST','POST','GET','POST','GET'];
-  const logPaths = ['/status','/phone/provision','/email/send','/compute/list','/phone/sms','/domains/check'];
+  const logPaths = ['/status','/phone/provision','/twitter/post','/email/send','/tiktok/post','/compute/list','/chat/run','/domains/check'];
   const logStatuses = [{code:200,cls:'log-ok'},{code:200,cls:'log-ok'},{code:200,cls:'log-ok'},{code:402,cls:'log-err'},{code:200,cls:'log-ok'}];
 
   function addLogEntry() {
