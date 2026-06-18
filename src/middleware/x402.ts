@@ -142,7 +142,7 @@ function captureSuccessResponse(res: Response, fp: string): void {
       if (status >= 400) return; // only replay successful responses
       let serialized: string;
       if (isJson) {
-        serialized = JSON.stringify(body);
+        serialized = safeStringify(body);
       } else if (typeof body === "string") {
         serialized = body;
       } else if (Buffer.isBuffer(body)) {
@@ -151,7 +151,7 @@ function captureSuccessResponse(res: Response, fp: string): void {
         return; // nothing meaningful to replay
       } else {
         // Non-string/Buffer object passed to res.send() — Express will JSON it.
-        serialized = JSON.stringify(body);
+        serialized = safeStringify(body);
       }
       if (serialized == null) return;
       if (Buffer.byteLength(serialized, "utf8") > REPLAY_BODY_MAX_BYTES) return; // too big to buffer
@@ -361,6 +361,16 @@ function toJsonSafe(obj: any): any {
   return JSON.parse(JSON.stringify(obj, (_, v) => typeof v === "bigint" ? v.toString() : v));
 }
 
+// BigInt-safe JSON.stringify → string. The SVM verify path threads the parsed
+// on-chain amount through as a `bigint` (result.amountPaid), so a plain
+// JSON.stringify of that object throws "Do not know how to serialize a BigInt"
+// — which, on the `[x402] Result:` log line, crashed the request AFTER
+// settlement (payer charged, no resource, fingerprint unclaimed). Always
+// serialize payment/response objects through this.
+function safeStringify(obj: any): string {
+  return JSON.stringify(obj, (_, v) => typeof v === "bigint" ? v.toString() : v);
+}
+
 async function handleSvmPayment(
   paymentPayload: any,
   matchedRequirement: any,
@@ -566,7 +576,7 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
         result = await handleEvmPayment(paymentPayload, matchedRequirement);
       }
 
-      console.log("[x402] Result:", JSON.stringify(result));
+      console.log("[x402] Result:", safeStringify(result));
 
       if (!result.verified) {
         send402Response(res, req, minUsdc, "Payment verification failed: " + (result.reason || "unknown"));
