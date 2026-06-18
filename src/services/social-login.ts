@@ -7,7 +7,7 @@
  * browser context. The returned cookies are what the caller caches.
  */
 import { createHmac } from "crypto";
-import { getStealthChromium, buildProxyConfig } from "./social-runtime";
+import { buildProxyConfig, launchStealthBrowser } from "./social-runtime";
 import { isSelfHosted } from "./self-hosted";
 
 type Browser = any;
@@ -101,8 +101,7 @@ export async function loginTwitter(
 
   let browser: Browser;
   try {
-    const chromium = await getStealthChromium();
-    browser = await chromium.launch({ headless: true, proxy });
+    browser = await launchStealthBrowser({ headless: true, proxy });
   } catch (e: any) {
     return {
       success: false,

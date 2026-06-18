@@ -14,7 +14,7 @@
  * Both paths end the same way: harvest the full cookie jar + confirm the
  * authed UI rendered.
  */
-import { getStealthChromium, buildProxyConfig, profileForCountry } from "./social-runtime";
+import { buildProxyConfig, profileForCountry, launchStealthBrowser } from "./social-runtime";
 import { isSelfHosted } from "./self-hosted";
 import { solveTikTokCaptcha, isCaptchaSolverConfigured } from "./captcha-solver";
 import { fetchVerificationCode } from "./email-reader";
@@ -131,7 +131,8 @@ export interface TikTokLoginResult {
     | "SMS_VERIFICATION_REQUIRED"
     | "ACCOUNT_BLOCKED"
     | "LOGIN_TIMEOUT"
-    | "LOGIN_FAILED";
+    | "LOGIN_FAILED"
+    | "FORM_LOGIN_DISABLED";
   diagnostics?: {
     url?: string;
     title?: string;
@@ -151,6 +152,22 @@ export async function loginTikTok(
       success: false,
       error: "Provide either { sessionid } for cookie-injection login, or { login, password } for form login.",
       error_code: "MISSING_CREDENTIALS",
+    };
+  }
+
+  // Headless form-login (typing username/password) trips TikTok's anti-bot
+  // (~70% perma-spin) and naive retries can lock the account for 15-60 min. It
+  // is disabled by default so an unattended agent can never route through it;
+  // use QR connect (`palmyr tiktok connect <user>`) or cookie injection
+  // ({ sessionid }). A human-supervised run can opt back in via env flag.
+  if (hasFormCreds && !hasCookies && process.env.PALMYR_ALLOW_TIKTOK_FORM_LOGIN !== "1") {
+    return {
+      success: false,
+      error:
+        "TikTok form-login is disabled (unreliable — it frequently spins and can lock the account). " +
+        "Connect via QR (`palmyr tiktok connect <user>`) or provide a fresh { sessionid }. " +
+        "Set PALMYR_ALLOW_TIKTOK_FORM_LOGIN=1 to override in a supervised run.",
+      error_code: "FORM_LOGIN_DISABLED",
     };
   }
 
@@ -180,8 +197,7 @@ export async function loginTikTok(
 
   let browser: Browser;
   try {
-    const chromium = await getStealthChromium();
-    browser = await chromium.launch({ headless: true, proxy });
+    browser = await launchStealthBrowser({ headless: true, proxy });
   } catch (e: any) {
     return {
       success: false,
