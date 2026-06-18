@@ -104,7 +104,11 @@ export interface RegisterAccountResult {
  */
 export async function registerAccount(req: RegisterAccountRequest): Promise<RegisterAccountResult> {
   if (req.platform !== "twitter") {
-    return { success: false, error: "Only twitter is supported right now" };
+    return {
+      success: false,
+      error:
+        "Server-side account registration is twitter-only right now. TikTok runs from the local CLI session — connect it with `palmyr tiktok connect <user>` (QR) and post via `palmyr tiktok post`/`draft`.",
+    };
   }
   if (!req.wallet) {
     return { success: false, error: "wallet is required" };

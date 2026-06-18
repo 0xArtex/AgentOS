@@ -121,7 +121,7 @@ export interface PoolAddResult {
 
 export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
   if (req.platform !== "twitter") {
-    return { success: false, error: "Only twitter is supported right now" };
+    return { success: false, error: "The shared account pool is twitter-only right now; TikTok accounts are managed via the local CLI (`palmyr tiktok connect`/`list`)." };
   }
   if (!req.username || !req.credentials?.password) {
     return { success: false, error: "username and credentials.password are required" };
@@ -321,7 +321,7 @@ export interface PoolBuyResult {
 
 export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
   if (req.platform !== "twitter") {
-    return { success: false, error: "Only twitter is supported right now" };
+    return { success: false, error: "The shared account pool is twitter-only right now; TikTok accounts are managed via the local CLI (`palmyr tiktok connect`/`list`)." };
   }
   if (!req.buyer_wallet) {
     return { success: false, error: "buyer_wallet is required" };

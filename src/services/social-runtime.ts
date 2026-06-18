@@ -25,6 +25,64 @@ export async function getStealthChromium(): Promise<any> {
 }
 
 /**
+ * Global cap on concurrent headless browsers. Every social op (login, post,
+ * follow, …) launches its own Chromium; without a ceiling a fleet of agents
+ * posting at once spawns N browsers + N video uploads and exhausts the box
+ * (RAM/CPU/proxy bandwidth) long before any platform ban. Honors
+ * SOCIAL_BROWSER_MAX_CONCURRENCY (default 3).
+ */
+function maxConcurrentBrowsers(): number {
+  const n = parseInt(process.env.SOCIAL_BROWSER_MAX_CONCURRENCY || "3", 10);
+  return Number.isFinite(n) && n > 0 ? n : 3;
+}
+
+let browsersInUse = 0;
+const browserWaiters: Array<() => void> = [];
+
+function acquireBrowserSlot(): Promise<void> {
+  if (browsersInUse < maxConcurrentBrowsers()) {
+    browsersInUse++;
+    return Promise.resolve();
+  }
+  // At capacity — queue until a slot frees. releaseBrowserSlot() hands the
+  // permit straight to us, so browsersInUse stays unchanged on wake.
+  return new Promise<void>((resolve) => browserWaiters.push(resolve));
+}
+
+function releaseBrowserSlot(): void {
+  const next = browserWaiters.shift();
+  if (next) { next(); return; }   // hand the permit directly to the next waiter
+  browsersInUse = Math.max(0, browsersInUse - 1);
+}
+
+/**
+ * Launch a stealth Chromium under the global concurrency cap. The returned
+ * browser's `close()` releases the slot exactly once, so callers that already
+ * close in a `finally` get correct accounting for free.
+ */
+export async function launchStealthBrowser(launchOpts: any): Promise<any> {
+  const chromium = await getStealthChromium();
+  await acquireBrowserSlot();
+  let browser: any;
+  try {
+    browser = await chromium.launch(launchOpts);
+  } catch (e) {
+    releaseBrowserSlot();
+    throw e;
+  }
+  let released = false;
+  const origClose = browser.close.bind(browser);
+  browser.close = async (...args: any[]) => {
+    try {
+      return await origClose(...args);
+    } finally {
+      if (!released) { released = true; releaseBrowserSlot(); }
+    }
+  };
+  return browser;
+}
+
+/**
  * Build an IPRoyal proxy config pinned to a stable session ID. The session
  * ID should be the account's **portable** identity — for pool accounts this
  * is set at pool-add time and preserved across ownership handoff so the
@@ -178,7 +236,6 @@ export interface OpenedSession {
 export async function openAuthenticatedSession(
   opts: OpenSessionOptions
 ): Promise<OpenedSession> {
-  const chromium = await getStealthChromium();
   const sessionKey = opts.proxySessionId || opts.accountId;
   // Proxy is required in prod (the server runs on a VPS whose IP differs from
   // where the session was minted). Self-hosted on the operator's own machine,
@@ -192,7 +249,7 @@ export async function openAuthenticatedSession(
     else throw e;
   }
 
-  const browser = await chromium.launch({
+  const browser = await launchStealthBrowser({
     headless: true,
     proxy,
     args: [
@@ -222,29 +279,37 @@ export async function openAuthenticatedSession(
   for (let i = 0; i < viewportKey.length; i++) vpHash = ((vpHash << 5) - vpHash + viewportKey.charCodeAt(i)) | 0;
   const viewport = viewports[Math.abs(vpHash) % viewports.length];
 
-  const ctx = await browser.newContext({
-    userAgent: opts.userAgent || uaForKey(sessionKey),
-    viewport,
-    locale: opts.locale || profile.locale,
-    timezoneId: opts.timezoneId || profile.timezoneId,
-    extraHTTPHeaders: {
-      "accept-language": (opts.locale || profile.locale) + "," + (opts.locale || profile.locale).split("-")[0] + ";q=0.9",
-    },
-  });
-
-  if (opts.cookies && opts.cookies.length > 0) {
-    // Cookies may ship with an `expires` field that Playwright rejects; coerce.
-    const cookies = opts.cookies.map((c: any) => {
-      const { expires, expirationDate, ...rest } = c;
-      const out: any = { ...rest };
-      if (typeof expirationDate === "number") out.expires = expirationDate;
-      else if (typeof expires === "number" && expires > 0) out.expires = expires;
-      return out;
+  let ctx, page;
+  try {
+    ctx = await browser.newContext({
+      userAgent: opts.userAgent || uaForKey(sessionKey),
+      viewport,
+      locale: opts.locale || profile.locale,
+      timezoneId: opts.timezoneId || profile.timezoneId,
+      extraHTTPHeaders: {
+        "accept-language": (opts.locale || profile.locale) + "," + (opts.locale || profile.locale).split("-")[0] + ";q=0.9",
+      },
     });
-    await ctx.addCookies(cookies);
-  }
 
-  const page = await ctx.newPage();
+    if (opts.cookies && opts.cookies.length > 0) {
+      // Cookies may ship with an `expires` field that Playwright rejects; coerce.
+      const cookies = opts.cookies.map((c: any) => {
+        const { expires, expirationDate, ...rest } = c;
+        const out: any = { ...rest };
+        if (typeof expirationDate === "number") out.expires = expirationDate;
+        else if (typeof expires === "number" && expires > 0) out.expires = expires;
+        return out;
+      });
+      await ctx.addCookies(cookies);
+    }
+
+    page = await ctx.newPage();
+  } catch (e) {
+    // Setup failed after launch — close the browser so its concurrency slot is
+    // released (launchStealthBrowser ties slot release to close()).
+    await browser.close().catch(() => {});
+    throw e;
+  }
 
   return {
     browser,

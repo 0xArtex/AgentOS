@@ -99,7 +99,7 @@ function validatePostAt(postAt: string): string | null {
 }
 
 export function createScheduled(req: CreateScheduledRequest): CreateScheduledResult {
-  if (req.platform !== "twitter") return { success: false, error: "Only twitter is supported right now" };
+  if (req.platform !== "twitter") return { success: false, error: "Server-side scheduling is twitter-only right now — TikTok posts are one-shot via `palmyr tiktok post`/`draft` (TikTok scheduling is on the roadmap)." };
 
   const payloadErr = validatePayload(req.action, req.payload);
   if (payloadErr) return { success: false, error: payloadErr };
