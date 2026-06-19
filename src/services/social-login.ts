@@ -45,6 +45,53 @@ function totpCode(seed: string, at: number = Date.now()): string {
   return String(value % 1_000_000).padStart(6, "0");
 }
 
+// ─── DOM helpers for X's "jetfuel" onboarding login flow ───
+// evaluate() bodies are passed as strings on purpose: tsconfig has no DOM lib,
+// so referencing `document` from a real closure wouldn't type-check (same
+// convention the snapshot() helper below already uses).
+
+/**
+ * X renders its login form twice — a full-page copy behind a translucent
+ * data-testid="mask" overlay PLUS the live modal in #layers on top — and plants
+ * an aria-hidden decoy <input name="password"> as autofill bait. So neither
+ * `.first()` nor `:visible` reliably picks the element a human can actually type
+ * into (opacity:0 still counts as "visible" to Playwright). Tag the instance
+ * that is genuinely topmost at its own centre point and return a locator for it.
+ */
+async function tagInteractable(page: any, selector: string, tag: string): Promise<any | null> {
+  const sel = JSON.stringify(selector);
+  const tg = JSON.stringify(tag);
+  const js = `(() => {
+    const els = Array.from(document.querySelectorAll(${sel}));
+    const onTop = els.find((el) => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return false;
+      const t = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return t === el || el.contains(t);
+    });
+    const pick = onTop || els.find((el) => { const r = el.getBoundingClientRect(); return !!(r.width && r.height); });
+    if (!pick) return false;
+    pick.setAttribute("data-pmlogin", ${tg});
+    return true;
+  })()`;
+  const ok = await page.evaluate(js).catch(() => false);
+  return ok ? page.locator(`[data-pmlogin="${tag}"]`) : null;
+}
+
+/**
+ * Detect X's soft anti-automation interstitials ("We've temporarily limited
+ * your login", unusual-activity, rate-limit) from visible page text, so they're
+ * surfaced as RATE_LIMITED instead of a mystery "unknown flow".
+ */
+async function detectThrottle(page: any): Promise<string> {
+  const js = `(() => {
+    const t = (document.body && document.body.innerText) || "";
+    return /temporarily limited|unusual login|unusual activity|try again later|rate.?limit|too many/i.test(t)
+      ? t.replace(/\\s+/g, " ").trim().slice(0, 160) : "";
+  })()`;
+  return await page.evaluate(js).catch(() => "");
+}
+
 // ─── Public API ───
 export interface TwitterLoginRequest {
   account_id: string;       // used to derive a unique sticky proxy session
@@ -72,6 +119,7 @@ export interface TwitterLoginResult {
     | "TOTP_REQUIRED"
     | "BAD_CREDENTIALS"
     | "LOGIN_TIMEOUT"
+    | "RATE_LIMITED"
     | "LOGIN_FAILED";
   diagnostics?: {
     url?: string;
@@ -222,20 +270,39 @@ export async function loginTwitter(
     };
 
     // ── Step 1: username/email ──
-    // X often renders more than one `input[name="text"]` in the DOM (hidden
-    // + visible), and the visible one is inside a dialog. Use locator-first
-    // APIs that scope to visible elements and explicitly click to focus.
-    const loginInput = page.locator(
-      'input[autocomplete="username"]:visible, input[name="text"]:visible'
-    ).first();
+    // X migrated /i/flow/login to its new "jetfuel" onboarding modal (it lands
+    // on /i/jf/onboarding/web?mode=login). The field there is
+    // input[name="username_or_email"] (autocomplete="username webauthn") — which
+    // neither the legacy input[name="text"] nor the *exact* [autocomplete=
+    // "username"] match, which is what produced the old "anti-bot page" timeout.
+    // The form is also rendered twice (a full-page copy behind a translucent
+    // data-testid="mask" + the live modal in #layers), so we tag the topmost
+    // interactable instance rather than guessing .first()/.last(). Legacy
+    // selectors are kept so an old-flow rollout still logs in.
+    const USERNAME_SELECTOR =
+      'input[name="username_or_email"], input[autocomplete~="username"], input[name="text"]';
 
     try {
-      await loginInput.waitFor({ state: "visible", timeout: 20000 });
+      await page.locator(USERNAME_SELECTOR).first().waitFor({ state: "visible", timeout: 20000 });
     } catch {
+      const throttle = await detectThrottle(page);
       const diag = await snapshot("no-login-input");
       return {
         success: false,
-        error: `Login input never rendered. X may have served an anti-bot page. URL: ${diag.url || "unknown"}`,
+        error: throttle
+          ? `X throttled the login before the form rendered: "${throttle}"`
+          : `Login input never rendered (URL: ${diag.url || "unknown"}).`,
+        error_code: throttle ? "RATE_LIMITED" : "UNEXPECTED_FLOW",
+        diagnostics: diag,
+      };
+    }
+
+    const loginInput = await tagInteractable(page, USERNAME_SELECTOR, "user");
+    if (!loginInput) {
+      const diag = await snapshot("no-login-input");
+      return {
+        success: false,
+        error: `Login input matched but no interactable instance was found. URL: ${diag.url || "unknown"}`,
         error_code: "UNEXPECTED_FLOW",
         diagnostics: diag,
       };
@@ -268,17 +335,21 @@ export async function loginTwitter(
     // was correctly filled.
     await snapshot("before-next-click");
 
-    // Click the Next button. It starts disabled and enables once the input
-    // has a valid value — wait for the enabled state before clicking.
+    // Submit. New flow: the only type="submit" inside #layers is the "Continue"
+    // button (the SSO buttons are type="button"), so that selector targets it
+    // without matching "Continue with phone/Google/Apple". Legacy: the testid /
+    // "Next" button ("Next" is not a substring of any other button, so has-text
+    // is safe). Enter submits the single-field form as a last resort.
     const nextButton = page
       .locator(
+        '#layers button[type="submit"]:visible, ' +
         'button[data-testid="LoginForm_Login_Button"]:visible, ' +
         'button:has-text("Next"):visible, ' +
         'div[role="button"]:has-text("Next"):visible'
       )
-      .first();
+      .last();
     try {
-      await nextButton.waitFor({ state: "visible", timeout: 5000 });
+      await nextButton.waitFor({ state: "visible", timeout: 6000 });
       await nextButton.click({ timeout: 5000 });
     } catch {
       // Fall back to keyboard Enter
@@ -287,9 +358,12 @@ export async function loginTwitter(
     }
 
     // ── Step 2: X may ask for an alt identifier, password, or 2FA first ──
+    // Exclude the aria-hidden decoy <input name="password"> the jf flow plants on
+    // the username screen, and accept the new #jf-input-password id alongside the
+    // legacy name.
     const nextStep = await Promise.race([
       page
-        .waitForSelector('input[name="password"]', { timeout: 15000 })
+        .waitForSelector('input[name="password"]:not([aria-hidden="true"]), #jf-input-password', { timeout: 15000 })
         .then(() => "password"),
       page
         .waitForSelector('input[data-testid="ocfEnterTextTextInput"]', {
@@ -297,7 +371,7 @@ export async function loginTwitter(
         })
         .then(() => "identifier_challenge"),
       page
-        .waitForSelector('input[inputmode="numeric"]', { timeout: 15000 })
+        .waitForSelector('input[inputmode="numeric"]:not([aria-hidden="true"])', { timeout: 15000 })
         .then(() => "totp_early"),
     ]).catch(() => "unknown");
 
@@ -313,25 +387,40 @@ export async function loginTwitter(
     }
 
     if (nextStep === "unknown") {
+      const throttle = await detectThrottle(page);
       const diag = await snapshot("unknown-after-username");
       return {
         success: false,
-        error: `X did not render a recognised next step after username. URL: ${diag.url || "?"} | Title: ${diag.title || "?"}`,
-        error_code: "UNEXPECTED_FLOW",
+        error: throttle
+          ? `X throttled the login after username: "${throttle}"`
+          : `X did not render a recognised next step after username. URL: ${diag.url || "?"} | Title: ${diag.title || "?"}`,
+        error_code: throttle ? "RATE_LIMITED" : "UNEXPECTED_FLOW",
         diagnostics: diag,
       };
     }
 
     // ── Step 3: password (if we didn't already hit 2FA) ──
     if (nextStep === "password") {
-      const pwInput = page.locator('input[name="password"]:visible').first();
+      // Same decoy/dual-render hazard as the username field — pick the real,
+      // topmost password input, never the aria-hidden autofill bait.
+      const PW_SELECTOR = 'input[name="password"]:not([aria-hidden="true"]), #jf-input-password';
+      await page.locator(PW_SELECTOR).first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
+      const pwInput =
+        (await tagInteractable(page, PW_SELECTOR, "pw")) ||
+        page.locator(PW_SELECTOR).first();
       await pwInput.click();
       await pwInput.fill("");
       await pwInput.type(req.password, { delay: 40 });
       await page.waitForTimeout(500);
+      // New flow: #layers type="submit". Legacy: a "Log in" button ("Log in" is
+      // not a substring of the SSO buttons, so has-text is safe).
       const loginButton = page
-        .locator('button:has-text("Log in"):visible, div[role="button"]:has-text("Log in"):visible')
-        .first();
+        .locator(
+          '#layers button[type="submit"]:visible, ' +
+          'button:has-text("Log in"):visible, ' +
+          'div[role="button"]:has-text("Log in"):visible'
+        )
+        .last();
       try {
         await loginButton.click({ timeout: 5000 });
       } catch {
@@ -379,11 +468,14 @@ export async function loginTwitter(
       };
     }
     if (afterPassword === "unknown") {
+      const throttle = await detectThrottle(page);
       const diag = await snapshot("unknown-after-password");
       return {
         success: false,
-        error: `Unknown state after password. URL: ${diag.url || "?"} | Title: ${diag.title || "?"}`,
-        error_code: "UNEXPECTED_FLOW",
+        error: throttle
+          ? `X throttled the login after password: "${throttle}"`
+          : `Unknown state after password. URL: ${diag.url || "?"} | Title: ${diag.title || "?"}`,
+        error_code: throttle ? "RATE_LIMITED" : "UNEXPECTED_FLOW",
         diagnostics: diag,
       };
     }
@@ -397,7 +489,14 @@ export async function loginTwitter(
         };
       }
       const code = totpCode(req.totp_seed);
-      await page.fill('input[inputmode="numeric"]', code);
+      // 2FA field can be dual-rendered too — target the real, topmost numeric
+      // input rather than page.fill() (which throws on multiple matches).
+      const otpInput =
+        (await tagInteractable(page, 'input[inputmode="numeric"]:not([aria-hidden="true"])', "otp")) ||
+        page.locator('input[inputmode="numeric"]:not([aria-hidden="true"])').first();
+      await otpInput.click().catch(() => {});
+      await otpInput.fill("");
+      await otpInput.type(code, { delay: 60 });
       await page.waitForTimeout(400);
       await page.keyboard.press("Enter");
       await page.waitForURL(/(x|twitter)\.com\/home/, { timeout: 25000 });
