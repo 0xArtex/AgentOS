@@ -72,7 +72,6 @@ import {
 import { loginTikTok } from "../services/tiktok-login";
 import { putQr } from "../services/qr-handoff";
 import {
-  postVideo as tiktokPostVideo,
   followUser as tiktokFollow,
   likeVideo as tiktokLike,
   deleteVideo as tiktokDelete,
@@ -80,6 +79,7 @@ import {
   updateAvatar as tiktokUpdateAvatar,
   analyzePosts as tiktokAnalyzePosts,
 } from "../services/tiktok-operations";
+import { createPostJob, getPostJob } from "../services/tiktok-post-jobs";
 
 const router = Router();
 
@@ -1677,10 +1677,16 @@ router.post(
 
 // Post is priced higher than other ops because the video upload takes longer
 // (and uses more proxy bandwidth). Follow / like / profile stay at $0.001.
+//
+// ASYNC: the browser upload+publish flow takes 2-5 min — longer than
+// Cloudflare's tunnel timeout — so this returns a 202 + operation envelope
+// immediately (mirrors POST /domains/register) and a background worker does the
+// publish, writes the result back, and auto-refunds on definitive failure. Poll
+// GET /social/tiktok/operations/:id until status is terminal (posted | failed).
 router.post(
   "/tiktok/post",
   requireTikTokEnabled,
-  requireAuth(0.01, "general", { description: "Post a video to a TikTok account you control (from video_base64 or video_url).", category: "social", tags: ["tiktok","post","video"] }),
+  requireAuth(0.01, "general", { description: "Post a video to a TikTok account you control (from video_base64 or video_url). Async: returns an operation to poll.", category: "social", tags: ["tiktok","post","video"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
@@ -1688,13 +1694,79 @@ router.post(
     if (!caption) { res.status(400).json({ error: "caption is required" }); return; }
     if (!video_base64 && !video_url) { res.status(400).json({ error: "video_base64 or video_url is required" }); return; }
     try {
-      const result = await tiktokPostVideo({
-        ...common, caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch, schedule_at,
+      // x402 settled before this handler ran — req.payment is the source of
+      // truth for who paid / how to refund if the background post fails.
+      const owner = req.payment?.payer || req.agentId || "unknown";
+      const job = createPostJob(
+        {
+          account_id: common.account_id,
+          owner,
+          caption,
+          privacy: privacy ?? null,
+          schedule_at: schedule_at ?? null,
+          paymentSignature: req.payment?.signature ?? null,
+          paymentChain: (req.payment?.chain as "solana" | "base") ?? null,
+          chargedUsdc: req.payment ? Number(req.payment.amountLamports) / 1_000_000 : null,
+        },
+        { ...common, caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch, schedule_at }
+      );
+      res.status(202).json({
+        operation_id: job.id,
+        status: job.status,
+        poll_url: `/social/tiktok/operations/${job.id}`,
+        poll_after_seconds: 20,
+        message:
+          "TikTok post started. Browser automation typically lands in ~2-5 minutes. " +
+          `Poll GET /social/tiktok/operations/${job.id} until status is 'posted' (carries video_url) or 'failed' (auto-refunded). ` +
+          "Do not resubmit — payment is already captured for this operation.",
       });
-      res.status(result.success ? 200 : 400).json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "TikTok post failed" });
     }
+  }
+);
+
+/**
+ * GET /social/tiktok/operations/:id
+ * Poll an async TikTok post you started. Owner-only — the x402 signature proves
+ * who's asking; a non-owner or unknown id gets 404 so operations can't be
+ * enumerated across wallets. status: pending → publishing → posted | failed. On
+ * 'failed', `refund_status` reflects the auto-refund.
+ */
+router.get(
+  "/tiktok/operations/:id",
+  requireAuth(0.01, "general", {
+    description: "Poll the status of a TikTok post you started (owner-only).",
+    category: "social",
+    tags: ["tiktok", "post", "status", "poll"],
+  }),
+  (req: AuthenticatedRequest, res: Response) => {
+    const caller = req.payment?.payer || req.agentId;
+    if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
+    const job = getPostJob(String(req.params.id || ""));
+    if (!job || job.owner !== caller) {
+      // 404 not 403 — don't reveal another wallet's operation exists.
+      res.status(404).json({ error: "Operation not found" });
+      return;
+    }
+    res.json({
+      operation_id: job.id,
+      status: job.status,
+      done: job.status === "posted" || job.status === "failed",
+      account_id: job.account_id,
+      caption: job.caption,
+      poll_url: `/social/tiktok/operations/${job.id}`,
+      video_url: job.video_url,
+      video_id: job.video_id,
+      scheduled_at: job.schedule_at,
+      cost: job.charged_usdc,
+      error: job.error,
+      error_code: job.error_code,
+      refund_status: job.refund_status,
+      created_at: job.created_at,
+      started_at: job.started_at,
+      completed_at: job.completed_at,
+    });
   }
 );
 

@@ -517,6 +517,47 @@ async function findPostedVideo(page: any, caption: string): Promise<{ video_id?:
   return { video_url: full, video_id: idm ? idm[1] : undefined };
 }
 
+/**
+ * Reconciliation oracle for the async post worker: "did a video with this
+ * caption actually publish?" Opens a fresh authenticated session and scrapes
+ * the Studio content manager via findPostedVideo. Used when a post attempt is
+ * AMBIGUOUS (submit was clicked but no confirmation observed, or the op threw
+ * mid-flight) so we never blind-refund a post that actually landed, nor leave a
+ * payer charged for one that didn't — the TikTok analogue of the registrar
+ * getInfo oracle in domain-registration. Best-effort: `determined:false` means
+ * we couldn't open a session / scrape (treat as unresolved, never as proof).
+ */
+export async function checkPostedByCaption(
+  req: TikTokOpRequest & { caption: string }
+): Promise<TikTokOpResult<{ determined: boolean; posted: boolean; video_url?: string; video_id?: string }>> {
+  let session;
+  try {
+    session = await openAuthenticatedSession({
+      accountId: req.account_id,
+      proxySessionId: req.proxy_session_id,
+      cookies: req.cookies,
+      country: req.country,
+    });
+  } catch (e: any) {
+    // Can't open a session — outcome stays unresolved (not "not posted").
+    return { success: true, data: { determined: false, posted: false } };
+  }
+  const { page, close } = session;
+  try {
+    await page.goto("https://www.tiktok.com/tiktokstudio/content", {
+      waitUntil: "domcontentloaded",
+      timeout: 30000,
+    }).catch(() => {});
+    const found = await findPostedVideo(page, req.caption);
+    const posted = !!found.video_url;
+    return { success: true, data: { determined: true, posted, ...found } };
+  } catch {
+    return { success: true, data: { determined: false, posted: false } };
+  } finally {
+    await close().catch(() => {});
+  }
+}
+
 export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<{ video_url?: string; video_id?: string; scheduled_at?: string }>> {
   const blocked = gate(req.account_id, "post");
   if (blocked) return blocked;

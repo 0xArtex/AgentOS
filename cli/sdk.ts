@@ -1087,6 +1087,14 @@ export class Palmyr {
     })
   }
 
+  /** Poll an async TikTok post operation (returned by socialTiktokPost as
+   *  { operation_id, poll_url, status }). Owner-scoped by the x402 signature;
+   *  404s for another wallet's operation. status: pending → publishing →
+   *  posted | failed. */
+  async socialTiktokPostOperation(operationId: string): Promise<any> {
+    return this.request('GET', `/social/tiktok/operations/${operationId}`)
+  }
+
   /** Host an ephemeral login QR (data-URL) → returns a short token. Build the
    *  human-facing link as `${this.api}/connect/${token}`. Free, unauthenticated. */
   /** Create a hand-off session (no args → returns a token/link immediately),
