@@ -80,6 +80,7 @@ import {
   analyzePosts as tiktokAnalyzePosts,
 } from "../services/tiktok-operations";
 import { createPostJob, getPostJob } from "../services/tiktok-post-jobs";
+import { createOpJob, getOpJob } from "../services/tiktok-ops-jobs";
 
 const router = Router();
 
@@ -1743,30 +1744,59 @@ router.get(
   (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
-    const job = getPostJob(String(req.params.id || ""));
-    if (!job || job.owner !== caller) {
-      // 404 not 403 — don't reveal another wallet's operation exists.
-      res.status(404).json({ error: "Operation not found" });
+    const id = String(req.params.id || "");
+    const poll_url = `/social/tiktok/operations/${id}`;
+
+    // Posts (tiktok_post_jobs) and simple ops (tiktok_op_jobs) share this one
+    // poll endpoint. Both responses carry a `done` boolean so a client can poll
+    // uniformly; `status` is 'posted'/'done' on success vs 'failed'.
+    const post = getPostJob(id);
+    if (post && post.owner === caller) {
+      res.json({
+        operation_id: post.id,
+        op: "post",
+        status: post.status,
+        done: post.status === "posted" || post.status === "failed",
+        account_id: post.account_id,
+        caption: post.caption,
+        poll_url,
+        video_url: post.video_url,
+        video_id: post.video_id,
+        scheduled_at: post.schedule_at,
+        cost: post.charged_usdc,
+        error: post.error,
+        error_code: post.error_code,
+        refund_status: post.refund_status,
+        created_at: post.created_at,
+        started_at: post.started_at,
+        completed_at: post.completed_at,
+      });
       return;
     }
-    res.json({
-      operation_id: job.id,
-      status: job.status,
-      done: job.status === "posted" || job.status === "failed",
-      account_id: job.account_id,
-      caption: job.caption,
-      poll_url: `/social/tiktok/operations/${job.id}`,
-      video_url: job.video_url,
-      video_id: job.video_id,
-      scheduled_at: job.schedule_at,
-      cost: job.charged_usdc,
-      error: job.error,
-      error_code: job.error_code,
-      refund_status: job.refund_status,
-      created_at: job.created_at,
-      started_at: job.started_at,
-      completed_at: job.completed_at,
-    });
+
+    const op = getOpJob(id);
+    if (op && op.owner === caller) {
+      res.json({
+        operation_id: op.id,
+        op: op.op,
+        status: op.status,
+        done: op.status === "done" || op.status === "failed",
+        account_id: op.account_id,
+        poll_url,
+        result: op.result_json ? JSON.parse(op.result_json) : null,
+        cost: op.charged_usdc,
+        error: op.error,
+        error_code: op.error_code,
+        refund_status: op.refund_status,
+        created_at: op.created_at,
+        started_at: op.started_at,
+        completed_at: op.completed_at,
+      });
+      return;
+    }
+
+    // 404 not 403 — don't reveal another wallet's operation exists.
+    res.status(404).json({ error: "Operation not found" });
   }
 );
 
@@ -1789,18 +1819,45 @@ router.post(
   }
 );
 
+// follow / like / delete / profile / avatar are ASYNC for the same reason as
+// post: each drives a headless browser that can brush Cloudflare's ~100s tunnel
+// timeout (a delete measured ~60s in prod). Each returns a 202 operation
+// envelope and runs in the background, auto-refunding on failure. They share the
+// poll endpoint (GET /social/tiktok/operations/:id) and the simple-op runner
+// (no reconcile — these ops are safe to retry). Helper keeps the 5 handlers DRY.
+function paymentCtx(req: AuthenticatedRequest) {
+  return {
+    owner: req.payment?.payer || req.agentId || "unknown",
+    paymentSignature: req.payment?.signature ?? null,
+    paymentChain: (req.payment?.chain as "solana" | "base") ?? null,
+    chargedUsdc: req.payment ? Number(req.payment.amountLamports) / 1_000_000 : null,
+  };
+}
+function respondOpAccepted(res: Response, job: { id: string; status: string }, opLabel: string) {
+  res.status(202).json({
+    operation_id: job.id,
+    status: job.status,
+    poll_url: `/social/tiktok/operations/${job.id}`,
+    poll_after_seconds: 10,
+    message:
+      `TikTok ${opLabel} started. Browser automation can take up to ~1-2 minutes. ` +
+      `Poll GET /social/tiktok/operations/${job.id} until status is 'done' or 'failed' (auto-refunded). ` +
+      "Do not resubmit — payment is already captured for this operation.",
+  });
+}
+
 router.post(
   "/tiktok/follow",
   requireTikTokEnabled,
-  requireAuth(0.001, "general", { description: "Follow a TikTok user from an account you control.", category: "social", tags: ["tiktok","follow"] }),
+  requireAuth(0.001, "general", { description: "Follow a TikTok user from an account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","follow"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
     const { target_user } = req.body as { target_user?: string };
     if (!target_user) { res.status(400).json({ error: "target_user required" }); return; }
     try {
-      const result = await tiktokFollow({ ...common, target_user });
-      res.status(result.success ? 200 : 400).json(result);
+      const job = createOpJob({ op: "follow", account_id: common.account_id, ...paymentCtx(req) }, () => tiktokFollow({ ...common, target_user }));
+      respondOpAccepted(res, job, "follow");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "TikTok follow failed" });
     }
@@ -1810,15 +1867,15 @@ router.post(
 router.post(
   "/tiktok/like",
   requireTikTokEnabled,
-  requireAuth(0.001, "general", { description: "Like a TikTok video from an account you control.", category: "social", tags: ["tiktok","like"] }),
+  requireAuth(0.001, "general", { description: "Like a TikTok video from an account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","like"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
     const { video_url } = req.body as { video_url?: string };
     if (!video_url) { res.status(400).json({ error: "video_url required" }); return; }
     try {
-      const result = await tiktokLike({ ...common, video_url });
-      res.status(result.success ? 200 : 400).json(result);
+      const job = createOpJob({ op: "like", account_id: common.account_id, ...paymentCtx(req) }, () => tiktokLike({ ...common, video_url }));
+      respondOpAccepted(res, job, "like");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "TikTok like failed" });
     }
@@ -1828,15 +1885,15 @@ router.post(
 router.post(
   "/tiktok/delete",
   requireTikTokEnabled,
-  requireAuth(0.001, "general", { description: "Delete a video from a TikTok account you control.", category: "social", tags: ["tiktok","delete"] }),
+  requireAuth(0.001, "general", { description: "Delete a video from a TikTok account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","delete"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
     const { video_url } = req.body as { video_url?: string };
     if (!video_url) { res.status(400).json({ error: "video_url required" }); return; }
     try {
-      const result = await tiktokDelete({ ...common, video_url });
-      res.status(result.success ? 200 : 400).json(result);
+      const job = createOpJob({ op: "delete", account_id: common.account_id, ...paymentCtx(req) }, () => tiktokDelete({ ...common, video_url }));
+      respondOpAccepted(res, job, "delete");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "TikTok delete failed" });
     }
@@ -1846,14 +1903,14 @@ router.post(
 router.post(
   "/tiktok/profile",
   requireTikTokEnabled,
-  requireAuth(0.001, "general", { description: "Update the bio/display name of a TikTok account you control.", category: "social", tags: ["tiktok","profile"] }),
+  requireAuth(0.001, "general", { description: "Update the bio/display name of a TikTok account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","profile"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
     const { bio, display_name } = req.body as { bio?: string; display_name?: string };
     try {
-      const result = await tiktokUpdateProfile({ ...common, bio, display_name });
-      res.status(result.success ? 200 : 400).json(result);
+      const job = createOpJob({ op: "profile", account_id: common.account_id, ...paymentCtx(req) }, () => tiktokUpdateProfile({ ...common, bio, display_name }));
+      respondOpAccepted(res, job, "profile update");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "TikTok profile update failed" });
     }
@@ -1863,15 +1920,15 @@ router.post(
 router.post(
   "/tiktok/avatar",
   requireTikTokEnabled,
-  requireAuth(0.005, "general", { description: "Update the avatar of a TikTok account you control.", category: "social", tags: ["tiktok","avatar"] }),
+  requireAuth(0.005, "general", { description: "Update the avatar of a TikTok account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","avatar"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateTikTokOpBody(req, res);
     if (!common) return;
     const { image_base64, image_url } = req.body as { image_base64?: string; image_url?: string };
     if (!image_base64 && !image_url) { res.status(400).json({ error: "image_base64 or image_url required" }); return; }
     try {
-      const result = await tiktokUpdateAvatar({ ...common, image_base64, image_url });
-      res.status(result.success ? 200 : 400).json(result);
+      const job = createOpJob({ op: "avatar", account_id: common.account_id, ...paymentCtx(req) }, () => tiktokUpdateAvatar({ ...common, image_base64, image_url }));
+      respondOpAccepted(res, job, "avatar update");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "TikTok avatar update failed" });
     }

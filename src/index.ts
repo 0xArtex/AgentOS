@@ -775,6 +775,7 @@ app.use(errorHandler);
 import { startDepositMonitor } from "./services/deposit-monitor";
 import { startDomainRegistrationRecovery } from "./services/domain-registration";
 import { startTikTokPostRecovery } from "./services/tiktok-post-jobs";
+import { startTikTokOpsRecovery } from "./services/tiktok-ops-jobs";
 import { seedPalmyrPrimitives } from "./services/i402-providers";
 import { ensureProviderEmbeddings, embeddingsAvailable } from "./services/i402-embeddings";
 import { refreshFederatedCatalogs } from "./services/i402-agentic-market";
@@ -817,6 +818,9 @@ app.listen(config.port, () => {
   // Reconcile async TikTok posts left in-flight by a previous process — pending
   // jobs (never published) refund; mid-publish jobs flag for manual review.
   startTikTokPostRecovery();
+  // Fail+refund any TikTok follow/like/delete/profile/avatar ops orphaned by a
+  // restart (safe to retry — no reconcile needed).
+  startTikTokOpsRecovery();
   if (embeddingsAvailable()) {
     // Non-blocking: compute any missing provider embeddings in the background.
     ensureProviderEmbeddings().catch(err =>
