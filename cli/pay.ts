@@ -803,7 +803,15 @@ export async function paidRequest(
       )
     }
 
-    if (paidData.error) {
+    // Only treat `error` as a payment/op failure when the HTTP response itself
+    // failed (non-2xx). Some endpoints legitimately return 200 with an `error`
+    // field as row data — e.g. polling an async operation that ended in a
+    // 'failed' state (GET /social/tiktok/operations/:id, GET /transfers/:id):
+    // the body carries { status:'failed', error:'<reason>' } at HTTP 200, and
+    // the caller wants that object to inspect/branch on, NOT an exception.
+    // Mirrors the same guard in sdk.ts request(). (Without this, a failed-op
+    // poll throws and the CLI poll loop never sees the terminal state.)
+    if (paidData.error && !paidRes.ok) {
       const detail = paidData.message && paidData.message !== paidData.error
         ? `${paidData.error}: ${paidData.message}`
         : paidData.error
