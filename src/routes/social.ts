@@ -1729,21 +1729,18 @@ router.post(
 
 /**
  * GET /social/tiktok/operations/:id
- * Poll an async TikTok post you started. Owner-only — the x402 signature proves
- * who's asking; a non-owner or unknown id gets 404 so operations can't be
- * enumerated across wallets. status: pending → publishing → posted | failed. On
- * 'failed', `refund_status` reflects the auto-refund.
+ * Poll an async TikTok operation (post / follow / like / delete / profile /
+ * avatar). FREE and unauthenticated: the operation_id is a 122-bit random v4
+ * UUID handed back ONLY to the creator in the 202, so it acts as an unguessable
+ * capability — and the response carries only non-sensitive status (the caller's
+ * own caption, the post's own soon-to-be-public URL, error + refund state). A
+ * paid+settled poll would dwarf the op's own price (an op polls 10-30x) and add
+ * an on-chain settlement round-trip to every status check, so polling is free.
+ * Unknown id → 404. status: pending → publishing/running → posted/done | failed.
  */
 router.get(
   "/tiktok/operations/:id",
-  requireAuth(0.01, "general", {
-    description: "Poll the status of a TikTok post you started (owner-only).",
-    category: "social",
-    tags: ["tiktok", "post", "status", "poll"],
-  }),
   (req: AuthenticatedRequest, res: Response) => {
-    const caller = req.payment?.payer || req.agentId;
-    if (!caller) { res.status(401).json({ error: "Unauthorized" }); return; }
     const id = String(req.params.id || "");
     const poll_url = `/social/tiktok/operations/${id}`;
 
@@ -1751,7 +1748,7 @@ router.get(
     // poll endpoint. Both responses carry a `done` boolean so a client can poll
     // uniformly; `status` is 'posted'/'done' on success vs 'failed'.
     const post = getPostJob(id);
-    if (post && post.owner === caller) {
+    if (post) {
       res.json({
         operation_id: post.id,
         op: "post",
@@ -1775,7 +1772,7 @@ router.get(
     }
 
     const op = getOpJob(id);
-    if (op && op.owner === caller) {
+    if (op) {
       res.json({
         operation_id: op.id,
         op: op.op,
@@ -1795,7 +1792,7 @@ router.get(
       return;
     }
 
-    // 404 not 403 — don't reveal another wallet's operation exists.
+    // Unknown id (or guessed UUID) → 404.
     res.status(404).json({ error: "Operation not found" });
   }
 );
