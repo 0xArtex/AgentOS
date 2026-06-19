@@ -1087,11 +1087,12 @@ export class Palmyr {
     })
   }
 
-  /** Poll an async TikTok post operation (returned by socialTiktokPost as
-   *  { operation_id, poll_url, status }). Owner-scoped by the x402 signature;
-   *  404s for another wallet's operation. status: pending → publishing →
-   *  posted | failed. */
-  async socialTiktokPostOperation(operationId: string): Promise<any> {
+  /** Poll an async TikTok operation (post / follow / like / delete / profile /
+   *  avatar — all return { operation_id, poll_url, status }). Owner-scoped by
+   *  the x402 signature; 404s for another wallet's operation. Terminal status is
+   *  'posted'/'done' on success or 'failed' (auto-refunded); `done` is true when
+   *  terminal. */
+  async socialTiktokOperation(operationId: string): Promise<any> {
     return this.request('GET', `/social/tiktok/operations/${operationId}`)
   }
 

@@ -7914,6 +7914,10 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             const country = sv.getCountry(platform, username)
 
             let data: any
+            // Set by the post/schedule branch so the shared async tail can write
+            // the post-log only once the operation confirms 'posted'.
+            let postCaption: string | undefined
+            let postScheduleAt: string | undefined
             try {
               if (subcommand === 'post' || subcommand === 'schedule') {
                 const caption = (flags.caption as string) || (flags.body as string) || (flags.text as string)
@@ -7947,73 +7951,12 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                   if (ms > 10 * 24 * 60 * 60 * 1000) err('--at must be within ~10 days (TikTok maximum)', EXIT.BAD_INPUT)
                   schedule_at = when.toISOString()
                 }
-                // Posting is ASYNC server-side: the browser upload+publish takes
-                // 2-5 min (longer than Cloudflare's tunnel timeout), so the POST
-                // returns a 202 { operation_id, poll_url } and we poll it to a
-                // terminal state (posted | failed). --no-wait returns the handle.
-                const initial = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy, schedule_at }, psid, country)
-                const opId = initial?.operation_id
-
-                // Back-compat: a legacy sync server still returns {success,data}.
-                if (!opId) {
-                  if (initial?.success) {
-                    sd.appendPostLog({ platform, account: username, caption, source: 'direct', status: schedule_at ? 'scheduled' : 'posted', url: initial?.data?.video_url, tag: acc.tag, result: initial?.data })
-                    sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
-                    return print({ success: true, platform, username, op: subcommand, ...(initial?.data || {}) })
-                  }
-                  err(`${subcommand} failed: ${initial?.error || 'unknown'}` + (initial?.error_code ? ` [${initial.error_code}]` : ''), EXIT.GENERAL)
-                }
-
-                const pollUrl = initial.poll_url || `/social/tiktok/operations/${opId}`
-                const pollAfter = Math.max(1, Number(initial.poll_after_seconds) || 20)
-                const ndjson = AGENT_MODE
-
-                if (flags.wait === false) {
-                  log(`tiktok ${subcommand} (async): ${username} op=${opId}`)
-                  return print({ operation_id: opId, status: initial.status || 'publishing', done: false, poll_url: pollUrl, message: initial.message })
-                }
-
-                // Poll loop. Posts take 2-5 min, so cap at ~6 min. Each GET costs
-                // 0.01 USDC; keep the cadence at poll_after_seconds (~20s).
-                const POLL_TIMEOUT_MS = 360_000
-                const intervalMs = pollAfter * 1000
-                const deadline = Date.now() + POLL_TIMEOUT_MS
-                const maxAttempts = Math.ceil(POLL_TIMEOUT_MS / intervalMs) + 1
-                const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-                if (!ndjson) process.stderr.write(`publishing to TikTok… (~2-5 min)\n`)
-                let final: any = null
-                let attempt = 0
-                while (attempt < maxAttempts && Date.now() < deadline) {
-                  await sleep(intervalMs)
-                  attempt++
-                  let op: any
-                  try {
-                    op = await ao.socialTiktokPostOperation(opId)
-                  } catch (e: any) {
-                    if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status: 'error', attempt, message: e?.message ?? String(e) }) + '\n')
-                    continue
-                  }
-                  const status = op?.status || 'publishing'
-                  if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status, attempt }) + '\n')
-                  if (op?.done === true || status === 'posted' || status === 'failed') { final = op; break }
-                }
-
-                if (!final) {
-                  log(`tiktok ${subcommand} (pending): ${username} op=${opId}`)
-                  return print({ operation_id: opId, status: 'publishing', done: false, poll_url: pollUrl, message: `Still publishing after ${Math.round(POLL_TIMEOUT_MS / 1000)}s. It continues server-side — re-check with GET ${pollUrl}.` })
-                }
-
-                if (final.status === 'failed') {
-                  log(`tiktok ${subcommand} (failed): ${username} op=${opId} refund=${final.refund_status || 'unknown'}`)
-                  print(final)
-                  process.stderr.write(JSON.stringify({ error: final.error || 'tiktok post failed', error_code: final.error_code, refund_status: final.refund_status, exitCode: EXIT.GENERAL }) + '\n')
-                  process.exit(EXIT.GENERAL)
-                }
-
-                // posted
-                sd.appendPostLog({ platform, account: username, caption, source: 'direct', status: schedule_at ? 'scheduled' : 'posted', url: final.video_url, tag: acc.tag, result: final })
-                sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
-                return print({ success: true, platform, username, op: subcommand, operation_id: opId, video_url: final.video_url, video_id: final.video_id, scheduled_at: final.scheduled_at })
+                // Posting is ASYNC server-side (202 + operation_id). Record the
+                // caption/schedule for the post-log the shared tail writes once
+                // the op confirms, then hand the envelope to the shared poller.
+                postCaption = caption
+                postScheduleAt = schedule_at
+                data = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy, schedule_at }, psid, country)
               } else if (subcommand === 'follow') {
                 const target = (flags.user as string) || (flags.target as string)
                 if (!target) err('--user <@handle> required')
@@ -8055,6 +7998,62 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               err(`${subcommand} failed: ${e.message}`, EXIT.GENERAL)
             }
 
+            // All TikTok browser ops are async server-side: the POST returns a
+            // 202 { operation_id, poll_url } and the work runs in the background.
+            // Poll to a terminal state (posted/done | failed); --no-wait returns
+            // the handle. A legacy sync server (no operation_id) falls through to
+            // the old {success,data} handling for back-compat.
+            const opId = data?.operation_id
+            if (opId) {
+              const pollUrl = data.poll_url || `/social/tiktok/operations/${opId}`
+              const pollAfter = Math.max(1, Number(data.poll_after_seconds) || 15)
+              const ndjson = AGENT_MODE
+              if (flags.wait === false) {
+                log(`tiktok ${subcommand} (async): ${username} op=${opId}`)
+                return print({ operation_id: opId, status: data.status || 'running', done: false, poll_url: pollUrl, message: data.message })
+              }
+              // Cap at ~6 min (posts run 2-5 min; simple ops ~1-2 min). Each poll
+              // GET costs a micro-payment, so keep the cadence at poll_after.
+              const POLL_TIMEOUT_MS = 360_000
+              const intervalMs = pollAfter * 1000
+              const deadline = Date.now() + POLL_TIMEOUT_MS
+              const maxAttempts = Math.ceil(POLL_TIMEOUT_MS / intervalMs) + 1
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+              if (!ndjson) process.stderr.write(`tiktok ${subcommand}: working… (up to a few min)\n`)
+              let final: any = null
+              let attempt = 0
+              while (attempt < maxAttempts && Date.now() < deadline) {
+                await sleep(intervalMs)
+                attempt++
+                let op: any
+                try {
+                  op = await ao.socialTiktokOperation(opId)
+                } catch (e: any) {
+                  if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status: 'error', attempt, message: e?.message ?? String(e) }) + '\n')
+                  continue
+                }
+                if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status: op?.status || 'running', attempt }) + '\n')
+                if (op?.done === true || op?.status === 'failed') { final = op; break }
+              }
+              if (!final) {
+                log(`tiktok ${subcommand} (pending): ${username} op=${opId}`)
+                return print({ operation_id: opId, status: data.status || 'running', done: false, poll_url: pollUrl, message: `Still running after ${Math.round(POLL_TIMEOUT_MS / 1000)}s. It continues server-side — re-check with GET ${pollUrl}.` })
+              }
+              if (final.status === 'failed') {
+                log(`tiktok ${subcommand} (failed): ${username} op=${opId} refund=${final.refund_status || 'unknown'}`)
+                print(final)
+                process.stderr.write(JSON.stringify({ error: final.error || `tiktok ${subcommand} failed`, error_code: final.error_code, refund_status: final.refund_status, exitCode: EXIT.GENERAL }) + '\n')
+                process.exit(EXIT.GENERAL)
+              }
+              // Success (status 'posted' for a post, 'done' for a simple op).
+              if ((subcommand === 'post' || subcommand === 'schedule') && postCaption) {
+                sd.appendPostLog({ platform, account: username, caption: postCaption, source: 'direct', status: postScheduleAt ? 'scheduled' : 'posted', url: final.video_url, tag: acc.tag, result: final })
+              }
+              sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+              return print({ success: true, platform, username, op: subcommand, operation_id: opId, ...(final.video_url ? { video_url: final.video_url, video_id: final.video_id } : {}), ...(final.scheduled_at ? { scheduled_at: final.scheduled_at } : {}), ...(final.result || {}) })
+            }
+
+            // Legacy sync server (no operation_id) — back-compat.
             if (!data?.success) {
               err(
                 `${subcommand} failed: ${data?.error || 'unknown'}` +
@@ -8062,7 +8061,6 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 EXIT.GENERAL
               )
             }
-
             sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
             return print({ success: true, platform, username, op: subcommand, ...(data?.data || {}) })
           }
