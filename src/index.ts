@@ -774,6 +774,7 @@ app.use(errorHandler);
 // ── Start ─────────────────────────────────────────────────────
 import { startDepositMonitor } from "./services/deposit-monitor";
 import { startDomainRegistrationRecovery } from "./services/domain-registration";
+import { startTikTokPostRecovery } from "./services/tiktok-post-jobs";
 import { seedPalmyrPrimitives } from "./services/i402-providers";
 import { ensureProviderEmbeddings, embeddingsAvailable } from "./services/i402-embeddings";
 import { refreshFederatedCatalogs } from "./services/i402-agentic-market";
@@ -813,6 +814,9 @@ app.listen(config.port, () => {
   // Reconcile domain registrations left in-flight by a previous process — the
   // registrar tells us which completed (mark active) vs never registered (refund).
   startDomainRegistrationRecovery();
+  // Reconcile async TikTok posts left in-flight by a previous process — pending
+  // jobs (never published) refund; mid-publish jobs flag for manual review.
+  startTikTokPostRecovery();
   if (embeddingsAvailable()) {
     // Non-blocking: compute any missing provider embeddings in the background.
     ensureProviderEmbeddings().catch(err =>
