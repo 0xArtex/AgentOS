@@ -19,7 +19,14 @@ export async function getStealthChromium(): Promise<any> {
   const { chromium } = await import("playwright-extra");
   const stealthMod = await import("puppeteer-extra-plugin-stealth");
   const StealthPlugin = (stealthMod as any).default || (stealthMod as any);
-  chromium.use(StealthPlugin());
+  const plugin = StealthPlugin();
+  // We spoof WebGL ourselves — per-account and matched to the account's UA OS
+  // (see webglForKey + the init script in openAuthenticatedSession). The
+  // plugin's built-in evasion hardcodes ONE Intel renderer for every account: a
+  // cross-account pattern, and a mismatch whenever the UA isn't Intel/desktop.
+  // Disable it so the two don't both proxy getParameter.
+  try { plugin.enabledEvasions.delete("webgl.vendor"); } catch { /* older plugin shape */ }
+  chromium.use(plugin);
   cachedChromium = chromium;
   return chromium;
 }
@@ -206,6 +213,49 @@ export function profileForCountry(country?: string): CountryProfile {
   return COUNTRY_PROFILES[c] || COUNTRY_PROFILES.us;
 }
 
+function stableHash(key: string): number {
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+
+/**
+ * Realistic modern-Chrome ANGLE WebGL strings grouped by OS, so the spoofed GPU
+ * is consistent with the account's user-agent platform. 37445 = UNMASKED_VENDOR,
+ * 37446 = UNMASKED_RENDERER. (The UA pool's Macs are all Intel Macs, so the mac
+ * bucket is Intel/AMD Mac GPUs — never Apple Silicon, which would contradict the
+ * "Intel Mac OS X" UA.)
+ */
+const WEBGL_BY_OS: Record<string, Array<{ vendor: string; renderer: string }>> = {
+  win: [
+    { vendor: "Google Inc. (NVIDIA)", renderer: "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 (0x00002503) Direct3D11 vs_5_0 ps_5_0, D3D11)" },
+    { vendor: "Google Inc. (NVIDIA)", renderer: "ANGLE (NVIDIA, NVIDIA GeForce GTX 1650 (0x00001F82) Direct3D11 vs_5_0 ps_5_0, D3D11)" },
+    { vendor: "Google Inc. (AMD)", renderer: "ANGLE (AMD, AMD Radeon(TM) Graphics (0x00001638) Direct3D11 vs_5_0 ps_5_0, D3D11)" },
+    { vendor: "Google Inc. (Intel)", renderer: "ANGLE (Intel, Intel(R) UHD Graphics 630 (0x00003E9B) Direct3D11 vs_5_0 ps_5_0, D3D11)" },
+  ],
+  mac: [
+    { vendor: "Google Inc. (Intel Inc.)", renderer: "ANGLE (Intel Inc., Intel(R) Iris(TM) Plus Graphics 655, OpenGL 4.1 Metal - 88)" },
+    { vendor: "Google Inc. (Intel Inc.)", renderer: "ANGLE (Intel Inc., Intel(R) UHD Graphics 630, OpenGL 4.1 Metal - 88)" },
+    { vendor: "Google Inc. (AMD)", renderer: "ANGLE (AMD, AMD Radeon Pro 5500M OpenGL Engine, OpenGL 4.1 Metal - 88)" },
+  ],
+  linux: [
+    { vendor: "Google Inc. (NVIDIA)", renderer: "ANGLE (NVIDIA, NVIDIA GeForce GTX 1060 6GB/PCIe/SSE2, OpenGL 4.6.0 NVIDIA 535.146.02)" },
+    { vendor: "Google Inc. (Intel)", renderer: "ANGLE (Intel, Mesa Intel(R) UHD Graphics (CML GT2), OpenGL 4.6 (Core Profile) Mesa 23.2.1)" },
+  ],
+};
+
+function osFromUa(ua: string): "win" | "mac" | "linux" {
+  if (/Windows/i.test(ua)) return "win";
+  if (/Mac OS X|Macintosh/i.test(ua)) return "mac";
+  return "linux";
+}
+
+/** Pick a stable, UA-OS-consistent WebGL vendor/renderer for an account. */
+export function webglForKey(sessionKey: string, ua: string): { vendor: string; renderer: string } {
+  const list = WEBGL_BY_OS[osFromUa(ua)];
+  return list[stableHash(sessionKey + ":webgl") % list.length];
+}
+
 export interface OpenSessionOptions {
   /** Stable identifier for the account locally. */
   accountId: string;
@@ -279,10 +329,11 @@ export async function openAuthenticatedSession(
   for (let i = 0; i < viewportKey.length; i++) vpHash = ((vpHash << 5) - vpHash + viewportKey.charCodeAt(i)) | 0;
   const viewport = viewports[Math.abs(vpHash) % viewports.length];
 
+  const ua = opts.userAgent || uaForKey(sessionKey);
   let ctx, page;
   try {
     ctx = await browser.newContext({
-      userAgent: opts.userAgent || uaForKey(sessionKey),
+      userAgent: ua,
       viewport,
       locale: opts.locale || profile.locale,
       timezoneId: opts.timezoneId || profile.timezoneId,
@@ -290,6 +341,32 @@ export async function openAuthenticatedSession(
         "accept-language": (opts.locale || profile.locale) + "," + (opts.locale || profile.locale).split("-")[0] + ";q=0.9",
       },
     });
+
+    // Spoof a per-account, UA-OS-consistent WebGL GPU before any page script
+    // runs. On a GPU-less VPS the real UNMASKED_RENDERER is "Google SwiftShader"
+    // (an instant server tell). The Proxy wraps the *native* getParameter, so
+    // Function.prototype.toString stays "[native code]" — the override itself is
+    // not detectable. Passed as a string body because tsconfig has no DOM lib
+    // (same convention as the snapshot()/evaluate() helpers elsewhere).
+    const webgl = webglForKey(sessionKey, ua);
+    await ctx.addInitScript(
+      `(() => {
+        const V = ${JSON.stringify(webgl.vendor)}, R = ${JSON.stringify(webgl.renderer)};
+        const patch = (proto) => {
+          if (!proto || !proto.getParameter) return;
+          const proxied = new Proxy(proto.getParameter, {
+            apply(target, thisArg, args) {
+              if (args[0] === 37445) return V;
+              if (args[0] === 37446) return R;
+              return Reflect.apply(target, thisArg, args);
+            }
+          });
+          Object.defineProperty(proto, 'getParameter', { value: proxied, writable: true, configurable: true });
+        };
+        patch(self.WebGLRenderingContext && self.WebGLRenderingContext.prototype);
+        patch(self.WebGL2RenderingContext && self.WebGL2RenderingContext.prototype);
+      })();`
+    );
 
     if (opts.cookies && opts.cookies.length > 0) {
       // Cookies may ship with an `expires` field that Playwright rejects; coerce.
