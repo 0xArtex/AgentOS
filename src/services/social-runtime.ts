@@ -287,6 +287,10 @@ export interface OpenSessionOptions {
   /** Concurrency pool for the launched browser ('op' default, 'connect' for the
    *  long-idling hosted-QR-connect flow so it can't starve posts/ops). */
   pool?: string;
+  /** Launch headless (default true). The hosted QR-connect flow sets this false
+   *  so TikTok will AUTHORIZE the login (it refuses headless at the authorize
+   *  step) — that requires a real/virtual display (Xvfb) on the host. */
+  headless?: boolean;
 }
 
 export interface OpenedSession {
@@ -317,7 +321,7 @@ export async function openAuthenticatedSession(
   }
 
   const browser = await launchStealthBrowser({
-    headless: true,
+    headless: opts.headless ?? true,
     proxy,
     args: [
       "--disable-blink-features=AutomationControlled",
