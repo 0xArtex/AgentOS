@@ -344,27 +344,50 @@ export async function openAuthenticatedSession(
 
     // Spoof a per-account, UA-OS-consistent WebGL GPU before any page script
     // runs. On a GPU-less VPS the real UNMASKED_RENDERER is "Google SwiftShader"
-    // (an instant server tell). The Proxy wraps the *native* getParameter, so
-    // Function.prototype.toString stays "[native code]" — the override itself is
-    // not detectable. Passed as a string body because tsconfig has no DOM lib
-    // (same convention as the snapshot()/evaluate() helpers elsewhere).
+    // (an instant server tell). We replace UNMASKED_VENDOR/RENDERER with a Proxy
+    // over the *native* getParameter, then make Function.prototype.toString
+    // report the original's native source (WITH the method name) for our proxy —
+    // so neither the value nor the override is detectable. Passed as a string
+    // body because tsconfig has no DOM lib (same convention as the evaluate()
+    // helpers elsewhere).
     const webgl = webglForKey(sessionKey, ua);
     await ctx.addInitScript(
       `(() => {
         const V = ${JSON.stringify(webgl.vendor)}, R = ${JSON.stringify(webgl.renderer)};
+        const proto1 = self.WebGLRenderingContext && self.WebGLRenderingContext.prototype;
+        const proto2 = self.WebGL2RenderingContext && self.WebGL2RenderingContext.prototype;
+        if (!proto1 && !proto2) return;
+        const FTS = Function.prototype.toString;
+        // Registry of our fakes -> the native source string they must report.
+        // Patch Function.prototype.toString once so .toString() AND
+        // Function.prototype.toString.call(fn) both yield the native string.
+        let reg = self.__pmNative;
+        if (!reg) {
+          reg = new WeakMap();
+          try { Object.defineProperty(self, '__pmNative', { value: reg }); } catch (e) { self.__pmNative = reg; }
+          const patched = function toString() {
+            if (reg.has(this)) return reg.get(this);
+            return FTS.call(this);
+          };
+          try { reg.set(patched, FTS.call(FTS)); } catch (e) {}
+          try { Object.defineProperty(Function.prototype, 'toString', { value: patched, writable: true, configurable: true }); } catch (e) {}
+        }
         const patch = (proto) => {
           if (!proto || !proto.getParameter) return;
-          const proxied = new Proxy(proto.getParameter, {
+          const orig = proto.getParameter;
+          let nativeStr; try { nativeStr = FTS.call(orig); } catch (e) { nativeStr = 'function getParameter() { [native code] }'; }
+          const proxied = new Proxy(orig, {
             apply(target, thisArg, args) {
-              if (args[0] === 37445) return V;
-              if (args[0] === 37446) return R;
+              const p = args && args[0];
+              if (p === 37445) return V;
+              if (p === 37446) return R;
               return Reflect.apply(target, thisArg, args);
             }
           });
-          Object.defineProperty(proto, 'getParameter', { value: proxied, writable: true, configurable: true });
+          reg.set(proxied, nativeStr);
+          try { Object.defineProperty(proto, 'getParameter', { value: proxied, writable: true, configurable: true }); } catch (e) {}
         };
-        patch(self.WebGLRenderingContext && self.WebGLRenderingContext.prototype);
-        patch(self.WebGL2RenderingContext && self.WebGL2RenderingContext.prototype);
+        patch(proto1); patch(proto2);
       })();`
     );
 
