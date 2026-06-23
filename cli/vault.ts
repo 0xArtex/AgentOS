@@ -134,6 +134,12 @@ function verifyIntegrity(file: WalletFile, mnemonic: string): void {
 }
 
 function resolveMnemonic(file: WalletFile, passphrase?: string): string {
+  // Resolve the passphrase from the explicit arg OR the env, so EVERY decrypt
+  // path (pay preflight, EVM/Solana signing, sign-message, doctor) honors
+  // PALMYR_WALLET_PASSPHRASE even when the caller didn't thread it through.
+  // Without this the base/EVM pay preflight passed no passphrase and failed on a
+  // headless box (no OS keychain) despite the env being set.
+  const pass = passphrase || process.env.PALMYR_WALLET_PASSPHRASE
   let mnemonic: string
 
   // Try session secret from OS credential store (new format)
@@ -146,9 +152,9 @@ function resolveMnemonic(file: WalletFile, passphrase?: string): string {
     }
   }
 
-  // Fall back to passphrase (legacy v2 format)
-  if (file.owner_crypto && passphrase) {
-    mnemonic = decryptWithPassphrase(file.owner_crypto, passphrase)
+  // Fall back to passphrase (legacy v2 format / passphrase-sealed wallets)
+  if (file.owner_crypto && pass) {
+    mnemonic = decryptWithPassphrase(file.owner_crypto, pass)
     verifyIntegrity(file, mnemonic)
     return mnemonic
   }
