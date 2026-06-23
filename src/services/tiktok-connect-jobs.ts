@@ -174,12 +174,20 @@ export async function runConnectJob(jobId: string, input: ConnectJobInput, deps:
 
   let session: { ctx: any; page: any; close: () => Promise<void> } | null = null;
   try {
+    // TikTok refuses to AUTHORIZE a QR login into a headless browser (it renders
+    // the QR fine headless, but rejects the scan-confirm). So connect must run
+    // HEADED — which on a headless host needs a virtual display. Gated on
+    // SOCIAL_CONNECT_HEADED=1 (set where Xvfb + DISPLAY are configured); elsewhere
+    // it stays headless (launches without an X server, but won't authorize).
+    const headed = process.env.SOCIAL_CONNECT_HEADED === "1";
+    console.log(`[tiktok-connect] worker ${jobId} launching ${headed ? "HEADED (Xvfb)" : "headless"}`);
     session = await deps.openSession({
       accountId: input.account_id,
       proxySessionId: input.proxySessionId,
       cookies: [],
       country: input.country,
       pool: "connect", // own pool — a 10-min QR wait must not starve posts/ops
+      headless: !headed,
     });
     const { ctx, page } = session;
 
