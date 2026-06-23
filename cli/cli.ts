@@ -7742,6 +7742,68 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             })
           }
 
+          case 'push': {
+            // Stash THIS machine's session for transfer to another (e.g. the
+            // Studio VPS). TikTok only authorizes a login on a trusted browser/IP
+            // (your laptop), so `connect` there, then `push` → `pull` moves the
+            // harvested session to where the ops run.
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            if (!acc) err(`tiktok account "${username}" not found locally. Connect it here first: palmyr tiktok connect ${username}`, EXIT.NOT_FOUND)
+            const sess = sv.loadSession(acc!.id)
+            if (!sess || !sess.cookies || sess.cookies.length === 0) {
+              err(`No cached session for ${username}. Connect it here first: palmyr tiktok connect ${username}`, EXIT.NOT_FOUND)
+            }
+            let data: any
+            try {
+              data = await ao.socialTiktokSessionStash(sess!.cookies, username)
+            } catch (e: any) {
+              err(`push failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.transfer_code) err('push failed: no transfer code returned', EXIT.GENERAL)
+            const country = sv.getCountry(platform, username)
+            const pullCmd = `palmyr tiktok pull ${username} --code ${data.transfer_code}${country ? ` --country ${country}` : ''}`
+            process.stderr.write(`[push] Session stashed (one-time, ~30 min). On the target machine (e.g. the Studio VPS) run:\n[push]   ${pullCmd}\n`)
+            return print({
+              success: true, platform, username, op: 'push',
+              transfer_code: data.transfer_code,
+              expires_in_sec: data.expires_in_sec,
+              pull_command: pullCmd,
+            })
+          }
+
+          case 'pull': {
+            // Redeem a transfer code from `push` on another machine → save the
+            // session into THIS machine's vault so its ops can use it.
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const code = (flags.code as string) || (flags.transfer as string)
+            if (!code) err('--code <transfer-code> required (from `tiktok push` on the source machine)')
+            let data: any
+            try {
+              data = await ao.socialTiktokSessionClaim(code)
+            } catch (e: any) {
+              err(`pull failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (!data?.ok || !data.cookies?.length) err('pull failed: transfer code not found or expired (codes are one-time and ~30 min)', EXIT.GENERAL)
+            const country = (flags.country as string)?.toLowerCase() || undefined
+            let acc = sv.getAccount(platform, username)
+            if (!acc) {
+              acc = sv.importAccount(platform, username, { login: username, password: 'unknown' }, { source: 'pull', country, tag: flags.tag as string | undefined })
+            } else if (flags.tag) {
+              sv.tagAccount(platform, username, flags.tag as string)
+            }
+            sv.saveSession(acc!.id, platform, data.cookies)
+            sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+            return print({
+              success: true, platform, username, op: 'pull',
+              cookies: data.cookies.length,
+              ...(flags.tag ? { tag: flags.tag as string } : {}),
+              next: `palmyr tiktok post ${username} --file video.mp4 --caption "..."`,
+            })
+          }
+
           case 'session': {
             const username = positional[0] || (flags.username as string)
             if (!username) err('<username> required')
@@ -8117,7 +8179,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, review, monitor, follow, like, delete, bio, name, pfp`)
+            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, push, pull, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, review, monitor, follow, like, delete, bio, name, pfp`)
         }
         break
       }

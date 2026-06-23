@@ -1126,6 +1126,18 @@ export class Palmyr {
     return this.request('POST', `/social/tiktok/connect/${operationId}/claim`, { claim_token: claimToken })
   }
 
+  /** Stash a session jar for transfer to another machine; returns a one-time
+   *  { transfer_code }. Used by `tiktok push` to move a session logged in on a
+   *  trusted machine (real browser) to the machine that runs the ops. */
+  async socialTiktokSessionStash(cookies: any[], label?: string): Promise<any> {
+    return this.request('POST', '/social/tiktok/session/stash', { cookies, label })
+  }
+
+  /** Redeem a transfer code once → { ok, cookies }. Used by `tiktok pull`. */
+  async socialTiktokSessionClaim(transferCode: string): Promise<any> {
+    return this.request('POST', '/social/tiktok/session/claim', { transfer_code: transferCode })
+  }
+
   async socialTiktokFollow(accountId: string, cookies: any[], targetUser: string, proxySessionId?: string, country?: string): Promise<any> {
     return this.request('POST', '/social/tiktok/follow', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies, target_user: targetUser })
   }
