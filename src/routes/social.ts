@@ -82,6 +82,7 @@ import {
 import { createPostJob, getPostJob } from "../services/tiktok-post-jobs";
 import { createOpJob, getOpJob } from "../services/tiktok-ops-jobs";
 import { createConnectJob, getConnectJob, claimConnectJob } from "../services/tiktok-connect-jobs";
+import { stashSession, claimSession } from "../services/tiktok-session-transfer";
 import { rateLimit } from "../middleware/rateLimit";
 
 const router = Router();
@@ -1885,6 +1886,42 @@ router.post(
       return;
     }
     res.json({ ok: true, cookies: result.cookies, captured_at: new Date().toISOString() });
+  }
+);
+
+// ── Session transfer relay (tiktok-session-transfer.ts) ──
+// Move a session logged in on a trusted machine (real browser/home IP, where
+// `tiktok connect` works) to the machine that runs the ops — TikTok won't
+// authorize a server-side login, so the login must happen on the trusted side.
+// `stash` holds the jar IN MEMORY under a one-time code; `claim` redeems it once.
+router.post(
+  "/tiktok/session/stash",
+  rateLimit(20, 60_000),
+  (req: AuthenticatedRequest, res: Response) => {
+    const { cookies, label } = (req.body || {}) as { cookies?: any[]; label?: string };
+    if (!Array.isArray(cookies) || cookies.length === 0) { res.status(400).json({ error: "cookies (non-empty array) required" }); return; }
+    try {
+      const { transfer_code, expires_in_sec } = stashSession(cookies, typeof label === "string" ? label : undefined);
+      res.json({
+        transfer_code,
+        expires_in_sec,
+        message: `Session stashed. On the target machine run: palmyr tiktok pull <handle> --code ${transfer_code}  (valid ~${Math.round(expires_in_sec / 60)} min, one-time).`,
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || "stash failed" });
+    }
+  }
+);
+
+router.post(
+  "/tiktok/session/claim",
+  rateLimit(30, 60_000),
+  (req: AuthenticatedRequest, res: Response) => {
+    const { transfer_code } = (req.body || {}) as { transfer_code?: string };
+    if (!transfer_code) { res.status(400).json({ error: "transfer_code required" }); return; }
+    const claimed = claimSession(transfer_code);
+    if (!claimed) { res.status(404).json({ error: "transfer code not found or expired" }); return; }
+    res.json({ ok: true, cookies: claimed.cookies, label: claimed.label, captured_at: new Date().toISOString() });
   }
 );
 
