@@ -9,9 +9,10 @@
  * use execFileSync/spawnSync with argument arrays — never shell interpolation.
  */
 import { execFileSync, spawnSync } from 'child_process'
-import { existsSync, mkdirSync, unlinkSync } from 'fs'
+import { existsSync, mkdirSync, unlinkSync, writeFileSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { homedir } from 'os'
+import { scryptSync, randomBytes, createCipheriv, createDecipheriv } from 'crypto'
 
 const SECRETS_DIR = join(homedir(), '.palmyr', 'secrets')
 const SERVICE = 'palmyr-wallet'
@@ -136,6 +137,52 @@ function deleteLinux(account: string): void {
   } catch {}
 }
 
+// ─── Passphrase fallback ───
+//
+// The OS credential store doesn't exist on a headless server (no `secret-tool` /
+// no unlocked keyring). To keep secrets RECOVERABLE there — and across reboots /
+// keychain loss / host migration — we ALSO seal each secret with
+// PALMYR_WALLET_PASSPHRASE (scrypt + AES-256-GCM) into
+// ~/.palmyr/secrets/<account>.sealed whenever that env is set, and fall back to
+// it on retrieve. Same passphrase the wallet vault already uses, so one phrase
+// covers wallet + social sessions. (Aligns with "safe recoverable defaults": a
+// session must not be unstorable just because there's no desktop keyring.)
+
+const SEALED_SUFFIX = '.sealed'
+function sealedPath(account: string): string {
+  return join(SECRETS_DIR, `${account}${SEALED_SUFFIX}`)
+}
+function getPassphrase(): string | undefined {
+  const p = process.env.PALMYR_WALLET_PASSPHRASE
+  return p && p.length > 0 ? p : undefined
+}
+function sealWithPassphrase(account: string, secret: string, passphrase: string): void {
+  ensureSecretsDir()
+  const salt = randomBytes(16)
+  const key = scryptSync(passphrase, salt, 32)
+  const iv = randomBytes(12)
+  const cipher = createCipheriv('aes-256-gcm', key, iv)
+  const ct = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()])
+  const tag = cipher.getAuthTag()
+  const blob = { v: 1, salt: salt.toString('hex'), iv: iv.toString('hex'), ct: ct.toString('hex'), tag: tag.toString('hex') }
+  writeFileSync(sealedPath(account), JSON.stringify(blob), { mode: 0o600 })
+}
+function unsealWithPassphrase(account: string, passphrase: string): string | null {
+  const fp = sealedPath(account)
+  if (!existsSync(fp)) return null
+  try {
+    const blob = JSON.parse(readFileSync(fp, 'utf8'))
+    const key = scryptSync(passphrase, Buffer.from(blob.salt, 'hex'), 32)
+    const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(blob.iv, 'hex'))
+    decipher.setAuthTag(Buffer.from(blob.tag, 'hex'))
+    let pt = decipher.update(blob.ct, 'hex', 'utf8')
+    pt += decipher.final('utf8')
+    return pt
+  } catch {
+    return null
+  }
+}
+
 // ─── Public API ───
 
 export function isCredentialStoreAvailable(): boolean {
@@ -160,15 +207,31 @@ export function storeSecret(account: string, secret: string): void {
   assertHex(account, 'account')
   assertHex(secret, 'secret')
   const p = platform()
+  const passphrase = getPassphrase()
+  let osOk = false
+  let osErr: any
   try {
-    if (p === 'win32') return storeWindows(account, secret)
-    if (p === 'darwin') return storeMac(account, secret)
-    return storeLinux(account, secret)
+    if (p === 'win32') storeWindows(account, secret)
+    else if (p === 'darwin') storeMac(account, secret)
+    else storeLinux(account, secret)
+    osOk = true
   } catch (err: any) {
+    osErr = err
+  }
+  // Recoverable fallback: also seal with the passphrase when one is set, so the
+  // secret survives a host with no OS keychain (and reboots / migration).
+  if (passphrase) {
+    try {
+      sealWithPassphrase(account, secret, passphrase)
+    } catch (err: any) {
+      if (!osOk) throw new Error(`Failed to seal secret with PALMYR_WALLET_PASSPHRASE: ${err.message}`)
+    }
+  }
+  if (!osOk && !passphrase) {
     throw new Error(
-      `Failed to store secret in OS credential store (${p}): ${err.message}. ` +
-      `Your wallet key cannot be stored securely. On Windows, ensure PowerShell and DPAPI are available. ` +
-      `On macOS, ensure the 'security' command works. On Linux, install 'secret-tool'.`
+      `Failed to store secret in OS credential store (${p}): ${osErr?.message}. ` +
+      `On a headless server, set PALMYR_WALLET_PASSPHRASE to enable a recoverable passphrase-sealed fallback (recommended). ` +
+      `Otherwise install the OS credential store (Linux: secret-tool + an unlocked keyring; macOS: 'security'; Windows: DPAPI).`
     )
   }
 }
@@ -177,12 +240,17 @@ export function retrieveSecret(account: string): string | null {
   assertHex(account, 'account')
   const p = platform()
   try {
-    if (p === 'win32') return retrieveWindows(account)
-    if (p === 'darwin') return retrieveMac(account)
-    return retrieveLinux(account)
+    const fromOs = p === 'win32' ? retrieveWindows(account) : p === 'darwin' ? retrieveMac(account) : retrieveLinux(account)
+    if (fromOs) return fromOs
   } catch {
-    return null
+    /* fall through to the passphrase-sealed copy */
   }
+  const passphrase = getPassphrase()
+  if (passphrase) {
+    const unsealed = unsealWithPassphrase(account, passphrase)
+    if (unsealed) return unsealed
+  }
+  return null
 }
 
 export function deleteSecret(account: string): void {
@@ -192,6 +260,11 @@ export function deleteSecret(account: string): void {
     if (p === 'win32') deleteWindows(account)
     else if (p === 'darwin') deleteMac(account)
     else deleteLinux(account)
+  } catch {}
+  // Also remove any passphrase-sealed copy.
+  try {
+    const fp = sealedPath(account)
+    if (existsSync(fp)) unlinkSync(fp)
   } catch {}
 }
 
