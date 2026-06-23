@@ -81,6 +81,8 @@ import {
 } from "../services/tiktok-operations";
 import { createPostJob, getPostJob } from "../services/tiktok-post-jobs";
 import { createOpJob, getOpJob } from "../services/tiktok-ops-jobs";
+import { createConnectJob, getConnectJob, claimConnectJob } from "../services/tiktok-connect-jobs";
+import { rateLimit } from "../middleware/rateLimit";
 
 const router = Router();
 
@@ -1792,8 +1794,97 @@ router.get(
       return;
     }
 
+    // Connect jobs share this poll. Status ONLY. NEVER expose qr_token / the
+    // /connect link here: this poll is FREE + unauthenticated (operation_id is a
+    // freely-surfaced capability), and the QR is the scannable login artifact —
+    // leaking it would let anyone with the operation_id open the live QR and
+    // hijack which account binds. The creator already got the link in the authed
+    // 202. Cookies are delivered solely via the claim_token-gated claim below.
+    const conn = getConnectJob(id);
+    if (conn) {
+      res.json({
+        operation_id: conn.id,
+        op: "connect",
+        status: conn.status,
+        done: conn.status === "completed" || conn.status === "failed" || conn.status === "expired",
+        account_id: conn.account_id,
+        poll_url,
+        error: conn.error,
+        error_code: conn.error_code,
+        created_at: conn.created_at,
+        started_at: conn.started_at,
+        completed_at: conn.completed_at,
+      });
+      return;
+    }
+
     // Unknown id (or guessed UUID) → 404.
     res.status(404).json({ error: "Operation not found" });
+  }
+);
+
+// Server-hosted QR connect. Runs the QR-login browser SERVER-SIDE through the
+// account's residential proxy (so the session is born on the operating IP, and
+// there's no datacenter-IP login), and hands back a /connect/<token> link a
+// human scans with the TikTok app. Poll the operation (free) until 'completed',
+// then claim the session with the claim_token. See tiktok-connect-jobs.ts.
+router.post(
+  "/tiktok/connect",
+  requireTikTokEnabled,
+  requireAuth(0.01, "general", {
+    description: "Connect a TikTok account via a server-hosted QR link (scan with the app — no local browser, no datacenter-IP login).",
+    category: "social",
+    tags: ["tiktok", "connect", "qr", "login"],
+  }),
+  // Each connect spins a long-lived browser+proxy session; cap starts per
+  // identity so a few cents can't fan out into many concurrent sessions.
+  rateLimit(10, 60_000),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { account_id, proxy_session_id, country } = req.body as { account_id?: string; proxy_session_id?: string; country?: string };
+    if (!account_id) { res.status(400).json({ error: "account_id required" }); return; }
+    try {
+      const owner = req.payment?.payer || req.agentId || "unknown";
+      const job = createConnectJob({ account_id, owner, proxySessionId: proxy_session_id, country });
+      // Return a RELATIVE connect path + the token; the client builds the
+      // absolute link from its OWN configured API base. (Deriving it from
+      // x-forwarded-host would let a caller inject an attacker host into a link
+      // that's meant to be forwarded to a human.)
+      res.status(202).json({
+        operation_id: job.id,
+        status: job.status,
+        qr_token: job.qr_token,
+        connect_path: `/connect/${job.qr_token}`,
+        claim_token: job.claim_token,
+        poll_url: `/social/tiktok/operations/${job.id}`,
+        poll_after_seconds: 5,
+        message:
+          `TikTok connect started. Open <your-api-base>/connect/${job.qr_token} and scan the QR with the TikTok app, then confirm. ` +
+          `Poll GET /social/tiktok/operations/${job.id} until status is 'completed', then POST /social/tiktok/connect/${job.id}/claim {claim_token} to receive the session. ` +
+          "Valid ~10 minutes.",
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "TikTok connect failed" });
+    }
+  }
+);
+
+// Claim the harvested session ONCE. Free, but gated by the secret claim_token
+// (returned only to the authenticated creator of the connect) — so a leaked
+// operation_id from the free status poll can't yield a full account session.
+router.post(
+  "/tiktok/connect/:id/claim",
+  rateLimit(30, 60_000), // defense-in-depth (the 192-bit claim_token is the real gate)
+  (req: AuthenticatedRequest, res: Response) => {
+    const { claim_token } = (req.body || {}) as { claim_token?: string };
+    if (!claim_token) { res.status(400).json({ error: "claim_token required" }); return; }
+    const result = claimConnectJob(String(req.params.id || ""), claim_token);
+    if (!result.ok) {
+      // 404 for not-found / bad token (don't reveal existence); 409 for not-ready / already-claimed.
+      const notFound = result.reason === "not_found" || result.reason === "bad_claim_token";
+      res.status(notFound ? 404 : 409).json({ error: result.reason });
+      return;
+    }
+    res.json({ ok: true, cookies: result.cookies, captured_at: new Date().toISOString() });
   }
 );
 

@@ -7539,6 +7539,57 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               }
             }
 
+            // ── HOSTED: server-side QR connect (no local browser) ──
+            // The server runs the QR-login browser through the account's
+            // residential proxy and hands back a /connect/<token> link to scan.
+            // This is the path for a VPS / headless agent (where a local browser
+            // would sit on a datacenter IP and TikTok would block the login).
+            if (flags.hosted) {
+              const country = explicitCountry || acc?.country || process.env.PALMYR_DEFAULT_COUNTRY?.toLowerCase() || 'us'
+              // Create the account up front so the server worker has
+              // account_id + proxy_session_id + country to build the proxy.
+              if (!acc) {
+                acc = sv.importAccount(platform, username, { login: username, password: 'unknown' }, { source: 'connect', country, tag: flags.tag as string | undefined })
+                process.stderr.write(`[connect] created local account ${username} (${acc.id}) [country: ${country}]\n`)
+              } else if (flags.tag) {
+                sv.tagAccount(platform, username, flags.tag as string)
+              }
+              const psid = sv.getProxySessionId(platform, username) || acc.id
+              const initial = await ao.socialTiktokConnect(acc.id, { proxySessionId: psid, country })
+              const opId = initial?.operation_id
+              if (!opId) err('connect failed: server did not return an operation', EXIT.GENERAL)
+              const apiBase = ao.api.replace(/\/+$/, '')
+              const link = `${apiBase}${initial.connect_path || ('/connect/' + initial.qr_token)}`
+              process.stderr.write(`[connect] 🔗 Open this link (or send it to a human) and scan the QR with the TikTok app, then confirm:\n[connect]   ${link}\n`)
+              process.stderr.write(`[connect] Waiting for the scan… (link valid ~10 min)\n`)
+              const POLL_TIMEOUT_MS = 11 * 60 * 1000
+              const intervalMs = Math.max(2000, (Number(initial.poll_after_seconds) || 5) * 1000)
+              const deadline = Date.now() + POLL_TIMEOUT_MS
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+              let final: any = null
+              while (Date.now() < deadline) {
+                await sleep(intervalMs)
+                let op: any
+                try { op = await ao.socialTiktokOperation(opId) } catch { continue }
+                if (AGENT_MODE) process.stderr.write(JSON.stringify({ event: 'poll', status: op?.status || 'waiting' }) + '\n')
+                if (op?.done === true || ['completed', 'failed', 'expired'].includes(op?.status)) { final = op; break }
+              }
+              if (!final || final.status !== 'completed') {
+                const st = final?.status || 'pending'
+                err(`connect ${st === 'pending' ? 'timed out — still waiting for the scan' : st}: ${final?.error || 'no scan within the window'}`, EXIT.GENERAL, { operation_id: opId, status: st, connect_url: link })
+              }
+              const claimed = await ao.socialTiktokConnectClaim(opId, initial.claim_token)
+              if (!claimed?.ok || !claimed.cookies?.length) err('connect: session claim failed', EXIT.GENERAL, { operation_id: opId })
+              sv.saveSession(acc.id, platform, claimed.cookies)
+              sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+              return print({
+                success: true, platform, username, connected: true, hosted: true,
+                country, cookies_captured: claimed.cookies.length, sessionid_present: true,
+                ...(flags.tag ? { tag: flags.tag as string } : {}),
+                next: `palmyr tiktok post ${username} --file video.mp4 --caption "..."`,
+              })
+            }
+
             // DEFAULT is QR: a zero-install link the human opens and scans with the
             // TikTok app on their phone (where the account already lives) — not
             // sus, never blocked. --local opens the browser on THIS machine instead
