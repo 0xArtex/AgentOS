@@ -42,39 +42,53 @@ function maxConcurrentBrowsers(): number {
   const n = parseInt(process.env.SOCIAL_BROWSER_MAX_CONCURRENCY || "3", 10);
   return Number.isFinite(n) && n > 0 ? n : 3;
 }
+// Hosted-connect browsers idle for up to ~10 min waiting on a human phone scan,
+// so they get their OWN small pool — a slow connect must NEVER starve posts/ops
+// (which share the 'op' pool). Without this, a few concurrent connects froze the
+// whole social subsystem (and were a trivially cheap availability/DoS vector).
+function maxConnectBrowsers(): number {
+  const n = parseInt(process.env.SOCIAL_CONNECT_MAX_CONCURRENCY || "2", 10);
+  return Number.isFinite(n) && n > 0 ? n : 2;
+}
 
-let browsersInUse = 0;
-const browserWaiters: Array<() => void> = [];
+interface BrowserPool { inUse: number; waiters: Array<() => void>; max: () => number; }
+const POOLS: Record<string, BrowserPool> = {
+  op: { inUse: 0, waiters: [], max: maxConcurrentBrowsers },
+  connect: { inUse: 0, waiters: [], max: maxConnectBrowsers },
+};
 
-function acquireBrowserSlot(): Promise<void> {
-  if (browsersInUse < maxConcurrentBrowsers()) {
-    browsersInUse++;
+function acquireBrowserSlot(pool: string): Promise<void> {
+  const p = POOLS[pool] || POOLS.op;
+  if (p.inUse < p.max()) {
+    p.inUse++;
     return Promise.resolve();
   }
   // At capacity — queue until a slot frees. releaseBrowserSlot() hands the
-  // permit straight to us, so browsersInUse stays unchanged on wake.
-  return new Promise<void>((resolve) => browserWaiters.push(resolve));
+  // permit straight to the next waiter, so inUse stays unchanged on wake.
+  return new Promise<void>((resolve) => p.waiters.push(resolve));
 }
 
-function releaseBrowserSlot(): void {
-  const next = browserWaiters.shift();
+function releaseBrowserSlot(pool: string): void {
+  const p = POOLS[pool] || POOLS.op;
+  const next = p.waiters.shift();
   if (next) { next(); return; }   // hand the permit directly to the next waiter
-  browsersInUse = Math.max(0, browsersInUse - 1);
+  p.inUse = Math.max(0, p.inUse - 1);
 }
 
 /**
- * Launch a stealth Chromium under the global concurrency cap. The returned
- * browser's `close()` releases the slot exactly once, so callers that already
- * close in a `finally` get correct accounting for free.
+ * Launch a stealth Chromium under a named concurrency pool ('op' default, or
+ * 'connect' for the long-idling QR-connect browsers). The returned browser's
+ * `close()` releases the slot exactly once, so callers that close in a `finally`
+ * get correct accounting for free.
  */
-export async function launchStealthBrowser(launchOpts: any): Promise<any> {
+export async function launchStealthBrowser(launchOpts: any, pool: string = "op"): Promise<any> {
   const chromium = await getStealthChromium();
-  await acquireBrowserSlot();
+  await acquireBrowserSlot(pool);
   let browser: any;
   try {
     browser = await chromium.launch(launchOpts);
   } catch (e) {
-    releaseBrowserSlot();
+    releaseBrowserSlot(pool);
     throw e;
   }
   let released = false;
@@ -83,7 +97,7 @@ export async function launchStealthBrowser(launchOpts: any): Promise<any> {
     try {
       return await origClose(...args);
     } finally {
-      if (!released) { released = true; releaseBrowserSlot(); }
+      if (!released) { released = true; releaseBrowserSlot(pool); }
     }
   };
   return browser;
@@ -270,6 +284,9 @@ export interface OpenSessionOptions {
   timezoneId?: string;
   locale?: string;
   country?: string;
+  /** Concurrency pool for the launched browser ('op' default, 'connect' for the
+   *  long-idling hosted-QR-connect flow so it can't starve posts/ops). */
+  pool?: string;
 }
 
 export interface OpenedSession {
@@ -308,7 +325,7 @@ export async function openAuthenticatedSession(
       "--disable-dev-shm-usage",
       "--no-sandbox",
     ],
-  });
+  }, opts.pool || "op");
 
   // Derive locale + timezone from the account's country if the caller didn't
   // pin them explicitly. Keeps exit-IP geography aligned with the browser
