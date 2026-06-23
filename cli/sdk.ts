@@ -1104,28 +1104,6 @@ export class Palmyr {
     return this.request('POST', '/social/tiktok/qr', { qr_data_url: qrDataUrl, token, done })
   }
 
-  /** Start a SERVER-HOSTED QR connect: the server runs the QR-login browser
-   *  through the account's residential proxy and returns { operation_id,
-   *  connect_url, claim_token }. Forward connect_url to a human to scan with the
-   *  TikTok app; poll socialTiktokOperation(operation_id) until status
-   *  'completed', then socialTiktokConnectClaim to receive the session. Paid
-   *  (small fee, gates abuse + establishes the owner). */
-  async socialTiktokConnect(accountId: string, opts?: { proxySessionId?: string; country?: string }): Promise<any> {
-    return this.request('POST', '/social/tiktok/connect', {
-      account_id: accountId,
-      proxy_session_id: opts?.proxySessionId,
-      country: opts?.country,
-    })
-  }
-
-  /** Claim the harvested session once a hosted connect is 'completed'. Returns
-   *  { ok, cookies, observed_username }. Gated by the secret claim_token from
-   *  socialTiktokConnect (NOT the operation_id), and one-time (the server wipes
-   *  the jar after). */
-  async socialTiktokConnectClaim(operationId: string, claimToken: string): Promise<any> {
-    return this.request('POST', `/social/tiktok/connect/${operationId}/claim`, { claim_token: claimToken })
-  }
-
   /** Stash a session jar for transfer to another machine; returns a one-time
    *  { transfer_code }. Used by `tiktok push` to move a session logged in on a
    *  trusted machine (real browser) to the machine that runs the ops. */
