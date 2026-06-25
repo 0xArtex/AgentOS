@@ -44,33 +44,125 @@ function topoOrderSteps(steps: any[]): any[] {
  *   - embedded: "hello $STEPS.s1.output.field" → scans and substitutes the match
  *     (resolved values are coerced to strings)
  */
+// Look up a key on an object, tolerating exact / camelCase / snake_case — schemas
+// drift from actual server responses; the resolver shouldn't punish either side.
+function lookupKey(obj: any, key: string): any {
+  if (obj === null || typeof obj !== 'object') return undefined
+  if (key in obj) return obj[key]
+  const camel = key.replace(/_([a-zA-Z0-9])/g, (_, c) => c.toUpperCase())
+  const snake = key.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '')
+  if (camel in obj) return obj[camel]
+  if (snake in obj) return obj[snake]
+  return undefined
+}
+
+type PathSeg =
+  | { kind: 'key'; name: string }
+  | { kind: 'index'; idx: number }
+  | { kind: 'filter'; key: string; value: string }
+
+// Parse a resolver path into segments. Supports:
+//   .name / name          → object key
+//   [0]                   → array index
+//   [key=value]           → attribute filter (first array element whose key == value)
+//   [?@.key='value']      → JSONPath-ish alias of the same
+function parsePath(path: string): PathSeg[] {
+  const segs: PathSeg[] = []
+  const re = /\[([^\]]+)\]|([^.\[\]]+)/g
+  let m: RegExpExecArray | null
+  while ((m = re.exec(path)) !== null) {
+    if (m[1] !== undefined) {
+      const inner = m[1].trim()
+      if (/^\d+$/.test(inner)) {
+        segs.push({ kind: 'index', idx: parseInt(inner, 10) })
+      } else {
+        const body = inner.replace(/^\?/, '')
+        const eq = body.indexOf('=')
+        if (eq > 0) {
+          const key = body.slice(0, eq).replace(/^@\.?/, '').trim()
+          const value = body.slice(eq + 1).trim().replace(/^['"]|['"]$/g, '')
+          segs.push({ kind: 'filter', key, value })
+        } else {
+          segs.push({ kind: 'key', name: body })
+        }
+      }
+    } else if (m[2] !== undefined) {
+      segs.push({ kind: 'key', name: m[2] })
+    }
+  }
+  return segs
+}
+
 function resolveOne(stepId: string, path: string | undefined, priorOutputs: Record<string, any>): any {
   const base = priorOutputs[stepId]
   if (base === undefined) return undefined
   if (!path) return base
-  const segments = path.split(/\.|\[(\d+)\]/).filter(s => s !== undefined && s !== '')
   let cursor: any = base
-  for (const seg of segments) {
+  for (const seg of parsePath(path)) {
     if (cursor === null || cursor === undefined) return undefined
-    if (/^\d+$/.test(seg) && Array.isArray(cursor)) {
-      cursor = cursor[parseInt(seg, 10)]
-    } else if (typeof cursor === 'object') {
-      // Try exact, then camelCase, then snake_case — schemas drift from
-      // actual server responses; the resolver shouldn't punish either side.
-      if (seg in cursor) {
-        cursor = cursor[seg]
-      } else {
-        const camel = seg.replace(/_([a-zA-Z0-9])/g, (_, c) => c.toUpperCase())
-        const snake = seg.replace(/([A-Z])/g, '_$1').toLowerCase().replace(/^_/, '')
-        if (camel in cursor) cursor = cursor[camel]
-        else if (snake in cursor) cursor = cursor[snake]
-        else return undefined
-      }
+    if (seg.kind === 'index') {
+      if (!Array.isArray(cursor)) return undefined
+      cursor = cursor[seg.idx]
+    } else if (seg.kind === 'filter') {
+      // Pick the first array element whose `key` equals `value` (string-wise,
+      // with the same camel/snake tolerance as key lookups). Lets the planner
+      // select "the inbox whose address == hello@x.com" without knowing its
+      // index: $STEPS.s1.output.inboxes[address=hello@x.com].id
+      if (!Array.isArray(cursor)) return undefined
+      cursor = cursor.find(el => {
+        const f = lookupKey(el, seg.key)
+        return f !== undefined && String(f) === seg.value
+      })
     } else {
-      return undefined
+      if (typeof cursor !== 'object') return undefined
+      cursor = lookupKey(cursor, seg.name)
     }
   }
   return cursor
+}
+
+// ─── i402 async-operation polling & dynamic pricing ───
+
+// Capabilities whose real 402 price is per-resource (per-TLD, per-server-type),
+// so the planner's static registry quote is only an estimate. For these the
+// live 402 is the source of truth — bounded by the global spend ceiling, not
+// the stale quote (which would otherwise abort the step before it pays).
+const DYNAMIC_PRICED_CAPABILITIES = new Set<string>(['register_domain', 'deploy_vps'])
+
+const ASYNC_TERMINAL_OK = new Set(['active', 'running', 'completed', 'succeeded', 'success', 'done', 'ready', 'provisioned'])
+const ASYNC_TERMINAL_FAIL = new Set(['failed', 'error', 'errored', 'cancelled', 'canceled', 'rejected'])
+
+type AsyncState = 'pending' | 'ok' | 'failed'
+
+// Classify an async-operation envelope. Any response carrying `poll_url` is
+// in-progress until its `status` is terminal (per /.well-known guidance:
+// completed/failed; for servers, running).
+function operationState(op: any): AsyncState {
+  if (!op || typeof op !== 'object') return 'pending'
+  const status = String(op.status ?? '').toLowerCase()
+  if (op.error || op.ok === false || ASYNC_TERMINAL_FAIL.has(status)) return 'failed'
+  if (op.done === true || ASYNC_TERMINAL_OK.has(status)) return 'ok'
+  return 'pending'
+}
+
+function isAsyncEnvelope(op: any): boolean {
+  return !!(op && typeof op === 'object' && op.poll_url && operationState(op) === 'pending')
+}
+
+// Flatten the final operation object so downstream $STEPS.sN.output.FIELD
+// references resolve against the resource fields, not the operation handle.
+function mergeOperationResult(envelope: any, finalOp: any): any {
+  const out: any = {
+    ...(envelope && typeof envelope === 'object' ? envelope : {}),
+    ...(finalOp && typeof finalOp === 'object' ? finalOp : {}),
+  }
+  if (finalOp && typeof finalOp.result === 'object' && finalOp.result) Object.assign(out, finalOp.result)
+  return out
+}
+
+function pollUrlToAbsolute(apiBase: string, pollUrl: string): string {
+  if (/^https?:/i.test(pollUrl)) return pollUrl
+  return apiBase.replace(/\/$/, '') + (pollUrl.startsWith('/') ? pollUrl : '/' + pollUrl)
 }
 
 function resolveTemplateValue(value: any, priorOutputs: Record<string, any>): any {
@@ -1319,7 +1411,13 @@ export class Palmyr {
         // per-step guard against a malicious/misconfigured endpoint charging
         // more than the plan quoted the agent.
         const quoted = Number(step.cost_usdc ?? 0)
-        const quotedCeiling = quoted > 0 ? quoted + STEP_COST_TOLERANCE_USDC : undefined
+        const isDynamic = DYNAMIC_PRICED_CAPABILITIES.has(step.capability)
+        // Dynamic-priced steps (register_domain per-TLD, deploy_vps per-type)
+        // can't be bounded by the planner's static quote — the real 402 is the
+        // truth (e.g. a .io domain quoted at $10 actually settles at ~$44). Bound
+        // them by the global ceiling only; every other step stays capped at its
+        // quote + tolerance so a rogue endpoint still can't overcharge.
+        const quotedCeiling = (quoted > 0 && !isDynamic) ? quoted + STEP_COST_TOLERANCE_USDC : undefined
         let stepCeiling: number | undefined
         if (quotedCeiling !== undefined && globalCeiling !== undefined) {
           stepCeiling = Math.min(quotedCeiling, globalCeiling)
@@ -1328,10 +1426,42 @@ export class Palmyr {
         }
 
         const result = await paidRequest(api, method, path, postBody, this.passphrase, 1, { maxUsdc: stepCeiling })
-        const latencyMs = Date.now() - startMs
-        const output = result.data
-        priorOutputs[step.step_id] = output
         totalSpent += Number(step.cost_usdc ?? 0)
+        let output = result.data
+
+        // Async-operation envelope (202 + poll_url): the step's real result isn't
+        // ready yet (domain registration, VPS provisioning, etc.). Poll the (free)
+        // operation endpoint to a terminal state so downstream steps resolve
+        // against the resource fields, not the operation handle — fixing the
+        // domain→inbox race where the next step 403s on a not-yet-registered name.
+        if (isAsyncEnvelope(output)) {
+          const pollUrl = pollUrlToAbsolute(api, output.poll_url)
+          const intervalMs = Math.max(1, Number(output.poll_after_seconds) || 5) * 1000
+          const deadline = Date.now() + 120_000
+          const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+          yield { type: 'step_poll', stepId: step.step_id, provider: step.provider, operationId: output.operation_id, status: output.status ?? 'pending' }
+          let finalOp: any = null
+          while (Date.now() < deadline) {
+            await sleep(intervalMs)
+            let op: any
+            try {
+              const pr = await fetch(pollUrl, { headers: { Accept: 'application/json' } })
+              op = await pr.json().catch(() => null)
+            } catch {
+              yield { type: 'step_poll', stepId: step.step_id, provider: step.provider, operationId: output.operation_id, status: 'poll_error' }
+              continue
+            }
+            const state = operationState(op)
+            yield { type: 'step_poll', stepId: step.step_id, provider: step.provider, operationId: output.operation_id, status: op?.status ?? 'pending' }
+            if (state === 'ok') { finalOp = op; break }
+            if (state === 'failed') throw new Error(`async operation ${output.operation_id ?? ''} failed: ${op?.error || op?.message || op?.status || 'unknown'}`)
+          }
+          if (!finalOp) throw new Error(`async operation ${output.operation_id ?? ''} did not finish within 120s — re-check ${output.poll_url}`)
+          output = mergeOperationResult(output, finalOp)
+        }
+
+        const latencyMs = Date.now() - startMs
+        priorOutputs[step.step_id] = output
         yield {
           type: 'step_result',
           stepId: step.step_id,
