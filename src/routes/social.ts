@@ -9,6 +9,7 @@
 import { Router, Request, Response } from "express";
 import { requireAuth } from "../middleware/auth";
 import { requirePoolAdmin } from "../middleware/pool-admin";
+import { refundAndRespond } from "../services/refund";
 import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
 import { isSelfHosted } from "../services/self-hosted";
@@ -1364,9 +1365,39 @@ router.post(
             }
           : undefined,
       });
-      res.status(result.success ? 200 : 400).json(result);
+      if (!result.success) {
+        // The x402 paywall settles USDC on-chain BEFORE this handler runs, so a
+        // wallet payer has already paid by the time poolBuy reports no matching
+        // inventory. Refund them — otherwise it's a charge with no delivery, the
+        // exact trust-breaker the treasury rotation was about. Balance/dashboard
+        // payers (no req.payment) aren't charged on a 4xx, so just relay the body.
+        if (req.payment) {
+          await refundAndRespond(req, res, {
+            reason: result.error || "No matching accounts in pool",
+            userMessage:
+              (result.error || "No matching accounts in pool") +
+              " — your payment is being refunded.",
+            errorLabel: "No matching accounts",
+            httpStatus: 409,
+            extra: { available: false },
+          });
+        } else {
+          res.status(409).json(result);
+        }
+        return;
+      }
+      res.status(200).json(result);
     } catch (err: any) {
-      res.status(500).json({ error: err.message || "Buy failed" });
+      // Settlement already happened upstream; refund x402 payers on a hard failure.
+      if (req.payment) {
+        await refundAndRespond(req, res, {
+          reason: `Buy failed: ${err?.message || err}`,
+          userMessage: "Could not complete the purchase — your payment is being refunded.",
+          errorLabel: "Buy failed",
+        });
+      } else {
+        res.status(500).json({ error: err.message || "Buy failed" });
+      }
     }
   }
 );
