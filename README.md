@@ -61,7 +61,7 @@ Visual node-based agent deployment: [palmyr.ai/dashboard.html](https://palmyr.ai
 
 | Service | Status | Cost (USDC) |
 |---------|--------|-------------|
-| **Phone** | ✅ Live | $2/number, $0.05/SMS, $0.10/call |
+| **Phone** | ✅ Live | $3/number, $0.05/SMS, $0.10/call |
 | **Voice Calls** | ✅ Live | TTS, DTMF, record, transfer, gather |
 | **Email** | ✅ Live | $2/inbox, E2E encrypted (NaCl box) |
 | **Compute** | ✅ Live | $5–64/mo VPS + $6 one-time deploy fee. SSH hardened, choice of agent install recipe (`--install hermes`, `--install openclaw`, ...), location selection across 6 Hetzner datacenters. |
@@ -87,7 +87,7 @@ Your wallet is your identity. Pay with USDC, your wallet address owns the resour
 
 ### 1. Call any endpoint → get 402 → pay with USDC → done
 ```bash
-# Provision a phone number ($2 USDC)
+# Provision a phone number ($3 USDC)
 curl -X POST https://palmyr.ai/phone/numbers \
   -H "Content-Type: application/json" \
   -d '{"country": "US"}'

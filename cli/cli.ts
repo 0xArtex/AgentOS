@@ -26,6 +26,7 @@ import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox
 import { getState as getTelemetryState, setEnabled as setTelemetryEnabled, queuedCount as telemetryQueuedCount, appendEventSync as telemetryAppendEvent, flushQueue as telemetryFlushQueue } from './telemetry.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel, setAgentMode as setUiAgentMode } from './ui.js'
 import { existsSync, readFileSync } from 'fs'
+import { randomBytes } from 'crypto'
 import { homedir } from 'os'
 import { fileURLToPath } from 'url'
 import { dirname, extname, join } from 'path'
@@ -3021,6 +3022,7 @@ async function main() {
             // earlier; 1.8.3 forces the choice up front.
             const sessionOnly = !!flags['session-only']
             let passphrase = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+            let generatedPassphrase = false
             if (passphrase && sessionOnly) {
               err('Pass either --passphrase / PALMYR_WALLET_PASSPHRASE OR --session-only, not both.', EXIT.BAD_INPUT)
             }
@@ -3033,13 +3035,19 @@ async function main() {
                 )
                 passphrase = await promptNewPassphrase('vault wallet')
               } else {
-                err(
-                  'Wallet creation requires a recoverable passphrase fallback OR an explicit opt-out:\n\n' +
-                  '  PALMYR_WALLET_PASSPHRASE="<phrase>" palmyr wallet create [...]   # recommended (env keeps phrase out of shell history)\n' +
-                  '  palmyr wallet create --passphrase "<phrase>" [...]               # equivalent\n' +
-                  '  palmyr wallet create --session-only [...]                        # OPT OUT — wallet dies with this machine\'s OS keychain\n\n' +
-                  'Session-only wallets are NOT recoverable from the JSON file alone — reboot, keyring change, or host copy renders them unusable.',
-                  EXIT.BAD_INPUT,
+                // Non-TTY (agent / piped stdin): the headline command must not
+                // dead-end on a prompt we can't render. Auto-generate a
+                // recoverable passphrase fallback and surface it in the output,
+                // so the wallet survives a reboot / OS-keychain change / host
+                // migration. `--session-only` stays the explicit opt-out.
+                // Recoverable-by-default: the wallet is decryptable via this
+                // phrase OR this machine's OS-keychain session secret.
+                passphrase = randomBytes(24).toString('base64url')
+                generatedPassphrase = true
+                if (!AGENT_MODE) process.stderr.write(
+                  '\n  No passphrase supplied — generated a recoverable fallback (shown below). SAVE IT:\n' +
+                  '  the wallet is decryptable via this phrase OR this machine\'s OS keychain.\n' +
+                  '  Re-run with --session-only to opt out of the fallback.\n\n'
                 )
               }
             }
@@ -3082,7 +3090,12 @@ async function main() {
                   tag: tagRaw,
                   chains,
                   recoverable: !!passphrase,
+                  ...(generatedPassphrase ? { recoveryPassphrase: passphrase } : {}),
                   ...(keychainStoreWarning ? { keychainWarning: keychainStoreWarning } : {}),
+                  funding: {
+                    note: 'Fund each wallet with USDC on Base or Solana (gas is sponsored). ~$3 minimum for a first paid action.',
+                    verify: 'palmyr wallet pay-preflight --wallet <id>',
+                  },
                   wallets: results.map(r => ({
                     id: r.id,
                     name: r.name,
@@ -3098,7 +3111,12 @@ async function main() {
                 console.log(`  ${t.muted}chains:${t.reset} ${chains.join(', ')}`)
                 console.log(`  ${t.muted}names: ${t.reset}${results[0].name} … ${results[results.length - 1].name}`)
                 console.log(`  ${t.muted}recoverable:${t.reset} ${passphrase ? 'yes (passphrase fallback set)' : 'NO — session-only'}`)
-                console.log(`\n  ${t.muted}List them:    ${t.reset}palmyr wallet list --tag ${tagRaw}`)
+                if (generatedPassphrase) {
+                  console.log(`\n  ${t.warn}Recovery passphrase (save this):${t.reset} ${passphrase}`)
+                  console.log(`  ${t.muted}Decrypts every wallet in this tag if the OS keychain is lost. Reuse via PALMYR_WALLET_PASSPHRASE.${t.reset}`)
+                }
+                console.log(`\n  ${t.muted}Fund with USDC on Base or Solana (gas sponsored) — ~$3 for a first paid action.${t.reset}`)
+                console.log(`  ${t.muted}List them:    ${t.reset}palmyr wallet list --tag ${tagRaw}`)
                 console.log(`  ${t.muted}Delete all:   ${t.reset}palmyr wallet tag-delete ${tagRaw} --confirm\n`)
               }
               break
@@ -3172,8 +3190,24 @@ async function main() {
                 console.log(`  ${t.info}${setupLink}${t.reset}\n`)
                 console.log(`  ${t.muted}They'll register a passkey and set spending limits. Takes 30 seconds.${t.reset}\n`)
               }
+              if (generatedPassphrase) {
+                console.log(`\n  ${t.warn}Recovery passphrase (save this):${t.reset} ${passphrase}`)
+                console.log(`  ${t.muted}Decrypts this wallet if the OS keychain is lost. Reuse via PALMYR_WALLET_PASSPHRASE.${t.reset}`)
+              }
+              console.log(`\n  ${t.muted}Fund with USDC on Base or Solana (gas sponsored) — ~$3 for your first paid action.${t.reset}`)
+              console.log(`  ${t.muted}Check readiness: ${t.reset}palmyr wallet pay-preflight --wallet ${w.id}\n`)
             } else {
-              print({ ...w, setupLink, recoverable: !!passphrase, ...(keychainStoreWarning ? { keychainWarning: keychainStoreWarning } : {}) })
+              print({
+                ...w,
+                setupLink,
+                recoverable: !!passphrase,
+                ...(generatedPassphrase ? { recoveryPassphrase: passphrase } : {}),
+                ...(keychainStoreWarning ? { keychainWarning: keychainStoreWarning } : {}),
+                funding: {
+                  note: 'Fund this wallet with USDC on Base or Solana (gas is sponsored). ~$3 minimum for your first paid action.',
+                  verify: `palmyr wallet pay-preflight --wallet ${w.id}`,
+                },
+              })
             }
             break
           }
