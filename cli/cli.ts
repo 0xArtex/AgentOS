@@ -1333,6 +1333,45 @@ function formatStepOutput(output: any): string {
   return parts.length ? parts.join('  ') : JSON.stringify(output).slice(0, 200)
 }
 
+// ── Clean `chat run` rendering helpers (dead-simple TTY output) ──
+
+// "~45s" / "~3 min" from an ETA in seconds.
+function humanEta(sec?: number): string {
+  if (!sec || sec <= 0) return '?'
+  return sec < 90 ? `~${Math.round(sec)}s` : `~${Math.round(sec / 60)} min`
+}
+
+// "18s" / "2m 14s" from a duration in ms.
+function humanDuration(ms: number): string {
+  const s = Math.max(0, Math.round(ms / 1000))
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+// The single most-useful value from a step output — the one token a human
+// wants to see (the domain, the IP, the inbox address, the handle…).
+function shortResult(o: any): string {
+  if (o == null) return ''
+  if (typeof o !== 'object') return String(o)
+  if (o.inbox?.address) return String(o.inbox.address)
+  const cands = [o.domain, o.address, o.ipv4, o.phoneNumber, o.handle, o.username, o.url, o.tweet_url, o.server?.ipv4, o.server?.id, o.id]
+  for (const v of cands) if (v != null && typeof v !== 'object') return String(v)
+  if (Array.isArray(o.numbers) && o.numbers[0]?.phoneNumber) return String(o.numbers[0].phoneNumber)
+  if (Array.isArray(o.inboxes)) return `${o.inboxes.length} inbox(es)`
+  return ''
+}
+
+// Human label for a plan step — the planner's description, else a tidy capability.
+function stepLabel(s: any): string {
+  const d = (s?.description || '').trim()
+  return d || String(s?.capability || 'step').replace(/_/g, ' ')
+}
+
+// Left-pad to a column without letting long labels blow out the price alignment.
+function padLabel(s: string, w = 38): string {
+  return s.length > w ? s.slice(0, w - 1) + '…' : s.padEnd(w)
+}
+
 // Single source of truth for the top-level command catalog. Used by both the
 // Ink help screen and the JSON path so agents and humans see the same surface.
 const TOP_LEVEL_COMMANDS: Array<{ name: string; description: string }> = [
@@ -5469,11 +5508,13 @@ async function main() {
                 status: plan.status,
               })
             } else {
-              console.log(`\n${c.cyan}Plan${c.white}: ${plan.intent?.interpreted ?? plan.intent?.original}`)
-              console.log(`  ${plan.steps?.length ?? 0} steps · $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'} · ~${plan.totals?.eta_seconds ?? '?'}s · session ${plan.session_id}`)
-              for (const s of plan.steps || []) {
-                console.log(`  ${s.step_id}  ${s.capability} → ${s.provider}  $${s.cost_usdc?.toFixed(2)}  ${s.description ?? ''}`)
-              }
+              const interp = plan.intent?.interpreted ?? plan.intent?.original ?? intent
+              const steps = plan.steps || []
+              console.log(`\n  ${c.green}✓${c.white} Plan ready ${c.gray}— ${interp}${c.white}`)
+              console.log(`  ${steps.length} step${steps.length === 1 ? '' : 's'} · $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'} · ${humanEta(plan.totals?.eta_seconds)}\n`)
+              steps.forEach((s: any, i: number) => {
+                console.log(`  ${c.gray}${i + 1}${c.white}  ${padLabel(stepLabel(s))} ${c.gray}$${(s.cost_usdc ?? 0).toFixed(2)}${c.white}`)
+              })
               console.log('')
             }
 
@@ -5493,67 +5534,65 @@ async function main() {
             }
 
             if (autoExecute || plan.status === 'approved') {
-              if (!AGENT_MODE) console.log(`${c.cyan}Executing plan${c.white} (streaming)...\n`)
-              let spent = 0
-              const stepOutputs: Record<string, any> = {}
+              const stepById: Record<string, any> = {}
+              for (const s of plan.steps || []) stepById[s.step_id] = s
+              const labelFor = (id: string) => stepLabel(stepById[id] || { capability: id })
               const maxUsdc = flags['max-usdc'] ? parseFloat(flags['max-usdc'] as string) : undefined
+              if (!AGENT_MODE) console.log('')
+              const t0 = Date.now()
+              let curSpin: Spinner | null = null
               for await (const event of ao.chatExecute(plan, { maxUsdc })) {
                 if (AGENT_MODE) {
-                  // NDJSON: one event per line. Agents can stream-parse.
+                  // NDJSON: one event per line, unchanged — agents stream-parse.
                   process.stdout.write(JSON.stringify(event) + '\n')
-                  if (event.type === 'step_result' || event.type === 'session_refresh_done') {
-                    spent += Number((event as any).costChargedUsdc ?? 0)
-                  }
-                  if (event.type === 'step_result' && event.output && typeof event.output === 'object') {
-                    stepOutputs[event.stepId] = event.output
-                  }
                   continue
                 }
+                // TTY: one live line per step. The spinner shows progress while a
+                // step runs (incl. async 202+poll waits), then resolves to a
+                // single ✓ <what it did>  <result>  <time> line.
                 switch (event.type) {
                   case 'session':
                   case 'plan':
-                    // Already displayed
                     break
                   case 'step_start':
-                    // Price is shown cumulatively on step_result — no need to
-                    // print it twice per step.
-                    console.log(`  ${c.gray}→${c.white} ${event.stepId} ${event.capability} via ${event.provider}`)
+                    curSpin = new Spinner()
+                    curSpin.start(labelFor(event.stepId))
+                    break
+                  case 'step_poll':
+                    if (curSpin) curSpin.update(`${labelFor(event.stepId)} ${c.gray}· ${event.status ?? 'working'}…${c.white}`)
                     break
                   case 'session_refresh_started':
-                    process.stdout.write(`    ${c.gray}↻ refreshing ${event.platform} session for @${event.handle}…${c.white}`)
+                    if (curSpin) curSpin.update(`${labelFor(event.stepId)} ${c.gray}· signing in @${event.handle}…${c.white}`)
                     break
                   case 'session_refresh_done':
-                    spent += Number(event.costChargedUsdc ?? 0)
-                    console.log(` ${c.green}done${c.white} ${c.gray}(+$${event.costChargedUsdc?.toFixed(3)})${c.white}`)
                     break
-                  case 'step_result':
-                    spent += Number(event.costChargedUsdc ?? 0)
-                    if (event.output && typeof event.output === 'object') stepOutputs[event.stepId] = event.output
-                    console.log(`  ${c.green}✓${c.white} ${event.stepId} done in ${event.latencyMs}ms  ${c.gray}spent: $${spent.toFixed(2)}${c.white}`)
+                  case 'step_result': {
+                    const label = labelFor(event.stepId)
+                    const res = shortResult(event.output)
+                    // Don't echo a result the label already states (e.g. "Register
+                    // stealthkicks.xyz" + "stealthkicks.xyz").
+                    const showRes = res && !label.toLowerCase().includes(res.toLowerCase())
+                    const line = `${label}${showRes ? `  ${c.gray}${res}${c.white}` : ''}  ${c.gray}${humanDuration(event.latencyMs ?? 0)}${c.white}`
+                    if (curSpin) { curSpin.stop(line, true); curSpin = null }
+                    else console.log(`  ${icon.success} ${line}`)
                     break
+                  }
                   case 'step_error': {
-                    // Long upstream errors (HTML pages, JSON dumps) are noise
-                    // in the terminal — truncate and point at --verbose.
-                    const errMsg = truncateError(String(event.error ?? ''))
-                    const tag = event.fatal ? '(FATAL)' : `retry → ${event.retryWith ?? 'none'}`
-                    console.log(`  ${c.red}✗${c.white} ${event.stepId} ${tag}: ${errMsg}`)
+                    const errMsg = truncateError(String(event.error ?? ''), 120)
+                    const line = `${labelFor(event.stepId)}  ${c.red}${errMsg}${c.white}`
+                    if (curSpin) { curSpin.stop(line, false); curSpin = null }
+                    else console.log(`  ${icon.error} ${line}`)
                     break
                   }
                   case 'clarification_needed':
-                    console.log(`  ${c.yellow}?${c.white} clarification: ${JSON.stringify(event.questions)}`)
+                    if (curSpin) { curSpin.stop(labelFor(event.stepId), false); curSpin = null }
+                    console.log(`  ${c.yellow}?${c.white} needs more info to continue`)
                     break
-                  case 'summary':
-                    console.log(`\n${c.cyan}Summary${c.white}: status=${event.status}  spent=$${event.spentUsdc?.toFixed(2)}  ${c.gray}session=${plan.session_id}${c.white}`)
-                    if (Object.keys(stepOutputs).length > 0) {
-                      console.log(`\n${c.cyan}Outputs:${c.white}`)
-                      for (const [stepId, out] of Object.entries(stepOutputs)) {
-                        console.log(`  ${c.gray}${stepId}${c.white} ${formatStepOutput(out)}`)
-                      }
-                    }
-                    for (const a of event.artifacts || []) {
-                      console.log(`  ${c.gray}artifact:${c.white} ${a.type} — ${a.name ?? a.resourceRef}`)
-                    }
+                  case 'summary': {
+                    const ok = event.status === 'completed'
+                    console.log(`\n  ${ok ? icon.success : icon.error} ${ok ? 'Done' : 'Stopped'} ${c.gray}— $${event.spentUsdc?.toFixed(2) ?? '?'} · ${humanDuration(Date.now() - t0)}${c.white}`)
                     break
+                  }
                 }
               }
             }
