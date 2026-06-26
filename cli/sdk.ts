@@ -139,6 +139,11 @@ type AsyncState = 'pending' | 'ok' | 'failed'
 // completed/failed; for servers, running).
 function operationState(op: any): AsyncState {
   if (!op || typeof op !== 'object') return 'pending'
+  // A raw x402 payment-required CHALLENGE is not a failed operation — it means
+  // the poll endpoint itself wants payment/auth (e.g. /domains/operations/:id is
+  // $0.01 owner-only). The paid poller below settles it and retries; never read
+  // the challenge body's `error: "Payment Required"` as the op having failed.
+  if (op.x402Version && op.accepts) return 'pending'
   const status = String(op.status ?? '').toLowerCase()
   if (op.error || op.ok === false || ASYNC_TERMINAL_FAIL.has(status)) return 'failed'
   if (op.done === true || ASYNC_TERMINAL_OK.has(status)) return 'ok'
@@ -158,11 +163,6 @@ function mergeOperationResult(envelope: any, finalOp: any): any {
   }
   if (finalOp && typeof finalOp.result === 'object' && finalOp.result) Object.assign(out, finalOp.result)
   return out
-}
-
-function pollUrlToAbsolute(apiBase: string, pollUrl: string): string {
-  if (/^https?:/i.test(pollUrl)) return pollUrl
-  return apiBase.replace(/\/$/, '') + (pollUrl.startsWith('/') ? pollUrl : '/' + pollUrl)
 }
 
 function resolveTemplateValue(value: any, priorOutputs: Record<string, any>): any {
@@ -1430,12 +1430,20 @@ export class Palmyr {
         let output = result.data
 
         // Async-operation envelope (202 + poll_url): the step's real result isn't
-        // ready yet (domain registration, VPS provisioning, etc.). Poll the (free)
-        // operation endpoint to a terminal state so downstream steps resolve
-        // against the resource fields, not the operation handle — fixing the
-        // domain→inbox race where the next step 403s on a not-yet-registered name.
+        // ready yet (domain registration, VPS provisioning, etc.). Poll the
+        // operation to a terminal state so downstream steps resolve against the
+        // resource fields, not the operation handle — fixing the domain→inbox
+        // race where the next step 403s on a not-yet-registered name.
+        //
+        // The poll endpoint may be FREE (TikTok ops) or PAID + owner-gated
+        // (/domains/operations/:id is $0.01, the fee doubling as the owner proof;
+        // /compute/servers/:id needs an ownership proof). Poll via this.request,
+        // which auto-pays the 402 from the same owner wallet — the exact path the
+        // standalone `domain buy` poll uses. A bare GET would get a 402 and look
+        // like the operation failed. Free polls return 200 and pay nothing.
         if (isAsyncEnvelope(output)) {
-          const pollUrl = pollUrlToAbsolute(api, output.poll_url)
+          let pollPath = String(output.poll_url)
+          if (/^https?:/i.test(pollPath)) { const u = new URL(pollPath); pollPath = u.pathname + u.search }
           const intervalMs = Math.max(1, Number(output.poll_after_seconds) || 5) * 1000
           const deadline = Date.now() + 120_000
           const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
@@ -1445,8 +1453,7 @@ export class Palmyr {
             await sleep(intervalMs)
             let op: any
             try {
-              const pr = await fetch(pollUrl, { headers: { Accept: 'application/json' } })
-              op = await pr.json().catch(() => null)
+              op = await this.request('GET', pollPath)
             } catch {
               yield { type: 'step_poll', stepId: step.step_id, provider: step.provider, operationId: output.operation_id, status: 'poll_error' }
               continue
