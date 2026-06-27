@@ -142,7 +142,7 @@ function encryptForWallet(plaintext: string, x25519PubKey: Uint8Array): string {
 export function createInbox(
   name: string,
   owner: string,
-  solanaPublicKey: string,
+  solanaPublicKey?: string,
   domain?: string
 ): EmailInbox & { decryptionGuide: object } {
   const localPart = name.toLowerCase().replace(/[^a-z0-9\-_.]/g, "");
@@ -157,25 +157,32 @@ export function createInbox(
     throw new Error(`Inbox ${address} already exists`);
   }
 
-  let ed25519Pub: Uint8Array;
-  try {
-    ed25519Pub = bs58.decode(solanaPublicKey);
-    if (ed25519Pub.length !== 32) throw new Error("Invalid key length");
-  } catch {
-    throw new Error("Invalid Solana public key (expected base58-encoded Ed25519 key)");
+  // E2E encryption (NaCl box) needs a Solana Ed25519 key. When a valid one is
+  // supplied, key the inbox to it so the server can't read messages. Otherwise
+  // — e.g. the owner is paying on Base, whose EVM key isn't a NaCl key — fall
+  // back to server-side encryption (AES-256-GCM, decrypted on read after an
+  // x402 ownership proof). Inboxes work on either chain; E2E is opt-in.
+  let publicKeyB64: string | undefined;
+  let e2eEnabled = false;
+  if (solanaPublicKey) {
+    try {
+      const ed25519Pub = bs58.decode(solanaPublicKey);
+      if (ed25519Pub.length !== 32) throw new Error("len");
+      publicKeyB64 = encodeBase64(ed25519PubToX25519(ed25519Pub));
+      e2eEnabled = true;
+    } catch {
+      e2eEnabled = false; // not a valid Solana key → server-side encryption
+    }
   }
-
-  const x25519Pub = ed25519PubToX25519(ed25519Pub);
-  const publicKeyB64 = encodeBase64(x25519Pub);
 
   const inbox: EmailInbox = {
     id: uuid(),
     address,
     localPart,
     owner,
-    publicKey: publicKeyB64,
-    solanaPublicKey,
-    e2eEnabled: true, // Default to E2E encryption — we can't read agent emails
+    ...(publicKeyB64 ? { publicKey: publicKeyB64 } : {}),
+    ...(e2eEnabled && solanaPublicKey ? { solanaPublicKey } : {}),
+    e2eEnabled,
     createdAt: new Date().toISOString(),
     active: true,
   };
@@ -185,16 +192,25 @@ export function createInbox(
 
   return {
     ...inbox,
-    decryptionGuide: {
-      note: "E2E encrypted — messages encrypted with your wallet's public key. Only you can decrypt.",
-      encryption: "NaCl box (X25519 + XSalsa20-Poly1305)",
-      steps: [
-        "1. GET /email/inboxes/:id/messages (x402 payment from your wallet)",
-        "2. Messages returned as ciphertext — we cannot read them",
-        "3. Strip the 'w:' prefix, base64-decode to bytes B. ephemeralPub = B.slice(0,32); nonce = B.slice(32,56); ciphertext = B.slice(56).",
-        "4. Convert your Ed25519 secret key to X25519, then nacl.box.open(ciphertext, nonce, ephemeralPub, yourX25519SecretKey).",
-      ],
-    },
+    decryptionGuide: e2eEnabled
+      ? {
+          note: "E2E encrypted — messages encrypted with your wallet's public key. Only you can decrypt.",
+          encryption: "NaCl box (X25519 + XSalsa20-Poly1305)",
+          steps: [
+            "1. GET /email/inboxes/:id/messages (x402 payment from your wallet)",
+            "2. Messages returned as ciphertext — we cannot read them",
+            "3. Strip the 'w:' prefix, base64-decode to bytes B. ephemeralPub = B.slice(0,32); nonce = B.slice(32,56); ciphertext = B.slice(56).",
+            "4. Convert your Ed25519 secret key to X25519, then nacl.box.open(ciphertext, nonce, ephemeralPub, yourX25519SecretKey).",
+          ],
+        }
+      : {
+          note: "Server-side encrypted (AES-256-GCM). GET /email/inboxes/:id/messages with an x402 payment from the owning wallet and the server returns plaintext once ownership is proven. Works on any chain.",
+          encryption: "AES-256-GCM (per-inbox server key)",
+          steps: [
+            "1. GET /email/inboxes/:id/messages (x402 payment from the owning wallet, Base or Solana)",
+            "2. Messages are returned as plaintext after the payment proves you own the inbox.",
+          ],
+        },
   };
 }
 

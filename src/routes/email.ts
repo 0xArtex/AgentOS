@@ -8,6 +8,7 @@ import { db } from "../db";
 import { setDomainDnsRecords, type DnsHostRecord } from "../services/namecheap";
 import { config } from "../config";
 import { extractClaimedSvmPayer } from "../middleware/x402-svm-verify";
+import { refundAndRespond } from "../services/refund";
 
 const router = Router();
 
@@ -32,13 +33,15 @@ router.post("/provision", validateInboxInputs, requireAuth(2.0, "email", {
       return;
     }
 
-    const solanaPublicKey = walletAddress || req.body.solanaPublicKey;
-    if (!solanaPublicKey) {
-      res.status(400).json({
-        error: "Missing wallet address",
-        message: "Provide 'walletAddress' (Solana base58 public key)",
-      });
-      return;
+    // E2E (NaCl) needs a Solana key; use one if it's a valid Solana pubkey
+    // (explicit or the payer). Otherwise the inbox is owned by the payer with
+    // server-side encryption — works on Base too. The key is optional.
+    const candidateKey = walletAddress || req.body.solanaPublicKey || req.payment?.payer;
+    let solanaPublicKey: string | undefined;
+    if (candidateKey) {
+      try {
+        if (require("bs58").decode(String(candidateKey)).length === 32) solanaPublicKey = String(candidateKey);
+      } catch { /* not a Solana key → server-side encryption */ }
     }
 
     const owner = req.agentId || req.payment?.payer || "unknown";
@@ -77,8 +80,7 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
   const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
   if (!paymentHeader) { next(); return; }
 
-  const { name, walletAddress, solanaPublicKey: spk, domain } = req.body || {};
-  const key = walletAddress || spk;
+  const { name, domain } = req.body || {};
   if (!name) {
     res.status(400).json({ error: "Missing 'name'" });
     return;
@@ -87,45 +89,10 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
     res.status(400).json({ error: "Invalid inbox name" });
     return;
   }
-  // walletAddress is optional — defaults to the x402 payer in the route handler.
-  // Only validate if explicitly provided (to catch EVM addresses before taking payment).
-  if (key) {
-    try {
-      const bs58 = require('bs58');
-      const decoded = bs58.decode(String(key));
-      if (decoded.length !== 32) throw new Error();
-    } catch {
-      res.status(400).json({
-        error: "Invalid walletAddress",
-        message: "Email inboxes require a Solana public key (base58, 32 bytes). EVM addresses are not supported for this endpoint because the E2E encryption uses Ed25519→X25519.",
-        hint: "Omit walletAddress to default to your paying wallet, or pass a Solana base58 address.",
-      });
-      return;
-    }
-  } else {
-    // No explicit walletAddress: the route would fall back to req.payment.payer
-    // as the inbox owner / encryption key. That's a Solana pubkey when the
-    // payer is on Solana, but an EVM 0x address when the payer is on Base —
-    // which then 500s deep inside createInbox. Detect EVM-network payments
-    // here so the user gets a clear 400 BEFORE the paywall settles, instead
-    // of paying $2 to find out their pay chain doesn't match the email
-    // crypto.
-    try {
-      const decoded = JSON.parse(Buffer.from(paymentHeader, "base64").toString("utf8"));
-      const network: string | undefined = decoded?.accepted?.network || decoded?.network;
-      if (typeof network === "string" && network.startsWith("eip155:")) {
-        res.status(400).json({
-          error: "Invalid walletAddress",
-          message: "Pass --wallet <vault_id|name|sol_pubkey> when paying on Base — email inboxes are owned by a Solana pubkey (E2E uses Ed25519). The CLI auto-fills this from your paying wallet's Solana address if you use the latest version. Your wallet has NOT been charged.",
-          hint: "Solana-paid calls work without --wallet (the payer is already a Solana pubkey).",
-        });
-        return;
-      }
-    } catch {
-      // Header isn't structured x402 — fall through and let requireAuth
-      // surface the format error.
-    }
-  }
+  // walletAddress is fully optional: an inbox is owned by the x402 payer on
+  // EITHER chain. A valid Solana key (explicit, or a Solana payer) turns on E2E
+  // encryption; a Base payer gets server-side encryption. So there's nothing to
+  // reject on the key pre-payment — both chains are valid here.
 
   // Pre-payment domain ownership check: if the caller is requesting a custom
   // domain, verify the *claimed* payer in their unsigned payment header owns
@@ -135,24 +102,23 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
   if (domain) {
     const normalized = String(domain).toLowerCase().trim();
     if (normalized && normalized !== config.emailDomain) {
+      // Best-effort: extractClaimedSvmPayer only reads the Solana payer. On a
+      // Base payment it returns null — skip the pre-check and let the
+      // post-payment handler verify ownership (req.payment.payer is chain-
+      // agnostic) and refund on a mismatch.
       const claimedPayer = extractClaimedSvmPayer(String(paymentHeader));
-      if (!claimedPayer) {
-        res.status(400).json({
-          error: "Could not parse payment header",
-          message: "Domain ownership cannot be verified before charging — refusing to proceed. Your wallet has NOT been charged.",
-        });
-        return;
-      }
-      const owns = db
-        .prepare("SELECT 1 FROM domains WHERE domain = ? AND owner = ? AND status != ?")
-        .get(normalized, claimedPayer, "expired");
-      if (!owns) {
-        res.status(403).json({
-          error: "Domain not owned by this wallet",
-          message: `Wallet ${claimedPayer} does not own '${normalized}'. Register it first via POST /domains/register, or omit 'domain' to default to ${config.emailDomain}.`,
-          hint: "Your wallet has NOT been charged — this check ran before payment.",
-        });
-        return;
+      if (claimedPayer) {
+        const owns = db
+          .prepare("SELECT 1 FROM domains WHERE domain = ? AND owner = ? AND status != ?")
+          .get(normalized, claimedPayer, "expired");
+        if (!owns) {
+          res.status(403).json({
+            error: "Domain not owned by this wallet",
+            message: `Wallet ${claimedPayer} does not own '${normalized}'. Register it first via POST /domains/register, or omit 'domain' to default to ${config.emailDomain}.`,
+            hint: "Your wallet has NOT been charged — this check ran before payment.",
+          });
+          return;
+        }
       }
     }
   }
@@ -183,12 +149,16 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
     domain?: string;
   };
   const owner = req.agentId || req.payment?.payer || "unknown";
-  // Encryption key defaults to the paying wallet — agent owns its own inbox
-  // in 99% of cases. Explicit walletAddress is only needed for delegation.
-  const encryptionKey = walletAddress || spk || req.payment?.payer;
-  if (!encryptionKey) {
-    res.status(401).json({ error: "Could not determine encryption key (no walletAddress provided and no x402 payer)" });
-    return;
+  // E2E (NaCl box) needs a Solana Ed25519 key — use one if explicitly given, or
+  // if the payer itself is a Solana pubkey. A Base (EVM) payer isn't a NaCl key,
+  // so the inbox is owned by `owner` with server-side encryption instead. Either
+  // chain works; E2E is opt-in by supplying a Solana address.
+  const candidateKey = walletAddress || spk || req.payment?.payer;
+  let encryptionKey: string | undefined;
+  if (candidateKey) {
+    try {
+      if (require("bs58").decode(String(candidateKey)).length === 32) encryptionKey = String(candidateKey);
+    } catch { /* not a Solana key → server-side encryption */ }
   }
 
   // If a custom domain is requested, verify the calling wallet owns it. The
@@ -202,9 +172,13 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         ? db.prepare('SELECT 1 FROM domains WHERE domain = ? AND owner = ? AND status != ?').get(normalized, ownerKey, 'expired')
         : undefined;
       if (!row) {
-        res.status(403).json({
-          error: "Forbidden",
-          message: `Domain '${normalized}' is not registered to this wallet. Register it first via POST /domains/register, or omit 'domain' to default to ${config.emailDomain}.`,
+        // Settled before this check (the Solana pre-check is best-effort and is
+        // skipped for Base payers), so refund rather than charge-then-fail.
+        await refundAndRespond(req, res, {
+          reason: `Inbox domain '${normalized}' not owned by payer`,
+          userMessage: `Domain '${normalized}' is not registered to this wallet — your payment is being refunded. Register it first via POST /domains/register, or omit 'domain' to default to ${config.emailDomain}.`,
+          errorLabel: "Forbidden",
+          httpStatus: 403,
         });
         return;
       }
