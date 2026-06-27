@@ -301,16 +301,45 @@ export async function validateCreateServerBody(req: AuthenticatedRequest, res: R
   const effectiveLocation = location || config.hcloudLocation;
   if (!computeService.isTypeAvailableInLocation(serverType, effectiveLocation)) {
     const where = computeService.locationsForType(serverType);
-    // Auto-redirect when the caller didn't pin a location and the type is live
-    // in another datacenter: same type, same price — just a different DC. This
-    // keeps a deploy (and any i402 plan that contains one) from dying on a
-    // transient regional sell-out instead of finding the capacity that exists.
-    // We only hard-fail when the caller EXPLICITLY chose this location (respect
-    // their pin) or the type is genuinely sold out everywhere.
-    if (location === undefined && where.length > 0) {
-      (req.body as any).location = where[0];
-      res.set('X-Compute-Location-Reselected', where[0]);
+    if (location === undefined) {
+      // Caller is flexible on placement — auto-resolve to what Hetzner actually
+      // has stock of, instead of failing the request (and any i402 plan it's
+      // part of). The deploy fee is a flat $6 regardless of type, so neither
+      // move changes what's charged at the paywall.
+      if (where.length > 0) {
+        // Same type, just a different datacenter.
+        (req.body as any).location = where[0];
+        res.set('X-Compute-Location-Reselected', where[0]);
+      } else {
+        // Sold out everywhere → substitute the cheapest same-architecture,
+        // no-downgrade type that's actually available (never a random type, and
+        // never a cross-arch swap that could break the install recipe/image).
+        const sub = computeService.pickAvailableSubstitute(serverType);
+        if (sub) {
+          (req.body as any).serverType = sub.type;
+          (req.body as any).location = sub.location;
+          res.set('X-Compute-Type-Reselected', sub.type);
+          res.set('X-Compute-Location-Reselected', sub.location);
+        } else if (computeService.isTypeSupportedInLocation(serverType, effectiveLocation)) {
+          res.status(409).json({
+            error: 'Out of capacity',
+            message: `Server type '${serverType}' is sold out across all datacenters and no equivalent type is available right now. You have not been charged.`,
+            availableIn: where,
+            hint: 'Pick another type via GET /compute/plans (free), or retry later.',
+          });
+          return;
+        } else {
+          res.status(400).json({
+            error: 'Type not available in location',
+            message: `Server type '${serverType}' is not deployable in location '${effectiveLocation}'. You have not been charged.`,
+            availableIn: where,
+            hint: 'GET /compute/locations (free) to see per-location availability.',
+          });
+          return;
+        }
+      }
     } else if (computeService.isTypeSupportedInLocation(serverType, effectiveLocation)) {
+      // Caller explicitly pinned this location — respect it; point at alternatives.
       res.status(409).json({
         error: 'Out of capacity',
         message: `Server type '${serverType}' is temporarily out of capacity in '${effectiveLocation}'. You have not been charged.`,

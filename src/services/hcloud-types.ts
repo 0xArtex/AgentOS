@@ -291,6 +291,35 @@ export function describeServerType(name: string): ServerPlan | undefined {
 }
 
 /**
+ * When the requested server type is sold out everywhere, pick the best
+ * SAFE substitute that Hetzner actually has stock of right now:
+ *   - same architecture (so the install recipe / image still runs),
+ *   - no spec downgrade (>= vcpu, ram, disk),
+ *   - cheapest first, then closest size.
+ * Returns the substitute type + an available location, or null when nothing
+ * safe is available (caller should then surface the real sold-out error). This
+ * is deterministic and availability-driven — never a random type.
+ */
+export function pickAvailableSubstitute(requestedType: string): { type: string; location: string } | null {
+  const req = describeServerType(requestedType);
+  if (!req) return null;
+  const candidates = getServerPlans()
+    .filter(
+      (p) =>
+        p.type !== requestedType &&
+        p.arch === req.arch &&
+        p.vcpu >= req.vcpu &&
+        p.ram >= req.ram &&
+        p.disk >= req.disk
+    )
+    .map((p) => ({ p, locs: locationsForType(p.type) }))
+    .filter((x) => x.locs.length > 0)
+    .sort((a, b) => a.p.hetznerMonthly - b.p.hetznerMonthly || a.p.vcpu - b.p.vcpu);
+  const best = candidates[0];
+  return best ? { type: best.p.type, location: best.locs[0] } : null;
+}
+
+/**
  * Locations the user can target with `--location` on deploy. Each entry
  * carries the city/country/network_zone and the list of server-type names
  * currently deployable there.

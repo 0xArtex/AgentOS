@@ -41,28 +41,31 @@ import { validateCreateServerBody } from "../routes/compute";
 // cax11 (id 2): supported in fsn1 + nbg1 but only AVAILABLE in nbg1 → sold
 //               out in fsn1 (the default location).
 // cx22 (id 3): deprecated → must not appear in plans at all.
+// cax9 (id 4): arm, smaller than cax11, supported in fsn1 + nbg1 but AVAILABLE
+//              in neither → sold out everywhere (drives the type-substitute path).
 const SERVER_TYPES = {
   server_types: [
     mkType(1, "cx23", false),
     mkType(2, "cax11", false),
     mkType(3, "cx22", true),
+    mkType(4, "cax9", false, 1, 2),
   ],
   meta: { pagination: { next_page: null } },
 };
 const DATACENTERS = {
   datacenters: [
-    mkDc("fsn1-dc14", "fsn1", [1, 2, 3], [1]),
-    mkDc("nbg1-dc3", "nbg1", [1, 2], [1, 2]),
+    mkDc("fsn1-dc14", "fsn1", [1, 2, 3, 4], [1]),
+    mkDc("nbg1-dc3", "nbg1", [1, 2, 4], [1, 2]),
   ],
   meta: { pagination: { next_page: null } },
 };
 
-function mkType(id: number, name: string, deprecated: boolean) {
+function mkType(id: number, name: string, deprecated: boolean, cores = 2, memory = 4) {
   return {
     id,
     name,
-    cores: 2,
-    memory: 4,
+    cores,
+    memory,
     disk: 40,
     cpu_type: "shared",
     architecture: name.startsWith("cax") ? "arm" : "x86",
@@ -207,6 +210,27 @@ describe("compute preflight", () => {
       assert.equal(res.statusCode, 0);
       assert.equal(req.body.location, "nbg1");
       assert.equal(res.headers["X-Compute-Location-Reselected"], "nbg1");
+    });
+
+    it("substitutes a same-arch, no-downgrade available type when the requested type is sold out everywhere", async () => {
+      // cax9 (arm, 1c/2g) is supported but available in no DC. The cheapest
+      // same-arch type with stock and no spec downgrade is cax11 (arm, 2c/4g) in nbg1.
+      const { res, nextCalled, req } = await runPreflight({ name: "box", serverType: "cax9" });
+      assert.equal(nextCalled, true);
+      assert.equal(res.statusCode, 0);
+      assert.equal(req.body.serverType, "cax11");
+      assert.equal(req.body.location, "nbg1");
+      assert.equal(res.headers["X-Compute-Type-Reselected"], "cax11");
+      assert.equal(res.headers["X-Compute-Location-Reselected"], "nbg1");
+    });
+
+    it("respects an explicit location pin — no silent substitution", async () => {
+      // cax11 pinned to fsn1 (sold out there, live in nbg1) still 409s rather
+      // than moving the caller who asked for a specific datacenter.
+      const { res, nextCalled } = await runPreflight({ name: "box", serverType: "cax11", location: "fsn1" });
+      assert.equal(nextCalled, false);
+      assert.equal(res.statusCode, 409);
+      assert.deepEqual(res.body.availableIn, ["nbg1"]);
     });
 
     it("passes a deployable request through", async () => {

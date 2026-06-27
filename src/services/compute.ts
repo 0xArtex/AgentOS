@@ -648,6 +648,7 @@ export {
   isTypeAvailableInLocation,
   isTypeSupportedInLocation,
   locationsForType,
+  pickAvailableSubstitute,
   ensureFreshAvailability,
   hasLocationData,
   isValidServerType,
