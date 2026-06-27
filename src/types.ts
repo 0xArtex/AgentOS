@@ -81,11 +81,13 @@ export interface EmailInbox {
   /** e.g. "agent-name" portion of agent-name@palmyr.ai */
   localPart: string;
   owner: string;
-  /** X25519 public key derived from Solana wallet (base64) */
-  publicKey: string;
-  /** Solana Ed25519 public key (base58) — the wallet that owns this inbox */
-  solanaPublicKey: string;
-  /** If true, messages are encrypted with wallet key (E2E) — server can't read */
+  /** X25519 public key derived from a Solana wallet (base64). Absent on
+   *  server-encrypted inboxes (owner pays on Base, or no Solana key supplied). */
+  publicKey?: string;
+  /** Solana Ed25519 public key (base58) — present only for E2E inboxes. */
+  solanaPublicKey?: string;
+  /** If true, messages are E2E-encrypted with the wallet key (server can't read).
+   *  If false/absent, server-side AES with decrypt-on-read after an x402 proof. */
   e2eEnabled?: boolean;
   createdAt: string;
   active: boolean;
