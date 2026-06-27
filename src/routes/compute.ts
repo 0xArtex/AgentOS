@@ -311,42 +311,51 @@ export async function validateCreateServerBody(req: AuthenticatedRequest, res: R
         (req.body as any).location = where[0];
         res.set('X-Compute-Location-Reselected', where[0]);
       } else {
-        // Sold out everywhere → substitute the cheapest same-architecture,
-        // no-downgrade type that's actually available (never a random type, and
-        // never a cross-arch swap that could break the install recipe/image).
+        // Sold out everywhere → substitute the cheapest no-downgrade type Hetzner
+        // actually has stock of. Prefer the same architecture (keeps the image /
+        // install recipe valid); cross architectures only when no same-arch box
+        // has stock anywhere — a working box beats a failed launch. Never random;
+        // deploy fee is a flat $6, so it's price-neutral at the paywall.
         const sub = computeService.pickAvailableSubstitute(serverType);
         if (sub) {
           (req.body as any).serverType = sub.type;
           (req.body as any).location = sub.location;
           res.set('X-Compute-Type-Reselected', sub.type);
           res.set('X-Compute-Location-Reselected', sub.location);
-        } else if (computeService.isTypeSupportedInLocation(serverType, effectiveLocation)) {
-          res.status(409).json({
-            error: 'Out of capacity',
-            message: `Server type '${serverType}' is sold out across all datacenters and no equivalent type is available right now. You have not been charged.`,
-            availableIn: where,
-            hint: 'Pick another type via GET /compute/plans (free), or retry later.',
-          });
-          return;
+          if (sub.crossArch) res.set('X-Compute-Arch-Changed', 'true');
         } else {
-          res.status(400).json({
-            error: 'Type not available in location',
-            message: `Server type '${serverType}' is not deployable in location '${effectiveLocation}'. You have not been charged.`,
-            availableIn: where,
-            hint: 'GET /compute/locations (free) to see per-location availability.',
+          // Nothing deployable meets the request — surface a clear, actionable
+          // error that lists exactly what IS available right now.
+          const availableTypes = computeService
+            .getServerPlans()
+            .filter((p: any) => computeService.locationsForType(p.type).length > 0)
+            .map((p: any) => p.type);
+          res.status(409).json({
+            error: 'Server type sold out',
+            message: `Server type '${serverType}' is sold out across all Hetzner datacenters, and no larger type has stock to substitute right now. You have not been charged.`,
+            requestedType: serverType,
+            availableTypes,
+            hint: availableTypes.length
+              ? `Currently deployable: ${availableTypes.join(', ')}. Pick one (GET /compute/plans is free), or retry shortly.`
+              : 'No server types are deployable right now — retry shortly.',
           });
           return;
         }
       }
     } else if (computeService.isTypeSupportedInLocation(serverType, effectiveLocation)) {
       // Caller explicitly pinned this location — respect it; point at alternatives.
+      const availableTypes = computeService
+        .getServerPlans()
+        .filter((p: any) => computeService.locationsForType(p.type).length > 0)
+        .map((p: any) => p.type);
       res.status(409).json({
         error: 'Out of capacity',
-        message: `Server type '${serverType}' is temporarily out of capacity in '${effectiveLocation}'. You have not been charged.`,
+        message: `Server type '${serverType}' is sold out in '${effectiveLocation}'. You have not been charged.`,
         availableIn: where,
+        availableTypes,
         hint: where.length > 0
-          ? `Retry with \`location\` set to one of: ${where.join(', ')} — or pick another type via GET /compute/plans?location=${effectiveLocation}.`
-          : 'This type is currently sold out everywhere. Pick another type via GET /compute/plans, or retry later.',
+          ? `This type is live in: ${where.join(', ')} — retry with \`location\` set to one of those. Or pick another type (GET /compute/plans is free).`
+          : `This type is sold out everywhere. Currently deployable types: ${availableTypes.join(', ') || '(none right now)'}.`,
       });
       return;
     } else {
