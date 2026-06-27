@@ -301,7 +301,16 @@ export async function validateCreateServerBody(req: AuthenticatedRequest, res: R
   const effectiveLocation = location || config.hcloudLocation;
   if (!computeService.isTypeAvailableInLocation(serverType, effectiveLocation)) {
     const where = computeService.locationsForType(serverType);
-    if (computeService.isTypeSupportedInLocation(serverType, effectiveLocation)) {
+    // Auto-redirect when the caller didn't pin a location and the type is live
+    // in another datacenter: same type, same price — just a different DC. This
+    // keeps a deploy (and any i402 plan that contains one) from dying on a
+    // transient regional sell-out instead of finding the capacity that exists.
+    // We only hard-fail when the caller EXPLICITLY chose this location (respect
+    // their pin) or the type is genuinely sold out everywhere.
+    if (location === undefined && where.length > 0) {
+      (req.body as any).location = where[0];
+      res.set('X-Compute-Location-Reselected', where[0]);
+    } else if (computeService.isTypeSupportedInLocation(serverType, effectiveLocation)) {
       res.status(409).json({
         error: 'Out of capacity',
         message: `Server type '${serverType}' is temporarily out of capacity in '${effectiveLocation}'. You have not been charged.`,
@@ -311,16 +320,17 @@ export async function validateCreateServerBody(req: AuthenticatedRequest, res: R
           : 'This type is currently sold out everywhere. Pick another type via GET /compute/plans, or retry later.',
       });
       return;
+    } else {
+      res.status(400).json({
+        error: 'Type not available in location',
+        message: `Server type '${serverType}' is not deployable in location '${effectiveLocation}'. You have not been charged.`,
+        availableIn: where,
+        hint: where.length > 0
+          ? `Try one of: ${where.join(', ')}.`
+          : 'GET /compute/locations (free) to see per-location availability.',
+      });
+      return;
     }
-    res.status(400).json({
-      error: 'Type not available in location',
-      message: `Server type '${serverType}' is not deployable in location '${effectiveLocation}'. You have not been charged.`,
-      availableIn: where,
-      hint: where.length > 0
-        ? `Try one of: ${where.join(', ')}.`
-        : 'GET /compute/locations (free) to see per-location availability.',
-    });
-    return;
   }
 
   if (install !== undefined) {
