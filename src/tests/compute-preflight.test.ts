@@ -114,7 +114,7 @@ async function runPreflight(body: Record<string, unknown>) {
   const res = mkRes();
   let nextCalled = false;
   await validateCreateServerBody(req, res, () => { nextCalled = true; });
-  return { res, nextCalled };
+  return { res, nextCalled, req };
 }
 
 describe("compute preflight", () => {
@@ -199,11 +199,14 @@ describe("compute preflight", () => {
       assert.deepEqual(res.body.availableIn, ["nbg1"]);
     });
 
-    it("applies the same capacity check when location is omitted (default location)", async () => {
-      const { res, nextCalled } = await runPreflight({ name: "box", serverType: "cax11" });
-      assert.equal(nextCalled, false);
-      assert.equal(res.statusCode, 409);
-      assert.equal(res.body.error, "Out of capacity");
+    it("auto-redirects to an available location when the default is sold out and no location was pinned", async () => {
+      // cax11 is sold out in the default fsn1 but live in nbg1. With no explicit
+      // location, the preflight reselects nbg1 and proceeds instead of 409ing.
+      const { res, nextCalled, req } = await runPreflight({ name: "box", serverType: "cax11" });
+      assert.equal(nextCalled, true);
+      assert.equal(res.statusCode, 0);
+      assert.equal(req.body.location, "nbg1");
+      assert.equal(res.headers["X-Compute-Location-Reselected"], "nbg1");
     });
 
     it("passes a deployable request through", async () => {
