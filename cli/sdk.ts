@@ -1498,6 +1498,29 @@ export class Palmyr {
 
         const latencyMs = Date.now() - startMs
         priorOutputs[step.step_id] = output
+
+        // After buying a pooled X account, persist it to the local social vault
+        // so later rebrand/post steps in the SAME plan can resolve its handle —
+        // injectSocialCredentials only reads the local vault, so without this the
+        // buy → rebrand chain breaks with "account not in local vault".
+        if (step.capability === 'twitter_buy_account' && output?.account?.username) {
+          try {
+            const sv = await import('./social-vault.js')
+            const a = output.account
+            if (!sv.getAccount('twitter', a.username)) {
+              const ct0 = Array.isArray(a.cookies) ? a.cookies.find((c: any) => c?.name === 'ct0')?.value : undefined
+              const summary = sv.importAccount('twitter', a.username, {
+                login: a.credentials?.login || a.credentials?.email || a.username,
+                password: a.credentials?.password,
+                email: a.credentials?.email,
+                auth_token: a.credentials?.auth_token,
+                ct0,
+              }, { source: 'i402-buy', proxy_session_id: a.proxy_session_id, country: a.country || undefined })
+              if (Array.isArray(a.cookies) && a.cookies.length > 0) sv.saveSession(summary.id, 'twitter', a.cookies)
+            }
+          } catch { /* non-fatal: the rebrand step will surface a clear vault error if this didn't take */ }
+        }
+
         yield {
           type: 'step_result',
           stepId: step.step_id,
