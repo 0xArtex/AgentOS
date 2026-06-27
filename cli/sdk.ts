@@ -368,12 +368,32 @@ export class Palmyr {
   public token?: string
   public passphrase?: string
   private autoPay: boolean
+  private payerSolanaAddress?: string | null
 
   constructor(apiUrl?: string, autoPay?: boolean, token?: string, passphrase?: string) {
     this.api = apiUrl || process.env.PALMYR_API || DEFAULT_API
     this.token = token || process.env.PALMYR_TOKEN || process.env.PALMYR_API_KEY
     this.passphrase = passphrase || process.env.PALMYR_WALLET_PASSPHRASE
     this.autoPay = autoPay ?? true
+  }
+
+  // The Solana address of the wallet that pays (config.defaultPayWalletId, else
+  // PALMYR_PAY_WALLET, else the first vault wallet with a Solana key). Needed to
+  // own Solana-keyed resources (email inboxes) when the agent is paying on Base.
+  private async resolvePayerSolanaAddress(): Promise<string | undefined> {
+    if (this.payerSolanaAddress !== undefined) return this.payerSolanaAddress || undefined
+    try {
+      const { listVaultWallets } = await import('./vault.js')
+      const { loadConfig } = await import('./config.js')
+      const cfg: any = loadConfig()
+      const targetId = cfg.defaultPayWalletId || process.env.PALMYR_PAY_WALLET
+      const wallets = listVaultWallets()
+      const w = (targetId && wallets.find((x: any) => x.id === targetId)) || wallets.find((x: any) => x.solanaAddress)
+      this.payerSolanaAddress = w?.solanaAddress ?? null
+    } catch {
+      this.payerSolanaAddress = null
+    }
+    return this.payerSolanaAddress || undefined
   }
 
   private async request(method: string, path: string, body?: Record<string, unknown>): Promise<any> {
@@ -1392,6 +1412,15 @@ export class Palmyr {
             }
             yield next.value
           }
+        }
+
+        // Email inboxes are owned by a Solana pubkey (Ed25519 → X25519 E2E). When
+        // paying on Base the x402 payer is an EVM address the route can't use as
+        // the owner, so inject the paying wallet's Solana address here — the same
+        // auto-fill the standalone `email create` does.
+        if (step.capability === 'provision_email_inbox' && injectedInput && typeof injectedInput === 'object' && !injectedInput.walletAddress) {
+          const sol = await this.resolvePayerSolanaAddress()
+          if (sol) injectedInput.walletAddress = sol
         }
 
         // Substitute {placeholder} path params from input → concrete URL + pruned body
