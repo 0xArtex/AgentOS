@@ -16,6 +16,7 @@ import { isSelfHosted } from "../services/self-hosted";
 import {
   poolAdd,
   poolBuy,
+  availablePoolCountries,
   poolStatus,
   poolMarkDead,
   poolShare,
@@ -1343,8 +1344,8 @@ router.post(
       const paidAmount = req.payment
         ? Number(req.payment.amountLamports) / 1_000_000
         : undefined;
-      const result = poolBuy({
-        platform: "twitter",
+      const buyArgs = {
+        platform: "twitter" as const,
         country: country ? country.toUpperCase() : undefined,
         age_category,
         source: source ? String(source).toLowerCase() : undefined,
@@ -1364,25 +1365,40 @@ router.post(
               amount_usdc: paidAmount ?? 0,
             }
           : undefined,
-      });
+      };
+      let result = poolBuy(buyArgs);
+      // Pool rows are mostly untagged for age_category, so an `age_category`
+      // filter usually matches nothing. If that's the only thing blocking the
+      // buy, relax it (price is by country → this stays price-neutral) and try
+      // once more before refunding — delivering an available account beats a
+      // hard "no match". poolBuy reserves nothing on a miss, so the retry is safe.
+      if (!result.success && age_category) {
+        result = poolBuy({ ...buyArgs, age_category: undefined });
+      }
       if (!result.success) {
         // The x402 paywall settles USDC on-chain BEFORE this handler runs, so a
         // wallet payer has already paid by the time poolBuy reports no matching
         // inventory. Refund them — otherwise it's a charge with no delivery, the
         // exact trust-breaker the treasury rotation was about. Balance/dashboard
         // payers (no req.payment) aren't charged on a 4xx, so just relay the body.
+        // Either way, list what IS in stock so the caller can adjust the filter.
+        const availableCountries = availablePoolCountries("twitter");
+        const optionsHint = availableCountries.length
+          ? ` Currently in stock: ${availableCountries.join(", ")} (plus untagged accounts that match when you don't set a country). Drop the filter or pick one of these.`
+          : "";
         if (req.payment) {
           await refundAndRespond(req, res, {
             reason: result.error || "No matching accounts in pool",
             userMessage:
               (result.error || "No matching accounts in pool") +
-              " — your payment is being refunded.",
+              " — your payment is being refunded." +
+              optionsHint,
             errorLabel: "No matching accounts",
             httpStatus: 409,
-            extra: { available: false },
+            extra: { available: false, availableCountries },
           });
         } else {
-          res.status(409).json(result);
+          res.status(409).json({ ...result, availableCountries });
         }
         return;
       }

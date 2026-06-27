@@ -432,6 +432,22 @@ export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
   };
 }
 
+/**
+ * The distinct countries that currently have READY stock for a platform — used
+ * to give a no-match buy a clear, actionable error ("in stock now: US, BR, …")
+ * instead of a bare "no matching accounts".
+ */
+export function availablePoolCountries(platform: string): string[] {
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT country FROM social_account_pool
+       WHERE platform = ? AND status = 'ready' AND country IS NOT NULL AND country <> ''
+       ORDER BY country`
+    )
+    .all(platform) as Array<{ country: string }>;
+  return rows.map((r) => r.country);
+}
+
 export interface PoolStatusResult {
   total: number;
   ready: number;
