@@ -42,20 +42,25 @@ import { validateCreateServerBody } from "../routes/compute";
 //               out in fsn1 (the default location).
 // cx22 (id 3): deprecated → must not appear in plans at all.
 // cax9 (id 4): arm, smaller than cax11, supported in fsn1 + nbg1 but AVAILABLE
-//              in neither → sold out everywhere (drives the type-substitute path).
+//              in neither → sold out everywhere (drives the same-arch substitute).
+// cax31 (id 5): arm, 8c/16g, supported but AVAILABLE nowhere → no same-arch box
+//               can substitute it (cax11 is a downgrade), forcing a cross-arch pick.
+// cx53 (id 6): x86, 8c/16g, AVAILABLE in nbg1 → the cross-arch substitute for cax31.
 const SERVER_TYPES = {
   server_types: [
     mkType(1, "cx23", false),
     mkType(2, "cax11", false),
     mkType(3, "cx22", true),
     mkType(4, "cax9", false, 1, 2),
+    mkType(5, "cax31", false, 8, 16),
+    mkType(6, "cx53", false, 8, 16),
   ],
   meta: { pagination: { next_page: null } },
 };
 const DATACENTERS = {
   datacenters: [
-    mkDc("fsn1-dc14", "fsn1", [1, 2, 3, 4], [1]),
-    mkDc("nbg1-dc3", "nbg1", [1, 2, 4], [1, 2]),
+    mkDc("fsn1-dc14", "fsn1", [1, 2, 3, 4, 5, 6], [1]),
+    mkDc("nbg1-dc3", "nbg1", [1, 2, 4, 5, 6], [1, 2, 6]),
   ],
   meta: { pagination: { next_page: null } },
 };
@@ -222,6 +227,19 @@ describe("compute preflight", () => {
       assert.equal(req.body.location, "nbg1");
       assert.equal(res.headers["X-Compute-Type-Reselected"], "cax11");
       assert.equal(res.headers["X-Compute-Location-Reselected"], "nbg1");
+      assert.equal(res.headers["X-Compute-Arch-Changed"], undefined); // same arch (arm→arm)
+    });
+
+    it("crosses architecture only when no same-arch box has stock (arm sold out everywhere → x86 substitute)", async () => {
+      // cax31 (arm, 8c/16g) is sold out everywhere and no same-arch box can
+      // substitute it (cax11 is a downgrade), so it falls back to cx53 (x86, 8c/16g).
+      const { res, nextCalled, req } = await runPreflight({ name: "box", serverType: "cax31" });
+      assert.equal(nextCalled, true);
+      assert.equal(res.statusCode, 0);
+      assert.equal(req.body.serverType, "cx53");
+      assert.equal(req.body.location, "nbg1");
+      assert.equal(res.headers["X-Compute-Type-Reselected"], "cx53");
+      assert.equal(res.headers["X-Compute-Arch-Changed"], "true");
     });
 
     it("respects an explicit location pin — no silent substitution", async () => {

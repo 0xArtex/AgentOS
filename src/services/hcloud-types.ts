@@ -300,14 +300,17 @@ export function describeServerType(name: string): ServerPlan | undefined {
  * safe is available (caller should then surface the real sold-out error). This
  * is deterministic and availability-driven — never a random type.
  */
-export function pickAvailableSubstitute(requestedType: string): { type: string; location: string } | null {
+export function pickAvailableSubstitute(
+  requestedType: string
+): { type: string; location: string; crossArch: boolean } | null {
   const req = describeServerType(requestedType);
   if (!req) return null;
-  const candidates = getServerPlans()
+  // No-downgrade candidates that Hetzner actually has stock of right now,
+  // cheapest first (then closest size).
+  const available = getServerPlans()
     .filter(
       (p) =>
         p.type !== requestedType &&
-        p.arch === req.arch &&
         p.vcpu >= req.vcpu &&
         p.ram >= req.ram &&
         p.disk >= req.disk
@@ -315,8 +318,12 @@ export function pickAvailableSubstitute(requestedType: string): { type: string; 
     .map((p) => ({ p, locs: locationsForType(p.type) }))
     .filter((x) => x.locs.length > 0)
     .sort((a, b) => a.p.hetznerMonthly - b.p.hetznerMonthly || a.p.vcpu - b.p.vcpu);
-  const best = candidates[0];
-  return best ? { type: best.p.type, location: best.locs[0] } : null;
+  // Prefer same architecture (keeps the requested image / install recipe valid).
+  // Only when NO same-arch box has stock anywhere do we cross architectures — a
+  // working box of another arch beats a failed launch, and standard images
+  // resolve per-arch. The crossArch flag lets the caller surface the change.
+  const pick = available.find((x) => x.p.arch === req.arch) ?? available[0];
+  return pick ? { type: pick.p.type, location: pick.locs[0], crossArch: pick.p.arch !== req.arch } : null;
 }
 
 /**
