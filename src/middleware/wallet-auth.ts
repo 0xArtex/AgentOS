@@ -29,6 +29,13 @@ export interface WalletAuthRequest extends Request {
  * Does not reject — routes decide what they need.
  */
 export function resolveWalletAuth(req: WalletAuthRequest, _res: Response, next: NextFunction): void {
+  // Never trust an inbound X-Dashboard-User: downstream balance metering / auth
+  // keys off this header, so a forged one would let a caller act as another user.
+  // Strip it up front and only re-set it below from a VALIDATED session, so the
+  // only X-Dashboard-User that survives is one this middleware vouched for (this
+  // mirrors resolveDashboardSession, which strips the same header).
+  delete req.headers["x-dashboard-user"];
+
   const authHeader = req.headers.authorization || "";
   const token = authHeader.replace(/^Bearer\s+/i, "").trim();
 
