@@ -122,11 +122,14 @@ describe("vault crypto", () => {
     it("rejects tampered ciphertext", () => {
       const { wallet, sessionSecret } = vault.createWallet("test-tamper-ct", "unmanaged");
 
-      // Read the wallet file and tamper with ciphertext
+      // Read the wallet file and tamper with ciphertext.
+      // Flip the first byte deterministically so the tamper is never a no-op —
+      // a fixed "ff" silently passes ~1/256 of runs when the byte was already 0xff.
       const fs = require("fs");
       const path = join(TEST_VAULT, "wallets", `${wallet.id}.json`);
       const data = JSON.parse(fs.readFileSync(path, "utf8"));
-      data.session_crypto.ciphertext = "ff" + data.session_crypto.ciphertext.slice(2);
+      const firstByte = data.session_crypto.ciphertext.slice(0, 2);
+      data.session_crypto.ciphertext = (firstByte === "ff" ? "00" : "ff") + data.session_crypto.ciphertext.slice(2);
       fs.writeFileSync(path, JSON.stringify(data));
 
       assert.throws(
