@@ -158,6 +158,30 @@ const USDC_SOLANA_MINT = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 const USDC_BASE_ADDRESS = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913";
 const USDC_DECIMALS = 6;
 
+// ─── Solana program ids (used for spending limit decoding) ───
+
+const SPL_TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
+const SPL_TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+
+// Programs that legitimately appear in a USDC-transfer transaction but cannot
+// themselves move USDC (compute budget, memo, ATA creation, system). When a
+// wallet has spending limits, every other top-level program is treated as an
+// opaque value mover and the transaction is denied.
+const SOLANA_BENIGN_PROGRAMS = new Set([
+  "11111111111111111111111111111111",            // System
+  "ComputeBudget111111111111111111111111111111", // ComputeBudget
+  "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL", // Associated Token Account
+  "MemoSq4gqABAXKb96qnH8TysNcWxMyWCqXgDLGmfcHr",  // Memo (v2)
+  "Memo1UhkJRfHyvLMcVucJwxXeuD728EqVDDwQDxFMNo",  // Memo (v1)
+]);
+
+// EIP-712 primary types that authorize a USDC spend (and so must be metered).
+const EVM_SPEND_AUTH_TYPES = new Set([
+  "Permit",                   // ERC-2612 allowance
+  "TransferWithAuthorization", // EIP-3009 (x402 Base payment)
+  "ReceiveWithAuthorization",  // EIP-3009
+]);
+
 // ─── Encryption primitives ───
 
 interface EncryptedBlob {
@@ -643,54 +667,147 @@ interface DecodedSpend {
   mint: string;
 }
 
-function decodeSolanaUsdcTransfer(txHex: string): DecodedSpend | null {
-  try {
-    const { VersionedTransaction, Transaction } = require("@solana/web3.js");
-    const txBytes = Buffer.from(txHex, "hex");
+/**
+ * Result of inspecting a payload against the spend decoders:
+ *   - "spend": a fully metered USDC spend (amount is the TOTAL across the tx)
+ *   - "none":  not a recognized USDC spend — undecodable
+ *   - "deny":  contains an instruction that could move value but cannot be
+ *              metered (e.g. a second SPL token transfer, an opaque program).
+ *              Must be refused outright when limits are set.
+ */
+type SpendDecode =
+  | { status: "spend"; spend: DecodedSpend }
+  | { status: "none" }
+  | { status: "deny"; reason: string };
 
-    let message: any;
-    let accountKeys: any;
+/**
+ * Deserialize a Solana payload into a message we can walk. Accepts a full
+ * (possibly partially-signed) transaction or a bare compiled message — the
+ * latter is exactly the byte string an attacker would smuggle through
+ * `signMessage`. Returns null if the bytes are not a Solana transaction/message.
+ */
+function deserializeSolanaMessage(bytes: Uint8Array): { message: any; accountKeys: any } | null {
+  const web3 = require("@solana/web3.js");
+  const buf = Buffer.from(bytes);
+  const attempts: Array<() => { message: any; accountKeys: any }> = [
+    () => {
+      const vtx = web3.VersionedTransaction.deserialize(buf);
+      return { message: vtx.message, accountKeys: vtx.message.staticAccountKeys || vtx.message.getAccountKeys?.() };
+    },
+    () => {
+      const tx = web3.Transaction.from(buf);
+      const message = tx.compileMessage();
+      return { message, accountKeys: message.accountKeys };
+    },
+    () => {
+      const message = web3.VersionedMessage.deserialize(buf);
+      return { message, accountKeys: message.staticAccountKeys || message.getAccountKeys?.() };
+    },
+    () => {
+      const message = web3.Message.from(buf);
+      return { message, accountKeys: message.accountKeys };
+    },
+  ];
+  for (const attempt of attempts) {
     try {
-      const vtx = VersionedTransaction.deserialize(txBytes);
-      message = vtx.message;
-      accountKeys = message.staticAccountKeys || message.getAccountKeys?.();
-    } catch {
-      const tx = Transaction.from(txBytes);
-      message = tx.compileMessage();
-      accountKeys = message.accountKeys;
-    }
+      const out = attempt();
+      const compiled = out.message?.compiledInstructions || out.message?.instructions || [];
+      if (compiled.length > 0) return out;
+    } catch { /* try next shape */ }
+  }
+  return null;
+}
 
-    const compiled = message.compiledInstructions || message.instructions || [];
-    const SPL_TOKEN = "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA";
-    const SPL_TOKEN_2022 = "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb";
+/**
+ * Scan a Solana transaction for USDC spends.
+ *
+ * Sums the amounts of ALL recognized USDC `TransferChecked` instructions (a
+ * single decode that returned on the first match would let a $1 first transfer
+ * mask a $50,000 second one). Any token-program instruction that is not a
+ * recognized USDC transfer, and any non-benign program, is treated as an
+ * un-meterable value mover → "deny".
+ */
+function scanSolanaSpend(txHex: string): SpendDecode {
+  let parsed: { message: any; accountKeys: any } | null;
+  try {
+    parsed = deserializeSolanaMessage(Buffer.from(txHex, "hex"));
+  } catch {
+    parsed = null;
+  }
+  if (!parsed) return { status: "none" };
 
-    for (const ix of compiled) {
-      const programIdIdx = ix.programIdIndex;
-      const programId = (accountKeys.get ? accountKeys.get(programIdIdx) : accountKeys[programIdIdx])?.toString();
-      if (programId !== SPL_TOKEN && programId !== SPL_TOKEN_2022) continue;
+  const { message, accountKeys } = parsed;
+  const keyAt = (i: number): string | undefined =>
+    (accountKeys?.get ? accountKeys.get(i) : accountKeys?.[i])?.toString();
 
-      const dataBytes: Uint8Array = ix.data instanceof Uint8Array ? ix.data : Buffer.from(ix.data, "base64");
-      if (dataBytes[0] !== 12 || dataBytes.length < 10) continue;
+  const compiled = message.compiledInstructions || message.instructions || [];
+  const transfers: DecodedSpend[] = [];
 
-      const amountRaw = Buffer.from(dataBytes.slice(1, 9)).readBigUInt64LE();
-      const decimals = dataBytes[9];
-      if (decimals !== USDC_DECIMALS) continue;
+  for (const ix of compiled) {
+    const programId = keyAt(ix.programIdIndex);
 
-      const accIdxs: number[] = ix.accountKeyIndexes || ix.accounts || [];
-      if (accIdxs.length < 4) continue;
-      const mintKey = (accountKeys.get ? accountKeys.get(accIdxs[1]) : accountKeys[accIdxs[1]])?.toString();
-      const destKey = (accountKeys.get ? accountKeys.get(accIdxs[2]) : accountKeys[accIdxs[2]])?.toString();
-      if (mintKey !== USDC_SOLANA_MINT) continue;
+    // Scaffolding that cannot move USDC — ignore.
+    if (programId && SOLANA_BENIGN_PROGRAMS.has(programId)) continue;
 
+    // Any non-token program at the top level could move value via CPI; we can't
+    // bound it, so under spending limits it must be denied.
+    if (programId !== SPL_TOKEN && programId !== SPL_TOKEN_2022) {
       return {
-        amount_usdc: Number(amountRaw) / 10 ** USDC_DECIMALS,
-        destination: destKey,
-        mint: mintKey,
+        status: "deny",
+        reason: `transaction invokes program ${programId ?? "<unknown>"} which could move funds but cannot be metered`,
       };
     }
-    return null;
+
+    const dataBytes: Uint8Array = ix.data instanceof Uint8Array ? ix.data : Buffer.from(ix.data, "base64");
+    const accIdxs: number[] = ix.accountKeyIndexes || ix.accounts || [];
+
+    // The ONLY token-program instruction we can bound is a USDC TransferChecked
+    // (opcode 12): its accounts carry the mint (must be USDC) and the data carry
+    // the checked decimals. Everything else — plain Transfer (3), Approve (4),
+    // ApproveChecked (13), TransferChecked of another mint, SetAuthority, … —
+    // moves or authorizes value we cannot price in USDC → deny.
+    const isUsdcTransferChecked =
+      dataBytes[0] === 12 &&
+      dataBytes.length >= 10 &&
+      dataBytes[9] === USDC_DECIMALS &&
+      accIdxs.length >= 4 &&
+      keyAt(accIdxs[1]) === USDC_SOLANA_MINT;
+
+    if (!isUsdcTransferChecked) {
+      return {
+        status: "deny",
+        reason: `transaction contains an SPL token instruction (opcode ${dataBytes[0]}) that cannot be metered against USDC limits`,
+      };
+    }
+
+    const amountRaw = Buffer.from(dataBytes.slice(1, 9)).readBigUInt64LE();
+    transfers.push({
+      amount_usdc: Number(amountRaw) / 10 ** USDC_DECIMALS,
+      destination: keyAt(accIdxs[2]) ?? "",
+      mint: USDC_SOLANA_MINT,
+    });
+  }
+
+  if (transfers.length === 0) return { status: "none" };
+
+  const total = transfers.reduce((sum, t) => sum + t.amount_usdc, 0);
+  return {
+    status: "spend",
+    spend: { amount_usdc: total, destination: transfers[0].destination, mint: USDC_SOLANA_MINT },
+  };
+}
+
+/**
+ * True if the raw bytes parse as a Solana transaction or compiled message with
+ * at least one instruction. Used to stop managed wallets from smuggling a
+ * transaction through `signMessage` (where no policy would run).
+ */
+function looksLikeSolanaTransaction(bytes: Uint8Array): boolean {
+  if (!bytes || bytes.length < 32) return false; // too short to be a real tx/message
+  try {
+    return deserializeSolanaMessage(bytes) !== null;
   } catch {
-    return null;
+    return false;
   }
 }
 
@@ -718,11 +835,52 @@ function decodeEvmUsdcTransfer(txHex: string): DecodedSpend | null {
   }
 }
 
-function decodeUsdcTransfer(chain: string, txHex: string): DecodedSpend | null {
+function decodeSpend(chain: string, txHex: string): SpendDecode {
   const c = chain.toLowerCase();
-  if (c === "solana" || c.startsWith("solana:")) return decodeSolanaUsdcTransfer(txHex);
-  if (c === "evm" || c === "base" || c === "ethereum" || c.startsWith("eip155:")) return decodeEvmUsdcTransfer(txHex);
-  return null;
+  if (c === "solana" || c.startsWith("solana:")) return scanSolanaSpend(txHex);
+  if (c === "evm" || c === "base" || c === "ethereum" || c.startsWith("eip155:")) {
+    // An EVM transaction carries a single call — there is no multi-instruction
+    // summation to do. Either it decodes to a USDC transfer or it doesn't.
+    const decoded = decodeEvmUsdcTransfer(txHex);
+    return decoded ? { status: "spend", spend: decoded } : { status: "none" };
+  }
+  return { status: "none" };
+}
+
+/**
+ * Decode an EIP-712 typed-data payload into the USDC spend it authorizes.
+ *
+ * A `permit` / `transferWithAuthorization` is a spend authorization every bit as
+ * powerful as a transfer — it must be metered, or refused, like one. Only USDC
+ * (the policy's unit of account) authorizations are decodable; anything else
+ * returns null and is handled by the caller. An unlimited allowance (value =
+ * MaxUint256) decodes to an astronomically large amount that exceeds any finite
+ * limit, so it is caught by the normal per-tx check.
+ */
+function decodeEvmTypedDataSpend(typed: any): DecodedSpend | null {
+  try {
+    const domain = typed?.domain || {};
+    const message = typed?.message || {};
+    const verifying = String(domain.verifyingContract || "").toLowerCase();
+    if (verifying !== USDC_BASE_ADDRESS) return null; // only meter USDC spend authorizations
+
+    const types = typed?.types || {};
+    const primary: string | undefined =
+      typed?.primaryType || Object.keys(types).find((k) => k !== "EIP712Domain");
+    if (!primary || !EVM_SPEND_AUTH_TYPES.has(primary)) return null;
+
+    const rawVal = message.value ?? message.allowance ?? message.amount;
+    if (rawVal === undefined || rawVal === null) return null;
+    const amount = BigInt(rawVal);
+
+    return {
+      amount_usdc: Number(amount) / 10 ** USDC_DECIMALS,
+      destination: String(message.to || message.spender || ""),
+      mint: USDC_BASE_ADDRESS,
+    };
+  } catch {
+    return null;
+  }
 }
 
 // ─── Policy enforcement ───
@@ -741,37 +899,29 @@ export class PolicyApprovalRequired extends Error {
   }
 }
 
-function enforcePolicy(walletId: string, chain: string, txHex: string): DecodedSpend | null {
-  const { data } = loadWalletFile(walletId);
-  const policy = data.policy;
-  if (!policy) return null;
-
-  // Chain allowlist
-  if (policy.allowed_chains && policy.allowed_chains.length > 0) {
-    const c = chain.toLowerCase();
-    const EVM_ALIASES = ["evm", "base", "ethereum"];
-    const normalizeChain = (ch: string) => EVM_ALIASES.includes(ch) ? "evm" : ch.split(":")[0];
-    const normalizedC = normalizeChain(c);
-    const allowed = policy.allowed_chains.some(a => {
-      const al = a.toLowerCase();
-      return normalizedC === normalizeChain(al) || c === al || c.startsWith(al + ":") || al.startsWith(c + ":");
-    });
-    if (!allowed) {
-      throw new Error(`Policy denied: chain "${chain}" not in allowed_chains [${policy.allowed_chains.join(", ")}]`);
-    }
+/** Throw if the policy has a chain allowlist that does not admit `chain`. */
+function enforceChainAllowlist(policy: WalletPolicy, chain: string): void {
+  if (!policy.allowed_chains || policy.allowed_chains.length === 0) return;
+  const c = chain.toLowerCase();
+  const EVM_ALIASES = ["evm", "base", "ethereum"];
+  const normalizeChain = (ch: string) => EVM_ALIASES.includes(ch) ? "evm" : ch.split(":")[0];
+  const normalizedC = normalizeChain(c);
+  const allowed = policy.allowed_chains.some(a => {
+    const al = a.toLowerCase();
+    return normalizedC === normalizeChain(al) || c === al || c.startsWith(al + ":") || al.startsWith(c + ":");
+  });
+  if (!allowed) {
+    throw new Error(`Policy denied: chain "${chain}" not in allowed_chains [${policy.allowed_chains.join(", ")}]`);
   }
+}
 
-  // If neither limit set, no need to decode
-  if (policy.per_tx_usdc == null && policy.daily_usdc == null) return null;
-
-  // Decode the transaction
-  const decoded = decodeUsdcTransfer(chain, txHex);
-  if (!decoded) {
-    throw new Error(
-      `Policy denied: cannot decode transaction. The wallet has spending limits set but the transaction does not match a recognized USDC transfer pattern.`,
-    );
-  }
-
+/**
+ * Apply the per-tx and 24h daily USDC limits to a decoded spend. Throws
+ * PolicyApprovalRequired for managed wallets (human can approve) and a plain
+ * Error for unmanaged wallets. Shared by transaction and typed-data signing so
+ * EVERY spend path is metered identically.
+ */
+function applySpendLimits(data: WalletFile, policy: WalletPolicy, decoded: DecodedSpend): void {
   // Per-tx limit
   if (policy.per_tx_usdc != null && decoded.amount_usdc > policy.per_tx_usdc) {
     if (data.mode === "managed") {
@@ -802,8 +952,72 @@ function enforcePolicy(walletId: string, chain: string, txHex: string): DecodedS
       );
     }
   }
+}
 
-  return decoded;
+function enforcePolicy(walletId: string, chain: string, txHex: string): DecodedSpend | null {
+  const { data } = loadWalletFile(walletId);
+  const policy = data.policy;
+  if (!policy) return null;
+
+  enforceChainAllowlist(policy, chain);
+
+  // If neither limit set, no need to decode
+  if (policy.per_tx_usdc == null && policy.daily_usdc == null) return null;
+
+  // Decode the transaction — sums ALL recognized USDC transfers and denies any
+  // instruction that could move value but cannot be metered.
+  const dec = decodeSpend(chain, txHex);
+  if (dec.status === "deny") {
+    throw new Error(
+      `Policy denied: ${dec.reason}. The wallet has spending limits set; refusing to sign.`,
+    );
+  }
+  if (dec.status === "none") {
+    throw new Error(
+      `Policy denied: cannot decode transaction. The wallet has spending limits set but the transaction does not match a recognized USDC transfer pattern.`,
+    );
+  }
+
+  applySpendLimits(data, policy, dec.spend);
+  return dec.spend;
+}
+
+/**
+ * Enforce policy on an EIP-712 typed-data signature. An allowance `permit` or an
+ * EIP-3009 `transferWithAuthorization` authorizes a USDC spend, so it is metered
+ * exactly like a transaction. Managed wallets may ONLY sign typed data that
+ * decodes to a bounded USDC spend authorization when limits are set — anything
+ * else (an opaque order, a non-USDC permit, an unlimited approval on a contract
+ * we can't price) is refused. Returns the decoded spend to record, or null when
+ * there is nothing to meter.
+ */
+function enforceTypedDataPolicy(data: WalletFile, chain: string, typedDataJson: string): DecodedSpend | null {
+  const policy = data.policy;
+  if (!policy) return null;
+
+  enforceChainAllowlist(policy, chain);
+
+  const hasAmountLimits = policy.per_tx_usdc != null || policy.daily_usdc != null;
+  if (!hasAmountLimits) return null;
+
+  let typed: any = null;
+  try { typed = JSON.parse(typedDataJson); } catch { /* handled below */ }
+  const decoded = typed ? decodeEvmTypedDataSpend(typed) : null;
+
+  if (decoded) {
+    applySpendLimits(data, policy, decoded);
+    return decoded;
+  }
+
+  // Not a bounded USDC spend authorization. For managed wallets this is a
+  // refusal: a typed-data signature can authorize an unbounded spend (an
+  // unlimited approval, an off-chain order) that would never hit the limits.
+  if (data.mode === "managed") {
+    throw new Error(
+      `Policy denied: managed wallets with spending limits may only sign EIP-712 payloads that decode to a bounded USDC spend authorization (permit / transferWithAuthorization). Refusing to sign this payload.`,
+    );
+  }
+  return null;
 }
 
 // ─── Signing ───
@@ -815,9 +1029,26 @@ export function signMessage(
   auth: { sessionSecret?: string; token?: string },
   encoding: "utf8" | "hex" = "utf8",
 ): SignResult {
-  const mnemonic = resolveMnemonic(walletId, auth);
+  const { data } = loadWalletFile(walletId);
   const c = chain.toLowerCase();
   const msgBytes = encoding === "hex" ? Buffer.from(message, "hex") : Buffer.from(message, "utf8");
+
+  // Managed wallets are policy-gated. Raw Solana message signing produces a bare
+  // Ed25519 signature over the given bytes — identical to a transaction
+  // signature — so a serialized transaction (or its compiled message) submitted
+  // here would be signed with ZERO limit enforcement and could then be
+  // broadcast. Refuse any payload that parses as a Solana transaction. (EVM
+  // `signMessage` is EIP-191 prefixed and can never yield a valid tx or permit
+  // signature, so it needs no such guard.)
+  const isSolana = c === "solana" || c.startsWith("solana:");
+  if (data.mode === "managed" && isSolana && looksLikeSolanaTransaction(msgBytes)) {
+    throw new Error(
+      `Policy denied: managed wallets cannot sign a raw payload that decodes to a Solana transaction. ` +
+      `Submit it through the transaction signing path so spending limits are enforced.`,
+    );
+  }
+
+  const mnemonic = resolveMnemonic(walletId, auth);
 
   if (c === "solana" || c.startsWith("solana:")) {
     const kp = deriveSolanaKeypair(mnemonic);
@@ -887,13 +1118,19 @@ export function signTypedData(
   typedDataJson: string,
   auth: { sessionSecret?: string; token?: string },
 ): SignResult {
-  const mnemonic = resolveMnemonic(walletId, auth);
+  const { data } = loadWalletFile(walletId);
   // EIP-712 is EVM-only. Fail loudly instead of silently returning an EVM
   // signature for a chain:"solana" request the caller asked to sign elsewhere.
   const c = chain.toLowerCase();
   if (!(c === "evm" || c === "base" || c === "ethereum" || c.startsWith("eip155:"))) {
     throw new Error("signTypedData (EIP-712) is only supported on EVM chains");
   }
+
+  // Enforce spending policy BEFORE decryption. A permit / transferWithAuthorization
+  // is a spend authorization and is metered exactly like a transaction.
+  const decoded = enforceTypedDataPolicy(data, chain, typedDataJson);
+
+  const mnemonic = resolveMnemonic(walletId, auth);
   const { TypedDataEncoder, SigningKey } = require("ethers");
   const hd = deriveEvmWallet(mnemonic);
 
@@ -905,6 +1142,17 @@ export function signTypedData(
   const hash = TypedDataEncoder.hash(domain, filteredTypes, message);
   const signingKey = new SigningKey(hd.privateKey);
   const sig = signingKey.sign(hash);
+
+  // Record the authorized spend so it counts toward the daily limit.
+  if (decoded) {
+    appendSpend(data.id, {
+      amount_usdc: decoded.amount_usdc,
+      chain,
+      destination: decoded.destination,
+      timestamp: Date.now(),
+    });
+  }
+
   return { signature: sig.serialized.replace("0x", ""), recoveryId: sig.v };
 }
 
