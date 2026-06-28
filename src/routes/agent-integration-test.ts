@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { fetchSsrfSafe } from "../services/email";
 
 const router = Router();
 
@@ -89,16 +90,17 @@ router.post("/", async (req: Request, res: Response) => {
   });
   
   // Test 6: Callback connectivity (if provided)
+  //
+  // The callback URL is fully attacker-controlled, and we return the probe
+  // result to the caller — that makes a naive fetch() an SSRF oracle against
+  // internal / cloud-metadata hosts. Route it through the shared SSRF-safe
+  // fetcher (src/services/email.ts:fetchSsrfSafe), which enforces HTTPS,
+  // re-resolves the host and rejects private/loopback/link-local/metadata IP
+  // ranges, and re-checks on every redirect hop.
   if (callbackUrl) {
+    const cbStart = Date.now();
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000);
-      const cbStart = Date.now();
-      const cbRes = await fetch(callbackUrl, { 
-        method: "HEAD", 
-        signal: controller.signal 
-      });
-      clearTimeout(timeout);
+      const cbRes = await fetchSsrfSafe(String(callbackUrl), { timeoutMs: 5000, maxRedirects: 2 });
       results.push({
         test: "callback_connectivity",
         status: cbRes.ok ? "pass" : "warn",
@@ -109,6 +111,7 @@ router.post("/", async (req: Request, res: Response) => {
       results.push({
         test: "callback_connectivity",
         status: "fail",
+        latencyMs: Date.now() - cbStart,
         message: `Cannot reach callback URL: ${e.message}`
       });
     }
