@@ -1,11 +1,20 @@
 import { Router, Request, Response } from "express";
 import { db } from "../db";
-import { DashboardRequest } from "../middleware/dashboard-session";
+import { DashboardRequest, requireDashboardAuth } from "../middleware/dashboard-session";
 
 const router = Router();
 
+// Every project route is private — a project's canvas_state holds node secrets
+// (wallet private keys, API keys, SSH keys). Gate the whole router on a
+// validated dashboard session so no route can be reached with only a forged
+// X-Dashboard-User header.
+router.use(requireDashboardAuth);
+
 function getUserId(req: DashboardRequest): string | null {
-  return req.dashUserId || (req.headers["x-dashboard-user"] as string) || null;
+  // Only the validated session sets req.dashUserId. NEVER trust the raw
+  // X-Dashboard-User header — it is attacker-controlled and trusting it allowed
+  // cross-tenant list/read/overwrite/delete of another user's projects.
+  return req.dashUserId || null;
 }
 
 // GET / — list all projects for user
