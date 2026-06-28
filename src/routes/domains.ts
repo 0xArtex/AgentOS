@@ -64,47 +64,106 @@ const PRICING_CACHE_DURATION = 60 * 60 * 1000; // 1 hour
 
 // namecheapRequest now imported from src/services/namecheap.ts
 
+// Approximate per-TLD base prices, used only as a DISPLAY fallback for /check
+// and /pricing when the live registrar lookup is unreachable. The money path
+// (/register) never falls back to these — it refuses rather than charge a stale
+// floor (see resolveRegisterPrice).
+const TLD_DEFAULT_PRICE: Record<string, number> = {
+  com: 18.48, net: 18.58, org: 15.98, dev: 12.98,
+  xyz: 2.20, io: 34.98, app: 12.98, ai: 79.98,
+};
+
+// Explicit allowlist of TLDs we will REGISTER (charge for). Restricting to TLDs
+// with reliable, known pricing closes the abuse where a caller registers an
+// exotic/expensive TLD for a floor price while the operator's Namecheap account
+// is debited the true (much higher) cost, then EPP-transfers the domain out.
+const SUPPORTED_REGISTER_TLDS = new Set(Object.keys(TLD_DEFAULT_PRICE));
+
 /**
- * Get pricing for a specific TLD from Namecheap
+ * Live Namecheap base price for a 1-year registration of `.tld` (incl. ICANN
+ * fee), or `null` if the registrar didn't return a usable price. Kept separate
+ * from getTldPrice so the money path can REFUSE on a null rather than charge a
+ * stale floor.
+ */
+async function fetchLiveTldPrice(tld: string): Promise<number | null> {
+  try {
+    const apiUser = process.env.NAMECHEAP_API_USER;
+    const apiKey = process.env.NAMECHEAP_API_KEY;
+    const url = `https://api.namecheap.com/xml.response?ApiUser=${apiUser}&ApiKey=${apiKey}&UserName=${apiUser}&ClientIp=${process.env.NAMECHEAP_CLIENT_IP || '77.42.89.233'}&Command=namecheap.users.getPricing&ProductType=DOMAIN&ProductCategory=REGISTER&ProductName=${tld.toLowerCase()}`;
+
+    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
+    const xml = await resp.text();
+
+    // Extract YourPrice for Duration="1" (1 year)
+    const match = xml.match(/Duration="1"[^/]*YourPrice="([^"]+)"/);
+    if (!match) return null;
+    const price = parseFloat(match[1]);
+    if (!Number.isFinite(price) || price <= 0) return null;
+    // Also add ICANN fee if present
+    const icannMatch = xml.match(/Duration="1"[^/]*YourAdditonalCost="([^"]+)"/);
+    const icann = icannMatch ? parseFloat(icannMatch[1]) : 0;
+    const total = price + (Number.isFinite(icann) ? icann : 0);
+    return total > 0 ? total : null;
+  } catch (error) {
+    console.warn(`[domains] Failed to get live pricing for .${tld}:`, error);
+    return null;
+  }
+}
+
+/**
+ * Get pricing for a specific TLD from Namecheap. Lenient: falls back to a
+ * cached/default estimate when the live lookup fails. Used by /check and
+ * /pricing where the number is a DISPLAY estimate and no money moves on it.
  */
 async function getTldPrice(tld: string): Promise<number> {
   const cacheKey = tld.toLowerCase();
   const cached = pricingCache.get(cacheKey);
-  
+
   if (cached && Date.now() - cached.timestamp < PRICING_CACHE_DURATION) {
     return cached.price;
   }
 
-  try {
-    // Query pricing for specific TLD
-    const apiUser = process.env.NAMECHEAP_API_USER;
-    const apiKey = process.env.NAMECHEAP_API_KEY;
-    const url = `https://api.namecheap.com/xml.response?ApiUser=${apiUser}&ApiKey=${apiKey}&UserName=${apiUser}&ClientIp=${process.env.NAMECHEAP_CLIENT_IP || '77.42.89.233'}&Command=namecheap.users.getPricing&ProductType=DOMAIN&ProductCategory=REGISTER&ProductName=${tld.toLowerCase()}`;
-    
-    const resp = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    const xml = await resp.text();
-    
-    // Extract YourPrice for Duration="1" (1 year)
-    const match = xml.match(/Duration="1"[^/]*YourPrice="([^"]+)"/);
-    if (match) {
-      const price = parseFloat(match[1]);
-      // Also add ICANN fee if present
-      const icannMatch = xml.match(/Duration="1"[^/]*YourAdditonalCost="([^"]+)"/);
-      const icann = icannMatch ? parseFloat(icannMatch[1]) : 0;
-      const total = price + icann;
-      pricingCache.set(cacheKey, { price: total, timestamp: Date.now() });
-      return total;
-    }
-    
-    throw new Error('Price not found in response');
-  } catch (error) {
-    console.warn(`[domains] Failed to get pricing for .${tld}:`, error);
-    const defaults: Record<string, number> = {
-      'com': 18.48, 'net': 18.58, 'org': 15.98, 'dev': 12.98,
-      'xyz': 2.20, 'io': 34.98, 'app': 12.98, 'ai': 79.98
-    };
-    return defaults[tld.toLowerCase()] || 15.98;
+  const live = await fetchLiveTldPrice(cacheKey);
+  if (live != null) {
+    pricingCache.set(cacheKey, { price: live, timestamp: Date.now() });
+    return live;
   }
+  return TLD_DEFAULT_PRICE[cacheKey] ?? 15.98;
+}
+
+export interface RegisterPrice {
+  /** Registrar base price (what the operator's account is debited). */
+  basePrice: number;
+  /** Customer-facing price with the service markup applied. */
+  finalPrice: number;
+}
+export interface RegisterPriceError {
+  error: string;
+  code: 'unsupported_tld' | 'price_unavailable';
+}
+
+/**
+ * Strict price resolution for the money path (/register). Unlike getTldPrice it:
+ *   - refuses any TLD outside the supported allowlist, and
+ *   - refuses (rather than floors) when the live registrar price can't be
+ *     resolved — so we never charge a stale floor while the operator is debited
+ *     the real, possibly much higher, price.
+ * `fetchLive` is injectable for tests.
+ */
+export async function resolveRegisterPrice(
+  tld: string,
+  fetchLive: (t: string) => Promise<number | null> = fetchLiveTldPrice,
+): Promise<RegisterPrice | RegisterPriceError> {
+  const key = tld.toLowerCase();
+  if (!SUPPORTED_REGISTER_TLDS.has(key)) {
+    return { code: 'unsupported_tld', error: `.${tld} is not supported for registration` };
+  }
+  const basePrice = await fetchLive(key);
+  if (basePrice == null || !Number.isFinite(basePrice) || basePrice <= 0) {
+    return { code: 'price_unavailable', error: `could not resolve a current registry price for .${tld}` };
+  }
+  const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
+  return { basePrice, finalPrice };
 }
 
 /**
@@ -276,9 +335,20 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
     return;
   }
 
+  // Strict, allowlisted pricing for the money path. Refuse unsupported TLDs and
+  // refuse (don't floor) when the live price can't be resolved — BEFORE charging.
   const tld = parts.slice(1).join('.');
-  const basePrice = await getTldPrice(tld);
-  const finalPrice = Math.round(basePrice * 1.25 * 100) / 100;
+  const priced = await resolveRegisterPrice(tld);
+  if ('error' in priced) {
+    res.status(422).json({
+      error: priced.error,
+      error_code: priced.code,
+      hint: 'Your wallet has NOT been charged.',
+      supported_tlds: [...SUPPORTED_REGISTER_TLDS].map(t => `.${t}`),
+    });
+    return;
+  }
+  const { basePrice, finalPrice } = priced;
 
   // Run both registrar preflight calls in parallel to stay well under edge
   // timeouts (Cloudflare 100s / nginx 60s). Availability is hard-required;
@@ -315,6 +385,19 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
     return;
   }
 
+  // Premium names carry a special (often far higher) registry price that our
+  // per-TLD pricing does NOT reflect. Charging the standard price here would
+  // debit the operator the real premium cost at create time. Refuse rather than
+  // under-charge — we only register standard-priced domains.
+  if (checkRes.value.isPremiumName) {
+    res.status(422).json({
+      error: 'Premium domains are not supported for registration',
+      error_code: 'premium_domain',
+      hint: 'Your wallet has NOT been charged. This name carries a premium registry price; only standard-priced domains are supported.',
+    });
+    return;
+  }
+
   if (balRes.status === 'fulfilled') {
     const avail = balRes.value.availableBalance;
     if (typeof avail === 'number' && avail < basePrice) {
@@ -335,6 +418,11 @@ async function requireDomainPayment(req: AuthenticatedRequest, res: Response, ne
     console.warn('[domains] Balance preflight skipped:', balRes.reason?.message || balRes.reason);
   }
 
+  // Record the exact price for the handler. A wallet payer's charge comes from
+  // the settled x402 amount (req.payment); a dashboard-balance payer has no
+  // req.payment, so the handler reads this to record what the auth middleware
+  // reserved — needed to credit it back symmetrically if the async job fails.
+  res.locals.domainRegisterPriceUsdc = finalPrice;
   return requireAuth(finalPrice, 'general')(req, res, next);
 }
 
@@ -366,7 +454,13 @@ router.post('/register', requireDomainPayment, async (req: AuthenticatedRequest,
   const owner = req.payment?.payer || req.agentId || 'unknown';
   const paymentSignature = req.payment?.signature || null;
   const paymentChain = req.payment?.chain || null;
-  const chargedUsdc = req.payment ? Number(req.payment.amountLamports) / 1_000_000 : null;
+  // Wallet payers: the authoritative charge is the settled x402 amount. Dashboard
+  // payers have no req.payment — they were metered from their balance for the
+  // price requireDomainPayment stashed; record THAT so a failed async job can
+  // credit the exact reserved amount back (symmetric with the wallet refund).
+  const reservedPrice = typeof res.locals.domainRegisterPriceUsdc === 'number'
+    ? res.locals.domainRegisterPriceUsdc : null;
+  const chargedUsdc = req.payment ? Number(req.payment.amountLamports) / 1_000_000 : reservedPrice;
   const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
 
   // Race: the domain landed in the registry between preflight and settlement (a

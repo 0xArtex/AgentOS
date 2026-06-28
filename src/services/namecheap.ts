@@ -20,9 +20,24 @@ export interface DnsHostRecord {
 
 const NAMECHEAP_CLIENT_IP = process.env.NAMECHEAP_CLIENT_IP || '77.42.89.233';
 
+// Default per-request timeout. Short enough to stay under edge timeouts
+// (Cloudflare 100s / nginx 60s) for the read/preflight calls that run INSIDE an
+// HTTP request. The money-moving `domains.create` runs in a background worker
+// and overrides this with a much longer budget (see REGISTRAR_CREATE_TIMEOUT_MS
+// in domain-registration.ts): a slow-but-successful registration that trips a
+// short client timeout looks like a failure and risks refunding a domain we
+// actually bought.
+const DEFAULT_NAMECHEAP_TIMEOUT_MS = 10000;
+
+export interface NamecheapRequestOptions {
+  /** Override the request timeout. Used by the background registration worker. */
+  timeoutMs?: number;
+}
+
 export async function namecheapRequest(
   command: string,
-  params: Record<string, string> = {}
+  params: Record<string, string> = {},
+  opts: NamecheapRequestOptions = {}
 ): Promise<NamecheapResponse> {
   const apiUser = process.env.NAMECHEAP_API_USER;
   const apiKey = process.env.NAMECHEAP_API_KEY;
@@ -47,7 +62,7 @@ export async function namecheapRequest(
   try {
     response = await fetch(url.toString(), {
       method: 'GET',
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(opts.timeoutMs ?? DEFAULT_NAMECHEAP_TIMEOUT_MS),
     });
   } catch (error: any) {
     if (error?.name === 'AbortError' || error?.name === 'TimeoutError') {

@@ -40,6 +40,24 @@ import { randomUUID } from "crypto";
 import { db } from "../db";
 import { namecheapRequest } from "./namecheap";
 import { refundUsdcToPayer, RefundOpts, RefundResult } from "./refund";
+import * as balanceService from "./balance";
+
+// The registrar's domains.create can be slow but still succeed. The client
+// timeout MUST sit well above typical registration latency: a create() that
+// trips a short timeout THROWS, and a throw is treated as ambiguous (the domain
+// may have registered past the timeout). Keeping this generous shrinks the
+// window where a real registration looks like a failure. This runs in the
+// background worker, off the HTTP request path, so a long budget is safe and
+// stays under the STUCK_AGE_MS the recovery sweep uses to decide a job is stale.
+const REGISTRAR_CREATE_TIMEOUT_MS = 90_000;
+
+// Dashboard-balance payers are identified as `dashboard:<userId>` (set by the
+// auth middleware). Unlike on-chain payers they have no payment signature/chain;
+// a failed registration is made whole by crediting their internal balance back.
+const DASHBOARD_OWNER_PREFIX = "dashboard:";
+function dashboardUserId(owner: string): string | null {
+  return owner.startsWith(DASHBOARD_OWNER_PREFIX) ? owner.slice(DASHBOARD_OWNER_PREFIX.length) : null;
+}
 
 export type DomainRegistrationStatus = "pending" | "registering" | "active" | "failed";
 
@@ -121,6 +139,13 @@ export interface DomainRegistrationDeps {
   isAvailable: (domain: string) => Promise<boolean>;
   /** Issue the on-chain refund (idempotent on the payment signature). */
   refund: (opts: RefundOpts) => Promise<RefundResult>;
+  /**
+   * Credit a dashboard-balance payer back on failure (idempotent on the job id).
+   * The dashboard identity is debited up front by the auth middleware on the
+   * 202; this returns it when the async registration ultimately fails — the
+   * symmetric equivalent of the on-chain refund a wallet payer gets.
+   */
+  refundDashboard: (userId: string, amountUsdc: number, referenceId: string, reason: string) => void;
   /** Write the `domains` registry row on success. */
   writeRegistryRow: (job: DomainRegistrationRow, orderId: string | null) => void;
 }
@@ -159,7 +184,9 @@ function namecheapCreateParams(domain: string): Record<string, string> {
 function defaultDeps(): DomainRegistrationDeps {
   return {
     create: async (domain) => {
-      const r = await namecheapRequest("namecheap.domains.create", namecheapCreateParams(domain));
+      const r = await namecheapRequest("namecheap.domains.create", namecheapCreateParams(domain), {
+        timeoutMs: REGISTRAR_CREATE_TIMEOUT_MS,
+      });
       return {
         success: !!r.success,
         registered: !!r.registered,
@@ -178,6 +205,10 @@ function defaultDeps(): DomainRegistrationDeps {
       return r.available === true;
     },
     refund: (opts) => refundUsdcToPayer(opts),
+    refundDashboard: (userId, amountUsdc, referenceId, reason) => {
+      // referenceId (the job id) makes the credit idempotent under retries.
+      balanceService.refund(userId, amountUsdc, `domain registration refund: ${reason}`, referenceId);
+    },
     writeRegistryRow: defaultWriteRegistryRow,
   };
 }
@@ -312,13 +343,19 @@ export async function runDomainRegistration(
   try {
     outcome = await deps.create(job.domain);
   } catch (createErr: any) {
-    // Unknown: the registrar may or may not have registered the domain. Resolve
-    // it with the registrar rather than guessing — never blind-refund (could
-    // refund a domain we own) or blind-fail (could strand a domain they own).
-    console.error("[domain-registration] registrar create threw — reconciling", {
+    // Unknown AND ambiguous: a throw (especially a timeout) can mean the
+    // registrar registered the domain just past our client timeout. Confirm
+    // ownership if we can (getInfo) — but do NOT let the availability heuristic
+    // refund right now: the registrar may still be settling our purchase, and a
+    // refund on a transient "available" loses BOTH the registrar cost and the
+    // USDC. Defer to the delayed recovery pass, which only refunds once the
+    // registrar has had time to settle (allowAvailabilityRefund=false here).
+    console.error("[domain-registration] registrar create threw — ambiguous, deferring to recovery", {
       domain: job.domain, jobId, error: createErr?.message || String(createErr),
     });
-    await reconcile(jobId, deps, `registrar_call_threw: ${createErr?.message || createErr}`);
+    await reconcile(jobId, deps, `registrar_call_threw: ${createErr?.message || createErr}`, {
+      allowAvailabilityRefund: false,
+    });
     return;
   }
 
@@ -360,6 +397,31 @@ function markFailed(jobId: string, code: string, message: string): void {
 // Idempotent end-to-end: refundUsdcToPayer dedups on the payment signature, and
 // re-recording the same refund_id is harmless.
 async function issueRefund(job: DomainRegistrationRow, deps: DomainRegistrationDeps, reason: string): Promise<void> {
+  // Dashboard-balance payer: there's no on-chain settlement to reverse. Credit
+  // the internal balance back instead — the symmetric counterpart to the wallet
+  // payer's on-chain refund (the auth middleware debited the reservation up
+  // front on the 202; a failed registration returns it here).
+  const dashUser = dashboardUserId(job.owner);
+  if (dashUser) {
+    if (job.charged_usdc == null || job.charged_usdc <= 0) {
+      db.prepare("UPDATE domain_registrations SET refund_status='manual_needed' WHERE id=?").run(job.id);
+      console.error("[domain-registration] [REFUND NEEDED] dashboard payer with no recorded charge", {
+        domain: job.domain, jobId: job.id, owner: job.owner,
+      });
+      return;
+    }
+    try {
+      deps.refundDashboard(dashUser, job.charged_usdc, job.id, reason);
+      db.prepare("UPDATE domain_registrations SET refund_status='sent' WHERE id=?").run(job.id);
+    } catch (e: any) {
+      db.prepare("UPDATE domain_registrations SET refund_status='failed' WHERE id=?").run(job.id);
+      console.error("[domain-registration] dashboard balance refund threw", {
+        domain: job.domain, jobId: job.id, error: e?.message || String(e),
+      });
+    }
+    return;
+  }
+
   if (!job.payment_signature || !job.payment_chain || job.charged_usdc == null) {
     // Missing payment context (e.g. legacy payment with no chain) — we can't
     // safely auto-refund. Flag for manual handling; ops sees it via the status.
@@ -395,12 +457,25 @@ async function issueRefund(job: DomainRegistrationRow, deps: DomainRegistrationD
 
 /**
  * Resolve a job of unknown outcome by asking the registrar. Used both when the
- * create call throws and by the recovery sweep. Decision:
+ * create call throws (inline) and by the delayed recovery sweep. Decision:
  *   owned at registrar      → active (no refund — payer got the domain)
- *   provably not registered → failed + refund
+ *   provably not registered → failed + refund   (ONLY when settled — see below)
  *   ambiguous/unreachable   → leave 'registering' (next pass / manual ops)
+ *
+ * The getInfo ownership oracle is ALWAYS trusted — if it confirms ownership we
+ * finalize. The availability heuristic is only allowed to drive a REFUND when
+ * `allowAvailabilityRefund` is set, i.e. from the delayed recovery pass (after
+ * the stuck-age threshold, once the registrar has had time to settle). Right
+ * after an inline create() throw the registrar may still be mid-settlement, so
+ * a transient "available" must NOT trigger a refund (that would lose both the
+ * registrar cost and the refunded USDC on a registration that actually landed).
  */
-async function reconcile(jobId: string, deps: DomainRegistrationDeps, reasonIfFailed: string): Promise<void> {
+async function reconcile(
+  jobId: string,
+  deps: DomainRegistrationDeps,
+  reasonIfFailed: string,
+  opts: { allowAvailabilityRefund: boolean }
+): Promise<void> {
   const job = getRegistrationJob(jobId);
   if (!job || (job.status !== "registering" && job.status !== "pending")) return;
 
@@ -415,30 +490,35 @@ async function reconcile(jobId: string, deps: DomainRegistrationDeps, reasonIfFa
     return;
   }
 
-  // getInfo didn't confirm ownership. Disambiguate with availability.
-  let available: boolean | null = null;
-  try {
-    available = await deps.isAvailable(job.domain);
-  } catch {
-    available = null; // registrar unreachable — can't decide now.
+  // getInfo didn't confirm ownership. The availability heuristic may only refund
+  // from the delayed (settled) recovery pass — never inline right after a throw.
+  if (opts.allowAvailabilityRefund) {
+    let available: boolean | null = null;
+    try {
+      available = await deps.isAvailable(job.domain);
+    } catch {
+      available = null; // registrar unreachable — can't decide now.
+    }
+
+    if (available === true) {
+      // Provably free AND the registrar has settled ⇒ we did not register it ⇒
+      // definitive failure ⇒ refund.
+      markFailed(jobId, "reconciled_not_registered", reasonIfFailed);
+      await issueRefund(getRegistrationJob(jobId)!, deps, reasonIfFailed);
+      return;
+    }
   }
 
-  if (available === true) {
-    // Provably free ⇒ we did not register it ⇒ definitive failure ⇒ refund.
-    markFailed(jobId, "reconciled_not_registered", reasonIfFailed);
-    await issueRefund(getRegistrationJob(jobId)!, deps, reasonIfFailed);
-    return;
-  }
-
-  // available === false (taken, but getInfo said not-ours → ambiguous) OR
-  // unreachable. Don't auto-refund on uncertainty (avoids double-loss). Leave
-  // the job 'registering' with a breadcrumb; the next reconciliation pass or
+  // Ambiguous: the registrar may still be settling (inline throw), the domain is
+  // taken but getInfo didn't confirm it's ours, or the registrar is unreachable.
+  // Never auto-refund on uncertainty (avoids the create-timeout double-loss).
+  // Leave the job 'registering' with a breadcrumb; the delayed recovery pass or
   // manual ops resolves it.
   db.prepare(
     "UPDATE domain_registrations SET status='registering', error=?, error_code='reconcile_unresolved', started_at=COALESCE(started_at, ?) WHERE id=?"
   ).run(reasonIfFailed, nowIso(), jobId);
-  console.error("[domain-registration] [RECONCILE UNRESOLVED] could not determine registrar outcome", {
-    domain: job.domain, jobId, available,
+  console.error("[domain-registration] [RECONCILE UNRESOLVED] deferring to delayed recovery pass", {
+    domain: job.domain, jobId, allowAvailabilityRefund: opts.allowAvailabilityRefund,
   });
 }
 
@@ -452,39 +532,69 @@ async function reconcile(jobId: string, deps: DomainRegistrationDeps, reasonIfFa
 //   - 'registering' jobs (worker may have called the registrar): reconcile.
 const STUCK_AGE_MS = 2 * 60 * 1000;
 
+// Don't let two sweeps overlap (startup + interval, or a slow sweep + the next
+// tick): reconcile makes external registrar/refund calls, and overlapping passes
+// could double-process the same job.
+let recoveryInFlight = false;
+
 export async function recoverStuckDomainRegistrations(
   deps: DomainRegistrationDeps = defaultDeps()
 ): Promise<void> {
-  const cutoff = new Date(Date.now() - STUCK_AGE_MS).toISOString();
-  const stuck = db
-    .prepare(
-      "SELECT * FROM domain_registrations WHERE status IN ('pending','registering') AND created_at < ? ORDER BY created_at ASC"
-    )
-    .all(cutoff) as DomainRegistrationRow[];
-  if (stuck.length === 0) return;
+  if (recoveryInFlight) return;
+  recoveryInFlight = true;
+  try {
+    const cutoff = new Date(Date.now() - STUCK_AGE_MS).toISOString();
+    const stuck = db
+      .prepare(
+        "SELECT * FROM domain_registrations WHERE status IN ('pending','registering') AND created_at < ? ORDER BY created_at ASC"
+      )
+      .all(cutoff) as DomainRegistrationRow[];
+    if (stuck.length === 0) return;
 
-  console.log(`[domain-registration] reconciling ${stuck.length} stuck registration(s) on startup`);
-  for (const job of stuck) {
-    try {
-      if (job.status === "pending") {
-        // Force the pending-guard to apply: re-run the worker.
-        await runDomainRegistration(job.id, deps);
-      } else {
-        await reconcile(job.id, deps, "server_restarted_mid_registration");
+    console.log(`[domain-registration] reconciling ${stuck.length} stuck registration(s)`);
+    for (const job of stuck) {
+      try {
+        if (job.status === "pending") {
+          // Force the pending-guard to apply: re-run the worker.
+          await runDomainRegistration(job.id, deps);
+        } else {
+          // This is the DELAYED pass: the job has sat past STUCK_AGE_MS, so the
+          // registrar has had time to settle and the availability heuristic is
+          // now trustworthy enough to drive a refund when getInfo can't confirm
+          // ownership.
+          await reconcile(job.id, deps, "server_restarted_mid_registration", {
+            allowAvailabilityRefund: true,
+          });
+        }
+      } catch (e: any) {
+        console.error("[domain-registration] recovery pass failed for job", { jobId: job.id, error: e?.message || String(e) });
       }
-    } catch (e: any) {
-      console.error("[domain-registration] recovery pass failed for job", { jobId: job.id, error: e?.message || String(e) });
     }
+  } finally {
+    recoveryInFlight = false;
   }
 }
 
+// How often the delayed recovery pass runs after boot. A job deferred inline by
+// an ambiguous create() throw sits in 'registering' until a sweep reconciles it;
+// without a periodic pass it would wait until the next restart. 5 minutes is
+// comfortably past STUCK_AGE_MS so a freshly-deferred job settles on the very
+// next tick rather than lingering for a redeploy.
+const RECOVERY_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+
 // Recovery is NOT an import side-effect: it makes external registrar/refund
 // calls and must not fire merely because a route (or a test) imported this
-// module. The server triggers it explicitly once at startup.
+// module. The server triggers it explicitly once at startup, then on an interval
+// so inline-deferred jobs are reconciled without waiting for a redeploy.
 export function startDomainRegistrationRecovery(): void {
   setImmediate(() => {
     recoverStuckDomainRegistrations().catch((e) =>
       console.error("[domain-registration] startup recovery error:", e?.message || String(e))
     );
   });
+  setInterval(() => {
+    recoverStuckDomainRegistrations().catch((e) =>
+      console.error("[domain-registration] periodic recovery error:", e?.message || String(e))
+    );
+  }, RECOVERY_SWEEP_INTERVAL_MS).unref();
 }
