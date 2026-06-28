@@ -22,6 +22,9 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import express from "express";
 
+import nacl from "tweetnacl";
+import bs58 from "bs58";
+
 import { db, initDatabase } from "../db";
 import agentRoutes from "../routes/agents";
 import agentCommsRoutes from "../routes/agent-comms";
@@ -42,8 +45,24 @@ function b58Wallet(seed: string): string {
   const cleaned = seed.split("").filter(c => B58.includes(c)).join("");
   return (cleaned + "1".repeat(44)).slice(0, 44);
 }
-const WALLET = b58Wallet("Reg" + SUFFIX);
+
+// Registration now requires proof of wallet control: the caller signs
+// `palmyr-register:<wallet>:<timestamp>` with the wallet's key. Use a REAL
+// Ed25519 keypair so the base58 pubkey is a valid Solana address AND we can
+// produce a verifying signature.
+const KP = nacl.sign.keyPair();
+const WALLET = bs58.encode(Buffer.from(KP.publicKey));
 const AGENT_NAME = "regtest-agent-" + SUFFIX;
+
+// Build a signed registration body for our keypair (fresh timestamp each call).
+function signedRegistration(name: string, extra: Record<string, unknown> = {}) {
+  const signatureTimestamp = Date.now();
+  const message = `palmyr-register:${WALLET}:${signatureTimestamp}`;
+  const signature = bs58.encode(
+    Buffer.from(nacl.sign.detached(new TextEncoder().encode(message), KP.secretKey)),
+  );
+  return { name, walletAddress: WALLET, signature, signatureTimestamp, ...extra };
+}
 
 async function launchTestServer(): Promise<{ port: number; close: () => Promise<void> }> {
   const app = express();
@@ -135,11 +154,11 @@ describe("POST /agents/register", () => {
   after(async () => { await ctx.close(); });
 
   it("registers an agent and returns an aos_ token auth can resolve", async () => {
-    const res = await httpPostJson(ctx.port, "/agents/register", {
-      name: AGENT_NAME,
-      walletAddress: WALLET,
-      description: "regression test agent",
-    });
+    const res = await httpPostJson(
+      ctx.port,
+      "/agents/register",
+      signedRegistration(AGENT_NAME, { description: "regression test agent" }),
+    );
 
     assert.equal(res.status, 201, JSON.stringify(res.body));
     assert.ok(res.body.token, "response must include a token");
@@ -177,13 +196,41 @@ describe("POST /agents/register", () => {
   });
 
   it("rejects a duplicate wallet with 409", async () => {
-    // WALLET was already registered in the first test.
-    const res = await httpPostJson(ctx.port, "/agents/register", {
-      name: "dup-" + SUFFIX,
-      walletAddress: WALLET,
-    });
+    // WALLET was already registered in the first test. Sign a fresh proof so we
+    // pass the wallet-control check and reach the duplicate check.
+    const res = await httpPostJson(ctx.port, "/agents/register", signedRegistration("dup-" + SUFFIX));
     assert.equal(res.status, 409);
     assert.match(res.body.error, /Wallet Already Registered/i);
+  });
+
+  it("rejects binding a wallet with NO signature (401)", async () => {
+    // The core of the registration-takeover fix: a wallet can't be bound without
+    // proof of control, so an attacker can't register a victim's wallet.
+    const res = await httpPostJson(ctx.port, "/agents/register", {
+      name: "unsigned-" + SUFFIX,
+      walletAddress: bs58.encode(Buffer.from(nacl.sign.keyPair().publicKey)),
+    });
+    assert.equal(res.status, 401, JSON.stringify(res.body));
+    assert.match(res.body.error, /Wallet Proof Required/i);
+  });
+
+  it("rejects a signature from a DIFFERENT wallet (401)", async () => {
+    // Victim's address, but signed by the attacker's key → must not verify.
+    const victim = bs58.encode(Buffer.from(nacl.sign.keyPair().publicKey));
+    const attacker = nacl.sign.keyPair();
+    const signatureTimestamp = Date.now();
+    const message = `palmyr-register:${victim}:${signatureTimestamp}`;
+    const signature = bs58.encode(
+      Buffer.from(nacl.sign.detached(new TextEncoder().encode(message), attacker.secretKey)),
+    );
+    const res = await httpPostJson(ctx.port, "/agents/register", {
+      name: "spoof-" + SUFFIX,
+      walletAddress: victim,
+      signature,
+      signatureTimestamp,
+    });
+    assert.equal(res.status, 401, JSON.stringify(res.body));
+    assert.match(res.body.error, /Invalid Wallet Signature/i);
   });
 });
 

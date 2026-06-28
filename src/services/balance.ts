@@ -99,6 +99,38 @@ export function debit(userId: string, amount: number, serviceType: string, descr
   return getBalance(userId);
 }
 
+/**
+ * Atomically reserve (debit) `amount` only if the balance can cover it.
+ *
+ * The conditional `WHERE balance_usdc >= ?` makes the check-and-debit a SINGLE
+ * statement, so two concurrent callers can never both pass the check and then
+ * both debit (the TOCTOU that a separate getBalance()-then-debit() opens). The
+ * loser of the race sees `changes === 0` and is told there are insufficient
+ * funds. The ledger row is written in the same transaction (same desync
+ * rationale as debit()). Returns true if the reservation succeeded.
+ *
+ * Used by dashboard metering to reserve before a handler runs, then refund() on
+ * failure — so paid infra can't be over-provisioned under concurrency.
+ */
+export function reserve(userId: string, amount: number, serviceType: string, description: string): boolean {
+  if (amount <= 0) return true;
+  ensureUser(userId);
+
+  const apply = db.transaction(() => {
+    const res = db.prepare(
+      "UPDATE balances SET balance_usdc = balance_usdc - ?, total_spent = total_spent + ?, updated_at = datetime('now') WHERE user_id = ? AND balance_usdc >= ?"
+    ).run(amount, amount, userId, amount);
+    if (res.changes === 0) return false; // insufficient balance — nothing debited
+
+    db.prepare(
+      "INSERT INTO balance_transactions (id, user_id, type, amount_usdc, description, service_type, created_at) VALUES (?, ?, 'debit', ?, ?, ?, datetime('now'))"
+    ).run(crypto.randomUUID(), userId, amount, description, serviceType);
+    return true;
+  });
+
+  return apply() as boolean;
+}
+
 export function refund(userId: string, amount: number, description: string, referenceId?: string): Balance {
   ensureUser(userId);
 

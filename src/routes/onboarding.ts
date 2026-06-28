@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { randomBytes, randomInt } from "crypto";
 import { db } from "../db";
 
 const router = Router({ mergeParams: true });
@@ -27,8 +28,11 @@ router.post("/quickstart", (req: Request, res: Response) => {
     return;
   }
 
-  const agentId = `agent_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const token = `agt_${Array.from({ length: 48 }, () => Math.random().toString(36)[2]).join("")}`;
+  // CSPRNG for the agent id and bearer token. Math.random() is a non-crypto PRNG
+  // whose internal state is recoverable from a few outputs, which would make
+  // issued `agt_` tokens forgeable — use crypto.randomBytes, matching agents.ts.
+  const agentId = `agent_${Date.now()}_${randomBytes(4).toString("hex")}`;
+  const token = `agt_${randomBytes(24).toString("hex")}`;
   const now = new Date().toISOString();
 
   db.prepare(
@@ -36,14 +40,14 @@ router.post("/quickstart", (req: Request, res: Response) => {
      VALUES (?, ?, ?, ?, ?, ?, ?)`
   ).run(agentId, name, description || null, walletAddress || null, webhookUrl || null, token, now);
 
-  const phoneId = `ph_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
-  const phoneNumber = `+1555${Math.floor(1000000 + Math.random() * 9000000)}`;
+  const phoneId = `ph_${Date.now()}_${randomBytes(3).toString("hex")}`;
+  const phoneNumber = `+1555${randomInt(1000000, 10000000)}`;
   db.prepare(
     `INSERT INTO phone_numbers (id, phone_number, country, owner, provisioned_at, active)
      VALUES (?, ?, 'US', ?, ?, 1)`
   ).run(phoneId, phoneNumber, agentId, now);
 
-  const emailId = `em_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+  const emailId = `em_${Date.now()}_${randomBytes(3).toString("hex")}`;
   const emailAddress = `${name.toLowerCase().replace(/[^a-z0-9]/g, "")}@agent.palmyr.dev`;
   db.prepare(
     `INSERT INTO email_inboxes (id, address, owner, created_at, active)
@@ -81,7 +85,7 @@ router.get("/guide", (_req: Request, res: Response) => {
       { step: 4, title: "Use Resources", endpoints: ["POST /phone/numbers/:id/sms", "POST /email/inboxes/:id/send"] },
       { step: 5, title: "Monitor", endpoints: ["GET /agents/:id", "GET /agents/:id/resources", "GET /activity"] },
     ],
-    hackathon: { mode: "FREE until Feb 12, 2026", limits: "5 phones, 5 emails, 2 servers per agent", auth: "X-Agent-Id header (any string)" },
+    hackathon: { mode: "FREE until Feb 12, 2026", limits: "5 phones, 5 emails, 2 servers per agent", auth: "Authorization: Bearer <agent token> (from register/quickstart), an x402 payment, or a wallet-signed X-Agent-Id" },
   });
 });
 
