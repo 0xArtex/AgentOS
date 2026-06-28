@@ -63,13 +63,20 @@ describe("auth + data-scoping route fixes", () => {
 
   const aliceName = `alice-${s}`;
   const aliceWallet = `WALLETA${s}`;
+  const aliceToken = "agt_a_" + crypto.randomBytes(6).toString("hex");
   const bobName = `bob-${s}`;
   const bobWallet = `WALLETB${s}`;
+  const bobToken = "agt_b_" + crypto.randomBytes(6).toString("hex");
+  // Authenticated calls present a real agent token (the unforgeable Method-1
+  // path). A bare X-Agent-Id header is intentionally NOT accepted as identity
+  // anymore (it would let anyone assume a victim's wallet for free), so these
+  // tests use the token they were registered with.
+  const bearer = (token: string) => ({ authorization: "Bearer " + token });
 
   before(async () => {
     delete process.env.PALMYR_SELF_HOSTED; // never bypass auth in this test
-    insertAgent(aliceName, aliceWallet, "agt_a_" + crypto.randomBytes(6).toString("hex"));
-    insertAgent(bobName, bobWallet, "agt_b_" + crypto.randomBytes(6).toString("hex"));
+    insertAgent(aliceName, aliceWallet, aliceToken);
+    insertAgent(bobName, bobWallet, bobToken);
 
     const app = express();
     app.use(express.json());
@@ -103,7 +110,7 @@ describe("auth + data-scoping route fixes", () => {
       const { status, json } = await request(
         port, "POST", "/api/invoice",
         { recipient: "acme", items: [{ quantity: 2, unit_price: 5 }] },
-        { "x-agent-id": aliceName },
+        bearer(aliceToken),
       );
       assert.equal(status, 201, JSON.stringify(json));
       assert.equal(json.total, 10);
@@ -112,16 +119,16 @@ describe("auth + data-scoping route fixes", () => {
     });
 
     it("lists only the caller's invoices", async () => {
-      const alice = await request(port, "GET", "/api/invoice", undefined, { "x-agent-id": aliceName });
+      const alice = await request(port, "GET", "/api/invoice", undefined, bearer(aliceToken));
       assert.equal(alice.json.count, 1);
-      const bob = await request(port, "GET", "/api/invoice", undefined, { "x-agent-id": bobName });
+      const bob = await request(port, "GET", "/api/invoice", undefined, bearer(bobToken));
       assert.equal(bob.json.count, 0);
     });
 
     it("won't let another agent pay your invoice", async () => {
-      const bob = await request(port, "POST", `/api/invoice/${invoiceId}/pay`, {}, { "x-agent-id": bobName });
+      const bob = await request(port, "POST", `/api/invoice/${invoiceId}/pay`, {}, bearer(bobToken));
       assert.equal(bob.status, 404);
-      const alice = await request(port, "POST", `/api/invoice/${invoiceId}/pay`, {}, { "x-agent-id": aliceName });
+      const alice = await request(port, "POST", `/api/invoice/${invoiceId}/pay`, {}, bearer(aliceToken));
       assert.equal(alice.status, 200);
       assert.equal(alice.json.status, "paid");
     });
@@ -130,9 +137,10 @@ describe("auth + data-scoping route fixes", () => {
   describe("whoami", () => {
     const waName = `who-${s}`;
     const waWallet = `WALLETW${s}`;
+    const waToken = "agt_w_" + crypto.randomBytes(6).toString("hex");
 
     before(() => {
-      insertAgent(waName, waWallet, "agt_w_" + crypto.randomBytes(6).toString("hex"));
+      insertAgent(waName, waWallet, waToken);
       db.prepare("INSERT INTO phone_numbers (id, phone_number, country, owner, provisioned_at, active) VALUES (?, ?, ?, ?, datetime('now'), 1)")
         .run(`ph-${s}`, `+1555${s}`.slice(0, 15), "US", waWallet);
       db.prepare("INSERT INTO email_inboxes (id, address, local_part, owner, created_at, active) VALUES (?, ?, ?, ?, datetime('now'), 1)")
@@ -154,7 +162,7 @@ describe("auth + data-scoping route fixes", () => {
     });
 
     it("returns owner-scoped resources for the authenticated identity (no 500)", async () => {
-      const { status, json } = await request(port, "GET", "/api/whoami", undefined, { "x-agent-id": waName });
+      const { status, json } = await request(port, "GET", "/api/whoami", undefined, bearer(waToken));
       assert.equal(status, 200, JSON.stringify(json));
       assert.equal(json.registered, true);
       assert.equal(json.wallet_address, waWallet);
@@ -164,7 +172,7 @@ describe("auth + data-scoping route fixes", () => {
     });
 
     it("does not leak another agent's resources", async () => {
-      const { json } = await request(port, "GET", "/api/whoami", undefined, { "x-agent-id": bobName });
+      const { json } = await request(port, "GET", "/api/whoami", undefined, bearer(bobToken));
       assert.equal(json.resources.phones, 0);
       assert.equal(json.resources.emails, 0);
       assert.equal(json.resources.servers, 0);
