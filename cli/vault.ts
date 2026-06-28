@@ -22,6 +22,34 @@ interface EncryptedBlob {
   salt: string
   ciphertext: string
   tag: string
+  // scrypt KDF parameters for passphrase-derived blobs (`owner_crypto`). Absent
+  // on `session_crypto` (raw-key AES, no KDF) and on legacy passphrase blobs
+  // written before per-blob params existed — those decrypt at LEGACY_SCRYPT_N so
+  // old vaults keep opening. New passphrase blobs always record their params, so
+  // the cost can be raised without bricking existing wallets.
+  kdf?: ScryptParams
+}
+
+interface ScryptParams { N: number; r: number; p: number; keyLen: number }
+
+// Passphrase-derivation cost. Aligned with the trading keystore
+// (wallet-trading-keystore.ts: N=2^17, "Phantom-grade") — the custody vault that
+// protects the same mnemonic must not be weaker than the keystore. `maxmem` must
+// accommodate 128*N*r (~128 MiB at N=2^17). Parameters are stored per-blob so
+// EXISTING blobs (no `kdf` field) still decrypt at the old Node default.
+const SCRYPT_N = 131_072
+const SCRYPT_R = 8
+const SCRYPT_P = 1
+const SCRYPT_KEYLEN = 32
+const SCRYPT_MAXMEM = 256 * 1024 * 1024
+const LEGACY_SCRYPT_N = 16_384 // Node's scryptSync default — used by pre-1.13.9 vaults
+
+function deriveScryptKey(passphrase: string, salt: Buffer, kdf?: ScryptParams): Buffer {
+  const N = kdf?.N ?? LEGACY_SCRYPT_N
+  const r = kdf?.r ?? SCRYPT_R
+  const p = kdf?.p ?? SCRYPT_P
+  const keyLen = kdf?.keyLen ?? SCRYPT_KEYLEN
+  return scryptSync(passphrase, salt, keyLen, { N, r, p, maxmem: SCRYPT_MAXMEM })
 }
 
 interface WalletFile {
@@ -69,7 +97,9 @@ function decryptWithRawKey(blob: EncryptedBlob, keyHex: string): string {
 
 function decryptWithPassphrase(blob: EncryptedBlob, passphrase: string): string {
   if (!passphrase) throw new Error('Passphrase is required to decrypt wallet')
-  const key = scryptSync(passphrase, Buffer.from(blob.salt, 'hex'), 32)
+  // Use the params stored on the blob; fall back to the legacy default for blobs
+  // written before per-blob params (so existing wallets aren't bricked).
+  const key = deriveScryptKey(passphrase, Buffer.from(blob.salt, 'hex'), blob.kdf)
   const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(blob.iv, 'hex'))
   decipher.setAuthTag(Buffer.from(blob.tag, 'hex'))
   let decrypted = decipher.update(blob.ciphertext, 'hex', 'utf8')
@@ -386,7 +416,12 @@ export function normalizeChains(chains: string[] | undefined): ChainName[] {
 
 function atomicWriteFileSync(filePath: string, data: string): void {
   const tmpPath = filePath + `.tmp.${process.pid}`
-  writeFileSync(tmpPath, data)
+  // Owner-only perms (0600) — wallet files hold the encrypted seed + addresses
+  // and must not be world-readable, matching the trading keystore / social
+  // vault. The temp file is freshly created each write, so the mode applies; the
+  // rename then carries 0600 onto the final file (replacing any older 0644 copy).
+  // No-op on Windows, where ACLs (not mode bits) govern access.
+  writeFileSync(tmpPath, data, { mode: 0o600 })
   renameSync(tmpPath, filePath)
 }
 
@@ -497,7 +532,8 @@ function encryptWithPassphrase(plaintext: string, passphrase: string): Encrypted
   assertPassphrase(passphrase)
   const iv = randomBytes(12)
   const salt = randomBytes(32)
-  const key = scryptSync(passphrase, salt, 32)
+  const kdf: ScryptParams = { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, keyLen: SCRYPT_KEYLEN }
+  const key = deriveScryptKey(passphrase, salt, kdf)
   const cipher = createCipheriv('aes-256-gcm', key, iv)
   let encrypted = cipher.update(plaintext, 'utf8', 'hex')
   encrypted += cipher.final('hex')
@@ -506,6 +542,7 @@ function encryptWithPassphrase(plaintext: string, passphrase: string): Encrypted
     salt: salt.toString('hex'),
     ciphertext: encrypted,
     tag: cipher.getAuthTag().toString('hex'),
+    kdf,
   }
 }
 

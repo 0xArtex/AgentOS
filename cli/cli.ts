@@ -330,6 +330,14 @@ const WALLET_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '--chain <chain>', desc: 'Chain to sign on (required)', hint: 'solana | evm' },
     { flag: '--msg <message>', desc: 'Message to sign (required)' },
   ],
+  register: [
+    { flag: '<WALLET_ID>', desc: 'Wallet ID or name to register as an agent (positional or --id)' },
+    { flag: '--name <name>', desc: 'Agent name (≥2 chars, must be unique on the server)', hint: 'default: the wallet name' },
+    { flag: '--chain <chain>', desc: 'Which chain address becomes the agent identity', hint: 'solana (default when present) | base' },
+    { flag: '--description <text>', desc: 'Optional agent description' },
+    { flag: '--webhook-url <url>', desc: 'Optional webhook URL stored on the agent' },
+    { flag: '(proof)', desc: 'Signs `palmyr-register:<wallet>:<timestamp>` with the wallet key to prove control (Ed25519 for Solana, EIP-191 for Base). Honors PALMYR_WALLET_PASSPHRASE for headless wallets.' },
+  ],
   'api-key': [
     { flag: '<WALLET_ID>', desc: 'Wallet ID (positional or --id)' },
     { flag: '--name <name>', desc: 'API key name', hint: 'default: "cli-agent"' },
@@ -1402,7 +1410,7 @@ const GLOBAL_FLAGS: Array<{ flag: string; desc: string }> = [
   { flag: '--quiet', desc: 'Suppress decorative log lines' },
   { flag: '--no-color', desc: 'Disable ANSI color (also honors the NO_COLOR env var)' },
   { flag: '--token <api-key>', desc: 'Bearer token for authenticated calls' },
-  { flag: '--passphrase <pass>', desc: 'Wallet passphrase (or PALMYR_WALLET_PASSPHRASE env)' },
+  { flag: '--passphrase <pass>', desc: 'Wallet passphrase. PREFER the PALMYR_WALLET_PASSPHRASE env var — a value on the command line is visible to other processes (ps / Process Explorer) and lands in shell history' },
   { flag: '--max-usdc <USDC>', desc: 'Hard spend ceiling per payment; aborts before signing if exceeded (env: PALMYR_MAX_USDC)' },
 ]
 
@@ -1458,6 +1466,17 @@ async function main() {
   // runtime allocates a TTY they can't easily suppress.
   AGENT_MODE = !process.stdout.isTTY || !!flags.json || process.env.PALMYR_JSON === '1'
   setUiAgentMode(AGENT_MODE)
+
+  // A passphrase passed as a CLI flag is visible in the process list (ps, /proc,
+  // Windows Process Explorer) and lands in shell history. Warn once and point at
+  // the env var, which keeps non-TTY automation working without exposing the
+  // secret. Always to stderr so it never pollutes --json stdout.
+  if (flags.passphrase || flags['current-passphrase']) {
+    process.stderr.write(
+      '[palmyr] warning: a passphrase passed as a CLI flag is visible in the process list and shell history. ' +
+      'Prefer PALMYR_WALLET_PASSPHRASE (or PALMYR_WALLET_PASSPHRASE_CURRENT) in the environment.\n'
+    )
+  }
 
   if (flags.version) {
     // `--version` follows the universal CLI convention: a bare version string on
@@ -1903,13 +1922,15 @@ async function main() {
             const domain = flags.domain as string | undefined
             if (!name) err('--name required (e.g. palmyr email create --name hello [--domain example.com])')
             // --wallet accepts three forms: vault id, vault name, or a raw
-            // Solana base58 pubkey. The server only accepts a Solana pubkey
-            // (E2E encryption is Ed25519→X25519), so resolve id/name to a
-            // pubkey here before the request. Raw pubkeys pass through.
-            // Doing this resolution client-side also means a Base-paying user
-            // doesn't need a Solana wallet — their vault already has one
-            // (single mnemonic, both chains), and we can find it without
-            // making the server reach back for client-side keys.
+            // Solana base58 pubkey. Supplying a Solana pubkey turns ON
+            // end-to-end encryption (NaCl box, Ed25519→X25519) — only that
+            // wallet can read the inbox. E2E is OPT-IN: without a Solana key the
+            // inbox is owned by the x402 payer on EITHER chain (Base or Solana)
+            // and encrypted server-side with AES-256-GCM, decrypted on read
+            // after an ownership proof. We resolve id/name to the vault's Solana
+            // address so CLI-created inboxes default to E2E; a Base-paying user
+            // still works because one mnemonic-derived vault wallet has both
+            // addresses, found client-side without the server reaching for keys.
             let walletAddress: string | undefined
             if (walletInput) {
               const looksLikeSolPubkey = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletInput)
@@ -1920,15 +1941,15 @@ async function main() {
                 const wallets = listVaultWallets()
                 const match = wallets.find(w => w.id === walletInput || w.name === walletInput)
                 if (!match) err(`--wallet "${walletInput}" did not match any vault id, name, or look like a Solana pubkey`)
-                if (!match!.solanaAddress) err(`Wallet "${walletInput}" has no Solana address — email inboxes require one (E2E uses Ed25519). Re-create with: palmyr wallet create`)
+                if (!match!.solanaAddress) err(`Wallet "${walletInput}" has no Solana address. The CLI defaults inboxes to end-to-end encryption, which needs a Solana key. Re-create with: palmyr wallet create`)
                 walletAddress = match!.solanaAddress!
               }
             } else {
-              // No --wallet: the server would normally default the inbox owner
-              // to the x402 payer. That works for Solana-paid calls but
-              // 400s on Base because the payer is an EVM address. Auto-fill
-              // the *paying wallet's* Solana address here so a single
-              // mnemonic-derived vault wallet works on either pay chain.
+              // No --wallet: the server defaults the inbox owner to the x402
+              // payer on EITHER chain (a Base payer gets an AES, non-E2E inbox —
+              // it is no longer rejected). To keep CLI inboxes E2E by default,
+              // auto-fill the *paying wallet's* Solana address so the inbox is
+              // sealed to a Solana key regardless of which chain paid.
               const cfg = loadConfig() as any
               const payChain = (cfg.defaultPayChain || 'solana') as 'solana' | 'base'
               if (payChain === 'base') {
@@ -1937,9 +1958,9 @@ async function main() {
                 const targetId = cfg.defaultPayWalletId || process.env.PALMYR_PAY_WALLET
                 const paying = (targetId && wallets.find(w => w.id === targetId)) || wallets.find(w => w.evmAddress && w.solanaAddress)
                 if (paying?.solanaAddress) walletAddress = paying.solanaAddress
-                // If no Solana address is reachable, fall through and let the
-                // server return its actionable 400 — silent failure would be
-                // worse than a clear error.
+                // If no Solana address is reachable, fall through with no
+                // walletAddress: the server then owns the inbox to the Base
+                // payer with server-side AES (no E2E) rather than erroring.
               }
             }
             const spin = new Spinner()
@@ -2999,6 +3020,7 @@ async function main() {
               { name: 'sign-message', description: 'Sign a message', hint: 'WALLET_ID --chain evm --msg "hello"' },
               { name: 'export', description: 'Export mnemonic for backup', hint: 'WALLET_ID --confirm' },
               { name: 'rekey', description: 'Add or rotate the passphrase fallback (durable across OS-keychain loss)', hint: 'WALLET_ID --passphrase <p>' },
+              { name: 'register', description: 'Register this wallet as an agent on the server (signs a wallet-control proof) → aos_ token', hint: 'WALLET_ID [--name agent] [--chain solana|base]' },
               { name: 'api-key', description: 'Create agent API key', hint: 'WALLET_ID --name my-agent' },
               { name: 'config', description: 'Get agent config', hint: 'WALLET_ID' },
               { name: 'use', description: 'Set default pay wallet', hint: 'WALLET_ID' },
@@ -3083,9 +3105,14 @@ async function main() {
                 // phrase OR this machine's OS-keychain session secret.
                 passphrase = randomBytes(24).toString('base64url')
                 generatedPassphrase = true
-                if (!AGENT_MODE) process.stderr.write(
-                  '\n  No passphrase supplied — generated a recoverable fallback (shown below). SAVE IT:\n' +
-                  '  the wallet is decryptable via this phrase OR this machine\'s OS keychain.\n' +
+                // LOUD, mode-independent recovery note (to stderr — never
+                // pollutes --json stdout). Include the phrase itself so an agent
+                // that only captures stderr still has it: a funded wallet must
+                // not become unrecoverable just because stdout JSON was dropped.
+                process.stderr.write(
+                  '\n  No passphrase supplied — generated a recoverable fallback. SAVE IT:\n' +
+                  `      ${passphrase}\n` +
+                  '  The wallet is decryptable via this phrase OR this machine\'s OS keychain.\n' +
                   '  Re-run with --session-only to opt out of the fallback.\n\n'
                 )
               }
@@ -3268,6 +3295,7 @@ async function main() {
             // the same hole they're recovering from.
             const importSessionOnly = !!flags['session-only']
             let importPassphrase = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+            let importGeneratedPassphrase = false
             if (importPassphrase && importSessionOnly) {
               err('Pass either --passphrase / PALMYR_WALLET_PASSPHRASE OR --session-only, not both.', EXIT.BAD_INPUT)
             }
@@ -3280,12 +3308,18 @@ async function main() {
                 )
                 importPassphrase = await promptNewPassphrase('vault wallet')
               } else {
-                err(
-                  'Wallet import requires a recoverable passphrase fallback OR an explicit opt-out:\n\n' +
-                  '  PALMYR_WALLET_PASSPHRASE="<phrase>" palmyr wallet import --mnemonic "..."   # recommended\n' +
-                  '  palmyr wallet import --mnemonic "..." --passphrase "<phrase>"               # equivalent\n' +
-                  '  palmyr wallet import --mnemonic "..." --session-only                        # OPT OUT — wallet dies with this machine\'s OS keychain',
-                  EXIT.BAD_INPUT,
+                // Non-TTY parity with `wallet create`: don't dead-end on a prompt
+                // we can't render. Auto-generate a recoverable fallback and surface
+                // it LOUDLY (stderr, with the phrase) so a just-imported — possibly
+                // funded — wallet can't become unrecoverable. `--session-only`
+                // remains the explicit opt-out.
+                importPassphrase = randomBytes(24).toString('base64url')
+                importGeneratedPassphrase = true
+                process.stderr.write(
+                  '\n  No passphrase supplied — generated a recoverable fallback. SAVE IT:\n' +
+                  `      ${importPassphrase}\n` +
+                  '  The wallet is decryptable via this phrase OR this machine\'s OS keychain.\n' +
+                  '  Re-run with --session-only to opt out of the fallback.\n\n'
                 )
               }
             }
@@ -3321,8 +3355,12 @@ async function main() {
                 base: w.evmAddress,
                 tag: w.tag,
               }))
+              if (importGeneratedPassphrase) {
+                console.log(`\n  ${t.warn}Recovery passphrase (save this):${t.reset} ${importPassphrase}`)
+                console.log(`  ${t.muted}Decrypts this wallet if the OS keychain is lost. Reuse via PALMYR_WALLET_PASSPHRASE.${t.reset}`)
+              }
             } else {
-              print({ ...w, recoverable: !!importPassphrase, ...(importKeychainWarning ? { keychainWarning: importKeychainWarning } : {}) })
+              print({ ...w, recoverable: !!importPassphrase, ...(importGeneratedPassphrase ? { recoveryPassphrase: importPassphrase } : {}), ...(importKeychainWarning ? { keychainWarning: importKeychainWarning } : {}) })
             }
             break
           }
@@ -3493,6 +3531,84 @@ async function main() {
               details: [
                 { label: 'Signature', value: String(data.signature || '') },
                 ...(data.recoveryId !== undefined ? [{ label: 'Recovery ID', value: String(data.recoveryId) }] : []),
+              ],
+            }))
+            break
+          }
+          case 'register': {
+            // Register a vault wallet as an agent on the server and receive an
+            // aos_ token. The hardened server (PR #321) REQUIRES a fresh
+            // wallet-control signature: it binds the wallet→token, and the token
+            // then satisfies every ownership check, so an unsigned register would
+            // let anyone claim a victim's wallet. We sign the exact bytes the
+            // server verifies — see src/middleware/auth.ts (registerAuthMessage +
+            // verifyWalletControl) and src/routes/agents.ts (POST /register).
+            const walletId = positional[0] || (flags.id as string)
+            if (!walletId) err('Wallet ID required: palmyr wallet register <WALLET_ID> [--name <agent>] [--chain solana|base]', EXIT.BAD_INPUT)
+
+            const { listVaultWallets, signMessageLocal } = await import('./vault.js')
+            const w = listVaultWallets().find(x => x.id === walletId || x.name === walletId)
+            if (!w) err(`Wallet "${walletId}" not found. Run \`palmyr wallet list\`.`, EXIT.NOT_FOUND)
+
+            // Pick which chain's address becomes the identity. The signed message
+            // embeds whatever address we send, and the server selects Ed25519
+            // (Solana) vs EIP-191 (EVM) verification from the address format —
+            // so the address and the signing chain MUST agree.
+            const chainFlag = (flags.chain as string | undefined)?.toLowerCase()
+            let chain: 'solana' | 'base'
+            if (chainFlag === 'solana' || chainFlag === 'base') chain = chainFlag
+            else if (chainFlag === 'evm' || chainFlag === 'ethereum') chain = 'base'
+            else if (chainFlag) { err(`--chain must be 'solana' or 'base', got: ${chainFlag}`, EXIT.BAD_INPUT); chain = 'solana' }
+            else chain = w!.solanaAddress ? 'solana' : 'base'
+
+            const walletAddress = chain === 'solana' ? w!.solanaAddress : w!.evmAddress
+            if (!walletAddress) err(`Wallet "${walletId}" has no ${chain} address to register. Try --chain ${chain === 'solana' ? 'base' : 'solana'}.`, EXIT.BAD_INPUT)
+
+            const agentName = (flags.name as string) || w!.name
+            const description = (flags.description as string | undefined) || undefined
+            const webhookUrl = (flags['webhook-url'] as string | undefined) || (flags.webhook as string | undefined) || undefined
+
+            // Wallet-control proof: sign `palmyr-register:<wallet>:<ms-epoch>`.
+            // signMessageLocal returns hex; the server's decodeSignature accepts
+            // hex for both 64-byte Ed25519 and 65-byte EIP-191 signatures. The
+            // passphrase channel matches sign-message/pay so headless wallets work.
+            const signatureTimestamp = Date.now()
+            const message = `palmyr-register:${walletAddress}:${signatureTimestamp}`
+            const signPass = (flags.passphrase as string | undefined) || process.env.PALMYR_WALLET_PASSPHRASE || undefined
+            let signature: string
+            try {
+              signature = signMessageLocal(w!.id, chain, message, signPass).signature
+            } catch (e: any) {
+              err(`Could not sign the registration proof: ${e.message}`, EXIT.GENERAL)
+            }
+
+            let res: any
+            try {
+              res = await fetch(ao.api + '/agents/register', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: agentName, description, walletAddress, webhookUrl, signature: signature!, signatureTimestamp }),
+              })
+            } catch (e: any) {
+              err(`Registration request failed: ${e.message}`, EXIT.NETWORK)
+            }
+            const data = await res!.json().catch(() => ({})) as any
+            if (!res!.ok) {
+              err(`Registration failed (HTTP ${res!.status}): ${data?.message || data?.error || 'unknown error'}`, EXIT.GENERAL, data)
+            }
+
+            log(`wallet register: ${data.agent?.id ?? '?'} (${chain}, ${walletAddress})`)
+            if (AGENT_MODE) return print(data)
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'Agent registered',
+              subtitle: 'Save your token — it is shown once and cannot be recovered',
+              footerLeft: String(data.agent?.id || 'registered'),
+              details: [
+                { label: 'Token', value: String(data.token || '') },
+                { label: 'Agent ID', value: String(data.agent?.id || '') },
+                { label: 'Wallet', value: walletAddress },
+                { label: 'Chain', value: chain },
               ],
             }))
             break
@@ -5421,7 +5537,7 @@ async function main() {
 
             err(`Unknown trading-keystore subcommand: ${sub}. Try: init, unlock, lock, list, status, derive, export`, EXIT.BAD_INPUT)
           }
-          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, tags, tag, tag-delete, export, rekey, addresses, sign-message, api-key, config, use, request-approval, buy, cohort, template, positions, position, sell, sync, pnl, journal, watch, brief, doctor, pay-preflight, smoke-test, readiness, live-test, daemon, triggers, trading-keystore, evm-quote`)
+          default: err(`Unknown wallet command: ${subcommand}. Try: create, import, list, info, tags, tag, tag-delete, export, rekey, addresses, sign-message, register, api-key, config, use, request-approval, buy, cohort, template, positions, position, sell, sync, pnl, journal, watch, brief, doctor, pay-preflight, smoke-test, readiness, live-test, daemon, triggers, trading-keystore, evm-quote`)
         }
         break
       }

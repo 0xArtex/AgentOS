@@ -149,6 +149,27 @@ function deleteLinux(account: string): void {
 // session must not be unstorable just because there's no desktop keyring.)
 
 const SEALED_SUFFIX = '.sealed'
+
+// Passphrase-derivation cost for the sealed fallback. Aligned with the wallet
+// vault + trading keystore (N=2^17). `maxmem` covers 128*N*r (~128 MiB at
+// N=2^17). Params are recorded per-blob so EXISTING sealed copies (no `kdf`
+// field) still open at the old Node default — no recoverable secret is bricked.
+interface SealScryptParams { N: number; r: number; p: number; keyLen: number }
+const SCRYPT_N = 131_072
+const SCRYPT_R = 8
+const SCRYPT_P = 1
+const SCRYPT_KEYLEN = 32
+const SCRYPT_MAXMEM = 256 * 1024 * 1024
+const LEGACY_SCRYPT_N = 16_384 // Node's scryptSync default — pre-1.13.9 sealed blobs
+
+function deriveSealKey(passphrase: string, salt: Buffer, kdf?: SealScryptParams): Buffer {
+  const N = kdf?.N ?? LEGACY_SCRYPT_N
+  const r = kdf?.r ?? SCRYPT_R
+  const p = kdf?.p ?? SCRYPT_P
+  const keyLen = kdf?.keyLen ?? SCRYPT_KEYLEN
+  return scryptSync(passphrase, salt, keyLen, { N, r, p, maxmem: SCRYPT_MAXMEM })
+}
+
 function sealedPath(account: string): string {
   return join(SECRETS_DIR, `${account}${SEALED_SUFFIX}`)
 }
@@ -159,12 +180,13 @@ function getPassphrase(): string | undefined {
 function sealWithPassphrase(account: string, secret: string, passphrase: string): void {
   ensureSecretsDir()
   const salt = randomBytes(16)
-  const key = scryptSync(passphrase, salt, 32)
+  const kdf: SealScryptParams = { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, keyLen: SCRYPT_KEYLEN }
+  const key = deriveSealKey(passphrase, salt, kdf)
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key, iv)
   const ct = Buffer.concat([cipher.update(secret, 'utf8'), cipher.final()])
   const tag = cipher.getAuthTag()
-  const blob = { v: 1, salt: salt.toString('hex'), iv: iv.toString('hex'), ct: ct.toString('hex'), tag: tag.toString('hex') }
+  const blob = { v: 1, kdf, salt: salt.toString('hex'), iv: iv.toString('hex'), ct: ct.toString('hex'), tag: tag.toString('hex') }
   writeFileSync(sealedPath(account), JSON.stringify(blob), { mode: 0o600 })
 }
 function unsealWithPassphrase(account: string, passphrase: string): string | null {
@@ -172,7 +194,7 @@ function unsealWithPassphrase(account: string, passphrase: string): string | nul
   if (!existsSync(fp)) return null
   try {
     const blob = JSON.parse(readFileSync(fp, 'utf8'))
-    const key = scryptSync(passphrase, Buffer.from(blob.salt, 'hex'), 32)
+    const key = deriveSealKey(passphrase, Buffer.from(blob.salt, 'hex'), blob.kdf)
     const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(blob.iv, 'hex'))
     decipher.setAuthTag(Buffer.from(blob.tag, 'hex'))
     let pt = decipher.update(blob.ct, 'hex', 'utf8')

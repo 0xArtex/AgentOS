@@ -185,6 +185,8 @@ PALMYR_WALLET_PASSPHRASE="your-passphrase" palmyr wallet info <WALLET_ID>
 
 When set, the wallet file gets a second AES-256-GCM blob (`owner_crypto`, scrypt KDF on the passphrase + random salt). Decryption tries the OS session secret first, then falls back to `PALMYR_WALLET_PASSPHRASE` / `--passphrase`. Minimum length 8 chars. Re-running `wallet rekey` rotates — old passphrase stops working.
 
+> **Prefer the env var over `--passphrase`.** A passphrase on the command line is visible to other processes (`ps`, `/proc`, Windows Process Explorer) and lands in shell history. `PALMYR_WALLET_PASSPHRASE` (and `PALMYR_WALLET_PASSPHRASE_CURRENT` for `rekey`) keep non-TTY automation working without that exposure; on a TTY the CLI prompts interactively. The CLI prints a warning whenever `--passphrase` is used. New passphrase blobs use a stronger scrypt cost (N=2^17, matching the trading keystore); older wallets keep their stored parameters and still decrypt.
+
 ### Exporting a seed
 
 ```bash
@@ -219,12 +221,14 @@ Live-call control endpoints (speak, play, dtmf, gather, record, hangup, transfer
 
 ### Email
 
-End-to-end encrypted inboxes at `<name>@palmyr.ai`. Messages are encrypted at rest with the inbox's wallet public key (NaCl `box`, X25519 + XSalsa20-Poly1305) so the server cannot read them.
+Inboxes at `<name>@palmyr.ai` (or your own domain). An inbox is owned by the wallet that paid for it (the x402 payer) on **either chain** — Solana or Base.
+
+**Encryption is two-tier, and end-to-end is opt-in.** Supplying a **Solana** public key turns on end-to-end encryption (NaCl `box`, X25519 + XSalsa20-Poly1305): messages are sealed to that key and the server cannot read them. Without a Solana key, the inbox is encrypted **server-side with AES-256-GCM** and decrypted on read once an x402 payment proves wallet ownership (operator-decryptable). The CLI resolves your vault wallet's Solana address by default, so `palmyr email` inboxes are E2E unless you own them with a non-Solana wallet.
 
 | Command | Cost | Notes |
 |---|---|---|
-| `palmyr email create --name agent --wallet <SOL_PUBKEY>` | $2.00 | Wallet must be a base58 Solana pubkey (32 bytes). EVM addresses are rejected before payment. |
-| `palmyr email read --id <INBOX_ID>` | $0.02 | Wallet that paid must own the inbox. |
+| `palmyr email create --name agent [--wallet <SOL_PUBKEY \| vault-id \| name>] [--domain example.com]` | $2.00 | `--wallet` is optional; it defaults to your vault wallet's Solana address (which enables E2E). A Base/EVM wallet is accepted as the owner (AES-256-GCM, no E2E) — EVM addresses are **no longer rejected**. |
+| `palmyr email read --id <INBOX_ID>` | $0.02 | The wallet that paid must own the inbox. E2E inboxes return ciphertext for you to decrypt with your key; AES inboxes are decrypted server-side on read after the ownership proof. |
 | `palmyr email send --id <ID> --to a@b.com --subject "Hi" --body "..."` | $0.08 | |
 | `palmyr email threads --id <INBOX_ID>` | $0.02 | List conversation threads. |
 
@@ -444,6 +448,7 @@ All wallet operations except `addresses`, `api-key`, `config`, and `request-appr
 | `palmyr wallet tag-delete <TAG> --confirm` | local | Cascade-delete every wallet under the tag (vault file + OS-credential-store secret). Requires explicit `--confirm`. |
 | `palmyr wallet addresses <ID>` | API | Server-side derived addresses (multi-chain). |
 | `palmyr wallet sign-message <ID> --chain solana\|evm --msg "..."` | local | Sign an arbitrary message offline. |
+| `palmyr wallet register <ID> [--name agent] [--chain solana\|base] [--description ...] [--webhook-url ...]` | free | Register the wallet as an agent on the server and receive an `aos_` token. Signs a wallet-control proof (`palmyr-register:<wallet>:<timestamp>`) — Ed25519 for Solana, EIP-191 for Base — so the server can bind the wallet to the token. Optional: the CLI also pays per action via x402, where the wallet **is** the identity without a token. Honors `PALMYR_WALLET_PASSPHRASE` for headless wallets. |
 | `palmyr wallet api-key <ID> [--name N]` | API | Mint an agent API key bound to the wallet. |
 | `palmyr wallet config <ID>` | API | Pull the agent's runtime config. |
 | `palmyr wallet use <ID> [--chain solana\|base]` | local | Set default payer and payment chain. |
