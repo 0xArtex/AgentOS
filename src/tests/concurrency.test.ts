@@ -19,6 +19,7 @@ const TEST_VAULT = join(tmpdir(), `palmyr-test-concurrency-${Date.now()}`);
 process.env.PALMYR_WALLET_PATH = TEST_VAULT;
 
 import * as vault from "../services/wallet-vault";
+import * as balance from "../services/balance";
 
 describe("concurrency", () => {
   let walletId: string;
@@ -158,5 +159,45 @@ describe("concurrency", () => {
         vault.deleteWallet(id);
       }
     });
+  });
+});
+
+/**
+ * Dashboard metering: the atomic conditional debit (balance.reserve) must never
+ * over-provision under load. The previous design checked balance up front and
+ * debited later (a TOCTOU) so parallel requests could all pass the check while
+ * only some were billed. reserve()'s single `UPDATE ... WHERE balance >= ?`
+ * closes that: it can grant at most floor(balance/price) reservations and can
+ * never drive the balance negative.
+ */
+describe("balance reservation (no over-provisioning)", () => {
+  it("grants at most floor(balance/price) reservations and never goes negative", () => {
+    const user = "resv-user-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+    balance.deposit(user, 1.0, "seed-" + user, "test seed"); // exactly 4 × $0.25
+
+    const price = 0.25;
+    let granted = 0;
+    for (let i = 0; i < 12; i++) {
+      if (balance.reserve(user, price, "test", `reserve ${i}`)) granted++;
+    }
+
+    assert.equal(granted, 4, "exactly floor(1.00/0.25)=4 reservations may succeed");
+    const bal = balance.getBalance(user);
+    assert.ok(bal.balance_usdc >= 0, "balance must never go negative");
+    assert.ok(Math.abs(bal.balance_usdc) < 1e-9, "all funds reserved, $0 should remain");
+  });
+
+  it("refunds a reservation on the failed-handler path", () => {
+    const user = "resv-refund-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6);
+    balance.deposit(user, 0.5, "seed-" + user, "test seed");
+
+    assert.equal(balance.reserve(user, 0.5, "test", "reserve"), true);
+    assert.equal(balance.getBalance(user).balance_usdc, 0);
+    // A second concurrent request can't be granted — funds are already reserved.
+    assert.equal(balance.reserve(user, 0.5, "test", "should fail"), false);
+
+    // Handler failed → refund makes the user whole.
+    balance.refund(user, 0.5, "refund failed op");
+    assert.ok(Math.abs(balance.getBalance(user).balance_usdc - 0.5) < 1e-9);
   });
 });

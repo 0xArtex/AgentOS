@@ -1,8 +1,48 @@
 import { Router, Request, Response } from "express";
 import { randomBytes } from "crypto";
 import { db } from "../db";
+import {
+  isSolanaAddress,
+  isEvmAddress,
+  verifyWalletControl,
+  walletProofFresh,
+  registerAuthMessage,
+} from "../middleware/auth";
 
 const router = Router({ mergeParams: true });
+
+// Basic per-IP registration cap (defence-in-depth against unbounded token/row
+// minting and name squatting). In-memory sliding window — registration is rare
+// for a legitimate agent (it reuses its token afterwards), so a generous cap
+// never trips real use while blocking floods. Wallet and name are already UNIQUE
+// in the table, so this only needs to bound how fast one source can mint.
+const REG_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+const REG_MAX_PER_WINDOW = 20;
+const regHits = new Map<string, number[]>();
+
+function registrationAllowed(ip: string): boolean {
+  const now = Date.now();
+  const recent = (regHits.get(ip) || []).filter((t) => now - t < REG_WINDOW_MS);
+  if (recent.length >= REG_MAX_PER_WINDOW) {
+    regHits.set(ip, recent);
+    return false;
+  }
+  recent.push(now);
+  regHits.set(ip, recent);
+  return true;
+}
+
+// Resolve the caller's verified wallet from an agent token, WITHOUT forcing
+// payment — mirrors auth.ts Method 1's lookup. Used to decide whether a public
+// discovery response may include the owner-only sensitive fields. Returns null
+// for anonymous callers (who get the non-sensitive public view).
+function resolveCallerWallet(req: Request): string | null {
+  const bearer = (req.headers["authorization"] || "").toString().replace(/^Bearer\s+/i, "");
+  const token = bearer || (req.headers["x-agent-token"] as string) || (req.headers["x-api-key"] as string);
+  if (!token || !(token.startsWith("aos_") || token.startsWith("agt_"))) return null;
+  const row = db.prepare("SELECT wallet_address FROM agents WHERE token = ?").get(token) as any;
+  return row?.wallet_address || null;
+}
 
 /**
  * POST /agents/register — Register a new agent (free, gets an agent token)
@@ -19,13 +59,14 @@ const router = Router({ mergeParams: true });
  */
 router.post("/register", async (req: Request, res: Response) => {
   try {
-    const { name, description, walletAddress, webhookUrl } = req.body ?? {};
+    const { name, description, walletAddress, webhookUrl, signature, signatureTimestamp } = req.body ?? {};
 
-    // Wallet address is REQUIRED
-    if (!walletAddress || !/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(walletAddress)) {
+    // Wallet address is REQUIRED (Solana base58 or EVM 0x — your wallet is your
+    // identity on either chain).
+    if (!walletAddress || !(isSolanaAddress(walletAddress) || isEvmAddress(walletAddress))) {
       res.status(400).json({
         error: "Wallet Address Required",
-        message: "Provide a valid Solana wallet address (base58 public key)",
+        message: "Provide a valid Solana (base58) or EVM (0x…) wallet address",
         hint: "Your wallet is your identity. Include 'walletAddress' in your request body.",
       });
       return;
@@ -36,6 +77,39 @@ router.post("/register", async (req: Request, res: Response) => {
         error: "Invalid Agent Name",
         message: "Agent name must be at least 2 characters",
         hint: "Provide a 'name' field in your request body",
+      });
+      return;
+    }
+
+    // Proof of wallet control is REQUIRED before binding this wallet to a token.
+    // The issued token resolves req.agentId to this wallet, which then satisfies
+    // every ownership check — so without a signature anyone could bind a victim's
+    // wallet and act as them. The client signs registerAuthMessage(wallet, ts)
+    // with the wallet's key (Ed25519 for Solana, EIP-191/secp256k1 for EVM); the
+    // timestamp must be fresh to bound replay.
+    if (!signature || !walletProofFresh(signatureTimestamp)) {
+      res.status(401).json({
+        error: "Wallet Proof Required",
+        message: "Registering a wallet requires a fresh signature proving you control it.",
+        hint: "Sign the message `palmyr-register:<walletAddress>:<timestamp>` (unix ms, within 5 min) with your wallet key and send { signature, signatureTimestamp }.",
+      });
+      return;
+    }
+    if (!verifyWalletControl(walletAddress, registerAuthMessage(walletAddress, signatureTimestamp), signature)) {
+      res.status(401).json({
+        error: "Invalid Wallet Signature",
+        message: "The signature did not verify against the provided walletAddress.",
+        hint: "Sign `palmyr-register:<walletAddress>:<timestamp>` with the key for walletAddress.",
+      });
+      return;
+    }
+
+    // Basic anti-abuse cap (per source IP) — see registrationAllowed.
+    const ip = req.ip || req.socket?.remoteAddress || "unknown";
+    if (!registrationAllowed(ip)) {
+      res.status(429).json({
+        error: "Too Many Registrations",
+        message: "Registration rate limit exceeded. Try again later.",
       });
       return;
     }
@@ -172,13 +246,17 @@ router.get("/:id", (req: Request, res: Response) => {
     ).get(agent.id) as any
   ).c;
 
+  // wallet_address + webhook_url are sensitive (they deanonymize name→wallet and
+  // expose the callback URL). Only return them to the authenticated owner; the
+  // public directory view keeps name/description/createdAt + aggregate counts.
+  const isOwner = !!agent.wallet_address && resolveCallerWallet(req) === agent.wallet_address;
+
   res.json({
     agent: {
       id: agent.id,
       name: agent.name,
       description: agent.description,
-      walletAddress: agent.wallet_address,
-      webhookUrl: agent.webhook_url,
+      ...(isOwner ? { walletAddress: agent.wallet_address, webhookUrl: agent.webhook_url } : {}),
       createdAt: agent.created_at,
     },
     resources: {
@@ -205,6 +283,14 @@ router.get("/:id", (req: Request, res: Response) => {
 router.get("/:id/resources", (req: Request, res: Response) => {
   const agentId = req.params.id;
 
+  // Resource identifiers (phone numbers, email addresses, server IPs, domains)
+  // are sensitive and only returned to the authenticated owner. The owner row is
+  // keyed on the agent id here, so resolve its wallet and compare to the caller's
+  // verified wallet. Non-owners get aggregate totals only (already public via the
+  // leaderboard) so the discovery UI still works without leaking identifiers.
+  const ownerRow = db.prepare("SELECT wallet_address FROM agents WHERE id = ?").get(agentId) as any;
+  const isOwner = !!ownerRow?.wallet_address && resolveCallerWallet(req) === ownerRow.wallet_address;
+
   const phones = db
     .prepare("SELECT id, phone_number, country, provisioned_at, active FROM phone_numbers WHERE owner = ?")
     .all(agentId);
@@ -215,8 +301,20 @@ router.get("/:id/resources", (req: Request, res: Response) => {
     .prepare("SELECT id, name, server_type, status, ipv4, created_at FROM servers WHERE owner = ?")
     .all(agentId);
   const domains = db
-    .prepare("SELECT id, domain, status, registered_at, expires_at FROM domains WHERE owner = ?")
+    .prepare("SELECT id, domain, status, created_at AS registered_at, expires_at FROM domains WHERE owner = ?")
     .all(agentId);
+
+  const totals = {
+    phoneNumbers: phones.length,
+    emailInboxes: emails.length,
+    servers: servers.length,
+    domains: domains.length,
+  };
+
+  if (!isOwner) {
+    res.json({ agentId, totals });
+    return;
+  }
 
   res.json({
     agentId,
@@ -226,12 +324,7 @@ router.get("/:id/resources", (req: Request, res: Response) => {
       servers,
       domains,
     },
-    totals: {
-      phoneNumbers: phones.length,
-      emailInboxes: emails.length,
-      servers: servers.length,
-      domains: domains.length,
-    },
+    totals,
   });
 });
 

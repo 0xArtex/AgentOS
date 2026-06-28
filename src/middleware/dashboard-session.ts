@@ -12,6 +12,12 @@ export interface DashboardRequest extends Request {
  * Does NOT reject — routes decide if auth is required.
  */
 export function resolveDashboardSession(req: DashboardRequest, _res: Response, next: NextFunction): void {
+  // Never trust an inbound X-Dashboard-User: downstream balance metering keys off
+  // this header, so a forged one would let a caller spend another user's balance.
+  // We strip it up front and only re-set it below from a VALIDATED session, so the
+  // only X-Dashboard-User that survives is one this middleware vouched for.
+  delete req.headers["x-dashboard-user"];
+
   const token = (req.headers.authorization || "").replace("Bearer ", "");
   if (!token) return next();
 
@@ -22,7 +28,8 @@ export function resolveDashboardSession(req: DashboardRequest, _res: Response, n
   if (session) {
     req.dashUserId = session.user_id;
     req.dashUser = session;
-    // Also set X-Dashboard-User header so balance middleware picks it up
+    // Set X-Dashboard-User from the validated session so balance middleware picks
+    // it up — this is the only path that may populate the header.
     req.headers["x-dashboard-user"] = session.user_id;
   }
 
