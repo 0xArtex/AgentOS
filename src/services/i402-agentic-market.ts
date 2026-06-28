@@ -91,9 +91,12 @@ export function defaultAgenticMarketParser(raw: unknown): FederatedProviderSpec[
           ? (e.cost_usdc as number)
           : undefined;
     const authRaw = (e.auth_scheme ?? e.auth) as string | undefined;
-    if (!id || !capability || !endpoint || cost === undefined) continue;
-
     const authScheme = normalizeAuthScheme(authRaw);
+    // Strict: skip rows whose auth scheme isn't an explicit x402 value. The old
+    // permissive default silently coerced unknown/missing schemes to "x402-base",
+    // which let a hostile listing masquerade as an x402-native provider.
+    if (!id || !capability || !endpoint || cost === undefined || authScheme === null) continue;
+
     out.push({
       id,
       capability,
@@ -112,7 +115,15 @@ export function defaultAgenticMarketParser(raw: unknown): FederatedProviderSpec[
   return out;
 }
 
-function normalizeAuthScheme(raw: string | undefined): I402AuthScheme {
+/**
+ * Map a catalog-declared auth scheme to a canonical x402 rail. STRICT: only
+ * explicit x402 values are accepted. Anything else — api_key, wallet_sig, an
+ * unknown string, or a missing value — returns null so the spec is rejected.
+ * Federated providers MUST settle via x402 to be agent-side executable, and a
+ * permissive default is a hijack vector (a malicious row with no/garbage auth
+ * would have been silently treated as a payable x402 endpoint).
+ */
+function normalizeAuthScheme(raw: string | undefined): I402AuthScheme | null {
   switch (raw) {
     case "x402-solana":
     case "x402-svm":
@@ -120,14 +131,151 @@ function normalizeAuthScheme(raw: string | undefined): I402AuthScheme {
     case "x402-base":
     case "x402-evm":
       return "x402-base";
-    case "api_key":
-      return "api_key";
-    case "wallet_sig":
-      return "wallet_sig";
     default:
-      // Safe default — AM providers nearly all speak x402 so default to that
-      return "x402-base";
+      return null;
   }
+}
+
+// -------------------- Trust boundary (federated = UNTRUSTED) --------------------
+//
+// Federated catalog listings are submitted by untrusted third parties. Without
+// these checks a hostile listing could (1) claim a first-party capability and be
+// selected for a victim's intent (e.g. "post from my X account"), hijacking the
+// vault cookies / wallet / PII the executor injects and redirecting the USDC
+// payment to the attacker; (2) outrank first-party rows via a self-declared
+// reputation; (3) point at an internal/Palmyr host (SSRF / credential theft via
+// host impersonation). Everything below treats federated input as adversarial.
+
+/** Federated reputation can never outrank a first-party Palmyr row (reps 0.7–0.9). */
+export const FEDERATED_REPUTATION_CEILING = 0.5;
+const FEDERATED_REPUTATION_DEFAULT = 0.4;
+
+/** Clamp a catalog-declared reputation seed into [0, ceiling]. */
+export function clampFederatedReputation(seed: number | undefined): number {
+  const n = typeof seed === "number" && Number.isFinite(seed) ? seed : FEDERATED_REPUTATION_DEFAULT;
+  if (n < 0) return 0;
+  if (n > FEDERATED_REPUTATION_CEILING) return FEDERATED_REPUTATION_CEILING;
+  return n;
+}
+
+/** Hosts Palmyr operates. A federated listing may never claim (or impersonate) one. */
+function palmyrHostSuffixes(): string[] {
+  const hosts = new Set<string>(["palmyr.ai", "agntos.dev"]);
+  const base = process.env.PALMYR_API_BASE;
+  if (base) {
+    try {
+      hosts.add(new URL(base).hostname.toLowerCase().replace(/\.$/, ""));
+    } catch {
+      /* ignore an unparseable override */
+    }
+  }
+  return [...hosts];
+}
+
+/** True for a Palmyr-operated host (exact match or subdomain), case-insensitive. */
+export function isPalmyrHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/^\[|\]$/g, "").replace(/\.$/, "");
+  return palmyrHostSuffixes().some(ph => h === ph || h.endsWith(`.${ph}`));
+}
+
+function isIpLiteral(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "");
+  if (h.includes(":")) return true; // IPv6
+  return /^\d{1,3}(\.\d{1,3}){3}$/.test(h); // IPv4 dotted quad
+}
+
+/** Reject loopback / private / link-local / internal / bare-label / IP-literal hosts. */
+function isPrivateOrInternalHost(host: string): boolean {
+  const h = host.replace(/^\[|\]$/g, "");
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  for (const suffix of [".local", ".internal", ".intranet", ".lan", ".home.arpa", ".corp"]) {
+    if (h.endsWith(suffix)) return true;
+  }
+  // Never trust a bare IP from a federated catalog (blocks 169.254.169.254 metadata,
+  // 127.0.0.1, 10/172.16/192.168 RFC1918, ::1, fc00::/7, etc.).
+  if (isIpLiteral(h)) return true;
+  // A single-label hostname ("metadata", "router") is internal by definition.
+  if (!h.includes(".")) return true;
+  return false;
+}
+
+/** Validate a federated endpoint: https + public host that is neither internal nor Palmyr. */
+export function classifyFederatedEndpoint(endpoint: string): { ok: true } | { ok: false; reason: string } {
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    return { ok: false, reason: `unparseable endpoint '${endpoint}'` };
+  }
+  if (url.protocol !== "https:") {
+    return { ok: false, reason: `endpoint must be https (got '${url.protocol}')` };
+  }
+  const host = url.hostname.toLowerCase().replace(/\.$/, "");
+  if (isPalmyrHost(host)) {
+    return { ok: false, reason: `endpoint host '${host}' impersonates a first-party Palmyr host` };
+  }
+  if (isPrivateOrInternalHost(host)) {
+    return { ok: false, reason: `endpoint host '${host}' is internal/private` };
+  }
+  return { ok: true };
+}
+
+/**
+ * True iff an endpoint is a verified Palmyr-operated host. Used by the planner as
+ * the credential-injection guard: vault cookies/credentials may only ever be sent
+ * to a Palmyr host, never to a federated/untrusted endpoint.
+ */
+export function isTrustedExecutionEndpoint(endpoint: string | undefined): boolean {
+  if (!endpoint) return false;
+  try {
+    return isPalmyrHost(new URL(endpoint).hostname);
+  } catch {
+    return false;
+  }
+}
+
+/** True if a first-party (Palmyr/agentos) provider already serves this capability. */
+function capabilityHasFirstPartyProvider(capability: string): boolean {
+  const row = db
+    .prepare(`SELECT 1 FROM i402_providers WHERE capability = ? AND source = 'agentos' LIMIT 1`)
+    .get(capability);
+  return !!row;
+}
+
+/**
+ * Vet a single federated spec against the trust boundary. Applied to EVERY spec in
+ * ingestCatalog (the one chokepoint), independent of which parser produced it:
+ *   (a) capability hijack — federation may not serve a capability a first-party
+ *       Palmyr provider already serves (this is the allowlist: federation may only
+ *       serve capabilities Palmyr has no first-party row for, e.g. future
+ *       web_search / image_gen);
+ *   (c) auth-scheme strictness — must be x402-solana or x402-base;
+ *   (d) host allowlist — https public host, never internal/private/Palmyr.
+ */
+export function vetFederatedSpec(
+  spec: FederatedProviderSpec
+): { ok: true } | { ok: false; reason: string } {
+  if (!spec || typeof spec.id !== "string" || spec.id.trim() === "") {
+    return { ok: false, reason: "missing id" };
+  }
+  if (typeof spec.capability !== "string" || spec.capability.trim() === "") {
+    return { ok: false, reason: "missing capability" };
+  }
+  if (typeof spec.endpoint !== "string" || spec.endpoint.trim() === "") {
+    return { ok: false, reason: "missing endpoint" };
+  }
+  if (spec.authScheme !== "x402-solana" && spec.authScheme !== "x402-base") {
+    return { ok: false, reason: `auth scheme '${spec.authScheme}' is not x402-native` };
+  }
+  const ep = classifyFederatedEndpoint(spec.endpoint);
+  if (!ep.ok) return ep;
+  if (capabilityHasFirstPartyProvider(spec.capability)) {
+    return {
+      ok: false,
+      reason: `capability '${spec.capability}' is first-party; federation may not serve it`,
+    };
+  }
+  return { ok: true };
 }
 
 // -------------------- Mock adapter (for tests) --------------------
@@ -155,8 +303,16 @@ export interface IngestResult {
   fetched: number;
   registered: number;
   skipped_unknown_capability: number;
+  /** Rows rejected by the trust boundary (capability hijack / bad auth / bad host). */
+  skipped_untrusted: number;
   errors: string[];
-  /** Every provider id seen in the fetched catalog (used to prune disappeared rows without a second fetch). */
+  /** Human-readable reasons for each trust-boundary rejection. */
+  rejections: string[];
+  /**
+   * Provider ids that passed vetting this round (used to prune disappeared rows
+   * without a second fetch). Trust-rejected ids are deliberately excluded so a
+   * previously-registered row that now fails vetting gets disabled by the prune.
+   */
   fetchedIds: string[];
 }
 
@@ -173,7 +329,9 @@ export async function ingestCatalog(adapter: FederatedCatalogAdapter): Promise<I
     fetched: 0,
     registered: 0,
     skipped_unknown_capability: 0,
+    skipped_untrusted: 0,
     errors: [],
+    rejections: [],
     fetchedIds: [],
   };
 
@@ -187,6 +345,15 @@ export async function ingestCatalog(adapter: FederatedCatalogAdapter): Promise<I
   result.fetched = specs.length;
 
   for (const spec of specs) {
+    // Trust boundary FIRST — runs for every spec regardless of which parser
+    // produced it. Rejected specs are not added to fetchedIds, so any matching
+    // row that lingers from a prior (pre-fix) ingest gets disabled by the prune.
+    const vet = vetFederatedSpec(spec);
+    if (!vet.ok) {
+      result.skipped_untrusted++;
+      result.rejections.push(`${(spec && spec.id) || "<no-id>"}: ${vet.reason}`);
+      continue;
+    }
     result.fetchedIds.push(spec.id);
     if (!CAPABILITY_CLASSES[spec.capability]) {
       result.skipped_unknown_capability++;
@@ -207,7 +374,9 @@ export async function ingestCatalog(adapter: FederatedCatalogAdapter): Promise<I
         costPerCallUsdc: spec.costPerCallUsdc,
         p50LatencyMs: spec.p50LatencyMs,
         p99LatencyMs: spec.p99LatencyMs,
-        reputationScore: spec.reputationSeed ?? 0.6,
+        // Clamp remote-declared reputation so a federated row can never outrank
+        // a first-party Palmyr provider (which seed at 0.7–0.9).
+        reputationScore: clampFederatedReputation(spec.reputationSeed),
         metadata: spec.metadata,
       });
       result.registered++;
