@@ -257,11 +257,13 @@ describe("POST /api/agent-comms/send + GET /inbox", () => {
   after(async () => { await ctx.close(); });
 
   it("delivers a message and reads it back through the real schema", async () => {
+    // Auth is now via the agent token (a bare X-Agent-Id is no longer trusted);
+    // the seeded token is "aos_" + the agent id.
     const sendRes = await httpPostJson(
       ctx.port,
       "/api/agent-comms/send",
       { toAgent: TO_ID, subject: "hello", message: "round-trip body", priority: "high" },
-      { "X-Agent-Id": FROM_ID }
+      { Authorization: "Bearer aos_" + FROM_ID }
     );
 
     assert.equal(sendRes.status, 200, JSON.stringify(sendRes.body));
@@ -279,7 +281,7 @@ describe("POST /api/agent-comms/send + GET /inbox", () => {
     assert.equal(stored.to_agent, TO_ID);
 
     // Inbox lists it back without throwing.
-    const inboxRes = await httpGet(ctx.port, "/api/agent-comms/inbox", { "X-Agent-Id": TO_ID });
+    const inboxRes = await httpGet(ctx.port, "/api/agent-comms/inbox", { Authorization: "Bearer aos_" + TO_ID });
     assert.equal(inboxRes.status, 200);
     assert.ok(Array.isArray(inboxRes.body.messages));
     const found = inboxRes.body.messages.find((m: any) => m.id === sendRes.body.id);
@@ -293,7 +295,7 @@ describe("POST /api/agent-comms/send + GET /inbox", () => {
       ctx.port,
       "/api/agent-comms/send",
       { subject: "incomplete" },
-      { "X-Agent-Id": FROM_ID }
+      { Authorization: "Bearer aos_" + FROM_ID }
     );
     assert.equal(res.status, 400);
     assert.match(res.body.error, /required/i);
