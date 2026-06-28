@@ -1,4 +1,5 @@
-import { Router, Request, Response, NextFunction } from "express";
+import express, { Router, Request, Response, NextFunction } from "express";
+import nacl from "tweetnacl";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest, PhoneNumber, ProvisionNumberRequest, SendSmsRequest } from "../types";
 import * as phoneService from "../services/phone";
@@ -21,6 +22,173 @@ const isWalletAddress = (s: string) => SOL_PUBKEY.test(s) || EVM_ADDR.test(s);
 // "ownership proof" tier as domains and X accounts.
 const OWNERSHIP_PROOF_USDC = 0.01;
 
+// E.164: leading '+', first digit 1-9, total 8-15 digits. Shared by the SMS
+// pre-flight and the outbound-voice destination guard so both reject the same
+// malformed numbers.
+const E164_REGEX = /^\+[1-9]\d{7,14}$/;
+
+// ── Outbound-voice toll-fraud guard ─────────────────────────
+// Telnyx bills voice per-minute and international / premium-rate destinations
+// can cost several USD/min, while we charge a flat ~$0.10 per call. An
+// unvalidated `to` is therefore an account-draining foot-gun (and the classic
+// International Revenue Share Fraud sink). Mirror ALPHA_SENDER_REQUIRED: a
+// conservative deny-list of E.164 prefixes (country code or NANP premium area
+// code, no leading '+'). Standard US/CA/EU calling is unaffected.
+const BLOCKED_VOICE_PREFIXES = new Set<string>([
+  // Satellite / global-mobile networks — the classic IRSF revenue-share sinks.
+  "870", "871", "872", "873", "874", "878", "881", "882", "883",
+  // High-cost island / small-nation country codes repeatedly used as IRSF
+  // termination points.
+  "239", "247", "248", "252", "257", "262", "269",
+  "677", "678", "679", "681", "682", "683", "685", "688", "690",
+  // NANP premium-rate / known one-ring (Wangiri) abused ranges.
+  "1900", "1976",
+]);
+
+function isBlockedVoiceDestination(to: string): boolean {
+  const digits = to.replace(/^\+/, "");
+  return (
+    BLOCKED_VOICE_PREFIXES.has(digits.slice(0, 2)) ||
+    BLOCKED_VOICE_PREFIXES.has(digits.slice(0, 3)) ||
+    BLOCKED_VOICE_PREFIXES.has(digits.slice(0, 4))
+  );
+}
+
+/**
+ * Validate an outbound voice destination: must be a well-formed E.164 number
+ * and must not hit a high-cost / premium-rate prefix. Returns a structured
+ * verdict so both the (pre-charge) preflight and the in-handler safety net can
+ * reuse the same policy.
+ */
+function validateOutboundDestination(to: unknown):
+  | { ok: true; to: string }
+  | { ok: false; status: number; body: { error: string; message: string; hint: string } } {
+  if (!to || typeof to !== "string") {
+    return { ok: false, status: 400, body: {
+      error: "Missing 'to' field",
+      message: "Provide the destination phone number in E.164 format",
+      hint: "Example: +15551234567.",
+    } };
+  }
+  if (!E164_REGEX.test(to)) {
+    return { ok: false, status: 400, body: {
+      error: "Invalid 'to' format",
+      message: "Destination number must be in E.164 format (e.g. +15551234567)",
+      hint: "Include country code, no spaces or dashes.",
+    } };
+  }
+  if (isBlockedVoiceDestination(to)) {
+    return { ok: false, status: 403, body: {
+      error: "Destination not allowed",
+      message: `Calls to ${to} are blocked: high-cost / premium-rate destination commonly abused for toll fraud.`,
+      hint: "Voice calling is limited to standard-rate destinations. Contact support to enable a specific country.",
+    } };
+  }
+  return { ok: true, to };
+}
+
+/**
+ * Pre-flight (runs BEFORE the paywall) for routes that place/transfer a call.
+ * Rejects malformed or high-cost destinations so the caller keeps their USDC.
+ * Skipped without a payment header so x402 still answers discovery probes.
+ */
+function preflightOutboundDestination(req: Request, res: Response, next: NextFunction): void {
+  const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
+  if (!hasPayment) { next(); return; }
+  const verdict = validateOutboundDestination((req.body || {}).to);
+  if (!verdict.ok) {
+    res.status(verdict.status).json({ ...verdict.body, hint: `${verdict.body.hint} You have NOT been charged.` });
+    return;
+  }
+  next();
+}
+
+// ── Telnyx webhook signature verification ───────────────────
+// Telnyx signs every webhook with Ed25519 over `${timestamp}|${rawBody}`. The
+// base64 signature arrives in `telnyx-signature-ed25519`, the unix-seconds
+// timestamp in `telnyx-timestamp`, and the base64 Ed25519 public key is
+// configured as TELNYX_WEBHOOK_SECRET. Without this check anyone who knows a
+// victim's number can forge `message.received` (fake inbound OTP), flip
+// delivery status, or drive `voiceService.handleCallEvent` (mark answered/
+// ended, inject a recordingUrl / DTMF).
+const TELNYX_REPLAY_WINDOW_SECS = 300;
+
+/**
+ * Resolve the exact bytes Telnyx signed. Preference order:
+ *   1. `req.body` is a Buffer  → captured by this route's `express.raw`
+ *      (the webhook stream was not pre-parsed). Verify the exact bytes.
+ *   2. `req.rawBody` is a Buffer → captured by an upstream `express.json`
+ *      `verify` hook. Preferred when the global parser already produced an
+ *      object.
+ *   3. Re-serialize the parsed body. Telnyx emits compact JSON, which
+ *      round-trips here. A byte mismatch can only ever *reject* (the signature
+ *      then fails closed) — it can never turn a forgery into an accepted event
+ *      — so this fallback stays safe.
+ */
+function readTelnyxWebhook(req: Request): { rawBody: Buffer; body: any } {
+  const anyReq = req as any;
+  const current = req.body;
+  if (Buffer.isBuffer(current)) {
+    let parsed: any;
+    try { parsed = JSON.parse(current.toString("utf8")); } catch { parsed = undefined; }
+    return { rawBody: current, body: parsed };
+  }
+  if (Buffer.isBuffer(anyReq.rawBody)) {
+    return { rawBody: anyReq.rawBody, body: current };
+  }
+  let rawBody: Buffer;
+  try { rawBody = Buffer.from(JSON.stringify(current ?? {}), "utf8"); } catch { rawBody = Buffer.from(""); }
+  return { rawBody, body: current };
+}
+
+/**
+ * Verify a Telnyx webhook signature. FAILS CLOSED: a missing public key,
+ * missing headers, an invalid signature, or a stale timestamp all reject. The
+ * replay window is only consulted AFTER the signature is proven valid.
+ */
+function verifyTelnyxWebhook(
+  req: Request,
+  rawBody: Buffer,
+): { ok: true } | { ok: false; status: number; error: string } {
+  const publicKeyB64 = config.telnyxWebhookSecret;
+  if (!publicKeyB64) {
+    // No key configured → we cannot prove the event came from Telnyx. Refusing
+    // every event is strictly safer than trusting forged ones.
+    return { ok: false, status: 503, error: "Webhook verification not configured" };
+  }
+
+  const signature = req.headers["telnyx-signature-ed25519"];
+  const timestamp = req.headers["telnyx-timestamp"];
+  if (typeof signature !== "string" || typeof timestamp !== "string" || !signature || !timestamp) {
+    return { ok: false, status: 401, error: "Missing webhook signature" };
+  }
+
+  let valid = false;
+  try {
+    const signed = Buffer.concat([Buffer.from(`${timestamp}|`, "utf8"), rawBody]);
+    const sig = Buffer.from(signature, "base64");
+    const key = Buffer.from(publicKeyB64, "base64");
+    if (sig.length === 64 && key.length === 32) {
+      valid = nacl.sign.detached.verify(
+        new Uint8Array(signed),
+        new Uint8Array(sig),
+        new Uint8Array(key),
+      );
+    }
+  } catch {
+    valid = false;
+  }
+  if (!valid) {
+    return { ok: false, status: 401, error: "Invalid webhook signature" };
+  }
+
+  const ts = parseInt(timestamp, 10);
+  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > TELNYX_REPLAY_WINDOW_SECS) {
+    return { ok: false, status: 401, error: "Webhook timestamp outside replay window" };
+  }
+  return { ok: true };
+}
+
 /**
  * Returns true (and sends a 403) when `phoneNumberId` is owned by a wallet
  * other than the caller and not shared with the caller. A missing
@@ -39,10 +207,19 @@ function denyIfNotNumberAccess(req: AuthenticatedRequest, res: Response, phoneNu
   return false;
 }
 
-/** Access gate for call-control routes keyed on a Telnyx callControlId. */
+/**
+ * Access gate for call-control routes keyed on a Telnyx callControlId.
+ * FAILS CLOSED: if we can't resolve the call locally we cannot establish
+ * ownership, so we deny. (Call-control IDs are high-value capabilities —
+ * speak/play/DTMF/record/hangup/transfer — and every call we place is tracked,
+ * so an untracked ID is not a call this wallet may drive.)
+ */
 function denyIfNotCallAccess(req: AuthenticatedRequest, res: Response, callControlId: string): boolean {
   const call = voiceService.getCallByControlId(callControlId);
-  if (!call) return false; // unknown call — let the provider be the authority
+  if (!call) {
+    res.status(403).json({ error: "Forbidden", message: "Unknown or untracked call — cannot verify ownership" });
+    return true;
+  }
   return denyIfNotNumberAccess(req, res, call.phoneNumberId);
 }
 
@@ -241,7 +418,7 @@ async function preflightSendSms(req: Request, res: Response, next: NextFunction)
   }
 
   // E.164: leading '+', 8–15 digits
-  if (!/^\+[1-9]\d{7,14}$/.test(String(to))) {
+  if (!E164_REGEX.test(String(to))) {
     res.status(400).json({
       error: "Invalid 'to' format",
       message: "Destination number must be in E.164 format (e.g. +15551234567)",
@@ -492,7 +669,7 @@ router.post("/numbers/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, "general",
  * POST /phone/numbers/:id/call — Place an outbound call
  * Cost: 0.10 USDC
  */
-router.post("/numbers/:id/call", requireAuth(0.10, "general", {
+router.post("/numbers/:id/call", preflightOutboundDestination, requireAuth(0.10, "general", {
   description: "Place an outbound phone call from a number you own or have shared access to, with optional TTS or audio playback.",
   category: "communications",
   tags: ["phone", "voice", "call", "dial", "outbound"],
@@ -508,12 +685,12 @@ router.post("/numbers/:id/call", requireAuth(0.10, "general", {
       timeoutSecs?: number;
     };
 
-    if (!to) {
-      res.status(400).json({
-        error: "Missing 'to' field",
-        message: "Provide the phone number to call in E.164 format",
-        hint: "Example: +15551234567",
-      });
+    // Defense-in-depth: the preflight already rejected bad/high-cost
+    // destinations pre-charge, but re-validate so a direct hit can never place
+    // an unvalidated (potentially toll-fraud) call.
+    const verdict = validateOutboundDestination(to);
+    if (!verdict.ok) {
+      res.status(verdict.status).json(verdict.body);
       return;
     }
 
@@ -744,12 +921,16 @@ router.post("/calls/:callControlId/answer", requireAuth(0.02, "general", {
  * POST /phone/calls/:callControlId/transfer — Transfer call to another number
  * Cost: 0.10 USDC
  */
-router.post("/calls/:callControlId/transfer", requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/calls/:callControlId/transfer", preflightOutboundDestination, requireAuth(0.10, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {
     if (denyIfNotCallAccess(req, res, String(req.params.callControlId))) return;
     const { to } = req.body as { to: string };
-    if (!to) {
-      res.status(400).json({ error: "Missing 'to' field" });
+    // Same E.164 + toll-fraud policy as outbound dial — a transfer terminates
+    // a new per-minute leg to `to`, so an unvalidated destination is the same
+    // account-draining foot-gun.
+    const verdict = validateOutboundDestination(to);
+    if (!verdict.ok) {
+      res.status(verdict.status).json(verdict.body);
       return;
     }
     await voiceService.transfer(String(req.params.callControlId), to);
@@ -760,28 +941,25 @@ router.post("/calls/:callControlId/transfer", requireAuth(0.10, "general"), asyn
 });
 
 /**
- * POST /phone/webhooks/telnyx — Inbound SMS webhook from Telnyx
- * No auth required — verified by webhook signature
+ * POST /phone/webhooks/telnyx — Inbound SMS / voice webhook from Telnyx
+ * No paywall — authenticated by the Telnyx Ed25519 webhook signature instead.
+ *
+ * `express.raw` captures the exact request bytes for byte-faithful signature
+ * verification when the webhook stream isn't pre-parsed; verifyTelnyxWebhook
+ * falls back to a captured `rawBody` / a safe re-serialization otherwise.
  */
-router.post("/webhooks/telnyx", (req: Request, res: Response) => {
-  try {
-    // Optional: verify Telnyx webhook signature
-    if (config.telnyxWebhookSecret) {
-      const signature = req.headers["telnyx-signature-ed25519"] as string;
-      const timestamp = req.headers["telnyx-timestamp"] as string;
-      if (!signature || !timestamp) {
-        res.status(401).json({ error: "Missing webhook signature" });
-        return;
-      }
-      // Basic timestamp check (reject >5 min old)
-      const ts = parseInt(timestamp);
-      if (Math.abs(Date.now() / 1000 - ts) > 300) {
-        res.status(401).json({ error: "Webhook timestamp too old" });
-        return;
-      }
-    }
+router.post("/webhooks/telnyx", express.raw({ type: () => true, limit: "1mb" }), (req: Request, res: Response) => {
+  // Verify the Telnyx signature BEFORE processing — fail closed on a missing
+  // key, missing headers, an invalid signature, or a stale timestamp.
+  const { rawBody, body } = readTelnyxWebhook(req);
+  const verdict = verifyTelnyxWebhook(req, rawBody);
+  if (!verdict.ok) {
+    res.status(verdict.status).json({ error: verdict.error });
+    return;
+  }
 
-    const event = req.body?.data;
+  try {
+    const event = body?.data;
     if (!event) {
       res.status(400).json({ error: "Invalid webhook payload" });
       return;
@@ -841,10 +1019,19 @@ router.post("/webhooks/telnyx", (req: Request, res: Response) => {
 
 /**
  * POST /phone/webhooks/voice — Voice-specific webhook from Telnyx
+ * Same Ed25519 signature gate as /webhooks/telnyx — without it anyone could
+ * forge call.* events into voiceService.handleCallEvent (flip call state,
+ * inject a recordingUrl / DTMF).
  */
-router.post("/webhooks/voice", async (req: Request, res: Response) => {
+router.post("/webhooks/voice", express.raw({ type: () => true, limit: "1mb" }), async (req: Request, res: Response) => {
+  const { rawBody, body } = readTelnyxWebhook(req);
+  const verdict = verifyTelnyxWebhook(req, rawBody);
+  if (!verdict.ok) {
+    res.status(verdict.status).json({ error: verdict.error });
+    return;
+  }
   try {
-    const event = req.body?.data;
+    const event = body?.data;
     if (event) {
       await voiceService.handleCallEvent(event);
     }
