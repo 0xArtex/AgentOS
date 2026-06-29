@@ -7,6 +7,19 @@ interface RateLimitEntry {
   resetAt: number;
 }
 
+// Best-effort, single-process, NON-durable by design. This counter lives only
+// in this process's memory: it resets to empty on every deploy/restart and is
+// not shared with any peer. That is acceptable — and a shared store (Redis) is
+// deliberately NOT used — because prod runs as a single Node process behind one
+// Cloudflare Tunnel (see client-ip.ts), so there are no workers to share state
+// with and nothing to gain from external infra. Treat the cap as a throttle/
+// speed-bump, not a hard security boundary; the auth lockout (security.ts) and
+// the high-entropy, non-brute-forceable credentials are the real defense.
+//
+// Rotation is already hardened where it matters: the bucket key prefers the
+// authenticated identity (req.agentId / req.payment.payer) and falls back to
+// clientIp(), which trusts only the CF-edge IP a caller cannot forge through
+// the tunnel — never a raw inbound header.
 const store = new Map<string, RateLimitEntry>();
 
 // Cleanup stale entries every 5 minutes. unref: a housekeeping timer must

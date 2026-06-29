@@ -51,27 +51,56 @@ export function sqlInjectionGuard(_req: Request, _res: Response, next: NextFunct
   next();
 }
 
-// Sanitize string inputs (strip null bytes, trim)
+// Sanitize string inputs — strip null bytes ONLY. Deliberately non-destructive
+// of whitespace.
+//
+// This runs globally (index.ts) ahead of every route, so it must not corrupt
+// data. It used to also `.trim()` every string, which silently mutated
+// whitespace-significant payloads before any handler saw them — an opaque
+// secret/credential submitted with a trailing newline got stored trimmed, and
+// message/post bodies lost intended leading/trailing whitespace, with no signal
+// to the caller. Null bytes have no legitimate place in JSON text input and can
+// truncate C-backed string handling, so those we still remove; trimming is the
+// job of per-route validation on the specific fields that want it.
+//
+// MAX_SANITIZE_DEPTH caps the recursion: a deeply-nested JSON body (still within
+// the 100KB express.json limit) would otherwise overflow the stack and surface
+// as a 500. Past the cap we stop descending and pass the subtree through as-is.
+const MAX_SANITIZE_DEPTH = 64;
+
 export function sanitizeInputs(req: Request, _res: Response, next: NextFunction): void {
-  const sanitize = (obj: any): any => {
-    if (typeof obj === "string") return obj.replace(/\0/g, "").trim();
-    if (Array.isArray(obj)) return obj.map(sanitize);
+  const sanitize = (obj: any, depth: number): any => {
+    if (typeof obj === "string") return obj.replace(/\0/g, "");
+    if (depth >= MAX_SANITIZE_DEPTH) return obj;
+    if (Array.isArray(obj)) return obj.map((v) => sanitize(v, depth + 1));
     if (typeof obj === "object" && obj !== null) {
       const clean: any = {};
       for (const [k, v] of Object.entries(obj)) {
-        clean[sanitize(k)] = sanitize(v);
+        clean[sanitize(k, depth + 1)] = sanitize(v, depth + 1);
       }
       return clean;
     }
     return obj;
   };
 
-  if (req.body) req.body = sanitize(req.body);
-  if (req.query) req.query = sanitize(req.query) as any;
+  if (req.body) req.body = sanitize(req.body, 0);
+  if (req.query) req.query = sanitize(req.query, 0) as any;
   next();
 }
 
 // API key brute force protection — track failed auth attempts per IP.
+//
+// Best-effort, single-process, NON-durable by design: this Map (like the rate
+// limiter in rateLimit.ts) lives only in this process's memory and resets to
+// empty on every deploy/restart. Prod runs as one Node process behind one
+// Cloudflare Tunnel (see client-ip.ts), so there are no peer workers to share
+// state with; a shared store (Redis) would be infrastructure this single-node
+// topology doesn't warrant. The lockout is therefore a speed-bump, not a hard
+// guarantee — acceptable because the credentials it guards (aos_/agt_ tokens,
+// dashboard session tokens, wallet identities) are high-entropy random values
+// that are not practically brute-forceable, and the per-IP key is anchored to
+// the un-forgeable CF edge IP in prod (clientIp()).
+//
 // Map is capped at MAX_FAILED_ENTRIES; on overflow the oldest entry is evicted
 // (Map iteration order is insertion order). Prevents unbounded growth under a
 // distributed spray attack.
@@ -102,9 +131,11 @@ export function bruteForceProtection(req: Request, res: Response, next: NextFunc
     return;
   }
 
-  // Hook into response to track failures
-  const originalJson = res.json.bind(res);
-  res.json = function(body: any) {
+  // Count auth failures when the response completes. Hooking `finish` (fires
+  // exactly once, after the body is flushed) instead of monkey-patching res.json
+  // means failures sent via res.send / res.end / res.sendStatus are counted too
+  // — the old json-only patch silently missed every non-json failure path.
+  res.on("finish", () => {
     if (res.statusCode === 401 || res.statusCode === 403) {
       const cur = failedAttempts.get(ip) || { count: 0, blockedUntil: 0, updatedAt: Date.now() };
       cur.count++;
@@ -115,8 +146,7 @@ export function bruteForceProtection(req: Request, res: Response, next: NextFunc
       }
       touchFailedEntry(ip, cur);
     }
-    return originalJson(body);
-  };
+  });
 
   next();
 }
