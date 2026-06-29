@@ -63,6 +63,35 @@ interface VideoInput {
 type MediaInput = ImageInput | VideoInput;
 
 /**
+ * Read a fetched response body into a Buffer, aborting once cumulative bytes
+ * exceed `maxBytes`. fetchSsrfSafe only checks the Content-Length HEADER, so a
+ * malicious host that streams unbounded chunked data with no Content-Length
+ * would otherwise be buffered in full by resp.arrayBuffer() and OOM the box.
+ * This bounds peak memory to ~maxBytes + one chunk and cancels the stream on
+ * overflow.
+ */
+export async function readBodyCapped(resp: Response, maxBytes: number): Promise<Buffer> {
+  const body: any = (resp as any).body;
+  if (!body || typeof body[Symbol.asyncIterator] !== "function") {
+    const ab = await resp.arrayBuffer();
+    if (ab.byteLength > maxBytes) throw new Error(`Response too large (> ${maxBytes} bytes)`);
+    return Buffer.from(ab);
+  }
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const chunk of body) {
+    const b = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+    total += b.length;
+    if (total > maxBytes) {
+      try { await body.cancel?.(); } catch { /* noop */ }
+      throw new Error(`Response too large (exceeds ${maxBytes} bytes)`);
+    }
+    chunks.push(b);
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
  * Materialise an image from either base64 or a URL into a temp file path
  * the server-side browser can upload. Returns the path + a cleanup fn.
  */
@@ -100,8 +129,7 @@ async function materializeImage(
       throw new Error(`URL did not return an image (content-type: ${contentType})`);
     }
     ext = contentType.split("/")[1]?.split(";")[0]?.toLowerCase() || "png";
-    const arrayBuf = await resp.arrayBuffer();
-    buf = Buffer.from(arrayBuf);
+    buf = await readBodyCapped(resp, MAX_IMAGE_BYTES);
   }
 
   if (buf.length > MAX_IMAGE_BYTES) {
@@ -158,7 +186,7 @@ async function materializeVideo(
       throw new Error(`URL did not return a video (content-type: ${contentType})`);
     }
     ext = contentType.split("/")[1]?.split(";")[0]?.toLowerCase() || "mp4";
-    buf = Buffer.from(await resp.arrayBuffer());
+    buf = await readBodyCapped(resp, MAX_VIDEO_BYTES);
   }
 
   if (buf.length > MAX_VIDEO_BYTES) {
