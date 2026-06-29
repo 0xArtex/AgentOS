@@ -7738,7 +7738,8 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             const apiBase = ao.api.replace(/\/+$/, '')
             const { connectTikTok } = await import('./tiktok-connect.js')
             let hostedLink: string | undefined
-            let qrToken: string | undefined
+            let qrToken: string | undefined   // public READ token — only ever put in the forwarded link
+            let qrWriter: string | undefined  // private WRITER credential — never in the link
 
             if (qrMode) {
               // Create the QR hand-off session UP FRONT so the agent forwards a
@@ -7747,6 +7748,12 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               try {
                 const sess = await ao.socialTiktokHostQr()
                 qrToken = sess.token
+                // The server returns a separate high-entropy writer credential
+                // that is NOT part of the /connect link — keep it here and
+                // present it on every QR refresh. Only the read token goes in the
+                // link we forward, so a leaked link can't swap the QR. (Fall back
+                // to the read token for older servers that predate the split.)
+                qrWriter = (sess as any).writer || sess.token
                 hostedLink = `${apiBase}/connect/${qrToken}`
                 const mins = Math.round((sess.expires_in_sec || 900) / 60)
                 process.stderr.write(`[connect] 🔗 Send this link to your human to scan: ${hostedLink}\n`)
@@ -7759,13 +7766,13 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               browserPath: flags['browser-path'] as string | undefined,
               noSandbox: !!flags['no-sandbox'],
               qr: qrMode,
-              onQr: qrToken
-                ? async (dataUrl) => { try { await ao.socialTiktokHostQr(dataUrl, qrToken) } catch { /* keep waiting */ } }
+              onQr: qrWriter
+                ? async (dataUrl) => { try { await ao.socialTiktokHostQr(dataUrl, qrWriter) } catch { /* keep waiting */ } }
                 : undefined,
               onProgress: (m) => process.stderr.write(`[connect] ${m}\n`),
             })
             // Tell the hand-off page the login landed, so it shows confirmation.
-            if (result.success && qrToken) { try { await ao.socialTiktokHostQr(undefined, qrToken, true) } catch { /* cosmetic */ } }
+            if (result.success && qrWriter) { try { await ao.socialTiktokHostQr(undefined, qrWriter, true) } catch { /* cosmetic */ } }
 
             if (!result.success) {
               const details: Record<string, unknown> = { platform, username, reason: result.reason }

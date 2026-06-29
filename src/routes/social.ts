@@ -1780,13 +1780,25 @@ router.post(
  * GET /social/tiktok/operations/:id
  * Poll an async TikTok operation (post / follow / like / delete / profile /
  * avatar). FREE and unauthenticated: the operation_id is a 122-bit random v4
- * UUID handed back ONLY to the creator in the 202, so it acts as an unguessable
+ * UUID (crypto.randomUUID — unguessable and non-sequential, never enumerable)
+ * handed back ONLY to the creator in the 202, so it acts as an unguessable
  * capability — and the response carries only non-sensitive status (the caller's
  * own caption, the post's own soon-to-be-public URL, error + refund state). A
  * paid+settled poll would dwarf the op's own price (an op polls 10-30x) and add
  * an on-chain settlement round-trip to every status check, so polling is free.
- * Unknown id → 404. status: pending → publishing/running → posted/done | failed.
+ *
+ * Defense-in-depth on top of the capability-URL: anonymous polls (the normal
+ * free flow, no identity presented) are allowed, but if the caller DOES carry a
+ * proven identity (x402 payer / agentId) that does not own the job, it is
+ * treated as not-found — so a leaked operation_id can't be read under a
+ * different account. Unknown id → 404. status: pending → running → done|failed.
  */
+function pollerMayRead(req: AuthenticatedRequest, owner: string): boolean {
+  // Capability-URL model: possession of the id is the capability. Only reject
+  // when a *proven* identity is present and is not the job's owner.
+  const identity = req.payment?.payer || req.agentId;
+  return !identity || identity === owner;
+}
 router.get(
   "/tiktok/operations/:id",
   (req: AuthenticatedRequest, res: Response) => {
@@ -1798,6 +1810,7 @@ router.get(
     // uniformly; `status` is 'posted'/'done' on success vs 'failed'.
     const post = getPostJob(id);
     if (post) {
+      if (!pollerMayRead(req, post.owner)) { res.status(404).json({ error: "Operation not found" }); return; }
       res.json({
         operation_id: post.id,
         op: "post",
@@ -1822,6 +1835,7 @@ router.get(
 
     const op = getOpJob(id);
     if (op) {
+      if (!pollerMayRead(req, op.owner)) { res.status(404).json({ error: "Operation not found" }); return; }
       res.json({
         operation_id: op.id,
         op: op.op,
@@ -1885,16 +1899,25 @@ router.post(
 // Ephemeral QR hand-off for `connect --qr`. Free + unauthenticated (it stores a
 // tiny, short-TTL login QR so an agent can forward a /connect/<token> link to a
 // human). No proxy/browser, so no requireTikTokEnabled.
+//
+// Read/write capabilities are SPLIT to prevent QR-swap account takeover: create
+// returns a public `token` (the only value that goes in the forwarded /connect
+// link — it can READ the QR/status) AND a separate high-entropy `writer`
+// credential returned ONLY to the agent. Refreshing/finishing the QR requires
+// the writer credential, so someone who merely intercepts the forwarded link
+// cannot replace the QR with their own login code (or send `done` to abort it).
 router.post(
   "/tiktok/qr",
   (req: AuthenticatedRequest, res: Response) => {
     try {
-      // No body → create a QR session up front (agent gets the link immediately).
-      // { qr_data_url, token } → refresh that session's QR as TikTok rotates it.
-      // { token, done } → mark the login captured so the page confirms.
+      // No body → create a QR session up front (agent gets the link + writer
+      //   credential immediately).
+      // { qr_data_url, token: <writer> } → refresh that session's QR as TikTok
+      //   rotates it (token is the writer credential, not the public read token).
+      // { token: <writer>, done } → mark the login captured so the page confirms.
       const { qr_data_url, token, done } = (req.body || {}) as { qr_data_url?: string; token?: string; done?: boolean };
       const r = putQr({ dataUrl: qr_data_url, token, done: !!done });
-      res.json({ token: r.token, expires_in_sec: r.expiresInSec });
+      res.json({ token: r.token, writer: r.writer, expires_in_sec: r.expiresInSec });
     } catch (err: any) {
       res.status(400).json({ error: err.message || "qr host failed" });
     }

@@ -11,10 +11,14 @@
  * In-memory + guarded (TTL, size cap, entry cap, strict data-URL validation) so
  * it can't be abused as a general image host.
  */
-import { randomBytes } from "crypto";
+import { randomBytes, timingSafeEqual } from "crypto";
 
 type State = "waiting" | "ready" | "completed";
-interface Entry { dataUrl: string | null; state: State; expiresAt: number; }
+// The map is keyed by the PUBLIC read token (the value embedded in the
+// /connect link). `writer` is the high-entropy secret half of the write
+// capability — it is NEVER part of that link, so the public link can only READ
+// the QR/status and can never replace it.
+interface Entry { dataUrl: string | null; state: State; expiresAt: number; writer: string; }
 
 const store = new Map<string, Entry>();
 const TTL_MS = 15 * 60 * 1000; // reset on every update — gives the human ample time
@@ -38,14 +42,29 @@ function fresh(token: string): Entry | null {
   if (Date.now() > e.expiresAt) { store.delete(token); return null; }
   return e;
 }
+/** Constant-time string compare (tolerates length mismatch). */
+function safeEqual(a: string, b: string): boolean {
+  const ab = Buffer.from(a);
+  const bb = Buffer.from(b);
+  if (ab.length !== bb.length) return false;
+  return timingSafeEqual(ab, bb);
+}
 
 /**
  * Create a session (no QR yet) so the agent gets a link immediately, or update
- * an existing one. `dataUrl` (re)sets the QR; `done` marks the login captured.
+ * an existing one. The capability is SPLIT: creation mints a public READ token
+ * (returned as `token`, embedded in the /connect link, used to READ the QR and
+ * status) and a separate high-entropy WRITER credential (`writer`, of the form
+ * `<readToken>.<secret>`) handed back ONLY to the agent. Updates — (re)setting
+ * the QR via `dataUrl` or marking the login captured via `done` — REQUIRE that
+ * writer credential; the read token alone can never write. This stops anyone who
+ * merely obtained the forwarded /connect/<token> link from swapping in their own
+ * login QR (account takeover) or sending `done` to abort the onboarding (DoS).
+ *
  * Every call resets the TTL, so the link lives as long as `connect` keeps it
- * fresh. Returns the token (same one when updating).
+ * fresh. Returns the read token + writer credential (the same pair when updating).
  */
-export function putQr(opts: { dataUrl?: string; token?: string; done?: boolean }): { token: string; expiresInSec: number } {
+export function putQr(opts: { dataUrl?: string; token?: string; done?: boolean }): { token: string; writer: string; expiresInSec: number } {
   const { dataUrl, done } = opts;
   if (dataUrl !== undefined && (typeof dataUrl !== "string" || !DATAURL_RE.test(dataUrl))) {
     throw new Error("qr_data_url must be a base64 data:image URL (png/jpeg/webp)");
@@ -53,17 +72,35 @@ export function putQr(opts: { dataUrl?: string; token?: string; done?: boolean }
   if (dataUrl && dataUrl.length > MAX_DATAURL_LEN) throw new Error("qr image too large");
   pruneExpired();
 
-  let token = opts.token && store.has(opts.token) && fresh(opts.token) ? opts.token : undefined;
-  if (!token) {
+  let readToken: string;
+  let e: Entry;
+  if (opts.token !== undefined) {
+    // Update path: `token` is the writer credential `<readToken>.<secret>`. The
+    // session can only be reached by presenting its secret half — the public
+    // read token (everything before the dot) is not, on its own, a write key.
+    const cred = String(opts.token);
+    const dot = cred.indexOf(".");
+    readToken = dot > 0 ? cred.slice(0, dot) : "";
+    const secret = dot > 0 ? cred.slice(dot + 1) : "";
+    const existing = readToken ? fresh(readToken) : null;
+    if (!existing || !secret || !safeEqual(secret, existing.writer)) {
+      throw new Error("invalid or expired writer credential");
+    }
+    e = existing;
+  } else {
+    // Create path: mint a public read token (goes in the link) and a private
+    // writer secret (agent-only, never in the link).
     evictIfFull();
-    token = randomBytes(16).toString("hex");
-    store.set(token, { dataUrl: null, state: "waiting", expiresAt: 0 });
+    readToken = randomBytes(16).toString("hex");
+    const secret = randomBytes(32).toString("hex");
+    e = { dataUrl: null, state: "waiting", expiresAt: 0, writer: secret };
+    store.set(readToken, e);
   }
-  const e = store.get(token)!;
+
   if (done) e.state = "completed";
   else if (dataUrl) { e.dataUrl = dataUrl; e.state = "ready"; }
   e.expiresAt = Date.now() + TTL_MS;
-  return { token, expiresInSec: Math.round(TTL_MS / 1000) };
+  return { token: readToken, writer: `${readToken}.${e.writer}`, expiresInSec: Math.round(TTL_MS / 1000) };
 }
 
 export interface QrStatus { state: State; qr: string | null; expires_in_sec: number; }

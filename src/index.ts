@@ -216,6 +216,10 @@ app.get("/version", (_req, res) => {
 });
 // ── TikTok connect QR hand-off page (public, unauthenticated) ──
 // A human opens /connect/<token> to scan the login QR an agent forwarded them.
+// READ-ONLY by design: `:token` is the public read token, so these routes only
+// ever render/return the current QR + status. Replacing the QR requires the
+// separate writer credential on POST /social/tiktok/qr (see qr-handoff.ts) — the
+// forwarded link is never a write capability, which blocks QR-swap takeover.
 import { getQrSession, renderQrPage, renderExpiredPage } from "./services/qr-handoff";
 import { warnIfSelfHosted } from "./services/self-hosted";
 app.get("/connect/:token", (req, res) => {
