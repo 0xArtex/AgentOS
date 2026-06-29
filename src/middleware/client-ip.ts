@@ -15,8 +15,21 @@ import { Request } from "express";
  * off-tunnel in prod. Do not bind this process to a public interface without
  * also stripping inbound CF-* headers at the edge.
  */
+function isLoopbackPeer(addr: string | undefined): boolean {
+  if (!addr) return false;
+  return addr === "::1" || addr === "::ffff:127.0.0.1" || addr.startsWith("127.");
+}
+
 export function clientIp(req: Request): string {
+  const peer = req.socket.remoteAddress;
   const cf = req.headers["cf-connecting-ip"];
-  if (typeof cf === "string" && cf.length > 0) return cf;
-  return req.ip || req.socket.remoteAddress || "unknown";
+  // Only trust CF-Connecting-IP when the request actually arrived via the local
+  // cloudflared tunnel — i.e. the immediate peer is loopback. A request that
+  // reaches the origin OFF-tunnel (a direct connection, were the process ever
+  // bound publicly) has a non-loopback peer; we then ignore its forgeable CF-*
+  // header and key on the real socket address. Otherwise an attacker could set
+  // a fresh CF-Connecting-IP per request to land in a new rate-limit /
+  // brute-force bucket every time and evade both, and forge audit attribution.
+  if (typeof cf === "string" && cf.length > 0 && isLoopbackPeer(peer)) return cf;
+  return req.ip || peer || "unknown";
 }
