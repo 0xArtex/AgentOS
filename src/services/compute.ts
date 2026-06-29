@@ -1,5 +1,6 @@
 import { config } from "../config";
 import { storage } from "./storage";
+import { DATA_DIR } from "../db";
 import { Server, ServerType, ServerAction } from "../types";
 import {
   getServerPlans,
@@ -542,6 +543,23 @@ export async function serverAction(id: string, action: ServerAction, image?: str
  * shell sees them as distinct words; we never let user-supplied bytes
  * interpolate into our own shell.
  */
+// Per-server known_hosts, mirroring routes/compute.ts `hostKeyFile()` EXACTLY so
+// the pin is shared with the route-level sshCmd: DATA_DIR/server-known-hosts/
+// <id>.known_hosts, StrictHostKeyChecking=yes once a key is pinned (reject
+// mismatch), accept-new (TOFU) until then. NEVER StrictHostKeyChecking=no — this
+// path runs commands on the box and must not blindly trust an impersonated host.
+function serverKnownHosts(serverId: string): { file: string; strict: string } {
+  const path = require("path");
+  const fs = require("fs");
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(String(serverId))) throw new Error("Invalid server id");
+  const dir = path.join(DATA_DIR, "server-known-hosts");
+  const file = path.join(dir, `${serverId}.known_hosts`);
+  try { fs.mkdirSync(dir, { recursive: true }); } catch { /* created lazily by ssh */ }
+  let pinned = false;
+  try { pinned = fs.statSync(file).size > 0; } catch { pinned = false; }
+  return { file, strict: pinned ? "yes" : "accept-new" };
+}
+
 export async function execOnServer(
   id: string,
   command: string,
@@ -570,14 +588,15 @@ export async function execOnServer(
   // sshProbe/sshRun. Without these, a remote login shell can leak
   // "tcsetattr: Inappropriate ioctl for device" + "logout" through stderr
   // (issue #85). Non-interactive ssh doesn't need a tty.
+  const pin = serverKnownHosts(id);
   const r = spawnSync(
     "ssh",
     [
       "-i", PLATFORM_KEY,
       "-q",
       "-T",
-      "-o", "StrictHostKeyChecking=no",
-      "-o", "UserKnownHostsFile=/dev/null",
+      "-o", `StrictHostKeyChecking=${pin.strict}`,
+      "-o", `UserKnownHostsFile=${pin.file}`,
       "-o", "BatchMode=yes",
       "-o", `ConnectTimeout=${Math.min(15, timeoutSec)}`,
       `root@${server.ipv4}`,
