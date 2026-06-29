@@ -272,10 +272,21 @@ router.post("/:id/deploy", requireDashboardAuth, async (req: DashboardRequest, r
   `).run(projectId, userId, `${template.name} (deployed)`, JSON.stringify(blueprint));
 
   // Start async provisioning
-  provisionTemplate(deployId, userId, projectId, blueprint, services, walletPassphrase).catch(err => {
+  provisionTemplate(deployId, userId, projectId, blueprint, services, walletPassphrase).catch(async err => {
     console.error("[templates] provisioning error:", err);
     db.prepare("UPDATE template_deployments SET status = 'failed', provisioning_log = ? WHERE id = ?")
       .run(JSON.stringify([{ step: "error", error: err.message, ts: Date.now() }]), deployId);
+    // Refund the up-front debit — a deployment that failed to provision must not
+    // be billed (mirrors the wallet-payer refund-on-failure guarantee). Keyed on
+    // the deployId so it credits back at most once even if this path re-runs.
+    if (totalPrice > 0) {
+      try {
+        const { refund } = await import("../services/balance");
+        refund(userId!, totalPrice, `Refund: failed template deploy ${template.name}`, `tmpl_refund_${deployId}`);
+      } catch (e: any) {
+        console.error(`[templates] refund failed for deploy ${deployId} ($${totalPrice} to ${userId}):`, e?.message ?? e);
+      }
+    }
   });
 
   res.json({
