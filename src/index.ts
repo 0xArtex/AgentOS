@@ -137,6 +137,12 @@ app.use(bruteForceProtection);
 // Vault directories are created lazily on first write (see ensureVault in wallet-vault.ts)
 import walletRoutes from "./routes/wallet";
 import walletPasskeyRoutes from "./routes/wallet-passkey";
+// These mounts sit BEFORE the global rate limiter (added later) so that the
+// timeout exemption for slow on-chain signing applies — but that left the
+// sensitive wallet endpoints (key derivation, message/tx signing, API-key
+// minting, managed-wallet registration, passkey ops) with NO rate cap. Attach
+// an explicit, stricter limiter here so they can't be hammered / brute-probed.
+app.use("/wallet", rateLimit(60, 60_000));
 app.use("/wallet", walletRoutes);
 app.use("/wallet", walletPasskeyRoutes);
 
@@ -428,7 +434,10 @@ app.get("/api/final-pitch", (_req: any, res: any) => {
     traction: { endpoints: "121+", forum_comments: "495+", partners: 11 },
     differentiators: ["x402 payments", "Framework-agnostic", "Sub-second provisioning", "Security-first"],
     vision: "The AWS for the agent economy.",
-    links: { api: "http://77.42.89.233:3001", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/Palmyr" }
+    // Never publish the prod origin IP — prod terminates TLS at the Cloudflare
+    // edge and cloudflared forwards to localhost specifically to keep the origin
+    // hidden behind the WAF/DDoS shield. Use the request host / canonical domain.
+    links: (() => { const base = `https://${_req.get?.("host") || "palmyr.ai"}`; return { api: base, docs: `${base}/docs`, github: "https://github.com/0xArtex/Palmyr" }; })()
   });
 });
 app.use("/api", leaderboardRoutes);
@@ -456,16 +465,15 @@ app.use("/api/feedback", feedbackRouter);
 // ── Error handling ────────────────────────────────────────────
 // ── Deep health check ────────────────────────────────────────
 app.get("/health/deep", (_req, res) => {
-  const os = require("os");
+  // Public + unauthenticated: keep it to liveness only. Host system internals
+  // (CPU count, load average, free/total memory) let an attacker fingerprint
+  // the box and time a DoS, so they are deliberately NOT exposed here. The
+  // stale hackathon "FREE" block was also removed (the event is long over).
   const uptimeS = Math.floor(process.uptime());
-  const mem = process.memoryUsage();
   res.json({
     status: "healthy",
     version: getVersion().version,
     uptime: { seconds: uptimeS, human: `${Math.floor(uptimeS/3600)}h ${Math.floor((uptimeS%3600)/60)}m ${uptimeS%60}s` },
-    memory: { rss_mb: Math.round(mem.rss/1048576), heap_used_mb: Math.round(mem.heapUsed/1048576) },
-    system: { cpus: os.cpus().length, load: os.loadavg(), free_mem_mb: Math.round(os.freemem()/1048576), total_mem_mb: Math.round(os.totalmem()/1048576) },
-    hackathon: { deadline: "2026-02-12T17:00:00Z", hours_remaining: Math.max(0, Math.floor((new Date("2026-02-12T17:00:00Z").getTime() - Date.now())/3600000)), mode: "FREE" }
   });
 
 });
