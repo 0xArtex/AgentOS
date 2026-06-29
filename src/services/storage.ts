@@ -1,5 +1,64 @@
-import { PhoneNumber, SmsMessage, EmailInbox, EmailMessage, Domain, DnsRecord, Server } from "../types";
+import { PhoneNumber, SmsMessage, EmailInbox, EmailMessage, Server } from "../types";
 import { db } from "../db";
+import { createCipheriv, createDecipheriv, randomBytes, createHash } from "crypto";
+
+// ── VPS root-password encryption at rest (AES-256-GCM) ──────────────
+// Root SSH passwords were stored in plaintext in the SQLite file. Encrypt them
+// at rest, mirroring the master-key pattern used for social credentials
+// (registered-accounts.ts) and agent secrets (routes/agent-secrets.ts).
+//
+// Key resolution is deliberately recoverable and non-bricking:
+//   - SERVER_PASSWORD_KEY (64-hex / 32 bytes) set → use it (real encryption).
+//   - Unset in dev/test/self-hosted → a labeled throwaway key so the path is
+//     exercised end to end without secrets.
+//   - Unset in genuine multi-tenant production → we do NOT invent a
+//     source-derived key (that is false security: anyone with the DB + public
+//     source could decrypt). Store as-is and rely on the 0600 DB-file perms
+//     (see db.ts); an operator wanting encrypted-at-rest backups sets the key.
+// Reads transparently pass through legacy/plaintext values, so enabling the key
+// later never breaks existing rows, and removing it never crashes a listing.
+const SERVER_PW_ENC_PREFIX = "enc:v1:";
+
+function getServerPasswordKey(): Buffer | null {
+  const hex = process.env.SERVER_PASSWORD_KEY;
+  if (hex && /^[0-9a-fA-F]{64}$/.test(hex)) return Buffer.from(hex, "hex");
+  const prod =
+    process.env.NODE_ENV === "production" &&
+    !(process.env.PALMYR_SELF_HOSTED === "1" || process.env.PALMYR_SELF_HOSTED === "true");
+  if (prod) return null;
+  return createHash("sha256").update("palmyr-server-password-dev-key-v1").digest();
+}
+
+function encryptRootPassword(plaintext: string | null): string | null {
+  if (plaintext == null || plaintext === "") return plaintext;
+  if (plaintext.startsWith(SERVER_PW_ENC_PREFIX)) return plaintext; // already encrypted
+  const key = getServerPasswordKey();
+  if (!key) return plaintext; // prod without a dedicated key: rely on file perms
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", key, iv);
+  const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  return `${SERVER_PW_ENC_PREFIX}${iv.toString("hex")}.${ct.toString("hex")}.${tag.toString("hex")}`;
+}
+
+function decryptRootPassword(stored: string | null): string | null {
+  if (stored == null) return stored;
+  if (!stored.startsWith(SERVER_PW_ENC_PREFIX)) return stored; // legacy / unencrypted
+  const key = getServerPasswordKey();
+  if (!key) {
+    console.warn("[storage] encrypted server root password present but SERVER_PASSWORD_KEY is unset; cannot decrypt");
+    return null;
+  }
+  try {
+    const [iv, ct, tag] = stored.slice(SERVER_PW_ENC_PREFIX.length).split(".");
+    const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(iv, "hex"));
+    decipher.setAuthTag(Buffer.from(tag, "hex"));
+    return decipher.update(ct, "hex", "utf8") + decipher.final("utf8");
+  } catch (e) {
+    console.warn("[storage] failed to decrypt server root password (key rotated/removed?):", (e as Error).message);
+    return null;
+  }
+}
 
 function rowToPhoneNumber(row: any): PhoneNumber {
   let sharedWith: string[] = [];
@@ -311,70 +370,10 @@ class Storage {
   }
 
   // ── Domains ───────────────────────────────────────────────
-
-  setDomain(id: string, domain: Domain): void {
-    const transaction = db.transaction(() => {
-      // Insert/update domain
-      const domainStmt = db.prepare(`
-        INSERT OR REPLACE INTO domains (id, domain, tld, owner, status, registrar, registered_at, expires_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      domainStmt.run(id, domain.domain, domain.tld, domain.owner, domain.status, domain.registrar, domain.registeredAt, domain.expiresAt);
-
-      // Delete existing DNS records for this domain
-      const deleteRecordsStmt = db.prepare('DELETE FROM dns_records WHERE domain_id = ?');
-      deleteRecordsStmt.run(id);
-
-      // Insert DNS records
-      const insertRecordStmt = db.prepare(`
-        INSERT INTO dns_records (domain_id, type, name, value, ttl, priority)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `);
-      
-      for (const record of domain.dnsRecords) {
-        insertRecordStmt.run(id, record.type, record.name, record.value, record.ttl, record.priority || null);
-      }
-    });
-    
-    transaction();
-  }
-
-  getDomain(id: string): Domain | undefined {
-    const domainStmt = db.prepare('SELECT * FROM domains WHERE id = ?');
-    const domainRow = domainStmt.get(id) as any;
-    if (!domainRow) return undefined;
-
-    const recordsStmt = db.prepare('SELECT * FROM dns_records WHERE domain_id = ?');
-    const recordRows = recordsStmt.all(id) as any[];
-
-    const dnsRecords: DnsRecord[] = recordRows.map(row => ({
-      type: row.type,
-      name: row.name,
-      value: row.value,
-      ttl: row.ttl,
-      priority: row.priority
-    }));
-
-    return {
-      id: domainRow.id,
-      domain: domainRow.domain,
-      tld: domainRow.tld,
-      owner: domainRow.owner,
-      status: domainRow.status,
-      registrar: domainRow.registrar,
-      dnsRecords,
-      registeredAt: domainRow.registered_at,
-      expiresAt: domainRow.expires_at
-    };
-  }
-
-  findDomainByName(name: string): Domain | undefined {
-    const stmt = db.prepare('SELECT id FROM domains WHERE domain = ?');
-    const row = stmt.get(name) as any;
-    if (!row) return undefined;
-    
-    return this.getDomain(row.id);
-  }
+  // The former setDomain/getDomain/findDomainByName helpers were removed: they
+  // referenced columns (tld, registrar, registered_at) that the current domains
+  // schema (db.ts) no longer has — a latent crash if revived. They had no
+  // callers; real domain writes go through src/routes/domains.ts directly.
 
   // ── Compute ────────────────────────────────────────────────
 
@@ -386,7 +385,7 @@ class Storage {
       INSERT OR REPLACE INTO servers (id, name, server_type, image, status, ipv4, ipv6, owner, price_monthly, created_at, root_password, openclaw_configured)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, COALESCE((SELECT openclaw_configured FROM servers WHERE id = ?), 0))
     `);
-    stmt.run(id, server.name, server.serverType, server.image, server.status, server.ipv4, server.ipv6, server.owner, server.priceMonthly, server.createdAt, server.rootPassword, id);
+    stmt.run(id, server.name, server.serverType, server.image, server.status, server.ipv4, server.ipv6, server.owner, server.priceMonthly, server.createdAt, encryptRootPassword(server.rootPassword), id);
   }
 
   getServer(id: string): Server | undefined {
@@ -405,7 +404,7 @@ class Storage {
       owner: row.owner,
       priceMonthly: row.price_monthly,
       createdAt: row.created_at,
-      rootPassword: row.root_password
+      rootPassword: decryptRootPassword(row.root_password)
     };
   }
 
@@ -437,7 +436,7 @@ class Storage {
       owner: row.owner,
       priceMonthly: row.price_monthly,
       createdAt: row.created_at,
-      rootPassword: row.root_password,
+      rootPassword: decryptRootPassword(row.root_password),
       openclawConfigured: !!row.openclaw_configured,
     }));
   }

@@ -170,25 +170,34 @@ async function runPoolTransfer(t: TransferRow): Promise<void> {
     rotation.data?.cookies && rotation.data.cookies.length > 0
       ? JSON.stringify(rotation.data.cookies)
       : "[]";
+  const newCreds = {
+    password: newPassword,
+    cookies: newCookies,
+    auth_token: rotation.data?.auth_token || null,
+  };
+
+  // Persist the rotated credentials by id BEFORE flipping ownership. The X-side
+  // password is already changed, so writing it unconditionally guarantees the
+  // account row always carries a usable password — a failed or raced ownership
+  // flip can no longer leave a live password that no DB row holds (the original
+  // bricking bug). transferOwnership below re-writes the same creds atomically.
+  await xAccountService.updateCredentials(account.id, newCreds);
+
   const updated = await xAccountService.transferOwnership(
     account.id,
     t.from_wallet,
     t.to_wallet,
-    {
-      password: newPassword,
-      cookies: newCookies,
-      auth_token: rotation.data?.auth_token || null,
-    }
+    newCreds
   );
 
   if (!updated) {
-    // Edge: concurrent transfer slipped between the ownership check and the
-    // DB update. The X-side password is already rotated. Whoever owns the
-    // row now holds the new password — we just bail.
+    // Concurrent transfer slipped between the ownership check and the flip. The
+    // rotated password was already saved to the account above, so whoever holds
+    // the row isn't locked out — only the ownership change is aborted.
     markFailed(
       t.id,
       "concurrent_transfer",
-      "Account ownership changed during rotation; password was rotated but transfer aborted"
+      "Account ownership changed during rotation; the rotated password was saved to the account so it isn't locked out, but the transfer was aborted"
     );
     return;
   }
@@ -244,6 +253,27 @@ async function runRegisteredTransfer(t: TransferRow): Promise<void> {
     ct0: rotation.data?.ct0 || undefined,
   };
 
+  // Persist the rotated credentials under the current owner BEFORE flipping
+  // ownership. The X-side password is already rotated, so saving it first means
+  // a failed/raced flip leaves the original owner with a working account rather
+  // than a bricked one with a live password no row holds. If even this guarded
+  // write fails, the row was already taken over mid-rotation (the inherent
+  // double-rotation race) and there is nothing safe to persist.
+  const persisted = persistRotatedCreds(
+    state.row.id,
+    t.from_wallet,
+    newCreds,
+    newCookies
+  );
+  if (!persisted) {
+    markFailed(
+      t.id,
+      "concurrent_transfer",
+      "Account ownership changed during rotation; password was rotated but could not be saved to the original owner"
+    );
+    return;
+  }
+
   const updated = persistRotatedCreds(
     state.row.id,
     t.from_wallet,
@@ -252,10 +282,12 @@ async function runRegisteredTransfer(t: TransferRow): Promise<void> {
     { transferToWallet: t.to_wallet }
   );
   if (!updated) {
+    // Flip raced after we saved the rotated creds above, so the original owner
+    // keeps a working account — only the ownership change is aborted.
     markFailed(
       t.id,
       "concurrent_transfer",
-      "Ownership changed during rotation; password was rotated but transfer aborted"
+      "Ownership changed during rotation; the rotated password was saved to the original owner, but the transfer was aborted"
     );
     return;
   }

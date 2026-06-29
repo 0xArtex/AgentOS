@@ -1,6 +1,6 @@
 import Database from 'better-sqlite3';
 import { isAbsolute, join } from 'path';
-import { existsSync, mkdirSync } from 'fs';
+import { existsSync, mkdirSync, chmodSync } from 'fs';
 
 // PALMYR_DATA_DIR pins the SQLite path to a stable location outside the
 // release tree. Critical in prod: without this, `process.cwd()` resolves
@@ -22,11 +22,37 @@ if (!existsSync(DATA_DIR)) {
 
 console.log(`[db] using ${DB_PATH}${envDir ? ' (PALMYR_DATA_DIR)' : ' (cwd default)'}`);
 
+// Lock down the data dir / DB files to owner-only. The SQLite file holds VPS
+// root passwords, agent tokens and session tokens; with the default umask the
+// dir/files are group/world-readable, so anyone with local read (or a copied
+// backup) gets every credential. chmod is a no-op-ish on Windows and may be
+// unsupported on exotic filesystems, so it is best-effort.
+function restrictPerms(path: string, mode: number): void {
+  try {
+    if (existsSync(path)) chmodSync(path, mode);
+  } catch (e) {
+    console.warn(`[db] could not restrict permissions on ${path}:`, (e as Error).message);
+  }
+}
+restrictPerms(DATA_DIR, 0o700);
+
 // Initialize SQLite database
 export const db: Database.Database = new Database(DB_PATH);
 
 // Enable WAL mode for better concurrent access
 db.pragma('journal_mode = WAL');
+
+// Enforce declared FOREIGN KEY constraints. SQLite defaults foreign_keys to OFF
+// per connection, which left every FK clause in the schema inert (orphaned child
+// rows on parent delete/replace). Enable it for referential integrity. Note the
+// schema declares no ON DELETE CASCADE, and the migration rebuilds below toggle
+// this OFF/ON around table rebuilds, which now correctly restores the ON state.
+db.pragma('foreign_keys = ON');
+
+// Restrict the on-disk SQLite files (main DB + WAL/SHM sidecars) to owner-only.
+restrictPerms(DB_PATH, 0o600);
+restrictPerms(`${DB_PATH}-wal`, 0o600);
+restrictPerms(`${DB_PATH}-shm`, 0o600);
 
 /**
  * Initialize all tables for Palmyr

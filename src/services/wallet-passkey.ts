@@ -23,18 +23,44 @@ import type {
 // ─── Config ───
 
 const RP_NAME = "Palmyr Wallet";
-const RP_ID = process.env.WEBAUTHN_RP_ID || "localhost";
 
 /**
- * Allowed origins for WebAuthn responses.
- * - Production: set WEBAUTHN_ORIGIN to your HTTPS origin (e.g. https://palmyr.ai)
- * - Localhost (default): accept HTTP on common dev ports + HTTPS — WebAuthn spec
- *   permits HTTP for localhost only, so this is safe.
+ * Resolve the WebAuthn RP ID + allowed origin(s) from the environment.
+ * Exported so the fail-closed behavior is unit-testable.
+ *
+ * In genuine multi-tenant production (NODE_ENV=production and not self-hosted)
+ * the relying-party id and origin MUST be set explicitly. A silent "localhost"
+ * fallback would either break passkey oversight entirely (rpId is not a
+ * registrable suffix of the prod origin) or leave a permissive localhost origin
+ * allowlist active. Fail closed, mirroring config.ts requiredInProd / email.ts.
+ *
+ * - Production: requires WEBAUTHN_RP_ID and WEBAUTHN_ORIGIN — throws if either
+ *   is unset (no localhost fallback).
+ * - Dev/test/self-hosted: defaults to localhost. WebAuthn permits HTTP for
+ *   localhost only, so the common dev-port allowlist is safe and is confined
+ *   to non-production environments.
  */
-const ORIGIN: string | string[] = process.env.WEBAUTHN_ORIGIN
-  ? process.env.WEBAUTHN_ORIGIN
-  : RP_ID === "localhost"
-    ? [
+export function resolveWebauthnConfig(): { rpId: string; origin: string | string[] } {
+  const envRpId = process.env.WEBAUTHN_RP_ID;
+  const envOrigin = process.env.WEBAUTHN_ORIGIN;
+  const prodRequiresConfig =
+    process.env.NODE_ENV === "production" &&
+    !(process.env.PALMYR_SELF_HOSTED === "1" || process.env.PALMYR_SELF_HOSTED === "true");
+
+  if (prodRequiresConfig && (!envRpId || !envOrigin)) {
+    throw new Error(
+      "Refusing to boot: WEBAUTHN_RP_ID and WEBAUTHN_ORIGIN must be set in production. " +
+        "There is no localhost fallback outside development — a default rpId would break " +
+        "managed-wallet passkey oversight and enable a permissive localhost origin allowlist.",
+    );
+  }
+
+  const rpId = envRpId || "localhost";
+  if (envOrigin) return { rpId, origin: envOrigin };
+  if (rpId === "localhost") {
+    return {
+      rpId,
+      origin: [
         "http://localhost",
         "http://localhost:3000",
         "http://localhost:3001",
@@ -43,8 +69,13 @@ const ORIGIN: string | string[] = process.env.WEBAUTHN_ORIGIN
         "http://127.0.0.1",
         "http://127.0.0.1:3000",
         "https://localhost",
-      ]
-    : `https://${RP_ID}`;
+      ],
+    };
+  }
+  return { rpId, origin: `https://${rpId}` };
+}
+
+const { rpId: RP_ID, origin: ORIGIN } = resolveWebauthnConfig();
 
 // ─── DB schema ───
 
@@ -107,7 +138,10 @@ export async function generateSetupOptions(walletId: string): Promise<any> {
     })),
     authenticatorSelection: {
       residentKey: "preferred",
-      userVerification: "preferred",
+      // Money-oversight flow: require user verification (biometric/PIN) so a
+      // silent or cloned authenticator cannot register a passkey without a
+      // human physically present.
+      userVerification: "required",
     },
   });
 
@@ -127,6 +161,8 @@ export async function verifySetup(
     expectedChallenge,
     expectedOrigin: ORIGIN,
     expectedRPID: RP_ID,
+    // Reject any assertion that wasn't user-verified (biometric/PIN).
+    requireUserVerification: true,
   });
 
   if (!verification.verified || !verification.registrationInfo) {
@@ -165,7 +201,9 @@ export async function generateApprovalOptions(walletId: string): Promise<any> {
       id: p.credential_id,
       transports: JSON.parse(p.transports || "[]"),
     })),
-    userVerification: "preferred",
+    // Approving an over-limit spend / policy change is a human-presence gate:
+    // require user verification so a non-UV authenticator can't satisfy it.
+    userVerification: "required",
   });
 
   setChallenge(`auth:${walletId}`, options.challenge);
@@ -190,6 +228,10 @@ export async function verifyApproval(
     expectedChallenge,
     expectedOrigin: ORIGIN,
     expectedRPID: RP_ID,
+    // Enforce that the approval was actually user-verified (biometric/PIN), not
+    // just a silent assertion. Defends the human-oversight property even if the
+    // library default ever changes.
+    requireUserVerification: true,
     credential: {
       id: passkey.credential_id,
       publicKey: Buffer.from(passkey.public_key, "base64"),
