@@ -25,6 +25,26 @@ import {
 import { loginTwitter } from "./social-login";
 import { getUserInfo } from "./twitter-api";
 
+// Self-contained schema guard: store the account's STABLE numeric id
+// (twitterapi.io `rest_id`) on the pool row. A rebrand changes the @handle but
+// preserves this id, so the dispute service can re-check by id to tell a
+// genuinely suspended account (id gone) from one merely RENAMED (id still
+// live → buyer still controls it). Guarded + idempotent, mirroring the
+// pool-column backfill in db.ts and deposit-monitor's self-contained schema.
+// (disputes.ts carries an identical guard since it reads this column without
+// importing this module.)
+ensurePoolRestIdColumn();
+function ensurePoolRestIdColumn(): void {
+  try {
+    const cols = db.prepare("PRAGMA table_info(social_account_pool)").all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === "rest_id")) {
+      db.exec("ALTER TABLE social_account_pool ADD COLUMN rest_id TEXT");
+    }
+  } catch (e: any) {
+    console.warn("[pool] could not ensure rest_id column:", e?.message || e);
+  }
+}
+
 interface EncryptedBlob {
   iv: string;
   ciphertext: string;
@@ -172,6 +192,7 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
   let detectedAccountBasedIn: string | null = null;
   let detectedLocationAccurate: boolean | null = null;
   let detectedAffiliate: string | null = null;
+  let detectedRestId: string | null = null;
   try {
     const info = await getUserInfo(req.username);
     if (info) {
@@ -184,6 +205,7 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
       detectedAccountBasedIn = info.account_based_in;
       detectedLocationAccurate = info.location_accurate;
       detectedAffiliate = info.affiliate_username;
+      detectedRestId = info.rest_id;
     }
   } catch (e: any) {
     console.warn(`[pool] profile detection threw for @${req.username}:`, e?.message || e);
@@ -208,8 +230,9 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
       acquired_cost_usdc, sale_price_usdc, status, created_at, tested_at, notes,
       detected_location,
       source, registered_country, registered_platform,
-      username_change_count, account_based_in, location_accurate, affiliate_username
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      username_change_count, account_based_in, location_accurate, affiliate_username,
+      rest_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     req.platform,
@@ -232,6 +255,7 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
     detectedAccountBasedIn,
     detectedLocationAccurate == null ? null : (detectedLocationAccurate ? 1 : 0),
     detectedAffiliate,
+    detectedRestId,
   );
 
   return {

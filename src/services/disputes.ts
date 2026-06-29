@@ -9,9 +9,17 @@
  *      days, not already disputed, not already dead.
  *
  *   2. Auto-verify via twitterapi.io GET /twitter/user/info:
- *        - status='suspended' or 'not_found' → confirmed bad
+ *        - status='suspended' or 'not_found' → confirmed bad (but see 2a)
  *        - status='active'                   → reject the dispute (account is fine)
  *        - twitterapi.io unavailable / null  → queue for admin review
+ *
+ *   2a. Rebrand-fraud guard. A genuinely suspended account and a handle the
+ *       buyer simply RENAMED both 404 by handle — indistinguishable. When the
+ *       row carries a stable numeric id (rest_id, captured at seed time), a
+ *       404 is re-checked BY ID (a rename preserves it). If the id still
+ *       resolves to a LIVE account, the buyer rebranded and still controls it
+ *       → admin_review, NOT auto-resolve. If the id is also gone → genuinely
+ *       bad, proceed. Legacy rows with no rest_id skip this guard.
  *
  *   3. On confirmed bad:
  *        a. Find oldest 'ready' pool row with matching country.
@@ -33,10 +41,26 @@
  */
 import { db } from "../db";
 import { randomUUID } from "crypto";
-import { getUserInfo } from "./twitter-api";
+import { getUserInfo, getUserInfoById } from "./twitter-api";
 import { refundUsdcToPayer } from "./refund";
 
 const DISPUTE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+// Self-contained schema guard: the rebrand-fraud check reads social_account_pool.rest_id,
+// but this module deliberately does NOT import social-pool.ts (that would pull
+// playwright in via social-login). So we ensure the column here too —
+// idempotent and identical to social-pool.ts's guard. Both run at module load,
+// after db.ts's initDatabase() has created the table.
+(function ensurePoolRestIdColumn() {
+  try {
+    const cols = db.prepare("PRAGMA table_info(social_account_pool)").all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === "rest_id")) {
+      db.exec("ALTER TABLE social_account_pool ADD COLUMN rest_id TEXT");
+    }
+  } catch (e: any) {
+    console.warn("[disputes] could not ensure rest_id column:", e?.message || e);
+  }
+})();
 
 export type DisputeStatus =
   | "pending"
@@ -111,12 +135,13 @@ interface PoolAccountRow {
   payment_signature: string | null;
   payment_chain: string | null;
   paid_amount_usdc: number | null;
+  rest_id: string | null;
 }
 
 function getAccount(id: string): PoolAccountRow | null {
   const row = db.prepare(`
     SELECT id, username, country, sold_to_wallet, sold_at, status,
-           payment_signature, payment_chain, paid_amount_usdc
+           payment_signature, payment_chain, paid_amount_usdc, rest_id
     FROM social_account_pool WHERE id = ?
   `).get(id) as PoolAccountRow | undefined;
   return row || null;
@@ -200,6 +225,48 @@ export async function createDispute(req: CreateDisputeRequest): Promise<DisputeR
   }
 
   if (detectionStatus === "suspended" || detectionStatus === "not_found") {
+    // Rebrand-fraud guard. A genuinely suspended account AND a handle that the
+    // buyer simply RENAMED both 404 by handle — they're indistinguishable this
+    // way. If we captured the account's stable numeric id at seed time, re-check
+    // by id (a rename preserves it):
+    //   - id still resolves to a LIVE account → the buyer just changed the
+    //     @handle and still controls the account. Auto-resolving here would
+    //     hand them a free replacement / refund while they keep the working
+    //     account → route to admin_review instead.
+    //   - id is also gone → genuinely suspended/deleted → auto-resolve as before.
+    //   - id recheck inconclusive (API error) → don't auto-resolve on an
+    //     unverifiable 404; let a human settle.
+    // Rows with no stored rest_id (legacy/pre-fix) skip this and keep the
+    // current behavior.
+    if (account.rest_id) {
+      const byId = await getUserInfoById(account.rest_id);
+      if (byId && byId.status === "active") {
+        const now = new Date().toISOString();
+        const newHandle = byId.username && byId.username !== account.username
+          ? ` → @${byId.username}`
+          : "";
+        db.prepare(`
+          UPDATE pool_disputes
+          SET status = 'admin_review',
+              resolution = ?
+          WHERE id = ?
+        `).run(
+          `account appears rebranded, still live: @${account.username}${newHandle} (rest_id ${account.rest_id} resolves to an active account)`,
+          id,
+        );
+        return { success: true, dispute: getRowById(id)! };
+      }
+      if (!byId) {
+        db.prepare(`
+          UPDATE pool_disputes
+          SET status = 'admin_review',
+              resolution = 'handle 404 but rest_id recheck unavailable — needs manual verify'
+          WHERE id = ?
+        `).run(id);
+        return { success: true, dispute: getRowById(id)! };
+      }
+      // byId resolved and the id is gone too → genuinely dead. Fall through.
+    }
     return await resolveAutoVerified(id, account);
   }
 

@@ -43,6 +43,7 @@ function insertSoldAccount(args: {
   soldAtMsAgo: number;
   withPayment?: boolean;
   paidUsdc?: number;
+  restId?: string; // stable numeric id; omit to simulate a legacy/pre-fix row
 }): void {
   const soldAt = new Date(Date.now() - args.soldAtMsAgo).toISOString();
   db.prepare(`
@@ -50,8 +51,8 @@ function insertSoldAccount(args: {
       id, platform, username, country, proxy_session_id,
       credentials_encrypted, cookies_encrypted, sale_price_usdc, status,
       sold_to_wallet, sold_at, created_at, tested_at,
-      payment_signature, payment_chain, paid_amount_usdc
-    ) VALUES (?, 'twitter', ?, ?, ?, ?, ?, ?, 'sold', ?, ?, ?, ?, ?, ?, ?)
+      payment_signature, payment_chain, paid_amount_usdc, rest_id
+    ) VALUES (?, 'twitter', ?, ?, ?, ?, ?, ?, 'sold', ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     args.id,
     args.username,
@@ -67,6 +68,7 @@ function insertSoldAccount(args: {
     args.withPayment ? "test_sig_" + args.id : null,
     args.withPayment ? "solana" : null,
     args.withPayment ? (args.paidUsdc ?? 5.0) : null,
+    args.restId ?? null,
   );
 }
 
@@ -370,6 +372,118 @@ describe("disputes — decision tree", () => {
   });
 });
 
+/* ─── disputes: rebrand rest_id guard ───────────────────────────────── */
+
+describe("disputes — rebrand rest_id guard", () => {
+  // A buyer buys a working account, RENAMES the @handle (now fully theirs),
+  // then disputes. The recorded OLD handle 404s — same as a real suspension.
+  // The stable numeric id (rest_id) is the tiebreaker: a rename preserves it.
+
+  it("handle 404 but rest_id still live → admin_review, no replacement/refund", async () => {
+    insertSoldAccount({
+      id: "dead1", username: "alice", country: "US",
+      buyer: BUYER, soldAtMsAgo: 60_000, withPayment: true, paidUsdc: 8,
+      restId: "111222333",
+    });
+    // Same-country replacement IS in stock — it must NOT be consumed.
+    insertReadyAccount({ id: "fresh1", username: "bob", country: "US" });
+
+    await withRebrandMock(
+      { restId: "111222333", byId: "live", newHandle: "alice_rebranded" },
+      async () => {
+        const r = await createDispute({
+          account_id: "dead1", claimant_wallet: BUYER, reason: "suspended",
+        });
+        assert.equal(r.success, true);
+        assert.equal(r.dispute?.status, "admin_review");
+        assert.match(r.dispute?.resolution || "", /rebranded, still live/);
+        assert.match(r.dispute?.resolution || "", /alice_rebranded/);
+        assert.equal(r.dispute?.replacement_account_id, null);
+        assert.equal(r.dispute?.refund_id, null);
+
+        // The disputed account stays 'sold' (buyer still controls it) — NOT dead.
+        const acc = db.prepare("SELECT status FROM social_account_pool WHERE id = 'dead1'").get() as any;
+        assert.equal(acc.status, "sold");
+        // Replacement stock untouched.
+        const fresh = db.prepare("SELECT status, sold_to_wallet FROM social_account_pool WHERE id = 'fresh1'").get() as any;
+        assert.equal(fresh.status, "ready");
+        assert.equal(fresh.sold_to_wallet, null);
+      },
+    );
+  });
+
+  it("handle 404 and rest_id also gone → auto-resolve (replaced) as before", async () => {
+    insertSoldAccount({
+      id: "dead1", username: "alice", country: "US",
+      buyer: BUYER, soldAtMsAgo: 60_000, withPayment: true, paidUsdc: 8,
+      restId: "444555666",
+    });
+    insertReadyAccount({ id: "fresh1", username: "bob", country: "US" });
+
+    await withRebrandMock(
+      { restId: "444555666", byId: "gone" },
+      async () => {
+        const r = await createDispute({
+          account_id: "dead1", claimant_wallet: BUYER, reason: "suspended",
+        });
+        assert.equal(r.success, true);
+        assert.equal(r.dispute?.status, "replaced");
+        assert.equal(r.dispute?.replacement_account_id, "fresh1");
+
+        const dead = db.prepare("SELECT status FROM social_account_pool WHERE id = 'dead1'").get() as any;
+        assert.equal(dead.status, "dead");
+      },
+    );
+  });
+
+  it("rest_id recheck inconclusive (API error) → admin_review, stock untouched", async () => {
+    insertSoldAccount({
+      id: "dead1", username: "alice", country: "US",
+      buyer: BUYER, soldAtMsAgo: 60_000, withPayment: true, paidUsdc: 8,
+      restId: "777888999",
+    });
+    insertReadyAccount({ id: "fresh1", username: "bob", country: "US" });
+
+    await withRebrandMock(
+      { restId: "777888999", byId: "error" },
+      async () => {
+        const r = await createDispute({
+          account_id: "dead1", claimant_wallet: BUYER, reason: "suspended",
+        });
+        assert.equal(r.success, true);
+        assert.equal(r.dispute?.status, "admin_review");
+        assert.match(r.dispute?.resolution || "", /rest_id recheck unavailable/);
+
+        const fresh = db.prepare("SELECT status FROM social_account_pool WHERE id = 'fresh1'").get() as any;
+        assert.equal(fresh.status, "ready");
+      },
+    );
+  });
+
+  it("legacy row with no rest_id → existing behavior (suspended → replaced)", async () => {
+    insertSoldAccount({
+      id: "dead1", username: "alice", country: "US",
+      buyer: BUYER, soldAtMsAgo: 60_000, withPayment: true, paidUsdc: 8,
+      // no restId → legacy pre-fix row
+    });
+    insertReadyAccount({ id: "fresh1", username: "bob", country: "US" });
+
+    // byId would resolve LIVE if it were ever called — proving the guard is
+    // skipped entirely for rest_id-less rows (no by-id call is made).
+    await withRebrandMock(
+      { restId: "000000000", byId: "live", newHandle: "should_not_matter" },
+      async () => {
+        const r = await createDispute({
+          account_id: "dead1", claimant_wallet: BUYER, reason: "suspended",
+        });
+        assert.equal(r.success, true);
+        assert.equal(r.dispute?.status, "replaced");
+        assert.equal(r.dispute?.replacement_account_id, "fresh1");
+      },
+    );
+  });
+});
+
 /* ─── disputes: admin override ──────────────────────────────────────── */
 
 describe("disputes — admin resolve", () => {
@@ -502,6 +616,62 @@ async function withMockedFetch(mock: MockedTwitterApi, fn: () => Promise<void>):
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    }
+    return originalFetch(url);
+  };
+
+  try {
+    await fn();
+  } finally {
+    global.fetch = originalFetch;
+    if (originalKey === undefined) delete process.env.TWITTER_API_IO_KEY;
+    else process.env.TWITTER_API_IO_KEY = originalKey;
+  }
+}
+
+/* ─── rebrand mock ──────────────────────────────────────────────────────
+   Models the rebrand scenario: the recorded @handle 404s on the user_about
+   (handle) lookup — exactly like a real suspension — while the by-id batch
+   lookup reveals whether the underlying account is still alive. */
+interface RebrandMock {
+  restId: string;
+  /** What the by-id (batch_info_by_ids) lookup reports. */
+  byId: "live" | "gone" | "error";
+  /** Current @handle when byId='live' (the rebranded name). */
+  newHandle?: string;
+}
+
+async function withRebrandMock(mock: RebrandMock, fn: () => Promise<void>): Promise<void> {
+  const originalFetch = global.fetch;
+  const originalKey = process.env.TWITTER_API_IO_KEY;
+  process.env.TWITTER_API_IO_KEY = "test_key";
+
+  (global as any).fetch = async (url: string) => {
+    if (typeof url === "string" && url.includes("api.twitterapi.io")) {
+      // By-id batch lookup: /twitter/user/batch_info_by_ids?userIds=...
+      if (url.includes("batch_info_by_ids")) {
+        if (mock.byId === "error") return new Response("", { status: 500 });
+        if (mock.byId === "gone") {
+          // Suspended/deleted ids come back IN the array, flagged unavailable.
+          return new Response(
+            JSON.stringify({
+              status: "success",
+              users: [{ id: mock.restId, userName: "alice", unavailable: true, unavailableReason: "suspended" }],
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        // live — still an active account, possibly under a new handle.
+        return new Response(
+          JSON.stringify({
+            status: "success",
+            users: [{ id: mock.restId, userName: mock.newHandle || "alice" }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      // The recorded handle 404s — the ambiguous suspended-or-renamed signal.
+      return new Response("", { status: 404 });
     }
     return originalFetch(url);
   };

@@ -36,6 +36,15 @@ export type AccountSource = "web" | "mobile" | string;
 
 export interface UserInfo {
   username: string;
+  /**
+   * Stable numeric account id (Twitter `rest_id`, returned by twitterapi.io as
+   * `id`). Survives @handle renames, so it's the ONLY reliable way to tell a
+   * genuinely suspended/deleted account apart from one that was merely
+   * REBRANDED — a rename 404s the old handle but preserves this id. The
+   * dispute service relies on it to stop rebrand-then-dispute refund fraud.
+   * Null when twitterapi.io doesn't surface it.
+   */
+  rest_id: string | null;
   country: string | null;          // ISO 3166-1 alpha-2 when derivable
   location_raw: string | null;     // X-reported free-form location string
   status: AccountStatus;
@@ -111,6 +120,9 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
     const data = body?.data || body;
     const about = data?.about_profile || {};
 
+    // Stable numeric id — captured here so the row can be re-checked by id
+    // later even after a rename. twitterapi.io returns it as `id`.
+    const rest_id: string | null = data?.id != null ? String(data.id) : null;
     const account_based_in: string | null = about?.account_based_in || null;
     const location_accurate: boolean | null =
       typeof about?.location_accurate === "boolean" ? about.location_accurate : null;
@@ -130,6 +142,7 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
 
     return {
       username: handle,
+      rest_id,
       // Country derives ONLY from account_based_in. We used to fall back to
       // the user-set `location` field but that's spoofable — accounts sold
       // as "American" typed "USA" into their profile location while X's
@@ -151,9 +164,74 @@ export async function getUserInfo(username: string): Promise<UserInfo | null> {
   }
 }
 
+/**
+ * Look up an account by its STABLE numeric id (`rest_id`) via twitterapi.io's
+ * batch endpoint. Unlike a handle lookup, the id survives a username change —
+ * so this is what distinguishes a genuinely suspended/deleted account (id gone)
+ * from one that was merely RENAMED (old handle 404s, but the id still resolves
+ * to a LIVE account under a new @handle). The dispute service uses this to stop
+ * rebrand-then-dispute refund fraud.
+ *
+ * `/twitter/user/batch_info_by_ids?userIds=<id>` returns
+ * `{ users: [...], status, msg }`. Suspended/deleted ids are NOT omitted — they
+ * come back in `users` with `unavailable: true` (+ `unavailableReason`). So:
+ *
+ *   live account        → status "active" (+ the account's CURRENT userName,
+ *                         which may differ from the handle we recorded — that
+ *                         divergence IS the rebrand signal)
+ *   unavailable / empty → status "not_found" (genuinely gone)
+ *   API error / no key  → null (no signal — caller routes to admin review)
+ *
+ * Docs: https://docs.twitterapi.io/api-reference/endpoint/batch_get_user_by_userids
+ */
+export async function getUserInfoById(restId: string): Promise<UserInfo | null> {
+  const key = apiKey();
+  if (!key) return null;
+  const id = restId ? String(restId).trim() : "";
+  if (!id) return null;
+
+  try {
+    const url = `${BASE}/twitter/user/batch_info_by_ids?userIds=${encodeURIComponent(id)}`;
+    const res = await fetch(url, { headers: { "X-API-Key": key } });
+    if (!res.ok) {
+      console.warn(`[twitter-api] id ${id} → HTTP ${res.status}`);
+      return null;
+    }
+
+    const body = await res.json() as any;
+    // Same { users, status, msg } envelope contract as user_about — status
+    // 'error' means the call couldn't be serviced (plan tier, etc.) → no signal.
+    if (body?.status === "error") {
+      console.warn(`[twitter-api] id ${id} returned status=error:`, body?.msg);
+      return null;
+    }
+
+    const users: any[] = Array.isArray(body?.users) ? body.users : [];
+    const user = users.find((u) => String(u?.id) === id) || users[0] || null;
+    if (!user) {
+      // id resolves to nothing at all → deleted / gone.
+      return { ...emptyUserInfo("", "not_found"), rest_id: id };
+    }
+
+    const handle = user?.userName ? String(user.userName).replace(/^@/, "") : "";
+    if (user?.unavailable === true || user?.unavailableReason) {
+      // suspended / deleted — genuinely gone.
+      return { ...emptyUserInfo(handle, "not_found"), rest_id: id };
+    }
+
+    // Live account. Surface the CURRENT handle so the caller can detect a
+    // rebrand (recorded handle !== current handle).
+    return { ...emptyUserInfo(handle, "active"), rest_id: id };
+  } catch (e: any) {
+    console.warn(`[twitter-api] id ${id} threw:`, e?.message || e);
+    return null;
+  }
+}
+
 function emptyUserInfo(username: string, status: AccountStatus): UserInfo {
   return {
     username,
+    rest_id: null,
     country: null,
     location_raw: null,
     status,
