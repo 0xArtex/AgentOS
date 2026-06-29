@@ -48,6 +48,19 @@ const ORCHESTRATION_FEE_PCT = () => {
 };
 const ORCHESTRATION_FEE_MIN = 0.01;
 
+// Bound the worst-case LLM spend a single (flat-fee) /chat call can drive. The
+// planner runs Opus and, on a validation miss, retries once — without ceilings a
+// crafted intent could push two full 4096-token generations plus an oversized
+// plan. These are server-derived caps the caller cannot inflate.
+const PLANNER_MAX_OUTPUT_TOKENS = () => {
+  const v = parseInt(process.env.I402_PLANNER_MAX_OUTPUT_TOKENS ?? "1536", 10);
+  return Number.isFinite(v) && v > 0 ? v : 1536;
+};
+const MAX_PLAN_STEPS = () => {
+  const v = parseInt(process.env.I402_MAX_PLAN_STEPS ?? "25", 10);
+  return Number.isFinite(v) && v > 0 ? v : 25;
+};
+
 // -------------------- Router classification --------------------
 
 interface RouterClassification {
@@ -436,6 +449,14 @@ export function validatePlanSteps(
   if (!llmPlan.steps || llmPlan.steps.length === 0) {
     return { ok: false, reason: "Plan has no steps" };
   }
+  // Server-derived ceiling on plan length — bounds both the planner's output cost
+  // and how many x402 calls a single plan can fan out into.
+  if (llmPlan.steps.length > MAX_PLAN_STEPS()) {
+    return {
+      ok: false,
+      reason: `Plan has ${llmPlan.steps.length} steps, exceeding the max of ${MAX_PLAN_STEPS()}`,
+    };
+  }
 
   const providerById = new Map(candidateProviders.map(p => [p.id, p]));
   const knownStepIds = new Set<string>();
@@ -559,6 +580,37 @@ export function computeTotals(steps: PlanStep[], budgetUsdc: number): PlanTotals
     totalCostUsdc: Math.round(total * 100) / 100,
     withinBudget: total <= budgetUsdc + 1e-9,
     etaSeconds: totalEta,
+  };
+}
+
+// -------------------- Spend-cap gate --------------------
+
+export interface PlanExecutionGate {
+  /** When false, the plan's executable x402 specs must NOT be handed back. */
+  executable: boolean;
+  reason?: string;
+}
+
+/**
+ * Enforce the plan-level spend cap. `totals.withinBudget` is a HARD gate, not an
+ * advisory annotation: a plan whose total exceeds the agent's stated budget
+ * (status 'budget_exceeded') must not be returned as an executable list of x402
+ * calls. The only way past it is an explicit caller opt-in (`allowBudgetExceeded`),
+ * which records a deliberate decision to overspend. Callers that emit a plan to an
+ * executor MUST consult this and withhold the x402 specs when `executable` is false.
+ */
+export function planExecutionGate(
+  plan: Plan,
+  opts: { allowBudgetExceeded?: boolean } = {}
+): PlanExecutionGate {
+  if (plan.totals.withinBudget) return { executable: true };
+  if (opts.allowBudgetExceeded) return { executable: true };
+  return {
+    executable: false,
+    reason:
+      `Plan total $${plan.totals.totalCostUsdc.toFixed(2)} exceeds the requested budget; ` +
+      `the executable x402 steps are withheld. Raise budget_usdc to cover it, or ` +
+      `re-request with allow_budget_exceeded=true to override the cap.`,
   };
 }
 
@@ -703,6 +755,7 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
       description: "Emit a structured plan of x402-settled steps.",
       inputSchema: PLAN_TOOL_SCHEMA,
     },
+    maxTokens: PLANNER_MAX_OUTPUT_TOKENS(),
   });
 
   const validated = validatePlanSteps(llmRes.content, candidateProviders, request.constraints);
@@ -728,6 +781,7 @@ async function compoundPlan(request: PlannerRequest): Promise<PlanOrClarificatio
         description: "Emit a structured plan of x402-settled steps.",
         inputSchema: PLAN_TOOL_SCHEMA,
       },
+      maxTokens: PLANNER_MAX_OUTPUT_TOKENS(),
     });
     const validated2 = validatePlanSteps(retry.content, candidateProviders, request.constraints);
     if (!validated2.ok) throw new Error(`Plan validation failed twice: ${validated2.reason}`);

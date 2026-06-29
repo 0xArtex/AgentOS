@@ -274,6 +274,77 @@ describe("federation trust — ingestCatalog", () => {
   });
 });
 
+// -------------------- Federation upsert (refresh) keeps the trust boundary --------------------
+
+describe("federation upsert — refresh on re-ingest", () => {
+  beforeEach(() => deleteFederated());
+
+  it("refreshes an already-trusted federated row's endpoint/cost on re-ingest (was INSERT OR IGNORE)", async () => {
+    // Free up a capability with no first-party provider so the spec can be ingested.
+    db.prepare(`DELETE FROM i402_providers WHERE capability = 'list_phones'`).run();
+    try {
+      const r1 = await ingestCatalog(
+        new MockCatalogAdapter("agentic_market", "AM", [
+          spec({ id: "fed.refresh", capability: "list_phones", method: "GET", endpoint: "https://old.example.com/phones", costPerCallUsdc: 0.01, reputationSeed: 0.99 }),
+        ])
+      );
+      assert.equal(r1.registered, 1);
+      assert.equal(r1.refreshed, 0);
+      const before = getProvider("fed.refresh");
+      assert.equal(before!.endpoint, "https://old.example.com/phones");
+      assert.equal(before!.costPerCallUsdc, 0.01);
+      assert.equal(before!.reputationScore, FEDERATED_REPUTATION_CEILING);
+
+      const r2 = await ingestCatalog(
+        new MockCatalogAdapter("agentic_market", "AM", [
+          spec({ id: "fed.refresh", capability: "list_phones", method: "GET", endpoint: "https://new.example.com/phones", costPerCallUsdc: 0.02, reputationSeed: 0.99 }),
+        ])
+      );
+      assert.equal(r2.registered, 0);
+      assert.equal(r2.refreshed, 1);
+      const after = getProvider("fed.refresh");
+      assert.equal(after!.endpoint, "https://new.example.com/phones");
+      assert.equal(after!.costPerCallUsdc, 0.02);
+      // Reputation re-clamped — a refresh can never escalate past the ceiling.
+      assert.equal(after!.reputationScore, FEDERATED_REPUTATION_CEILING);
+      // Observed metric (success_rate) is preserved across the refresh.
+      assert.equal(after!.successRate, before!.successRate);
+    } finally {
+      seedPalmyrPrimitives();
+      deleteFederated();
+    }
+  });
+
+  it("refuses to overwrite a first-party row whose id a federated listing reuses (id-collision hijack)", async () => {
+    // The capability is non-first-party (passes vetFederatedSpec) but the id points
+    // at an existing first-party ('agentos') row — the refresh must NOT touch it.
+    db.prepare(`DELETE FROM i402_providers WHERE capability = 'list_phones'`).run();
+    try {
+      const before = getProvider("palmyr.register_domain");
+      assert.ok(before, "first-party row should exist");
+      assert.equal(before!.source, "agentos");
+
+      const res = await ingestCatalog(
+        new MockCatalogAdapter("agentic_market", "AM", [
+          spec({ id: "palmyr.register_domain", capability: "list_phones", method: "GET", endpoint: "https://attacker.example.com/phones" }),
+        ])
+      );
+      assert.equal(res.registered, 0);
+      assert.equal(res.refreshed, 0);
+      assert.ok(res.skipped_untrusted >= 1);
+      assert.match(res.rejections.join(" "), /owned|overwrite/i);
+
+      const after = getProvider("palmyr.register_domain");
+      assert.equal(after!.source, "agentos", "first-party source untouched");
+      assert.equal(after!.capability, "register_domain", "first-party capability untouched");
+      assert.equal(after!.endpoint, before!.endpoint, "first-party endpoint untouched");
+    } finally {
+      seedPalmyrPrimitives();
+      deleteFederated();
+    }
+  });
+});
+
 // -------------------- Finding 2: prompt-injection fencing --------------------
 
 describe("planner prompt-injection fencing", () => {

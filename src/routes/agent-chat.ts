@@ -11,6 +11,7 @@ import {
 } from "../services/i402-session";
 import {
   generatePlan,
+  planExecutionGate,
   PROTOCOL_VERSION,
 } from "../services/i402-planner";
 import {
@@ -27,10 +28,37 @@ const router = Router();
 
 const ORCHESTRATION_FEE_USDC = 0.10; // Base fee for plan generation (covers LLM tokens)
 
+// Bound the attacker-controllable input that gets serialized into the (Opus)
+// planner prompt, so a single flat-fee call can't be inflated into a huge
+// generation. The planner caps its own output/steps; these cap the input side.
+export const MAX_INTENT_CHARS = 4000;
+export const MAX_STRUCTURED_BYTES = 8000;
+
 // -------------------- Helpers --------------------
 
 function isPlan(r: PlanOrClarification): r is Plan {
   return (r as Plan).planId !== undefined;
+}
+
+/**
+ * Reject oversized plan-generation requests before they reach the LLM planner.
+ * `intent`, `params`, and `constraints` all flow into the planner prompt, so an
+ * unbounded payload is a cost-amplification lever on the flat $0.10 fee.
+ */
+export function validateChatRequestLimits(args: {
+  intent: string;
+  params?: unknown;
+  constraints?: unknown;
+}): { ok: true } | { ok: false; error: string; message: string } {
+  if (args.intent.length > MAX_INTENT_CHARS) {
+    return { ok: false, error: "Intent Too Long", message: `'intent' exceeds ${MAX_INTENT_CHARS} characters.` };
+  }
+  for (const [field, val] of [["params", args.params], ["constraints", args.constraints]] as const) {
+    if (val !== undefined && JSON.stringify(val).length > MAX_STRUCTURED_BYTES) {
+      return { ok: false, error: "Request Too Large", message: `'${field}' exceeds ${MAX_STRUCTURED_BYTES} bytes.` };
+    }
+  }
+  return { ok: true };
 }
 
 function parseQuality(value: unknown): I402Quality | undefined {
@@ -67,6 +95,55 @@ function planToApiResponse(plan: Plan): Record<string, unknown> {
       eta_seconds: plan.totals.etaSeconds,
     },
   };
+}
+
+/**
+ * Cost preview for a budget-blocked plan. Deliberately omits every step's `x402`
+ * spec so the plan is NOT executable — the agent can see what it would cost (and
+ * raise the budget or opt in) but cannot sign/run it under its stated budget.
+ */
+function blockedPlanResponse(plan: Plan, reason: string): Record<string, unknown> {
+  return {
+    session_id: plan.sessionId,
+    plan_id: plan.planId,
+    status: plan.status, // 'budget_exceeded'
+    executable: false,
+    message: reason,
+    hint: "Raise budget_usdc to cover the total, or resend with allow_budget_exceeded: true to override the cap.",
+    intent: plan.intent,
+    steps: plan.steps.map(s => ({
+      step_id: s.stepId,
+      capability: s.capability,
+      provider: s.provider,
+      description: s.description,
+      cost_usdc: s.costUsdc,
+      depends_on: s.dependsOn,
+    })),
+    totals: {
+      step_cost_usdc: plan.totals.stepCostUsdc,
+      orchestration_fee_usdc: plan.totals.orchestrationFeeUsdc,
+      total_cost_usdc: plan.totals.totalCostUsdc,
+      within_budget: plan.totals.withinBudget,
+      eta_seconds: plan.totals.etaSeconds,
+    },
+  };
+}
+
+/**
+ * Build the HTTP response for a generated plan, ENFORCING the plan-level spend
+ * cap: a budget_exceeded plan is returned as a non-executable cost preview (no
+ * x402 specs) unless the caller explicitly opts in to overspend. Both branches
+ * use HTTP 402 (the route's "here is the x402 plan / what to do" channel).
+ */
+export function buildChatPlanPayload(
+  plan: Plan,
+  opts: { allowBudgetExceeded?: boolean } = {}
+): { status: number; body: Record<string, unknown> } {
+  const gate = planExecutionGate(plan, opts);
+  if (!gate.executable) {
+    return { status: 402, body: blockedPlanResponse(plan, gate.reason ?? "Plan exceeds budget.") };
+  }
+  return { status: 402, body: planToApiResponse(plan) };
 }
 
 // -------------------- Discovery (free) --------------------
@@ -244,7 +321,17 @@ router.post(
         return;
       }
 
+      // Bound attacker-controlled prompt input (cost-amplification guard).
+      const limit = validateChatRequestLimits({ intent: intent.trim(), params, constraints });
+      if (!limit.ok) {
+        res.status(400).json({ error: limit.error, message: limit.message });
+        return;
+      }
+
       const forceNew = req.headers["x-new-session"] === "true";
+      // Explicit opt-in to exceed the stated budget. Without it, a budget_exceeded
+      // plan is returned as a non-executable preview (no x402 specs).
+      const allowBudgetExceeded = (req.body as Record<string, unknown>)?.allow_budget_exceeded === true;
 
       const plannerRequest: PlannerRequest = {
         // Session is resolved by the planner via wallet lookup — sessionId left empty
@@ -270,7 +357,8 @@ router.post(
         });
         return;
       }
-      res.status(402).json(planToApiResponse(result));
+      const { status, body } = buildChatPlanPayload(result, { allowBudgetExceeded });
+      res.status(status).json(body);
     } catch (err: any) {
       console.error("[chat] plan generation error:", err);
       res.status(err?.statusCode ?? 500).json({

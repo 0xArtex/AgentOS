@@ -26,8 +26,13 @@ import { seedPalmyrPrimitives, listProviders } from "../services/i402-providers"
 import { generatePlan, getPlan } from "../services/i402-planner";
 import { createSession, findActiveSessionForWallet } from "../services/i402-session";
 import { llm } from "../services/i402-llm";
-import agentChatRoutes from "../routes/agent-chat";
-import type { PlannerRequest } from "../services/i402-types";
+import agentChatRoutes, {
+  buildChatPlanPayload,
+  validateChatRequestLimits,
+  MAX_INTENT_CHARS,
+  MAX_STRUCTURED_BYTES,
+} from "../routes/agent-chat";
+import type { Plan, PlannerRequest } from "../services/i402-types";
 
 // -------------------- Setup --------------------
 
@@ -182,6 +187,79 @@ describe("POST /chat without x402 payment", () => {
     });
     assert.equal(res.status, 402);
     assert.ok(res.body.error);
+  });
+});
+
+// -------------------- Spend-cap enforcement (finding: plan-level budget) --------------------
+
+describe("buildChatPlanPayload — plan-level spend cap", () => {
+  function makePlan(within: boolean): Plan {
+    return {
+      sessionId: "sess",
+      planId: "plan_cap",
+      status: within ? "approved" : "budget_exceeded",
+      intent: { original: "deploy a vps" },
+      steps: [
+        {
+          stepId: "s1",
+          capability: "deploy_vps",
+          provider: "palmyr.deploy_vps",
+          input: { name: "box" },
+          costUsdc: 6,
+          x402: { endpoint: "https://palmyr.ai/compute/servers", method: "POST", paymentRail: "x402-solana" },
+        },
+      ],
+      totals: {
+        stepCostUsdc: 6,
+        orchestrationFeeUsdc: 0.9,
+        totalCostUsdc: 6.9,
+        withinBudget: within,
+      },
+    };
+  }
+
+  it("emits executable x402 specs for a within-budget plan", () => {
+    const { status, body } = buildChatPlanPayload(makePlan(true));
+    assert.equal(status, 402);
+    const steps = body.steps as any[];
+    assert.ok(steps[0].x402?.endpoint, "within-budget step should carry an x402 spec");
+    assert.notEqual(body.executable, false);
+  });
+
+  it("withholds x402 specs for a budget_exceeded plan with no opt-in", () => {
+    const { body } = buildChatPlanPayload(makePlan(false));
+    assert.equal(body.status, "budget_exceeded");
+    assert.equal(body.executable, false);
+    const steps = body.steps as any[];
+    assert.ok(steps.length >= 1, "should still show a cost preview");
+    assert.equal(steps[0].x402, undefined, "blocked steps must NOT include executable x402 specs");
+    assert.match(String(body.message), /budget|exceed/i);
+  });
+
+  it("emits executable x402 specs for a budget_exceeded plan WITH an explicit opt-in", () => {
+    const { body } = buildChatPlanPayload(makePlan(false), { allowBudgetExceeded: true });
+    const steps = body.steps as any[];
+    assert.ok(steps[0].x402?.endpoint, "opt-in should restore the executable x402 spec");
+    assert.notEqual(body.executable, false);
+  });
+});
+
+describe("validateChatRequestLimits — input cost guard", () => {
+  it("accepts a normal request", () => {
+    assert.equal(validateChatRequestLimits({ intent: "launch a brand" }).ok, true);
+  });
+
+  it("rejects an over-long intent", () => {
+    const r = validateChatRequestLimits({ intent: "x".repeat(MAX_INTENT_CHARS + 1) });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.error, /Intent Too Long/i);
+  });
+
+  it("rejects oversized structured params", () => {
+    const big = { blob: "y".repeat(MAX_STRUCTURED_BYTES + 1) };
+    const r = validateChatRequestLimits({ intent: "ok", params: big });
+    assert.equal(r.ok, false);
+    if (!r.ok) assert.match(r.error, /Too Large/i);
   });
 });
 

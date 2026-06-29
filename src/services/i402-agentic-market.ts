@@ -302,8 +302,10 @@ export interface IngestResult {
   source: string;
   fetched: number;
   registered: number;
+  /** Existing federated rows of THIS source whose endpoint/cost/etc. were refreshed. */
+  refreshed: number;
   skipped_unknown_capability: number;
-  /** Rows rejected by the trust boundary (capability hijack / bad auth / bad host). */
+  /** Rows rejected by the trust boundary (capability hijack / bad auth / bad host / id collision). */
   skipped_untrusted: number;
   errors: string[];
   /** Human-readable reasons for each trust-boundary rejection. */
@@ -317,17 +319,104 @@ export interface IngestResult {
 }
 
 /**
- * Ingest a catalog: fetch, filter, register into i402_providers.
- * Existing providers with the same ID are left untouched — registerProvider
- * uses INSERT OR IGNORE, so neither metadata (endpoint, cost, latency) nor
- * observed metrics (success_rate, etc.) are refreshed on collision. To pick up
- * upstream changes a federated row must be pruned/deleted and re-ingested.
+ * Upsert a vetted federated spec into i402_providers, preserving the federation
+ * trust boundary that vetFederatedSpec already established for this spec:
+ *
+ *   - SOURCE-OWNERSHIP: a row is only ever UPDATED when its stored `source`
+ *     equals this catalog's source. Federation can therefore never overwrite or
+ *     claim a first-party ('agentos') row, nor another catalog's row, even if a
+ *     hostile listing reuses their id — an id collision against a non-owned row
+ *     is reported as a trust rejection, not an update.
+ *   - NO REPUTATION ESCALATION: reputation is re-clamped through
+ *     clampFederatedReputation on every refresh, so a federated row can never
+ *     climb past the federated ceiling (and thus never outrank a first-party one).
+ *   - METRICS PRESERVED: observed metrics (success_rate) and created_at are left
+ *     intact across a refresh; only advertised fields are updated.
+ *
+ * The mutable fields (endpoint, method, auth, cost, latency, name, description,
+ * metadata, capability + its schema) ARE refreshed — fixing the old
+ * INSERT OR IGNORE behavior that silently dropped corrected upstream listings.
+ * vetFederatedSpec runs before this for every spec, so capability/auth/host are
+ * re-validated on each refresh.
+ */
+function upsertFederatedProvider(
+  spec: FederatedProviderSpec,
+  source: "agentic_market" | "clawhub"
+): "inserted" | "refreshed" | { rejected: string } {
+  const existing = db
+    .prepare(`SELECT source FROM i402_providers WHERE id = ?`)
+    .get(spec.id) as { source: string } | undefined;
+
+  if (!existing) {
+    registerProvider({
+      id: spec.id,
+      source,
+      capability: spec.capability,
+      name: spec.name,
+      description: spec.description,
+      endpoint: spec.endpoint,
+      method: spec.method,
+      authScheme: spec.authScheme,
+      inputSchema: CAPABILITY_CLASSES[spec.capability].inputSchema,
+      outputSchema: CAPABILITY_CLASSES[spec.capability].outputSchema,
+      costPerCallUsdc: spec.costPerCallUsdc,
+      p50LatencyMs: spec.p50LatencyMs,
+      p99LatencyMs: spec.p99LatencyMs,
+      reputationScore: clampFederatedReputation(spec.reputationSeed),
+      metadata: spec.metadata,
+    });
+    return "inserted";
+  }
+
+  // The id already exists. Federation may only refresh a row it OWNS — never a
+  // first-party row or another catalog's row. This is the id-collision hijack guard.
+  if (existing.source !== source) {
+    return {
+      rejected: `id '${spec.id}' is already owned by source '${existing.source}'; federation may not overwrite it`,
+    };
+  }
+
+  // Refresh advertised fields; preserve success_rate + created_at; re-clamp reputation.
+  db.prepare(
+    `UPDATE i402_providers SET
+       capability = ?, name = ?, description = ?, endpoint = ?, method = ?,
+       auth_scheme = ?, input_schema = ?, output_schema = ?, cost_per_call_usdc = ?,
+       p50_latency_ms = ?, p99_latency_ms = ?, reputation_score = ?, metadata = ?,
+       enabled = 1, updated_at = datetime('now','utc')
+     WHERE id = ? AND source = ?`
+  ).run(
+    spec.capability,
+    spec.name,
+    spec.description ?? null,
+    spec.endpoint,
+    spec.method ?? "POST",
+    spec.authScheme,
+    JSON.stringify(CAPABILITY_CLASSES[spec.capability].inputSchema),
+    JSON.stringify(CAPABILITY_CLASSES[spec.capability].outputSchema),
+    spec.costPerCallUsdc,
+    spec.p50LatencyMs ?? null,
+    spec.p99LatencyMs ?? null,
+    clampFederatedReputation(spec.reputationSeed),
+    spec.metadata ? JSON.stringify(spec.metadata) : null,
+    spec.id,
+    source
+  );
+  return "refreshed";
+}
+
+/**
+ * Ingest a catalog: fetch, vet, then upsert into i402_providers. A federated row
+ * that re-publishes the same id with a corrected endpoint/cost/auth is refreshed
+ * (see upsertFederatedProvider) — but only ever for rows this catalog owns, so the
+ * trust boundary (no first-party overwrite, no reputation escalation, host/auth
+ * allowlist) still holds. pruneDisappeared still disables ids that vanish entirely.
  */
 export async function ingestCatalog(adapter: FederatedCatalogAdapter): Promise<IngestResult> {
   const result: IngestResult = {
     source: adapter.source,
     fetched: 0,
     registered: 0,
+    refreshed: 0,
     skipped_unknown_capability: 0,
     skipped_untrusted: 0,
     errors: [],
@@ -360,26 +449,18 @@ export async function ingestCatalog(adapter: FederatedCatalogAdapter): Promise<I
       continue;
     }
     try {
-      registerProvider({
-        id: spec.id,
-        source: adapter.source,
-        capability: spec.capability,
-        name: spec.name,
-        description: spec.description,
-        endpoint: spec.endpoint,
-        method: spec.method,
-        authScheme: spec.authScheme,
-        inputSchema: CAPABILITY_CLASSES[spec.capability].inputSchema,
-        outputSchema: CAPABILITY_CLASSES[spec.capability].outputSchema,
-        costPerCallUsdc: spec.costPerCallUsdc,
-        p50LatencyMs: spec.p50LatencyMs,
-        p99LatencyMs: spec.p99LatencyMs,
-        // Clamp remote-declared reputation so a federated row can never outrank
-        // a first-party Palmyr provider (which seed at 0.7–0.9).
-        reputationScore: clampFederatedReputation(spec.reputationSeed),
-        metadata: spec.metadata,
-      });
-      result.registered++;
+      // Upsert (refresh advertised fields of an already-trusted federated row, or
+      // insert a new one) — clamp/host/auth/first-party guards are preserved.
+      const outcome = upsertFederatedProvider(spec, adapter.source);
+      if (typeof outcome !== "string") {
+        // id-collision against a row this catalog doesn't own — a trust rejection.
+        result.skipped_untrusted++;
+        result.rejections.push(`${spec.id}: ${outcome.rejected}`);
+        result.fetchedIds = result.fetchedIds.filter(id => id !== spec.id);
+        continue;
+      }
+      if (outcome === "inserted") result.registered++;
+      else result.refreshed++;
     } catch (err: any) {
       result.errors.push(`register ${spec.id}: ${err?.message ?? err}`);
     }

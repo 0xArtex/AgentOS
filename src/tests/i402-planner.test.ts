@@ -22,12 +22,13 @@ import { seedPalmyrPrimitives, listProviders, CAPABILITY_CLASSES } from "../serv
 import {
   computeTotals,
   validatePlanSteps,
+  planExecutionGate,
   EXPANSION_TEMPLATES,
   generatePlan,
   getPlan,
 } from "../services/i402-planner";
 import { llm } from "../services/i402-llm";
-import type { PlanStep, PlannerRequest } from "../services/i402-types";
+import type { Plan, PlanStep, PlannerRequest } from "../services/i402-types";
 
 // -------------------- Setup --------------------
 
@@ -226,6 +227,65 @@ describe("validatePlanSteps", () => {
     const r = validatePlanSteps(plan, providers, { requireProviders: ["palmyr.deploy_vps"] });
     assert.equal(r.ok, false);
     if (!r.ok) assert.match(r.reason, /required provider/i);
+  });
+});
+
+describe("validatePlanSteps — max plan steps", () => {
+  const providers = listProviders({ enabledOnly: true });
+
+  it("rejects a plan that exceeds the server-derived max step count", () => {
+    const prev = process.env.I402_MAX_PLAN_STEPS;
+    process.env.I402_MAX_PLAN_STEPS = "1";
+    try {
+      const plan = {
+        interpreted_intent: "two domains",
+        steps: [
+          { step_id: "s1", capability: "register_domain", provider_id: "palmyr.register_domain", input: {} },
+          { step_id: "s2", capability: "register_domain", provider_id: "palmyr.register_domain", input: {} },
+        ],
+      };
+      const r = validatePlanSteps(plan, providers, undefined);
+      assert.equal(r.ok, false);
+      if (!r.ok) assert.match(r.reason, /max|steps/i);
+    } finally {
+      if (prev === undefined) delete process.env.I402_MAX_PLAN_STEPS;
+      else process.env.I402_MAX_PLAN_STEPS = prev;
+    }
+  });
+});
+
+describe("planExecutionGate — plan-level spend cap", () => {
+  function plan(over: Partial<Plan["totals"]> = {}): Plan {
+    return {
+      sessionId: "sess",
+      planId: "plan_test",
+      status: "approved",
+      intent: { original: "x" },
+      steps: [],
+      totals: {
+        stepCostUsdc: 10,
+        orchestrationFeeUsdc: 1.5,
+        totalCostUsdc: 11.5,
+        withinBudget: true,
+        ...over,
+      },
+    };
+  }
+
+  it("allows a within-budget plan to execute", () => {
+    const g = planExecutionGate(plan({ withinBudget: true }));
+    assert.equal(g.executable, true);
+  });
+
+  it("blocks a budget_exceeded plan (no executable specs) without an opt-in", () => {
+    const g = planExecutionGate(plan({ withinBudget: false }));
+    assert.equal(g.executable, false);
+    assert.match(g.reason ?? "", /budget|exceed/i);
+  });
+
+  it("allows a budget_exceeded plan only with an explicit opt-in", () => {
+    const g = planExecutionGate(plan({ withinBudget: false }), { allowBudgetExceeded: true });
+    assert.equal(g.executable, true);
   });
 });
 
