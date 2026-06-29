@@ -45,8 +45,8 @@ palmyr phone buy --country US             # Buy a number ($3)
 palmyr phone sms --id ID --to +1... --body "hi"   # Send SMS ($0.05)
 palmyr phone call --id ID --to +1... --tts "hello" # Voice call ($0.10)
 
-# Email (E2E encrypted)
-palmyr email create --name agent --wallet SOL_PUBKEY  # Create inbox ($2)
+# Email (E2E with a Solana key, else AES-256-GCM at rest)
+palmyr email create --name agent --wallet SOL_PUBKEY  # Create inbox ($2); SOL pubkey → E2E
 palmyr email read --id INBOX_ID                       # Read messages ($0.02)
 palmyr email send --id ID --to x@y.com --subject "Hi" --body "..."  # Send ($0.08)
 palmyr email threads --id INBOX_ID                    # List threads ($0.02)
@@ -398,10 +398,12 @@ Two paths to a working account:
 
 Every operation (`post`, `reply`, `like`, `follow`, `update profile`, `avatar`, `banner`, `username`) sends `account_id` + `cookies` + optional `proxy_session_id`. The server reuses the same residential IP that originally logged in, so X never sees a sudden geography change. Success is verified at the network layer — the server reads X's actual API response (`CreateTweet`, `FavoriteTweet`, `update_profile`, etc.) before reporting success. No false positives.
 
-### E2E Email Encryption
-Emails are encrypted with your wallet's public key (NaCl box). We cannot read them.
+### Email Encryption
+Encryption is **two-tier, and end-to-end is opt-in:**
+- **With a Solana key** (the CLI defaults to your vault wallet's Solana address), the inbox is **end-to-end encrypted** — messages are sealed to that key (NaCl `box`, X25519 + XSalsa20-Poly1305) and the server cannot read them. They come back as `w:` ciphertext you decrypt yourself.
+- **Without a Solana key** (e.g. a Base/EVM owner), the inbox is encrypted **server-side with AES-256-GCM** and decrypted on read once an x402 payment proves you own it — the operator holds that key.
 
-To decrypt, use the helper script in this skill folder:
+To decrypt E2E (`w:`) messages, use the helper script in this skill folder:
 ```bash
 node decrypt-email.mjs "w:..." ~/.config/solana/id.json
 node decrypt-email.mjs --json '{"subject":"w:...","body":"w:..."}' ~/.config/solana/id.json
@@ -412,4 +414,4 @@ node decrypt-email.mjs --json '{"subject":"w:...","body":"w:..."}' ~/.config/sol
 Set up webhooks to receive events:
 - **SMS inbound:** Messages to your number arrive via Telnyx webhook → stored, readable via API
 - **Voice events:** `call.initiated`, `call.answered`, `call.hangup`, `call.recording.saved`, `call.gather.ended`
-- **Email inbound:** Emails to `*@palmyr.ai` processed via Cloudflare worker → stored encrypted
+- **Email inbound:** Emails to `*@palmyr.ai` (or your custom domain) are received via Mailgun inbound routes → POSTed to our webhook → stored encrypted

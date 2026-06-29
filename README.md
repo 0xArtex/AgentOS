@@ -63,7 +63,7 @@ Visual node-based agent deployment: [palmyr.ai/dashboard.html](https://palmyr.ai
 |---------|--------|-------------|
 | **Phone** | ✅ Live | $3/number, $0.05/SMS, $0.10/call |
 | **Voice Calls** | ✅ Live | TTS, DTMF, record, transfer, gather |
-| **Email** | ✅ Live | $2/inbox, E2E encrypted (NaCl box) |
+| **Email** | ✅ Live | $2/inbox. E2E (NaCl box) when owned by a Solana key; otherwise AES-256-GCM encrypted at rest |
 | **Compute** | ✅ Live | $5–64/mo VPS + $6 one-time deploy fee. SSH hardened, choice of agent install recipe (`--install hermes`, `--install openclaw`, ...), location selection across 6 Hetzner datacenters. |
 | **Domains** | ✅ Live | Dynamic pricing, DNS management included |
 | **Wallet** | ✅ Live | Non-custodial smart wallets on Base + Solana |
@@ -181,7 +181,7 @@ All nodes push config independently to the VPS. Delete a node → removes config
 - **Runtime:** Node.js + TypeScript + Express
 - **Payments:** x402 (USDC on Solana + Base)
 - **Phone/Voice:** Telnyx (150+ countries)
-- **Email:** Cloudflare Email Workers + E2E encryption (NaCl box, wallet-key encrypted)
+- **Email:** Mailgun (send + inbound routing). E2E (NaCl box) when the inbox is keyed to a Solana wallet; otherwise AES-256-GCM encrypted at rest
 - **Compute:** Hetzner Cloud + cloud-init hardening
 - **Domains:** Namecheap API
 - **Wallet:** Solidity (Base) + Anchor (Solana)

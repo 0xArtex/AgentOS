@@ -722,8 +722,8 @@ function switchSocial(btn, platform){
 <div class="feature-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg></div>
 <h3>Encrypted email</h3>
 </div>
-<p>End-to-end encrypted inboxes. Your agent's messages are sealed with its own wallet keys. Zero-knowledge — nobody reads them but the agent.</p>
-<div class="feature-tag"><span class="ft-dot"></span>E2E encrypted</div>
+<p>Encrypted inboxes keyed to your wallet. Supply a Solana key and messages are end-to-end encrypted — sealed so only the agent can read them. Otherwise they're encrypted at rest (AES-256-GCM), decrypted only after an x402 payment proves ownership.</p>
+<div class="feature-tag"><span class="ft-dot"></span>Wallet-keyed encryption</div>
 </div>
 </div>
 
@@ -931,7 +931,7 @@ function switchSocial(btn, platform){
 <div class="features-label">Build your stack</div>
 <div class="calc-items" id="calc-items">
 <div class="calc-row"><input type="checkbox" data-price="3.00"><span class="calc-name">Phone number</span><span class="calc-price">$3.00</span></div>
-<div class="calc-row"><input type="checkbox" data-price="0.50"><span class="calc-name">Email inbox</span><span class="calc-price">$0.50</span></div>
+<div class="calc-row"><input type="checkbox" data-price="2.00"><span class="calc-name">Email inbox</span><span class="calc-price">$2.00</span></div>
 <div class="calc-row"><input type="checkbox" data-price="8.00"><span class="calc-name">Cloud server</span><span class="calc-price">from $8</span></div>
 <div class="calc-row"><input type="checkbox" data-price="12.00"><span class="calc-name">Domain (.dev)</span><span class="calc-price">$12.00</span></div>
 <div class="calc-row"><input type="checkbox" data-price="5.00"><span class="calc-name">X account (aged)</span><span class="calc-price">$5.00</span></div>
@@ -1048,7 +1048,7 @@ Palmyr
 </div>
 </div>
 <div class="footer-social">
-<a href="https://x.com/zoltyagent" target="_blank" title="X">
+<a href="https://x.com/palmyr_ai" target="_blank" title="X">
 <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
 </a>
 <a href="https://github.com/0xArtex/Palmyr" target="_blank" title="GitHub">
@@ -1150,7 +1150,7 @@ Palmyr
   clear            ─── wipe terminal`
     },
     'provision phone': {
-      pay:true, payAmount:'2.00', payDesc:'Phone provisioning',
+      pay:true, payAmount:'3.00', payDesc:'Phone provisioning',
       rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">📞</span> +1 (415) 555-1234</div><div class="tcard-row"><span>SMS</span><span style="color:#3fb950">✓</span></div><div class="tcard-row"><span>Voice</span><span style="color:#3fb950">✓</span></div><div class="tcard-row"><span>MMS</span><span style="color:#3fb950">✓</span></div><span class="tcard-tag active">active</span></div>`},
     'send sms': {
       pay:true, payAmount:'0.02', payDesc:'Outbound SMS',
@@ -1159,10 +1159,10 @@ Palmyr
       pay:true, payAmount:'0.10', payDesc:'Outbound voice call',
       rich:`<div class="tcard-call"><div class="tcard-call-top"><div class="tcard-call-avatar">📞</div><div class="tcard-call-info">+1 (234) 567-890<span>connected · 0:03</span></div></div><div class="tcard-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div><div style="font-size:11px;color:var(--w40);margin-top:8px">tts: "Hello, this is agent-7k2."</div></div>`},
     'create inbox': {
-      pay:true, payAmount:'0.50', payDesc:'E2E encrypted inbox',
+      pay:true, payAmount:'2.00', payDesc:'E2E encrypted inbox',
       rich:`<div class="tcard"><div class="tcard-header"><span class="tcard-icon">✉️</span> agent-7k2@palmyr.ai</div><div class="tcard-row"><span>Encryption</span><span style="color:#3fb950">E2E ✓</span></div><div class="tcard-row"><span>Storage</span><span>on-chain keys</span></div><span class="tcard-tag active">ready</span></div>`},
     'send email': {
-      pay:true, payAmount:'0.01', payDesc:'Outbound email',
+      pay:true, payAmount:'0.08', payDesc:'Outbound email',
       rich:`<div class="tcard-email"><div class="tcard-email-subj">Hello from my agent</div><div class="tcard-email-meta">to: hello@example.com<br>from: agent-7k2@palmyr.ai</div><div style="margin-top:8px"><span class="tcard-tag sent">sent</span></div></div>`},
     'create server': {
       pay:true, payAmount:'5.00', payDesc:'Cloud server (cx23)',
@@ -1180,9 +1180,9 @@ Palmyr
       text: `<span style="color:var(--accent);font-weight:700">PRICING</span> <span style="color:var(--w40)">(USDC)</span>
   Send SMS ·················· <span style="color:#e6edf3">$0.02</span>
   Voice call ················ <span style="color:#e6edf3">$0.10</span>
-  Send email ················ <span style="color:#e6edf3">$0.01</span>
+  Send email ················ <span style="color:#e6edf3">$0.08</span>
   Provision phone ··········· <span style="color:#e6edf3">$3.00</span>
-  Create inbox ·············· <span style="color:#e6edf3">$0.50</span>
+  Create inbox ·············· <span style="color:#e6edf3">$2.00</span>
   Spin up server ············ <span style="color:#e6edf3">from $8</span>
   Register domain ··········· <span style="color:#e6edf3">from $12</span>
 
