@@ -1,4 +1,6 @@
-import { Router, Response, NextFunction } from "express";
+import { Router, Request, Response, NextFunction } from "express";
+import { join as joinPath } from "path";
+import * as nodeFs from "fs";
 import { requireAuth } from "../middleware/auth";
 import { rateLimit } from "../middleware/rateLimit";
 import { AuthenticatedRequest, ServerAction } from "../types";
@@ -6,7 +8,7 @@ import * as computeService from "../services/compute";
 import { HcloudApiError } from "../services/compute";
 import { refundAndRespond } from "../services/refund";
 import { config } from "../config";
-import { db } from "../db";
+import { db, DATA_DIR } from "../db";
 
 const router = Router();
 
@@ -31,17 +33,98 @@ function requireServerOwner(req: AuthenticatedRequest, res: Response, next: Next
 
 const PLATFORM_KEY = '/root/.ssh/id_ed25519_platform';
 
-/** Build SSH command — prefer platform key, fallback to password.
+// ── Per-server SSH host-key pinning ───────────────────────────
+//
+// Every platform→VPS SSH/SCP call in this file ships secrets to the box:
+// wallet signing keys (configure-wallet), the model API key (configure-openclaw),
+// the user's authorized_keys (setup-ssh). sshCmd() previously used
+// `StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null`, i.e. it blindly
+// trusted whatever host answered on the recorded IPv4 and pinned nothing — so an
+// on-path attacker, or someone who raced/acquired a recycled Hetzner IP, could
+// impersonate the server and harvest those secrets (audit finding #21).
+//
+// Fix: pin the host key PER SERVER, keyed by the Hetzner SERVER ID (never the
+// IP — Hetzner recycles IPv4s, so an IP-keyed pin would either falsely reject a
+// reused IP or silently inherit a previous tenant's entry). The pin lives in a
+// per-server known_hosts file under DATA_DIR (persists across reboots/redeploys,
+// gitignored). Connection policy:
+//   • pin present → StrictHostKeyChecking=yes        (reject any non-matching key)
+//   • pin absent  → StrictHostKeyChecking=accept-new (TOFU: record the key now,
+//                    reject on any later change)
+// The pin is cleared on create, rebuild and delete (clearHostKeyPin) so a fresh
+// OS install or a recycled IP re-establishes a fresh pin instead of being
+// wrongly rejected — and a stale entry can never accept the wrong host.
+//
+// RESIDUAL RISK (documented per the audit's accepted fallback): when the
+// create-time capture (captureHostKeyPin via ssh-keyscan) can't reach the
+// still-booting box, the FIRST platform→VPS connection is trust-on-first-use,
+// so an attacker positioned at exactly that instant could be pinned. Every
+// connection AFTER the pin exists is strict-rejected on mismatch. Hetzner Cloud
+// does not expose the host key over its authenticated API, so a fully
+// authenticated create-time capture is not achievable here.
+const HOST_KEY_DIR = joinPath(DATA_DIR, 'server-known-hosts');
+
+/** Per-server known_hosts path. The server id is sanitized to a safe filename. */
+export function hostKeyFile(serverId: string): string {
+  const id = String(serverId);
+  if (!/^[A-Za-z0-9_.-]{1,64}$/.test(id)) throw new Error('Invalid server id');
+  return joinPath(HOST_KEY_DIR, `${id}.known_hosts`);
+}
+
+/** Reject anything that isn't a bare IPv4/IPv6 literal before it reaches a shell. */
+function assertIpAddr(ip: unknown): string {
+  if (typeof ip !== 'string' || !/^[0-9A-Fa-f:.]{3,45}$/.test(ip)) {
+    throw new Error('Invalid server IP address');
+  }
+  return ip;
+}
+
+/** Drop a server's pin so the next connect re-establishes one (create/rebuild/delete). */
+export function clearHostKeyPin(serverId: string): void {
+  try { nodeFs.rmSync(hostKeyFile(serverId), { force: true }); } catch { /* best effort */ }
+}
+
+/**
+ * Best-effort capture of the box's host key into its pin file via ssh-keyscan.
+ * Returns true if a key was pinned. Called (non-blocking) at create time to
+ * shrink the TOFU window; the box is usually still booting (~60s) so this is
+ * allowed to fail — the first real connect then pins via accept-new.
+ */
+function captureHostKeyPin(serverId: string, ip: string): boolean {
+  try {
+    assertIpAddr(ip);
+    const file = hostKeyFile(serverId);
+    nodeFs.mkdirSync(HOST_KEY_DIR, { recursive: true });
+    const { execSync } = require('child_process');
+    const out = String(execSync(`ssh-keyscan -T 8 -t ed25519,rsa,ecdsa ${ip}`, {
+      timeout: 12000, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'ignore'],
+    }) || '');
+    const lines = out.split('\n').filter((l: string) => l.trim() && !l.startsWith('#'));
+    if (lines.length === 0) return false;
+    nodeFs.writeFileSync(file, lines.join('\n') + '\n', { mode: 0o600 });
+    return true;
+  } catch { return false; }
+}
+
+/** Build SSH command — platform-key auth with a per-server PINNED host key.
  *
  * `-q` (quiet) suppresses ssh's MOTD/banner chatter; `-T` refuses pseudo-tty
  * allocation so the remote bash never tries to set terminal modes (issue #85
  * symptom: "tcsetattr: Inappropriate ioctl for device" + "logout" leaking
- * through stderr from a remote login shell). These flags are defensive —
- * non-interactive ssh shouldn't need a tty anyway.
+ * through stderr from a remote login shell).
+ *
+ * Host identity is pinned per server id (see the host-key pinning note above)
+ * — NEVER `StrictHostKeyChecking=no`. `serverId` is required so every call site
+ * is forced through the pin.
  */
-function sshCmd(ip: string, pw?: string | null): string {
-  // Always try platform key first (injected by cloud-init)
-  return `ssh -i ${PLATFORM_KEY} -q -T -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o ConnectTimeout=15 -o PasswordAuthentication=no root@${ip}`;
+export function sshCmd(ip: string, serverId: string): string {
+  assertIpAddr(ip);
+  const file = hostKeyFile(serverId);
+  try { nodeFs.mkdirSync(HOST_KEY_DIR, { recursive: true }); } catch { /* created lazily by ssh */ }
+  let pinned = false;
+  try { pinned = nodeFs.statSync(file).size > 0; } catch { pinned = false; }
+  const strict = pinned ? 'yes' : 'accept-new';
+  return `ssh -i ${PLATFORM_KEY} -q -T -o StrictHostKeyChecking=${strict} -o UserKnownHostsFile=${file} -o ConnectTimeout=15 -o PasswordAuthentication=no root@${ip}`;
 }
 
 /**
@@ -56,13 +139,21 @@ function assertIdent(s: unknown, field: string): string {
   return s;
 }
 
-/** Reject git URLs that aren't obviously safe https (no shell metachars, no spaces). */
-function assertGitUrl(s: unknown): string {
-  if (typeof s !== 'string' || !/^https:\/\/[A-Za-z0-9._~:/?#\[\]@!$&'()*+,;=-]{1,512}$/.test(s)) {
-    throw new Error('Invalid git URL');
+/** Reject git URLs that aren't a plain https URL of host/path-safe characters.
+ *
+ * The validated value is interpolated UNQUOTED into a remote `git clone`
+ * command that ssh hands to the VPS's shell, so the allowlist must exclude
+ * EVERY shell metacharacter — including ones (`;`, `&`, `'`, `(`, `)`, `*`,
+ * `!`) that sit harmlessly inside our LOCAL double quotes but are re-interpreted
+ * by the REMOTE shell (audit finding #46: the old class permitted `; & ' ( ) *`
+ * etc., so `https://a.com/r.git;reboot` slipped through). Restrict to the
+ * characters actually legal in a git https host/path: alphanumerics and
+ * `. _ ~ : / @ % -`. No spaces, no quotes, no `$`/backtick/backslash.
+ */
+export function assertGitUrl(s: unknown): string {
+  if (typeof s !== 'string' || !/^https:\/\/[A-Za-z0-9._~:/@%-]{1,512}$/.test(s)) {
+    throw new Error('Invalid git URL: must be a plain https URL with no shell metacharacters');
   }
-  // Extra defense: blocklist characters that could break out of double quotes
-  if (/["`$\\]/.test(s)) throw new Error('Invalid git URL: unsafe characters');
   return s;
 }
 
@@ -81,6 +172,39 @@ function sshWriteFile(ssh: string, remotePath: string, content: string, opts: { 
   const op = opts.append ? '>>' : '>';
   const chmod = opts.chmod ? ` && chmod ${assertIdent(opts.chmod, 'chmod').toString()} ${remotePath}` : '';
   execSync(`${ssh} "echo '${b64}' | base64 -d ${op} ${remotePath}${chmod}"`, { timeout: opts.timeout ?? 15000 });
+}
+
+// ── Deploy pricing ────────────────────────────────────────────
+//
+// Flat fallback when a type's live price can't be resolved (catalog in static
+// fallback mode, or an unrecognized type slipped through). Matches the historic
+// deploy price so we never charge $0 or throw at the paywall.
+const DEPLOY_PRICE_FALLBACK_USDC = 6.0;
+
+/**
+ * Resolve the deploy price for a server type from the live plan catalog so the
+ * x402 charge MATCHES the per-type price advertised by GET /compute/plans
+ * (audit finding #47 — POST /servers used to charge a flat $6 while plans quote
+ * $7–$50+/type). `plans` is injectable for tests. Falls back to the flat price
+ * when the type isn't in the catalog.
+ */
+export function priceForServerType(
+  serverType: string,
+  plans: { type: string; priceUsdc: string | number }[] = computeService.getServerPlans(),
+): number {
+  const plan = plans.find(p => p.type === serverType);
+  const n = plan ? Number(plan.priceUsdc) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : DEPLOY_PRICE_FALLBACK_USDC;
+}
+
+/**
+ * x402 pricer for POST /compute/servers. Reads the RESOLVED serverType from the
+ * body — validateCreateServerBody runs first and may have substituted a
+ * different/larger type, so this automatically re-prices the substitute: the
+ * 402 the caller is quoted (and pays) reflects the box they will actually get.
+ */
+export function deployPriceForRequest(req: Request): number {
+  return priceForServerType(String((req as AuthenticatedRequest).body?.serverType || ''));
 }
 
 // ── Plans (free, no auth) ─────────────────────────────────────
@@ -213,10 +337,10 @@ router.delete("/ssh-keys/:id", requireAuth(0.01, 'general'), async (req: Authent
  */
 /**
  * Pre-payment validation for POST /compute/servers. Runs BEFORE requireAuth
- * so a request that cannot possibly deploy fails WITHOUT the caller paying
- * $6 USDC: missing/typo'd fields, deprecated server types (Hetzner retires
- * them — 'cx22' burned real agents $6 each), sold-out capacity, and our own
- * Hetzner account quota being maxed out.
+ * so a request that cannot possibly deploy fails WITHOUT the caller paying the
+ * deploy fee: missing/typo'd fields, deprecated server types (Hetzner retires
+ * them — 'cx22' burned real agents a deploy fee each), sold-out capacity, and
+ * our own Hetzner account quota being maxed out.
  *
  * Availability is checked against a ≤60s-fresh capacity snapshot (deploys
  * are worth one blocking refresh; the 6h browse TTL is not deploy-grade).
@@ -267,7 +391,7 @@ export async function validateCreateServerBody(req: AuthenticatedRequest, res: R
     return;
   }
 
-  // Capacity data fresh enough to bet $6 on. Failure degrades to stale data.
+  // Capacity data fresh enough to bet a deploy charge on. Failure degrades to stale data.
   await computeService.ensureFreshAvailability();
 
   // Reject unknown/deprecated server types pre-payment. Only enforced when
@@ -304,8 +428,8 @@ export async function validateCreateServerBody(req: AuthenticatedRequest, res: R
     if (location === undefined) {
       // Caller is flexible on placement — auto-resolve to what Hetzner actually
       // has stock of, instead of failing the request (and any i402 plan it's
-      // part of). The deploy fee is a flat $6 regardless of type, so neither
-      // move changes what's charged at the paywall.
+      // part of). Same type, different datacenter → identical per-type price, so
+      // the paywall quote is unchanged.
       if (where.length > 0) {
         // Same type, just a different datacenter.
         (req.body as any).location = where[0];
@@ -314,8 +438,10 @@ export async function validateCreateServerBody(req: AuthenticatedRequest, res: R
         // Sold out everywhere → substitute the cheapest no-downgrade type Hetzner
         // actually has stock of. Prefer the same architecture (keeps the image /
         // install recipe valid); cross architectures only when no same-arch box
-        // has stock anywhere — a working box beats a failed launch. Never random;
-        // deploy fee is a flat $6, so it's price-neutral at the paywall.
+        // has stock anywhere — a working box beats a failed launch. Never random.
+        // If the substitute is a pricier type, deployPriceForRequest re-prices it
+        // from the resolved serverType, so the caller is quoted the substitute's
+        // price in the 402 before paying (not silently up-charged).
         const sub = computeService.pickAvailableSubstitute(serverType);
         if (sub) {
           (req.body as any).serverType = sub.type;
@@ -407,7 +533,7 @@ export async function validateCreateServerBody(req: AuthenticatedRequest, res: R
   next();
 }
 
-router.post("/servers", validateCreateServerBody, requireAuth(6.0, 'server'), rateLimit(5, 60_000), async (req: AuthenticatedRequest, res: Response) => {
+router.post("/servers", validateCreateServerBody, requireAuth(deployPriceForRequest, 'server'), rateLimit(5, 60_000), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { name, serverType, image, sshKeyIds, sshPublicKey, location, installOpenClaw, install } = req.body as {
       name: string;
@@ -545,6 +671,18 @@ router.post("/servers", validateCreateServerBody, requireAuth(6.0, 'server'), ra
       ? ` Installing: ${resolvedInstalls.join(', ')}.`
       : '';
 
+    // Host-key pinning: drop any stale pin for this server id (covers Hetzner
+    // IP reuse — a recycled IP must never inherit a previous tenant's pin) and
+    // kick off a best-effort capture so the first secrets-bearing call lands on
+    // a pinned, strict-checked host where possible. Non-blocking and run after
+    // the response is queued: the box is still booting (~60s), so capture
+    // usually fails here and the first connect pins via TOFU (see sshCmd note).
+    clearHostKeyPin(String(server.id));
+    if (server.ipv4) {
+      const pinId = String(server.id), pinIp = server.ipv4;
+      setImmediate(() => { captureHostKeyPin(pinId, pinIp); });
+    }
+
     res.status(201).json({
       ...response,
       // Async-operation envelope (see /.well-known guidance): provisioning isn't
@@ -680,6 +818,13 @@ router.post("/servers/:id/actions", requireAuth(0.10, 'general'), requireServerO
     const result = await computeService.serverAction(String(req.params.id), action as ServerAction, image);
     const serverId = String(req.params.id);
 
+    // A rebuild reinstalls the OS → the VPS regenerates its SSH host keys, so a
+    // previously pinned key is now stale. Drop the pin; the next platform→VPS
+    // connect re-pins the fresh host key via accept-new (otherwise
+    // StrictHostKeyChecking=yes would correctly — but unhelpfully — reject the
+    // legitimately rebuilt box).
+    if (action === "rebuild") clearHostKeyPin(serverId);
+
     // reset_password and request_console need bespoke response shapes — they
     // hand back data that isn't relevant for the lifecycle actions and we
     // want callers to not have to dig through `result.action` for it.
@@ -809,7 +954,7 @@ router.post("/servers/:id/setup-ssh", requireAuth(0.01, 'general', { description
 
     const ip = row.ipv4;
     const { execSync } = require("child_process");
-    const ssh = sshCmd(ip);
+    const ssh = sshCmd(ip, serverId);
 
     // 1. Inject user's public key via base64 (never interpolate user input into shell)
     execSync(`${ssh} "mkdir -p ~/.ssh && chmod 700 ~/.ssh"`, { timeout: 20000 });
@@ -852,7 +997,7 @@ router.get("/servers/:id/verify", requireAuth(0.01, 'general', { description: "V
     let result: any = { ip, reachable: false, openclaw_installed: false, openclaw_version: null, hardened: false, provision_log: null };
 
     try {
-      const ssh = sshCmd(ip);
+      const ssh = sshCmd(ip, serverId);
 
       // Check reachability + OpenClaw version
       const versionOut = execSync(`${ssh} "openclaw --version 2>/dev/null || echo NOT_INSTALLED"`, { timeout: 15000, encoding: "utf-8" }).trim();
@@ -914,7 +1059,7 @@ router.post("/servers/:id/configure-openclaw", requireAuth(0.01, 'general', { de
 
     const ip = row.ipv4;
     const { execSync } = require("child_process");
-    const ssh = sshCmd(ip);
+    const ssh = sshCmd(ip, serverId);
 
     // 1. Ensure directory exists
     execSync(`${ssh} "mkdir -p /root/.openclaw/workspace"`, { timeout: 10000 });
@@ -1080,7 +1225,7 @@ router.post("/servers/:id/remove-openclaw-config", requireAuth(0.01, 'general', 
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const { execSync } = require("child_process");
-    const ssh = sshCmd(row.ipv4);
+    const ssh = sshCmd(row.ipv4, serverId);
 
     // Read existing config
     let config: any = {};
@@ -1145,7 +1290,7 @@ router.post("/servers/:id/install-skill", requireAuth(0.01, 'general', { descrip
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const { execSync } = require("child_process");
-    const ssh = sshCmd(row.ipv4);
+    const ssh = sshCmd(row.ipv4, serverId);
 
     // Create skills directory
     execSync(`${ssh} "mkdir -p /root/.openclaw/workspace/skills"`, { timeout: 10000 });
@@ -1205,7 +1350,7 @@ router.post("/servers/:id/install-skills-bulk", requireAuth(0.01, 'general', { d
     const { execSync } = require("child_process");
     const { existsSync, readdirSync } = require("fs");
     const path = require("path");
-    const ssh = sshCmd(row.ipv4);
+    const ssh = sshCmd(row.ipv4, serverId);
 
     // Create skills directory
     execSync(`${ssh} "mkdir -p /root/.openclaw/workspace/skills"`, { timeout: 10000 });
@@ -1292,7 +1437,7 @@ router.post("/servers/:id/remove-skill", requireAuth(0.01, 'general', { descript
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const { execSync } = require("child_process");
-    const ssh = sshCmd(row.ipv4);
+    const ssh = sshCmd(row.ipv4, serverId);
 
     // skillName is now a safe identifier (no `..`, no `/`, no shell metachars)
     execSync(`${ssh} "rm -rf /root/.openclaw/workspace/skills/${skillName}"`, { timeout: 10000 });
@@ -1411,7 +1556,7 @@ router.post("/servers/:id/configure-wallet", requireAuth(0.01, 'general', { desc
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const { execSync } = require("child_process");
-    const ssh = sshCmd(row.ipv4);
+    const ssh = sshCmd(row.ipv4, serverId);
 
     // Write wallet config to TOOLS.md so the agent knows its wallets
     const toolsContent = `# Wallet Configuration
@@ -1513,7 +1658,7 @@ router.post("/servers/:id/pairing-approve", requireAuth(0.01, 'general', { descr
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const { execSync } = require("child_process");
-    const ssh = sshCmd(row.ipv4);
+    const ssh = sshCmd(row.ipv4, serverId);
 
     const result = execSync(`${ssh} "openclaw pairing approve ${channel} ${code} 2>&1"`, { timeout: 15000, encoding: "utf-8" }).trim();
 
@@ -1627,7 +1772,7 @@ router.post("/servers/:id/install-clawhub-skills", requireAuth(0.01, 'general', 
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const { execSync } = require("child_process");
-    const ssh = sshCmd(row.ipv4);
+    const ssh = sshCmd(row.ipv4, serverId);
 
     // Ensure clawhub is installed
     execSync(`${ssh} "which clawhub >/dev/null 2>&1 || npm i -g clawhub"`, { timeout: 30000 });
@@ -1668,7 +1813,7 @@ router.post("/servers/:id/remove-all-skills", requireAuth(0.01, 'general', { des
     if (!row?.ipv4) return res.status(404).json({ error: "Server not found" });
 
     const { execSync } = require("child_process");
-    const ssh = sshCmd(row.ipv4);
+    const ssh = sshCmd(row.ipv4, serverId);
 
     execSync(`${ssh} "rm -rf /root/.openclaw/workspace/skills/*"`, { timeout: 15000 });
     execSync(`${ssh} "systemctl restart openclaw 2>/dev/null || true"`, { timeout: 15000 });
@@ -1765,6 +1910,9 @@ router.put("/servers/:id", validateRenameBody, requireAuth(0.01, 'general'), req
 router.delete("/servers/:id", requireAuth(0.10, 'general'), requireServerOwner, async (req: AuthenticatedRequest, res: Response) => {
   try {
     await computeService.deleteServer(String(req.params.id));
+    // Drop the host-key pin so its IPv4, if Hetzner recycles it to another
+    // tenant, can't carry a stale pin forward.
+    clearHostKeyPin(String(req.params.id));
     res.json({ deleted: true, id: String(req.params.id), message: "Server permanently destroyed." });
   } catch (err: any) {
     await refundAndRespond(req, res, {
