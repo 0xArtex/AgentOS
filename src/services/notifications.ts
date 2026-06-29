@@ -1,4 +1,5 @@
 import { db } from "../db";
+import { fetchSsrfSafe } from "./email";
 
 interface WebhookPayload {
   event: string;
@@ -29,10 +30,12 @@ export async function notifyAgent(
   };
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 5000);
-
-    const response = await fetch(agent.webhook_url, {
+    // The webhook URL is agent-controlled, so deliver through fetchSsrfSafe:
+    // https-or-http to a PUBLIC host only — it re-resolves DNS and re-checks
+    // every hop against the private/loopback/link-local/metadata blocklist,
+    // so an agent can't point its webhook at internal services or
+    // 169.254.169.254 and have the server fetch them (blind SSRF).
+    const response = await fetchSsrfSafe(agent.webhook_url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -40,10 +43,9 @@ export async function notifyAgent(
         "User-Agent": "Palmyr/0.4.3",
       },
       body: JSON.stringify(payload),
-      signal: controller.signal,
+      timeoutMs: 5000,
+      maxBytes: 64 * 1024,
     });
-
-    clearTimeout(timeout);
 
     // Log the webhook delivery
     db.prepare(

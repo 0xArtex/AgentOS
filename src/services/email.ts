@@ -15,7 +15,25 @@ import { storage } from "./storage";
  * In production, this should come from a KMS or HSM.
  * If not set, falls back to a deterministic key (less secure but functional).
  */
-const MASTER_SECRET = process.env.EMAIL_MASTER_SECRET || "palmyr-email-master-secret-2026";
+const EMAIL_SECRET_PLACEHOLDER = "palmyr-email-master-secret-2026";
+const MASTER_SECRET = (() => {
+  const v = process.env.EMAIL_MASTER_SECRET;
+  if (v && v !== EMAIL_SECRET_PLACEHOLDER) return v;
+  // Server-side (non-E2E) mail is AES-256-GCM encrypted at rest with a key
+  // derived from this secret. A public, source-committed constant means anyone
+  // with the DB (a backup/snapshot/host compromise) plus the public source can
+  // recompute every inbox key and decrypt all at-rest mail. Fail closed in real
+  // production; dev/test/self-hosted keep the labeled default so the suite runs.
+  const failClosed =
+    process.env.NODE_ENV === "production" &&
+    !(process.env.PALMYR_SELF_HOSTED === "1" || process.env.PALMYR_SELF_HOSTED === "true");
+  if (failClosed) {
+    throw new Error(
+      "Refusing to boot: EMAIL_MASTER_SECRET is unset or the placeholder in production. Set a strong, secret EMAIL_MASTER_SECRET (ideally KMS-backed) — a public-constant key leaves all server-side email decryptable by anyone with the DB.",
+    );
+  }
+  return v || EMAIL_SECRET_PLACEHOLDER;
+})();
 
 /**
  * Derive a per-inbox AES-256 key from the master secret + inbox ID.
@@ -361,10 +379,15 @@ export function handleInboundEmail(
     if (!isSsrfSafe(wh.url)) { console.warn(`[email] Blocked SSRF webhook: ${wh.url}`); continue; }
     const events = JSON.parse(wh.events || '[]');
     if (events.includes('message.received') || events.length === 0) {
-      if (!isSsrfSafe(wh.url)) { console.warn(`[email] Webhook blocked (SSRF): ${wh.url}`); continue; }
-      fetch(wh.url, {
+      // Deliver through fetchSsrfSafe (not bare fetch): it re-resolves DNS and
+      // re-checks every hop against the private/loopback/metadata blocklist, so
+      // a DNS-rebinding host that passed the static isSsrfSafe check above can't
+      // still reach internal services / 169.254.169.254 at connection time.
+      fetchSsrfSafe(wh.url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        timeoutMs: 10000,
+        maxBytes: 64 * 1024,
         body: JSON.stringify({
           event: 'message.received',
           inboxId,
@@ -570,11 +593,12 @@ export function isSsrfSafe(url: string): boolean {
  */
 export async function fetchSsrfSafe(
   urlStr: string,
-  opts: { timeoutMs?: number; maxRedirects?: number; maxBytes?: number } = {},
+  opts: { timeoutMs?: number; maxRedirects?: number; maxBytes?: number; method?: string; headers?: Record<string, string>; body?: string } = {},
 ): Promise<Response> {
   const timeoutMs = opts.timeoutMs ?? 30000;
   const maxRedirects = opts.maxRedirects ?? 5;
   const maxBytes = opts.maxBytes ?? 20 * 1024 * 1024; // 20 MB
+  const method = opts.method ?? 'GET';
 
   const { promises: dns } = await import('dns');
 
@@ -607,7 +631,7 @@ export async function fetchSsrfSafe(
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     let resp: Response;
     try {
-      resp = await fetch(current, { signal: controller.signal, redirect: 'manual' });
+      resp = await fetch(current, { method, headers: opts.headers, body: opts.body, signal: controller.signal, redirect: 'manual' });
     } finally {
       clearTimeout(timer);
     }
