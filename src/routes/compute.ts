@@ -1540,7 +1540,7 @@ router.get("/skills/featured", async (_req: AuthenticatedRequest, res: Response)
 /**
  * POST /compute/skills/featured — Submit a ClawHub skill to the featured list
  */
-router.post("/skills/featured", async (req: AuthenticatedRequest, res: Response) => {
+router.post("/skills/featured", requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
     const { slug } = req.body;
     if (!slug) return res.status(400).json({ error: "slug is required" });
@@ -1552,7 +1552,10 @@ router.post("/skills/featured", async (req: AuthenticatedRequest, res: Response)
 
     const displayName = data.skill?.displayName || slug;
     const description = data.skill?.summary || '';
-    const submittedBy = req.headers['x-dashboard-user'] as string || 'anonymous';
+    // Attribute to the VERIFIED identity, never the raw (spoofable) header.
+    // Curation is authenticated so the featured list can't be anonymously
+    // poisoned (pointing agents at a malicious ClawHub slug they then install).
+    const submittedBy = req.agentId || req.payment?.payer || 'unknown';
 
     db.prepare("INSERT OR IGNORE INTO featured_skills (slug, submitted_by, display_name, description, clawhub_url) VALUES (?, ?, ?, ?, ?)")
       .run(slug, submittedBy, displayName, description, `https://clawhub.ai/skills/${slug}`);
@@ -1564,10 +1567,16 @@ router.post("/skills/featured", async (req: AuthenticatedRequest, res: Response)
 });
 
 /**
- * DELETE /compute/skills/featured/:slug — Remove a featured skill
+ * DELETE /compute/skills/featured/:slug — Remove a featured skill (submitter only)
  */
-router.delete("/skills/featured/:slug", async (req: AuthenticatedRequest, res: Response) => {
+router.delete("/skills/featured/:slug", requireAuth(0, 'general'), async (req: AuthenticatedRequest, res: Response) => {
   try {
+    const me = req.agentId || req.payment?.payer;
+    // Only the original submitter may remove their entry — prevents anyone
+    // wiping the curated list. (Admin cleanup can be done out-of-band in the DB.)
+    const row = db.prepare("SELECT submitted_by FROM featured_skills WHERE slug = ?").get(req.params.slug) as { submitted_by: string } | undefined;
+    if (!row) return res.status(404).json({ error: "Not found" });
+    if (row.submitted_by !== me) return res.status(403).json({ error: "Only the submitter can remove this entry" });
     db.prepare("DELETE FROM featured_skills WHERE slug = ?").run(req.params.slug);
     res.json({ success: true });
   } catch (err: any) {
