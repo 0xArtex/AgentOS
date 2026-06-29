@@ -5,6 +5,13 @@ import { AuthenticatedRequest } from "../types";
 
 const router = Router();
 
+// NON-CUSTODIAL: this endpoint does NOT take custody of any USDC. It is an
+// advisory bookkeeping ledger only — "release"/"dispute" change a status row,
+// they move no funds. Responses say so explicitly so an agent never delivers
+// goods believing a counterparty's payment is actually held in escrow.
+const NON_CUSTODIAL_NOTE =
+  "Advisory ledger only — Palmyr holds no funds. This does not guarantee or move payment.";
+
 // Escrow moves money — every route requires a verified identity. requireAuth(0)
 // lets registered agents (aos_/agt_ token) through for free and sets
 // req.agentId to the VERIFIED wallet identity, never the raw X-Agent-Id header.
@@ -22,10 +29,12 @@ router.post("/", (req: AuthenticatedRequest, res: Response) => {
   const agentId = req.agentId || req.payment?.payer;
   if (!agentId) return res.status(401).json({ error: "authentication required" });
   const { payee_agent, amount_usdc, description } = req.body || {};
-  if (!payee_agent || !amount_usdc) return res.status(400).json({ error: "payee_agent and amount_usdc required" });
+  if (!payee_agent || amount_usdc === undefined || amount_usdc === null) return res.status(400).json({ error: "payee_agent and amount_usdc required" });
+  const amount = Number(amount_usdc);
+  if (!Number.isFinite(amount) || amount <= 0) return res.status(400).json({ error: "amount_usdc must be a positive number" });
   const escrowId = `esc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  db.prepare("INSERT INTO escrows (escrow_id, payer_agent, payee_agent, amount_usdc, description, status, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime(?))").run(escrowId, agentId, payee_agent, amount_usdc, description || null, "pending", "now");
-  res.json({ escrow_id: escrowId, payer: agentId, payee: payee_agent, amount_usdc, status: "pending", message: "Escrow created.", actions: { release: `POST /api/agent-escrow/${escrowId}/release`, dispute: `POST /api/agent-escrow/${escrowId}/dispute` } });
+  db.prepare("INSERT INTO escrows (escrow_id, payer_agent, payee_agent, amount_usdc, description, status, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime(?))").run(escrowId, agentId, payee_agent, amount, description || null, "pending", "now");
+  res.json({ escrow_id: escrowId, payer: agentId, payee: payee_agent, amount_usdc: amount, status: "pending", custodial: false, note: NON_CUSTODIAL_NOTE, message: "Escrow record created (advisory; no funds held).", actions: { release: `POST /api/agent-escrow/${escrowId}/release`, dispute: `POST /api/agent-escrow/${escrowId}/dispute` } });
 });
 
 router.get("/", (req: AuthenticatedRequest, res: Response) => {
@@ -45,7 +54,7 @@ router.post("/:escrowId/release", (req: AuthenticatedRequest, res: Response) => 
   if (escrow.payer_agent !== agentId) return res.status(403).json({ error: "Only payer can release" });
   if (escrow.status !== "pending") return res.status(400).json({ error: "Not pending" });
   db.prepare("UPDATE escrows SET status = ?, released_at = datetime(?), tx_signature = ? WHERE escrow_id = ?").run("released", "now", tx_signature || null, escrowId);
-  res.json({ escrow_id: escrowId, status: "released", message: "Funds released to payee" });
+  res.json({ escrow_id: escrowId, status: "released", custodial: false, note: NON_CUSTODIAL_NOTE, message: "Escrow marked released (advisory record; Palmyr moved no funds — settle payment on-chain directly)." });
 });
 
 router.post("/:escrowId/dispute", (req: AuthenticatedRequest, res: Response) => {
