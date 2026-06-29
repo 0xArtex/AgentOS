@@ -20,8 +20,42 @@ import {
   DomainInFlightError,
   DomainRegistrationDeps,
   DomainRegistrationRow,
+  getRegistrant,
+  namecheapCreateParams,
+  RegistrantNotConfiguredError,
 } from "../services/domain-registration";
 import { resolveRegisterPrice } from "../routes/domains";
+
+const REGISTRANT_ENV_KEYS = [
+  "NAMECHEAP_REGISTRANT_FIRST_NAME",
+  "NAMECHEAP_REGISTRANT_LAST_NAME",
+  "NAMECHEAP_REGISTRANT_ADDRESS1",
+  "NAMECHEAP_REGISTRANT_CITY",
+  "NAMECHEAP_REGISTRANT_STATE_PROVINCE",
+  "NAMECHEAP_REGISTRANT_POSTAL_CODE",
+  "NAMECHEAP_REGISTRANT_COUNTRY",
+  "NAMECHEAP_REGISTRANT_PHONE",
+  "NAMECHEAP_REGISTRANT_EMAIL",
+];
+
+// Run `fn` with the registrant env set to `vals` (missing keys are cleared),
+// restoring the prior environment afterwards regardless of outcome.
+function withRegistrantEnv(vals: Record<string, string>, fn: () => void): void {
+  const saved: Record<string, string | undefined> = {};
+  for (const k of REGISTRANT_ENV_KEYS) {
+    saved[k] = process.env[k];
+    if (vals[k] !== undefined) process.env[k] = vals[k];
+    else delete process.env[k];
+  }
+  try {
+    fn();
+  } finally {
+    for (const k of REGISTRANT_ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k]!;
+    }
+  }
+}
 
 const OWNER = "TESTWALLET_domreg";
 const DASH_OWNER = `dashboard:${OWNER}`;
@@ -432,4 +466,70 @@ test("recovery refunds a stale 'registering' job that provably never registered"
   const job = getRegistrationJob(id)!;
   assert.equal(job.status, "failed");
   assert.equal(calls.refund, 1);
+});
+
+// ── Registrant WHOIS contact (#52): real, env-sourced, fail-closed ──
+test("registrant: fails closed when not configured (never registers fake WHOIS)", () => {
+  withRegistrantEnv({}, () => {
+    assert.throws(
+      () => getRegistrant(),
+      (e: unknown) => e instanceof RegistrantNotConfiguredError,
+      "an unconfigured registrant must throw, not return placeholder data"
+    );
+    // The param builder must also refuse rather than submit a fabricated block.
+    assert.throws(
+      () => namecheapCreateParams("example.com"),
+      (e: unknown) => e instanceof RegistrantNotConfiguredError
+    );
+  });
+});
+
+test("registrant: a partial config still fails closed and names the missing field", () => {
+  withRegistrantEnv(
+    {
+      NAMECHEAP_REGISTRANT_FIRST_NAME: "Ada",
+      NAMECHEAP_REGISTRANT_LAST_NAME: "Lovelace",
+      // everything else intentionally omitted
+    },
+    () => {
+      assert.throws(
+        () => getRegistrant(),
+        (e: unknown) =>
+          e instanceof RegistrantNotConfiguredError &&
+          e.missing.includes("NAMECHEAP_REGISTRANT_PHONE")
+      );
+    }
+  );
+});
+
+test("registrant: env contact fans out to all 5 roles, with WHOIS privacy and no placeholder", () => {
+  withRegistrantEnv(
+    {
+      NAMECHEAP_REGISTRANT_FIRST_NAME: "Ada",
+      NAMECHEAP_REGISTRANT_LAST_NAME: "Lovelace",
+      NAMECHEAP_REGISTRANT_ADDRESS1: "10 Operator Way",
+      NAMECHEAP_REGISTRANT_CITY: "London",
+      NAMECHEAP_REGISTRANT_STATE_PROVINCE: "London",
+      NAMECHEAP_REGISTRANT_POSTAL_CODE: "EC1A 1BB",
+      NAMECHEAP_REGISTRANT_COUNTRY: "GB",
+      NAMECHEAP_REGISTRANT_PHONE: "+44.2071234567",
+      NAMECHEAP_REGISTRANT_EMAIL: "ops@example.com",
+    },
+    () => {
+      const p = namecheapCreateParams("example.com");
+      for (const role of ["Registrant", "Tech", "Admin", "Billing", "AuxBilling"]) {
+        assert.equal(p[`${role}FirstName`], "Ada");
+        assert.equal(p[`${role}Phone`], "+44.2071234567");
+        assert.equal(p[`${role}Address1`], "10 Operator Way");
+        assert.equal(p[`${role}EmailAddress`], "ops@example.com");
+      }
+      // WHOIS privacy enabled so the operator contact isn't exposed publicly.
+      assert.equal(p.WGEnabled, "yes");
+      assert.equal(p.AddFreeWhoisguard, "yes");
+      // The old hardcoded placeholders must be gone entirely.
+      const blob = JSON.stringify(p);
+      assert.ok(!blob.includes("123 Agent Street"), "no placeholder address");
+      assert.ok(!blob.includes("4155551234"), "no placeholder phone");
+    }
+  );
 });

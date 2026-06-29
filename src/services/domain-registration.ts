@@ -150,23 +150,78 @@ export interface DomainRegistrationDeps {
   writeRegistryRow: (job: DomainRegistrationRow, orderId: string | null) => void;
 }
 
-const REGISTRANT = {
-  First: "Palmyr",
-  Last: "Registry",
-  Address1: "123 Agent Street",
-  City: "San Francisco",
-  State: "CA",
-  Postal: "94102",
-  Country: "US",
-  Phone: "+1.4155551234",
-  Email: "agent@palmyr.ai",
+// ─── Registrant contact (WHOIS) ───
+// ICANN requires ACCURATE registrant contact data. Verifiably fake WHOIS/RDAP
+// (a fictitious name/address/phone) is grounds for registrar verification
+// challenges and domain suspension, and the listed email/phone receive every
+// transfer-approval and verification notice. So the contact block is sourced
+// from the operator's configured profile (env) — never a hardcoded placeholder.
+// If it isn't configured we FAIL CLOSED: we refuse to register with fabricated
+// data, the worker treats the create as failed, and the payer is refunded.
+// (See SECURITY_AUDIT_2026-06-28 #52.)
+//
+// Required env (ALL must be set to register a domain):
+//   NAMECHEAP_REGISTRANT_FIRST_NAME   NAMECHEAP_REGISTRANT_LAST_NAME
+//   NAMECHEAP_REGISTRANT_ADDRESS1     NAMECHEAP_REGISTRANT_CITY
+//   NAMECHEAP_REGISTRANT_STATE_PROVINCE  NAMECHEAP_REGISTRANT_POSTAL_CODE
+//   NAMECHEAP_REGISTRANT_COUNTRY (2-letter)  NAMECHEAP_REGISTRANT_PHONE (+NNN.NNNNNNNNN)
+//   NAMECHEAP_REGISTRANT_EMAIL
+interface RegistrantContact {
+  First: string; Last: string; Address1: string; City: string;
+  State: string; Postal: string; Country: string; Phone: string; Email: string;
+}
+
+const REGISTRANT_ENV: Record<keyof RegistrantContact, string> = {
+  First: "NAMECHEAP_REGISTRANT_FIRST_NAME",
+  Last: "NAMECHEAP_REGISTRANT_LAST_NAME",
+  Address1: "NAMECHEAP_REGISTRANT_ADDRESS1",
+  City: "NAMECHEAP_REGISTRANT_CITY",
+  State: "NAMECHEAP_REGISTRANT_STATE_PROVINCE",
+  Postal: "NAMECHEAP_REGISTRANT_POSTAL_CODE",
+  Country: "NAMECHEAP_REGISTRANT_COUNTRY",
+  Phone: "NAMECHEAP_REGISTRANT_PHONE",
+  Email: "NAMECHEAP_REGISTRANT_EMAIL",
 };
 
+export class RegistrantNotConfiguredError extends Error {
+  constructor(public missing: string[]) {
+    super(
+      `Domain registrant contact is not configured — refusing to register with placeholder WHOIS data. ` +
+        `Set the operator's real, monitored contact in: ${missing.join(", ")}`
+    );
+    this.name = "RegistrantNotConfiguredError";
+  }
+}
+
+// Resolve the registrant from env. Throws RegistrantNotConfiguredError when any
+// field is missing so the caller fails closed instead of submitting fake WHOIS.
+export function getRegistrant(): RegistrantContact {
+  const out = {} as RegistrantContact;
+  const missing: string[] = [];
+  for (const field of Object.keys(REGISTRANT_ENV) as Array<keyof RegistrantContact>) {
+    const v = (process.env[REGISTRANT_ENV[field]] || "").trim();
+    if (!v) missing.push(REGISTRANT_ENV[field]);
+    else out[field] = v;
+  }
+  if (missing.length) throw new RegistrantNotConfiguredError(missing);
+  return out;
+}
+
 // The full Namecheap contact block (registrant/tech/admin/billing/auxbilling are
-// all required — Namecheap errors 2010218 without AuxBilling).
-function namecheapCreateParams(domain: string): Record<string, string> {
-  const c = REGISTRANT;
-  const p: Record<string, string> = { DomainName: domain, Years: "1" };
+// all required — Namecheap errors 2010218 without AuxBilling). Whoisguard is
+// enabled so the operator contact isn't exposed in public WHOIS while the
+// underlying registrant data stays accurate. Throws if the registrant isn't
+// configured (fail-closed — see getRegistrant).
+export function namecheapCreateParams(domain: string): Record<string, string> {
+  const c = getRegistrant();
+  const p: Record<string, string> = {
+    DomainName: domain,
+    Years: "1",
+    // WHOIS privacy: mask the operator's contact in public WHOIS/RDAP. The
+    // registrant data above remains accurate for ICANN validation.
+    AddFreeWhoisguard: "yes",
+    WGEnabled: "yes",
+  };
   for (const role of ["Registrant", "Tech", "Admin", "Billing", "AuxBilling"]) {
     p[`${role}FirstName`] = c.First;
     p[`${role}LastName`] = c.Last;

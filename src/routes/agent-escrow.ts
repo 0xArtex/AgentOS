@@ -24,6 +24,14 @@ router.use((req, res, next) => {
 try {
   db.exec("CREATE TABLE IF NOT EXISTS escrows (id INTEGER PRIMARY KEY AUTOINCREMENT, escrow_id TEXT UNIQUE NOT NULL, payer_agent TEXT NOT NULL, payee_agent TEXT NOT NULL, amount_usdc REAL NOT NULL, description TEXT, status TEXT, created_at TEXT, released_at TEXT, disputed_at TEXT, tx_signature TEXT)");
 } catch(e) { /* exists */ }
+// Columns for the dispute-resolution path (#77). ALTER fails on a pre-existing
+// DB that already has them, so each is wrapped defensively.
+for (const ddl of [
+  "ALTER TABLE escrows ADD COLUMN resolved_at TEXT",
+  "ALTER TABLE escrows ADD COLUMN resolution TEXT",
+]) {
+  try { db.exec(ddl); } catch(e) { /* column exists */ }
+}
 
 router.post("/", (req: AuthenticatedRequest, res: Response) => {
   const agentId = req.agentId || req.payment?.payer;
@@ -67,7 +75,37 @@ router.post("/:escrowId/dispute", (req: AuthenticatedRequest, res: Response) => 
   if (escrow.payer_agent !== agentId && escrow.payee_agent !== agentId) return res.status(403).json({ error: "Unauthorized" });
   if (escrow.status !== "pending") return res.status(400).json({ error: "Not pending" });
   db.prepare("UPDATE escrows SET status = ?, disputed_at = datetime(?) WHERE escrow_id = ?").run("disputed", "now", escrowId);
-  res.json({ escrow_id: escrowId, status: "disputed", reason, message: "Escrow disputed." });
+  res.json({ escrow_id: escrowId, status: "disputed", custodial: false, note: NON_CUSTODIAL_NOTE, reason, message: "Escrow disputed (advisory record). Resolve via POST /api/agent-escrow/" + escrowId + "/resolve.", actions: { resolve: `POST /api/agent-escrow/${escrowId}/resolve` } });
+});
+
+// Resolve a disputed escrow. Without this a 'disputed' record is a permanent
+// dead end — neither release nor dispute can act on it (both require 'pending'),
+// so either party can freeze the record forever (#77). Authority is the payer,
+// the payee, or a configured platform arbiter (a verified wallet listed in
+// POOL_ADMIN_WALLETS). Still NON-CUSTODIAL: this moves no funds — it only takes
+// the advisory record out of limbo to a terminal outcome so both sides have a
+// path forward.
+const RESOLVE_OUTCOMES = ["released", "refunded", "cancelled"] as const;
+function arbiterWallets(): string[] {
+  return (process.env.POOL_ADMIN_WALLETS || "").split(",").map((s) => s.trim()).filter(Boolean);
+}
+router.post("/:escrowId/resolve", (req: AuthenticatedRequest, res: Response) => {
+  const agentId = req.agentId || req.payment?.payer;
+  if (!agentId) return res.status(401).json({ error: "authentication required" });
+  const { escrowId } = req.params;
+  const { outcome, note } = req.body || {};
+  if (!RESOLVE_OUTCOMES.includes(outcome)) return res.status(400).json({ error: `outcome must be one of: ${RESOLVE_OUTCOMES.join(", ")}` });
+  const escrow: any = db.prepare("SELECT * FROM escrows WHERE escrow_id = ?").get(escrowId);
+  if (!escrow) return res.status(404).json({ error: "Escrow not found" });
+  const isPayer = escrow.payer_agent === agentId;
+  const isPayee = escrow.payee_agent === agentId;
+  const isArbiter = !isPayer && !isPayee && arbiterWallets().includes(agentId);
+  if (!isPayer && !isPayee && !isArbiter) return res.status(403).json({ error: "Only the payer, payee, or a platform arbiter can resolve" });
+  if (escrow.status !== "disputed") return res.status(400).json({ error: "Only a disputed escrow can be resolved", status: escrow.status });
+  const resolvedBy = isArbiter ? "arbiter" : isPayer ? "payer" : "payee";
+  const resolution = `${outcome} by ${resolvedBy}${note ? `: ${String(note).slice(0, 500)}` : ""}`;
+  db.prepare("UPDATE escrows SET status = ?, resolved_at = datetime(?), resolution = ? WHERE escrow_id = ?").run(outcome, "now", resolution, escrowId);
+  res.json({ escrow_id: escrowId, status: outcome, resolved_by: resolvedBy, resolution, custodial: false, note: NON_CUSTODIAL_NOTE, message: "Disputed escrow resolved (advisory record; Palmyr moved no funds — settle on-chain directly)." });
 });
 
 router.get("/stats", (_req: Request, res: Response) => {
