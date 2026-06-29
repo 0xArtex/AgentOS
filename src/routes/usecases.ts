@@ -45,8 +45,9 @@ router.get("/", (_req: Request, res: Response) => {
         difficulty: "advanced"
       }
     ],
-    hackathonMode: {
-      note: "All services are FREE during the Colosseum hackathon (until Feb 12, 2026). Just pass X-Agent-Id header.",
+    pricing: {
+      model: "pay-per-call (x402 USDC)",
+      note: "Each call settles in USDC via x402 at request time — see /pricing for exact per-call amounts.",
       getStarted: "POST /onboarding/quickstart with X-Agent-Id header"
     }
   });

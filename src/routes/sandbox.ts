@@ -17,10 +17,9 @@ router.get('/', (_req: Request, res: Response) => {
   res.json({
     sandbox: {
       title: 'Palmyr Interactive Sandbox',
-      description: 'Try every API endpoint right now — no signup, no API key, no USDC needed during hackathon',
-      hackathonMode: true,
-      expiresAt: '2026-02-12T17:00:00Z',
-      baseUrl: 'http://77.42.89.233:3001',
+      description: 'Try every API endpoint right now — no signup, no API key. Paid endpoints settle per call in USDC via x402 at request time (see /pricing).',
+      pricing: { model: 'pay-per-call (x402 USDC)', reference: '/pricing' },
+      baseUrl: 'https://palmyr.ai',
       requiredHeader: { 'X-Agent-Id': 'your-agent-name' },
     },
     scenarios: [
@@ -35,35 +34,35 @@ router.get('/', (_req: Request, res: Response) => {
             action: 'Register your agent',
             method: 'POST',
             endpoint: '/api/agents/register',
-            curl: "curl -X POST http://77.42.89.233:3001/api/agents/register -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"name\": \"my-agent\", \"capabilities\": [\"trading\", \"research\"]}'"
+            curl: "curl -X POST https://palmyr.ai/api/agents/register -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"name\": \"my-agent\", \"capabilities\": [\"trading\", \"research\"]}'"
           },
           {
             step: 2,
             action: 'Get a phone number',
             method: 'POST',
             endpoint: '/api/phone/provision',
-            curl: "curl -X POST http://77.42.89.233:3001/api/phone/provision -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"country\": \"US\"}'"
+            curl: "curl -X POST https://palmyr.ai/api/phone/provision -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"country\": \"US\"}'"
           },
           {
             step: 3,
             action: 'Get an email address',
             method: 'POST',
             endpoint: '/api/email/provision',
-            curl: "curl -X POST http://77.42.89.233:3001/api/email/provision -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"prefix\": \"my-agent\"}'"
+            curl: "curl -X POST https://palmyr.ai/api/email/provision -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"prefix\": \"my-agent\"}'"
           },
           {
             step: 4,
             action: 'Spin up compute',
             method: 'POST',
             endpoint: '/api/compute/provision',
-            curl: "curl -X POST http://77.42.89.233:3001/api/compute/provision -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"type\": \"container\", \"specs\": {\"cpu\": 2, \"memoryMb\": 2048}}'"
+            curl: "curl -X POST https://palmyr.ai/api/compute/provision -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"type\": \"container\", \"specs\": {\"cpu\": 2, \"memoryMb\": 2048}}'"
           },
           {
             step: 5,
             action: 'Check your analytics',
             method: 'GET',
             endpoint: '/api/analytics',
-            curl: "curl http://77.42.89.233:3001/api/analytics -H 'X-Agent-Id: my-agent'"
+            curl: "curl https://palmyr.ai/api/analytics -H 'X-Agent-Id: my-agent'"
           }
         ]
       },
@@ -78,14 +77,14 @@ router.get('/', (_req: Request, res: Response) => {
             action: 'Send an SMS',
             method: 'POST',
             endpoint: '/api/phone/send-sms',
-            curl: "curl -X POST http://77.42.89.233:3001/api/phone/send-sms -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"to\": \"+1234567890\", \"body\": \"Hello from my autonomous agent!\"}'"
+            curl: "curl -X POST https://palmyr.ai/api/phone/send-sms -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"to\": \"+1234567890\", \"body\": \"Hello from my autonomous agent!\"}'"
           },
           {
             step: 2,
             action: 'Send an email',
             method: 'POST',
             endpoint: '/api/email/send',
-            curl: "curl -X POST http://77.42.89.233:3001/api/email/send -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"to\": \"test@example.com\", \"subject\": \"Agent comms test\", \"body\": \"Sent autonomously via Palmyr\"}'"
+            curl: "curl -X POST https://palmyr.ai/api/email/send -H 'Content-Type: application/json' -H 'X-Agent-Id: my-agent' -d '{\"to\": \"test@example.com\", \"subject\": \"Agent comms test\", \"body\": \"Sent autonomously via Palmyr\"}'"
           }
         ]
       },
@@ -107,9 +106,9 @@ router.get('/', (_req: Request, res: Response) => {
       }
     ],
     tips: [
-      'All endpoints are FREE during hackathon — just include X-Agent-Id header',
-      'No API key needed, no USDC needed, no signup needed',
-      'Resources are sandboxed per agent — your stuff is isolated',
+      'Paid endpoints settle per call in USDC via x402 — your wallet address is your identity, no API key or signup',
+      'See /pricing and /.well-known/x402 for exact per-call amounts',
+      'Resources are scoped per agent — your stuff is isolated',
       'Check /api/examples for more copy-paste curl commands',
       'Full Swagger docs at /docs'
     ]

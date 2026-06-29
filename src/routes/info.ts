@@ -18,8 +18,8 @@ router.get("/", (_req: Request, res: Response) => {
     },
     services: {
       api: { status: "operational", latency_ms: 2 },
-      phone: { status: "operational", provider: "Twilio", note: "Hackathon mode - simulated" },
-      email: { status: "operational", provider: "SendGrid", note: "Hackathon mode - simulated" },
+      phone: { status: "operational", provider: "Telnyx" },
+      email: { status: "operational", provider: "Mailgun" },
       compute: { status: "operational", provider: "Hetzner Cloud" },
       domains: { status: "operational", provider: "Cloudflare" },
       payments: { status: "operational", network: "Solana", token: "USDC" }
@@ -30,11 +30,7 @@ router.get("/", (_req: Request, res: Response) => {
       avg_response_ms: 12,
       error_rate: "< 0.1%"
     },
-    hackathon: {
-      mode: "FREE",
-      deadline: "2026-02-12T17:00:00Z",
-      days_remaining: Math.max(0, Math.ceil((new Date("2026-02-12T17:00:00Z").getTime() - Date.now()) / 86400000))
-    }
+    pricing: { model: "pay-per-call (x402 USDC)", reference: "/pricing" }
   });
 });
 
@@ -49,7 +45,7 @@ router.get("/final-pitch", (_req, res) => {
     traction: { endpoints: "121+", forum_comments: "495+", ecosystem_partners: 11 },
     differentiators: ["x402 payments", "Framework-agnostic", "Sub-second provisioning", "Security-first"],
     vision: "The AWS for the agent economy.",
-    links: { api: "http://77.42.89.233:3001", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/Palmyr" }
+    links: { api: "https://palmyr.ai", docs: "https://palmyr.ai/docs", github: "https://github.com/0xArtex/Palmyr" }
   });
 });
 
@@ -63,35 +59,35 @@ router.get("/demo-flow", (req, res) => {
       step: 1,
       title: "Register Your Agent",
       description: "Create an agent identity to start using Palmyr services",
-      curl: `curl -X POST http://77.42.89.233:3001/api/agents/register -H "Content-Type: application/json" -H "X-Agent-Id: demo-agent" -d '{"name":"my-agent","framework":"raw"}'`,
+      curl: `curl -X POST https://palmyr.ai/api/agents/register -H "Content-Type: application/json" -H "X-Agent-Id: demo-agent" -d '{"name":"my-agent","framework":"raw"}'`,
       next: "/api/demo-flow?step=2"
     },
     2: {
       step: 2,
       title: "Provision a Phone Number",
       description: "Get a real phone number for your agent to send/receive SMS",
-      curl: `curl -X POST http://77.42.89.233:3001/api/phone/provision -H "Content-Type: application/json" -H "X-Agent-Id: demo-agent" -d '{"country":"US"}'`,
+      curl: `curl -X POST https://palmyr.ai/api/phone/provision -H "Content-Type: application/json" -H "X-Agent-Id: demo-agent" -d '{"country":"US"}'`,
       next: "/api/demo-flow?step=3"
     },
     3: {
       step: 3,
       title: "Set Up Email",
       description: "Provision an email address for your agent",
-      curl: `curl -X POST http://77.42.89.233:3001/api/email/provision -H "Content-Type: application/json" -H "X-Agent-Id: demo-agent" -d '{"prefix":"my-agent"}'`,
+      curl: `curl -X POST https://palmyr.ai/api/email/provision -H "Content-Type: application/json" -H "X-Agent-Id: demo-agent" -d '{"prefix":"my-agent"}'`,
       next: "/api/demo-flow?step=4"
     },
     4: {
       step: 4,
       title: "Launch Compute",
       description: "Spin up a compute container for your agent workloads",
-      curl: `curl -X POST http://77.42.89.233:3001/api/compute/launch -H "Content-Type: application/json" -H "X-Agent-Id: demo-agent" -d '{"image":"ubuntu:22.04","resources":{"cpu":1,"memory":"512Mi"}}'`,
+      curl: `curl -X POST https://palmyr.ai/api/compute/launch -H "Content-Type: application/json" -H "X-Agent-Id: demo-agent" -d '{"image":"ubuntu:22.04","resources":{"cpu":1,"memory":"512Mi"}}'`,
       next: "/api/demo-flow?step=5"
     },
     5: {
       step: 5,
       title: "Check Your Dashboard",
       description: "View all your provisioned resources and usage analytics",
-      curl: "curl http://77.42.89.233:3001/api/analytics?agentId=demo-agent",
+      curl: "curl https://palmyr.ai/api/analytics?agentId=demo-agent",
       next: null,
       complete: true,
       message: "You now have a fully-equipped autonomous agent with phone, email, and compute!"
@@ -102,7 +98,7 @@ router.get("/demo-flow", (req, res) => {
     demo: current,
     totalSteps: 5,
     progress: `${Math.min(step, 5)}/5`,
-    hackathonMode: "FREE — no USDC required until Feb 12"
+    pricing: "pay-per-call in USDC via x402 — see /pricing"
   });
 });
 
@@ -173,8 +169,8 @@ router.get("/demo-flows", (_req, res) => {
         time_to_implement: "15 minutes"
       }
     ],
-    note: "All endpoints free during Colosseum hackathon. Just add X-Agent-Id header.",
-    docs: "http://77.42.89.233:3001/docs"
+    note: "Paid endpoints settle per call in USDC via x402. Just add X-Agent-Id header; see /pricing for amounts.",
+    docs: "https://palmyr.ai/docs"
   });
 });
 
@@ -196,33 +192,25 @@ router.get("/final-pitch", (_req, res) => {
       "x402 native — agents pay per use, no human billing setup",
       "Framework-agnostic — works with any agent stack",
       "Full observability — analytics, agent graphs, audit trails",
-      "Free hackathon tier — zero friction to start"
+      "Pay-per-call in USDC — no billing setup, fund a wallet and go"
     ],
     demo: {
-      quickstart: "curl http://77.42.89.233:3001/api/quickstart",
-      docs: "http://77.42.89.233:3001/docs",
-      sandbox: "curl http://77.42.89.233:3001/api/sandbox",
-      live_stats: "curl http://77.42.89.233:3001/api/stats"
+      quickstart: "curl https://palmyr.ai/api/quickstart",
+      docs: "https://palmyr.ai/docs",
+      sandbox: "curl https://palmyr.ai/api/sandbox",
+      live_stats: "curl https://palmyr.ai/api/stats"
     },
     ask: "Vote for Palmyr — the infrastructure layer that makes the entire agent ecosystem possible."
   });
 });
 
 router.get("/last-stand", (_req, res) => {
-  const deadline = new Date("2026-02-12T17:00:00Z");
-  const now = new Date();
-  const msLeft = Math.max(0, deadline.getTime() - now.getTime());
-  const hours = Math.floor(msLeft / 3600000);
-  const mins = Math.floor((msLeft % 3600000) / 60000);
-  const urgency = hours < 6 ? "CRITICAL" : hours < 12 ? "HIGH" : hours < 24 ? "MEDIUM" : "NORMAL";
   res.json({
-    title: "Palmyr - Last Stand",
-    countdown: `${hours}h ${mins}m remaining`,
-    urgency,
+    title: "Palmyr",
     what_we_built: "Full autonomous infrastructure API for AI agents - phone, email, compute, domains - all USDC settled",
-    by_the_numbers: { api_endpoints: "205+", forum_comments: "800+", ecosystem_partners: "11+", days_building: 12 },
     why_it_matters: "Every agent project needs infra. We built the platform so nobody has to.",
-    judge_quick_links: { try_it: "curl http://77.42.89.233:3001/api/quickstart", docs: "http://77.42.89.233:3001/docs", github: "https://github.com/0xArtex/Palmyr" }
+    pricing: "pay-per-call in USDC via x402 — see /pricing",
+    quick_links: { try_it: "curl https://palmyr.ai/api/quickstart", docs: "https://palmyr.ai/docs", github: "https://github.com/0xArtex/Palmyr" }
   });
 });
 
@@ -246,7 +234,7 @@ router.get("/post-mortem", (_req, res) => {
     },
     postHackathon: {
       status: "STILL RUNNING",
-      freeForBuilders: true,
+      pricing: "pay-per-call in USDC via x402 — see /pricing",
       docs: "https://palmyr.ai/docs",
       api: "https://palmyr.ai",
       github: "https://github.com/0xArtex/Palmyr"

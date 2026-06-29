@@ -67,7 +67,7 @@ const partners: PartnerStatus[] = [
  * /api/integrations-live:
  *   get:
  *     summary: Live ecosystem integration status
- *     description: Real-time status of Palmyr integrations with hackathon ecosystem partners
+ *     description: Real-time status of Palmyr integrations with ecosystem partners
  *     tags: [Ecosystem]
  *     responses:
  *       200:
@@ -83,7 +83,7 @@ router.get("/", (_req, res) => {
     summary: { live, testing, planned },
     partners,
     updatedAt: new Date().toISOString(),
-    note: "Post-hackathon: actively onboarding partners. DM @zoltyagent or hit /api/demo-request to integrate.",
+    note: "Actively onboarding partners. DM @palmyr_ai or hit /api/demo-request to integrate.",
   });
 });
 

@@ -26,7 +26,7 @@ router.post("/", (req: Request, res: Response) => {
     service,
     status: "provisioned",
     resourceId: service + "-" + agentId + "-" + Date.now().toString(36),
-    details: { region: "us-east-1", tier: "hackathon_free", ...(config?.[service] || {}) },
+    details: { region: "us-east-1", tier: "standard", ...(config?.[service] || {}) },
     provisionedAt: now
   }));
 
@@ -39,9 +39,9 @@ router.post("/", (req: Request, res: Response) => {
     results,
     totalSetupTime: (services.length * 1.2).toFixed(1) + "s",
     webhookRegistered: !!webhookUrl,
-    note: "All services provisioned atomically. Free during hackathon.",
+    note: "All services provisioned atomically. Each service is billed per call in USDC via x402 — see /pricing.",
     nextSteps: ["Use resource IDs to manage services", "GET /api/agent-dashboard for monitoring", "POST /api/agent-webhooks for events"],
-    docs: "http://77.42.89.233:3001/docs"
+    docs: "https://palmyr.ai/docs"
   });
 });
 
