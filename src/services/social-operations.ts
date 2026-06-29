@@ -12,6 +12,7 @@
  */
 import { openAuthenticatedSession, isSessionExpiredUrl } from "./social-runtime";
 import { fetchSsrfSafe } from "./email";
+import { checkRateLimit, recordAction } from "./social-rate-limit";
 import { randomUUID, randomBytes } from "crypto";
 
 /**
@@ -263,11 +264,25 @@ async function materializeMedia(
   }
 }
 
+/**
+ * A debug screenshot captures whatever the logged-in X account currently shows
+ * — home timeline, profile/settings, potentially DM notifications. Writing those
+ * frames to world-readable /tmp on a shared host leaves authenticated-session
+ * content at rest (and accumulates indefinitely on every error path), so capture
+ * is OFF by default and only happens when an operator explicitly opts in.
+ */
+export function socialShotsEnabled(): boolean {
+  return process.env.PALMYR_SOCIAL_DEBUG === "1" || process.env.PALMYR_DEBUG_SHOTS === "1";
+}
+
 async function debugShot(page: any, tag: string): Promise<string | undefined> {
+  // Default: do not persist authenticated-session screenshots to disk.
+  if (!socialShotsEnabled()) return undefined;
   try {
     const fs = await import("fs");
     const dir = "/tmp/palmyr-social-shots";
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    // Restrict to the service user — these frames contain live session content.
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
     const shotPath = `${dir}/${tag}-${Date.now()}.png`;
     await page.screenshot({ path: shotPath, fullPage: true });
     return shotPath;
@@ -353,11 +368,14 @@ export interface OpResult<T = any> {
   error_code?:
     | "SESSION_EXPIRED"
     | "RATE_LIMITED"
+    | "RATE_LIMITED_PROTECTIVE"
     | "NOT_FOUND"
     | "INVALID_INPUT"
     | "UI_TIMEOUT"
     | "LAUNCH_FAILED"
     | "UNKNOWN";
+  /** When rate-limited, ms the caller should wait before retrying. */
+  retry_after_ms?: number;
 }
 
 export interface OpRequest {
@@ -365,6 +383,58 @@ export interface OpRequest {
   /** Portable IP-lineage key. Overrides account_id for proxy session. */
   proxy_session_id?: string;
   cookies: any[];
+}
+
+/**
+ * Protective per-account velocity cap, checked BEFORE we open a browser session
+ * — a RATE_LIMITED error is dramatically cheaper than a suspended X account.
+ * Mirrors the `gate()` in tiktok-operations.ts. Returns an OpResult to short-
+ * circuit the op when the account is over its rolling-window budget, or null
+ * when the action is allowed. Callers must `recordAction()` after the action
+ * actually succeeds (failures shouldn't count against the budget).
+ */
+function gate(accountId: string, operation: string): OpResult | null {
+  const rl = checkRateLimit(accountId, "twitter", operation);
+  if (!rl.ok) {
+    return {
+      success: false,
+      error: rl.reason || "Rate limited (protective cap)",
+      error_code: "RATE_LIMITED_PROTECTIVE",
+      retry_after_ms: rl.retry_after_ms,
+    };
+  }
+  return null;
+}
+
+/**
+ * Hosts we will drive an authenticated X session to. A navigation target (e.g.
+ * tweet_url) MUST resolve to one of these. The previous guard only matched the
+ * substring `/status/<digits>` anywhere in the string, so `https://attacker.
+ * example/status/1` or `http://169.254.169.254/status/1` passed and the stealth
+ * browser navigated there — an SSRF / open web-fetch through the residential
+ * exit IP. Pinning the host closes that.
+ */
+const X_URL_HOSTS = new Set([
+  "x.com", "www.x.com", "mobile.x.com",
+  "twitter.com", "www.twitter.com", "mobile.twitter.com",
+]);
+
+/**
+ * True iff `raw` is an https URL on an X/Twitter host whose path points at a
+ * specific tweet (`/status/<id>`). Used to validate tweet_url before navigating
+ * the authenticated browser to it.
+ */
+export function isValidTweetUrl(raw: string): boolean {
+  if (!raw || typeof raw !== "string") return false;
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "https:") return false;
+  if (!X_URL_HOSTS.has(u.hostname.toLowerCase())) return false;
+  return /\/status\/\d+/.test(u.pathname);
 }
 
 /* ─── post: publish a tweet from the home feed compose box ────────────── */
@@ -417,6 +487,10 @@ export async function postTweet(
   if (mediaErr) {
     return { success: false, error: mediaErr, error_code: "INVALID_INPUT" };
   }
+
+  // Protective velocity cap before any media fetch / browser launch.
+  const limited = gate(req.account_id, "post");
+  if (limited) return limited;
 
   // Materialise media to disk before opening the session — saves browser
   // launch time if the input is malformed (bad URL, oversized file, etc.).
@@ -601,6 +675,7 @@ export async function postTweet(
       };
     }
 
+    recordAction(req.account_id, "twitter", "post");
     return {
       success: true,
       data: {
@@ -661,6 +736,11 @@ export async function postTweetThread(
   if (communityErr) {
     return { success: false, error: communityErr, error_code: "INVALID_INPUT" };
   }
+
+  // Protective velocity cap before the browser launches. A thread is one
+  // composed session, so it counts as a single "post" against the budget.
+  const limited = gate(req.account_id, "post");
+  if (limited) return limited;
 
   let session;
   try {
@@ -859,6 +939,7 @@ export async function postTweetThread(
       };
     }
 
+    recordAction(req.account_id, "twitter", "post");
     return {
       success: true,
       data: {
@@ -878,12 +959,15 @@ export async function postTweetThread(
 export async function replyToTweet(
   req: OpRequest & { tweet_url: string; text: string }
 ): Promise<OpResult> {
-  if (!req.tweet_url || !/\/status\/\d+/.test(req.tweet_url)) {
-    return { success: false, error: "tweet_url must be a full X tweet URL", error_code: "INVALID_INPUT" };
+  if (!isValidTweetUrl(req.tweet_url)) {
+    return { success: false, error: "tweet_url must be a full https x.com/twitter.com tweet URL (…/status/<id>)", error_code: "INVALID_INPUT" };
   }
   if (!req.text || req.text.length > 280) {
     return { success: false, error: "text is required and must be <= 280 chars", error_code: "INVALID_INPUT" };
   }
+
+  const limited = gate(req.account_id, "reply");
+  if (limited) return limited;
 
   let session;
   try {
@@ -957,6 +1041,7 @@ export async function replyToTweet(
     }
 
     const tweetId: string | undefined = apiResult.json?.data?.create_tweet?.tweet_results?.result?.rest_id;
+    recordAction(req.account_id, "twitter", "reply");
     return {
       success: true,
       data: tweetId ? {
@@ -976,9 +1061,12 @@ export async function replyToTweet(
 export async function likeTweet(
   req: OpRequest & { tweet_url: string }
 ): Promise<OpResult> {
-  if (!req.tweet_url || !/\/status\/\d+/.test(req.tweet_url)) {
-    return { success: false, error: "tweet_url must be a full X tweet URL", error_code: "INVALID_INPUT" };
+  if (!isValidTweetUrl(req.tweet_url)) {
+    return { success: false, error: "tweet_url must be a full https x.com/twitter.com tweet URL (…/status/<id>)", error_code: "INVALID_INPUT" };
   }
+
+  const limited = gate(req.account_id, "like");
+  if (limited) return limited;
 
   let session;
   try {
@@ -1034,6 +1122,7 @@ export async function likeTweet(
       };
     }
 
+    recordAction(req.account_id, "twitter", "like");
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
@@ -1047,9 +1136,12 @@ export async function likeTweet(
 export async function retweetTweet(
   req: OpRequest & { tweet_url: string }
 ): Promise<OpResult> {
-  if (!req.tweet_url || !/\/status\/\d+/.test(req.tweet_url)) {
-    return { success: false, error: "tweet_url must be a full X tweet URL", error_code: "INVALID_INPUT" };
+  if (!isValidTweetUrl(req.tweet_url)) {
+    return { success: false, error: "tweet_url must be a full https x.com/twitter.com tweet URL (…/status/<id>)", error_code: "INVALID_INPUT" };
   }
+
+  const limited = gate(req.account_id, "retweet");
+  if (limited) return limited;
 
   let session;
   try {
@@ -1108,6 +1200,7 @@ export async function retweetTweet(
       };
     }
 
+    recordAction(req.account_id, "twitter", "retweet");
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
@@ -1121,9 +1214,12 @@ export async function retweetTweet(
 export async function deleteTweet(
   req: OpRequest & { tweet_url: string }
 ): Promise<OpResult> {
-  if (!req.tweet_url || !/\/status\/\d+/.test(req.tweet_url)) {
-    return { success: false, error: "tweet_url must be a full X tweet URL", error_code: "INVALID_INPUT" };
+  if (!isValidTweetUrl(req.tweet_url)) {
+    return { success: false, error: "tweet_url must be a full https x.com/twitter.com tweet URL (…/status/<id>)", error_code: "INVALID_INPUT" };
   }
+
+  const limited = gate(req.account_id, "delete");
+  if (limited) return limited;
 
   let session;
   try {
@@ -1178,6 +1274,7 @@ export async function deleteTweet(
       };
     }
 
+    recordAction(req.account_id, "twitter", "delete");
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
@@ -1381,6 +1478,9 @@ export async function unfollowUser(
     return { success: false, error: `Invalid handle: ${handle}`, error_code: "INVALID_INPUT" };
   }
 
+  const limited = gate(req.account_id, "unfollow");
+  if (limited) return limited;
+
   let session;
   try {
     session = await openAuthenticatedSession({ accountId: req.account_id, proxySessionId: req.proxy_session_id, cookies: req.cookies });
@@ -1529,6 +1629,7 @@ export async function unfollowUser(
       };
     }
 
+    recordAction(req.account_id, "twitter", "unfollow");
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
@@ -2060,6 +2161,10 @@ async function updateProfileImage(
   req: OpRequest & ImageInput,
   kind: "avatar" | "banner"
 ): Promise<OpResult> {
+  // Protective velocity cap before the image is even fetched/decoded.
+  const limited = gate(req.account_id, kind);
+  if (limited) return limited;
+
   let materialized: { filePath: string; cleanup: () => void };
   try {
     materialized = await materializeImage(req);
@@ -2175,6 +2280,7 @@ async function updateProfileImage(
       };
     }
 
+    recordAction(req.account_id, "twitter", kind);
     return { success: true, data: { kind, observed_posts: seenPosts.slice(0, 10) } };
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
@@ -2204,6 +2310,9 @@ export async function followUser(
   if (!/^[A-Za-z0-9_]{1,15}$/.test(handle)) {
     return { success: false, error: `Invalid handle: ${handle}`, error_code: "INVALID_INPUT" };
   }
+
+  const limited = gate(req.account_id, "follow");
+  if (limited) return limited;
 
   let session;
   try {
@@ -2259,6 +2368,7 @@ export async function followUser(
       };
     }
 
+    recordAction(req.account_id, "twitter", "follow");
     return { success: true };
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "UI_TIMEOUT" };

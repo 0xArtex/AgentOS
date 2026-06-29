@@ -19,6 +19,26 @@ import { isSelfHosted } from "./self-hosted";
 import { solveTikTokCaptcha, isCaptchaSolverConfigured } from "./captcha-solver";
 import { fetchVerificationCode } from "./email-reader";
 
+/**
+ * Decide whether the observed TikTok page state proves an AUTHENTICATED session.
+ *
+ * The left-nav profile/upload links (`[data-e2e="nav-profile"]`,
+ * `[data-e2e="upload-icon"]`) also render for ANONYMOUS/logged-out users, so a
+ * dead/expired/revoked sessionid can otherwise win the auth race on a logged-out
+ * homepage and be reported as a false "success" — persisting an anonymous cookie
+ * jar as a "connected" account. Require ALL of:
+ *   - a positive auth signal won the race (`authSignal === true`),
+ *   - a logged-in-only signal is present (the top-right profile avatar), AND
+ *   - NO login affordance is present (a "Log in" button / `/login` link).
+ */
+export function isAuthenticatedTikTokState(opts: {
+  authSignal: boolean | null;
+  loginAffordanceVisible: boolean;
+  profileAvatarVisible: boolean;
+}): boolean {
+  return opts.authSignal === true && !opts.loginAffordanceVisible && opts.profileAvatarVisible;
+}
+
 /** Small random pause between UI actions to look less robotic. */
 function humanDelay(min: number = 400, max: number = 1200): Promise<void> {
   return new Promise((r) => setTimeout(r, min + Math.random() * (max - min)));
@@ -605,20 +625,40 @@ export async function loginTikTok(
         .then(() => false),
     ]).catch(() => null);
 
-    // NOTE (known gap): the `[data-e2e="nav-profile"]`/`upload-icon` left-nav
-    // links also render for ANONYMOUS users, so this signal can resolve
-    // authed=true on a logged-out page — a dead/fake sessionid reports a false
-    // "success". A proper fix (gate on a logged-in-only signal — top-right
-    // profile avatar absence-of-"Log in", or a server-set auth cookie) needs
-    // validation against a real logged-in session, which isn't available here.
-    if (authed !== true) {
+    // The `[data-e2e="nav-profile"]`/`upload-icon` left-nav links above ALSO
+    // render for ANONYMOUS users, so the race can resolve authed=true on a
+    // logged-out page (a dead/expired sessionid would then be a false success).
+    // Confirm with a logged-in-only signal (the top-right profile avatar) AND
+    // the absence of any login affordance before trusting the session.
+    const loginAffordanceVisible = await page
+      .locator('[data-e2e="top-login-button"], [data-e2e="nav-login"], a[href*="/login"]')
+      .first()
+      .isVisible({ timeout: 2000 })
+      .catch(() => false);
+    const profileAvatarVisible = await page
+      .locator('[data-e2e="profile-icon"]')
+      .first()
+      .isVisible({ timeout: 2000 })
+      .catch(() => false);
+    const reallyAuthed = isAuthenticatedTikTokState({
+      authSignal: authed,
+      loginAffordanceVisible,
+      profileAvatarVisible,
+    });
+
+    if (!reallyAuthed) {
       const diag = await snapshot("no-auth-signal");
       const pathMsg = hasCookies
         ? "sessionid may be dead or the region is challenge-walled"
         : "the form-login flow may have been blocked by an unhandled challenge (captcha variant, device verification, or geography mismatch)";
+      // authed===true here means the nav links won the race but a login button
+      // was still present / the avatar was missing — i.e. an anonymous page.
+      const falsePositiveNote = authed === true
+        ? " A login control was still present (or the profile avatar was missing), so the left-nav links were an anonymous-page false positive."
+        : "";
       return {
         success: false,
-        error: `Could not detect authenticated UI (${hasCookies ? "cookie" : "form"} path). ${pathMsg}. Check diagnostics.screenshot_path for the exact TikTok page state.`,
+        error: `Could not confirm an authenticated TikTok session (${hasCookies ? "cookie" : "form"} path). ${pathMsg}.${falsePositiveNote} Check diagnostics.screenshot_path for the exact TikTok page state.`,
         error_code: "LOGIN_TIMEOUT",
         diagnostics: diag,
       };

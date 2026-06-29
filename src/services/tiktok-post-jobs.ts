@@ -380,11 +380,16 @@ export async function recoverStuckTikTokPosts(deps: TikTokPostDeps = defaultDeps
         markFailed(job.id, "server_restarted_before_publish", "server restarted before the post began — never published");
         await issueRefund(getPostJob(job.id)!, deps, "server restarted before publish");
       } else {
-        // 'publishing' — ambiguous and unreconcilable post-restart (no cookies).
+        // 'publishing' past the publish window: either orphaned by a restart
+        // (no cookies → can't reconcile) or left unresolved by the worker's
+        // reconcile() (couldn't determine the outcome). Either way, drive it to
+        // a TERMINAL state so the poller stops returning done=false forever. We
+        // still do NOT auto-refund (the post may actually have landed) but flag
+        // it for manual review/refund — preserving any refund_status already set.
         db.prepare(
-          "UPDATE tiktok_post_jobs SET status='failed', error=?, error_code='server_restarted_mid_publish', refund_status='manual_needed', completed_at=? WHERE id=?"
-        ).run("server restarted mid-publish — may or may not have posted; manual review", nowIso(), job.id);
-        console.error("[tiktok-post] [MANUAL REVIEW] post job orphaned mid-publish — not auto-refunded (may have posted)", { jobId: job.id, account_id: job.account_id });
+          "UPDATE tiktok_post_jobs SET status='failed', error=?, error_code='unconfirmed_after_recovery_window', refund_status=COALESCE(refund_status,'manual_needed'), completed_at=? WHERE id=?"
+        ).run("post outcome could not be confirmed within the recovery window — may or may not have posted; flagged for manual review/refund", nowIso(), job.id);
+        console.error("[tiktok-post] [MANUAL REVIEW] post job unresolved past the publish window — terminalized as failed, not auto-refunded (may have posted)", { jobId: job.id, account_id: job.account_id });
       }
     } catch (e: any) {
       console.error("[tiktok-post] recovery pass failed for job", { jobId: job.id, error: e?.message || String(e) });
@@ -392,12 +397,33 @@ export async function recoverStuckTikTokPosts(deps: TikTokPostDeps = defaultDeps
   }
 }
 
+// How often to re-sweep for stuck jobs while the process is running. The startup
+// pass (setImmediate) only catches jobs orphaned by a *restart*; without a
+// recurring sweep, a job the worker's reconcile() left 'publishing' (couldn't
+// determine the outcome, refund_status='manual_needed') would poll done=false
+// forever until the next deploy. The interval drives every such job to a
+// terminal state within ~STUCK_AGE_MS + one interval, so no operation stays
+// non-terminal while the payer is charged.
+const RECOVERY_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+
+let recoverySweepTimer: ReturnType<typeof setInterval> | null = null;
+
 // Recovery is NOT an import side-effect (it issues refunds) — triggered once at
-// startup from index.ts.
+// startup from index.ts, which then also arms the recurring sweep below.
 export function startTikTokPostRecovery(): void {
   setImmediate(() => {
     recoverStuckTikTokPosts().catch((e) =>
       console.error("[tiktok-post] startup recovery error:", e?.message || String(e))
     );
   });
+  // Arm the recurring sweep once. unref() so the timer never keeps the process
+  // (or a test runner) alive on its own.
+  if (!recoverySweepTimer) {
+    recoverySweepTimer = setInterval(() => {
+      recoverStuckTikTokPosts().catch((e) =>
+        console.error("[tiktok-post] recovery sweep error:", e?.message || String(e))
+      );
+    }, RECOVERY_SWEEP_INTERVAL_MS);
+    recoverySweepTimer.unref?.();
+  }
 }
