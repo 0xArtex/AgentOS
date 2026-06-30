@@ -16,24 +16,26 @@ import { storage } from "./storage";
  * If not set, falls back to a deterministic key (less secure but functional).
  */
 const EMAIL_SECRET_PLACEHOLDER = "palmyr-email-master-secret-2026";
-const MASTER_SECRET = (() => {
+
+// Resolved LAZILY (on the first email crypto op), NOT at module load: a missing
+// EMAIL_MASTER_SECRET in prod must disable EMAIL, not crash the whole API at
+// boot. Server-side (non-E2E) mail is AES-256-GCM encrypted at rest with a key
+// derived from this secret; a public, source-committed constant would let anyone
+// with the DB decrypt all at-rest mail, so we fail closed in real production
+// (not self-hosted). Dev/test keep the labeled default so the suite runs.
+function getMasterSecret(): string {
   const v = process.env.EMAIL_MASTER_SECRET;
   if (v && v !== EMAIL_SECRET_PLACEHOLDER) return v;
-  // Server-side (non-E2E) mail is AES-256-GCM encrypted at rest with a key
-  // derived from this secret. A public, source-committed constant means anyone
-  // with the DB (a backup/snapshot/host compromise) plus the public source can
-  // recompute every inbox key and decrypt all at-rest mail. Fail closed in real
-  // production; dev/test/self-hosted keep the labeled default so the suite runs.
   const failClosed =
     process.env.NODE_ENV === "production" &&
     !(process.env.PALMYR_SELF_HOSTED === "1" || process.env.PALMYR_SELF_HOSTED === "true");
   if (failClosed) {
     throw new Error(
-      "Refusing to boot: EMAIL_MASTER_SECRET is unset or the placeholder in production. Set a strong, secret EMAIL_MASTER_SECRET (ideally KMS-backed) — a public-constant key leaves all server-side email decryptable by anyone with the DB.",
+      "Email is unavailable: EMAIL_MASTER_SECRET is unset or the placeholder in production. Set a strong, secret EMAIL_MASTER_SECRET — a public-constant key would leave all server-side email decryptable by anyone with the DB.",
     );
   }
   return v || EMAIL_SECRET_PLACEHOLDER;
-})();
+}
 
 /**
  * Derive a per-inbox AES-256 key from the master secret + inbox ID.
@@ -41,7 +43,7 @@ const MASTER_SECRET = (() => {
  */
 function deriveInboxKey(inboxId: string): Buffer {
   return createHash("sha256")
-    .update(MASTER_SECRET + ":" + inboxId)
+    .update(getMasterSecret() + ":" + inboxId)
     .digest();
 }
 

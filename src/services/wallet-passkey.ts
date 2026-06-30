@@ -75,7 +75,12 @@ export function resolveWebauthnConfig(): { rpId: string; origin: string | string
   return { rpId, origin: `https://${rpId}` };
 }
 
-const { rpId: RP_ID, origin: ORIGIN } = resolveWebauthnConfig();
+// Resolved LAZILY on the first passkey op (not at module load) so a missing
+// WEBAUTHN_RP_ID/ORIGIN in prod disables passkey wallet oversight, not the whole
+// API at boot. resolveWebauthnConfig() still fails closed in prod when called.
+function wa(): { rpId: string; origin: string | string[] } {
+  return resolveWebauthnConfig();
+}
 
 // ─── DB schema ───
 
@@ -129,7 +134,7 @@ export async function generateSetupOptions(walletId: string): Promise<any> {
 
   const options = await generateRegistrationOptions({
     rpName: RP_NAME,
-    rpID: RP_ID,
+    rpID: wa().rpId,
     userName: `wallet-${walletId}`,
     userDisplayName: "Wallet Owner",
     attestationType: "none",
@@ -159,8 +164,8 @@ export async function verifySetup(
   const verification = await verifyRegistrationResponse({
     response,
     expectedChallenge,
-    expectedOrigin: ORIGIN,
-    expectedRPID: RP_ID,
+    expectedOrigin: wa().origin,
+    expectedRPID: wa().rpId,
     // Reject any assertion that wasn't user-verified (biometric/PIN).
     requireUserVerification: true,
   });
@@ -196,7 +201,7 @@ export async function generateApprovalOptions(walletId: string): Promise<any> {
   }
 
   const options = await generateAuthenticationOptions({
-    rpID: RP_ID,
+    rpID: wa().rpId,
     allowCredentials: passkeys.map((p: any) => ({
       id: p.credential_id,
       transports: JSON.parse(p.transports || "[]"),
@@ -226,8 +231,8 @@ export async function verifyApproval(
   const verification = await verifyAuthenticationResponse({
     response,
     expectedChallenge,
-    expectedOrigin: ORIGIN,
-    expectedRPID: RP_ID,
+    expectedOrigin: wa().origin,
+    expectedRPID: wa().rpId,
     // Enforce that the approval was actually user-verified (biometric/PIN), not
     // just a silent assertion. Defends the human-oversight property even if the
     // library default ever changes.
