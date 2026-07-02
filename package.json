@@ -9,7 +9,8 @@
     "dev": "ts-node-dev --respawn src/index.ts",
     "test": "node --require ts-node/register --test --test-concurrency=1 src/tests/*.test.ts",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "bazaar:verify": "node scripts/bazaar-verify.mjs"
   },
   "keywords": [
     "solana",

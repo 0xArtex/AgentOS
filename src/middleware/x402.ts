@@ -253,6 +253,72 @@ export type X402Metadata = {
   discoverable?: boolean;
 };
 
+// Absolute brand icon for Bazaar/Agentic.Market listing cards. Fixed to the
+// canonical palmyr.ai host (NOT req.host) so it's never an IP literal/loopback
+// URL — the Bazaar spec rejects those. Served by express.static from
+// public/favicon.png (a 32×32 PNG).
+export const BAZAAR_ICON_URL = "https://palmyr.ai/favicon.png";
+
+// Strip to printable ASCII (U+0020–U+007E), trim, cap at `max` chars. Used for
+// Bazaar resource fields (serviceName/tags) which the spec limits to ≤32
+// printable-ASCII chars; anything out of range is soft-dropped by the crawler.
+function bazaarAscii(s: string, max = 32): string {
+  return String(s).replace(/[^\x20-\x7E]/g, "").trim().slice(0, max);
+}
+
+// Resource-level `serviceName`: "Palmyr <Capability>" when a category is present
+// and fits the 32-char cap, else just "Palmyr". Deterministic per category so
+// the value is stable across a route's lifetime.
+export function bazaarServiceName(category?: string): string {
+  if (category) {
+    const cap = category.charAt(0).toUpperCase() + category.slice(1);
+    const candidate = bazaarAscii("Palmyr " + cap, 32);
+    if (candidate.length > "Palmyr".length) return candidate;
+  }
+  return "Palmyr";
+}
+
+// Resource-level `tags`: category first, then metadata.tags; deduped
+// (case-insensitively), each sanitized to ≤32 printable ASCII, capped at 5.
+export function bazaarTags(metadata?: X402Metadata): string[] {
+  const raw: string[] = [];
+  if (metadata?.category) raw.push(metadata.category);
+  if (metadata?.tags) raw.push(...metadata.tags);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of raw) {
+    const clean = bazaarAscii(t, 32);
+    if (!clean) continue;
+    const key = clean.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(clean);
+    if (out.length >= 5) break;
+  }
+  return out;
+}
+
+// Spec-shaped Bazaar discovery `info` block. Real CDP-indexed services surface
+// this at `extensions.bazaar.info.{input,output}`; `input` is an HTTP envelope
+// (type/method/bodyType/body|queryParams — NOT a bare schema) and `output`
+// carries an `example`. We keep permissive `{}` examples (honest: every paid
+// Palmyr route accepts/returns a JSON object) plus an `inputSchema` hint.
+export function bazaarInfo(method: string, isBodyMethod: boolean) {
+  const permissiveJsonSchema = { type: "object", additionalProperties: true };
+  return {
+    input: isBodyMethod
+      ? { type: "http", method, bodyType: "json", body: {} }
+      : { type: "http", method, queryParams: {} },
+    inputSchema: {
+      properties: isBodyMethod
+        ? { body: permissiveJsonSchema }
+        : { queryParams: permissiveJsonSchema },
+      required: [] as string[],
+    },
+    output: { example: {} },
+  };
+}
+
 function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Metadata) {
   const resource = "https://" + (req.get("host") || "palmyr.ai") + req.originalUrl;
   const description = metadata?.description || "Palmyr: " + req.method + " " + req.originalUrl;
@@ -268,7 +334,8 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
   // Anything shallower or differently-shaped trips SCHEMA_INPUT_MISSING /
   // SCHEMA_OUTPUT_MISSING. Permissive `{type: "object"}` is honest — every
   // paid Palmyr route accepts/returns a JSON object — and resolves the
-  // errors without committing to per-field shapes.
+  // errors without committing to per-field shapes. KEEP this for x402scan
+  // compat; the newer spec `info` shape is added alongside (below).
   const permissiveJsonSchema = { type: "object", additionalProperties: true };
   const isBodyMethod = req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE";
   bazaar.schema = {
@@ -283,10 +350,28 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
       },
     },
   };
+  // Spec-compliant discovery extension (x402-foundation/x402 docs/extensions/
+  // bazaar.mdx). Surfaces in Bazaar listing responses at
+  // `extensions.bazaar.info.{input,output}`. Added ALONGSIDE the legacy
+  // `schema` shape above. Because `bazaar` is one object shared by reference
+  // across the top-level `extensions` AND both `accepts[]` entries, setting
+  // `.info` here populates all three spots at once (zod strips unknown
+  // per-accepts keys, never rejects — safe to duplicate; see report).
+  bazaar.info = bazaarInfo(req.method, isBodyMethod);
 
   return {
     x402Version: 2,
-    resource: { url: resource, description, mimeType: "application/json" },
+    resource: {
+      url: resource,
+      description,
+      mimeType: "application/json",
+      // Resource-level Bazaar metadata (spec: serviceName ≤32 ASCII, tags ≤5
+      // each ≤32 ASCII, iconUrl absolute https). Soft-dropped by the crawler if
+      // malformed, so emitting is upside-only.
+      serviceName: bazaarServiceName(metadata?.category),
+      tags: bazaarTags(metadata),
+      iconUrl: BAZAAR_ICON_URL,
+    },
     accepts: [
       {
         scheme: "exact",
