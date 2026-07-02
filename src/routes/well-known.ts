@@ -17,6 +17,7 @@
 import type { Express, Request, Response } from "express";
 import { createHash } from "crypto";
 import { enumeratePaidRoutes } from "../services/route-discovery";
+import { bazaarInfo, bazaarServiceName, bazaarTags, BAZAAR_ICON_URL } from "../middleware/x402";
 
 /**
  * Stamp the spec's `info.version` from the root package.json so crawlers can
@@ -215,18 +216,24 @@ export function buildOpenApiDoc(app: Express, host: string): any {
       // Bazaar extension on the OpenAPI op — x402scan's discovery validator
       // looks for input/output schemas at this exact path. Permissive object
       // shapes resolve SCHEMA_INPUT_MISSING / SCHEMA_OUTPUT_MISSING at
-      // `extensions.bazaar.schema.properties.{input,output}`.
+      // `extensions.bazaar.schema.properties.{input,output}`. The spec-shaped
+      // `info` block + resource-level metadata (serviceName/tags/iconUrl) are
+      // added alongside so this surface matches the live 402 body verbatim
+      // (see middleware/x402.ts buildPaymentRequired).
       extensions: {
         bazaar: {
           discoverable: true,
+          serviceName: bazaarServiceName(r.metadata?.category),
           ...(r.metadata?.category ? { category: r.metadata.category } : {}),
-          ...(r.metadata?.tags && r.metadata.tags.length > 0 ? { tags: r.metadata.tags } : {}),
+          tags: bazaarTags(r.metadata),
+          iconUrl: BAZAAR_ICON_URL,
           schema: {
             properties: {
               input: permissiveJsonSchema,
               output: permissiveJsonSchema,
             },
           },
+          info: bazaarInfo(r.method, mutatingMethods.has(r.method)),
         },
       },
       responses: {
@@ -299,6 +306,7 @@ export function buildOpenApiDoc(app: Express, host: string): any {
               output: permissiveJsonSchema,
             },
           },
+          info: bazaarInfo(method, mutatingMethods.has(method)),
         },
       },
       responses: {
