@@ -95,7 +95,11 @@ const app = express();
 // gzip JSON + JS + CSS + HTML responses. WebP/MP4/PNG are skipped by the
 // default `compressible` filter so already-compressed bytes don't get re-run.
 import compression from "compression";
-app.use(compression());
+// Exempt /mcp from compression: the MCP Streamable HTTP transport can stream
+// responses, and buffering them through gzip breaks streaming (and the
+// Cloudflare tunnel). enableJsonResponse keeps replies plain JSON, but skipping
+// compression here is belt-and-suspenders.
+app.use(compression({ filter: (req, res) => !req.path.startsWith("/mcp") && compression.filter(req, res) }));
 
 app.use(securityHeaders);
 app.use(paramPollution);
@@ -120,7 +124,9 @@ app.use((req, res, next) => {
   // slash) still hits the handler — normalize it before the Set lookup so the
   // upload tier isn't silently downgraded to 100kb and 413'd.
   const p = req.path.length > 1 && req.path.endsWith("/") ? req.path.slice(0, -1) : req.path;
-  const limit = VIDEO_UPLOAD_ROUTES.has(p)
+  const limit = p === "/mcp"
+    ? "1mb" // MCP JSON-RPC (tool calls with modest payloads); above the 100kb default, below the media tiers
+    : VIDEO_UPLOAD_ROUTES.has(p)
     ? "150mb"
     : IMAGE_UPLOAD_ROUTES.has(p)
       ? "15mb"
@@ -157,6 +163,7 @@ app.use((req, res, next) => {
   if (
     req.path.startsWith("/social") ||
     req.path.startsWith("/chat") ||
+    req.path.startsWith("/mcp") ||
     req.path === "/domains/register"
   ) {
     return next();
@@ -265,6 +272,11 @@ import transfersRoutes from "./routes/transfers";
 app.use("/transfers", transfersRoutes);
 import agentChatRoutes from "./routes/agent-chat";
 app.use("/chat", agentChatRoutes);
+// Hosted MCP server — curated Palmyr capabilities as x402-paid MCP tools, plus
+// the registry domain-verification well-known for the ai.palmyr namespace.
+import mcpRoutes, { mcpRegistryAuthRouter } from "./routes/mcp";
+app.use("/mcp", mcpRoutes);
+app.use(mcpRegistryAuthRouter);
 import discoveryRoutes from "./routes/discovery";
 app.use("/api/discovery", discoveryRoutes);
 // /discover (legacy server-rendered HTML) → /discovery (new React-built SPA).
