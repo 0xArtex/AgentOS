@@ -255,9 +255,11 @@ export type X402Metadata = {
 
 // Absolute brand icon for Bazaar/Agentic.Market listing cards. Fixed to the
 // canonical palmyr.ai host (NOT req.host) so it's never an IP literal/loopback
-// URL — the Bazaar spec rejects those. Served by express.static from
-// public/favicon.png (a 32×32 PNG).
-export const BAZAAR_ICON_URL = "https://palmyr.ai/favicon.png";
+// URL — the Bazaar spec rejects those. Must be a real ≥256px square: CDP
+// re-hosts the icon to a 256×256 Cloudinary asset and SILENTLY DROPS the field
+// if the source is too small (a 32px favicon.png was dropped — this is a
+// 512×512 brand mark on the teal background). Served by express.static.
+export const BAZAAR_ICON_URL = "https://palmyr.ai/assets/bazaar-icon.png";
 
 // Strip to printable ASCII (U+0020–U+007E), trim, cap at `max` chars. Used for
 // Bazaar resource fields (serviceName/tags) which the spec limits to ≤32
