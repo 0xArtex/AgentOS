@@ -2,7 +2,7 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "ai.palmyr/palmyr",
   "title": "Palmyr",
-  "description": "Agent-first real-world capabilities — email, phone, X/TikTok, domains, VPS, and an i402 intent resolver — paid per-action via x402 (USDC on Solana or Base). No account, no API key.",
+  "description": "Agent infra: email, phone, social, domains, VPS, wallets. Paid per-action via x402, no API key.",
   "version": "1.0.0",
   "websiteUrl": "https://palmyr.ai",
   "repository": {
