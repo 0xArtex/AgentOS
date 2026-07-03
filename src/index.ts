@@ -277,6 +277,10 @@ app.use("/chat", agentChatRoutes);
 import mcpRoutes, { mcpRegistryAuthRouter } from "./routes/mcp";
 app.use("/mcp", mcpRoutes);
 app.use(mcpRegistryAuthRouter);
+// Agent Skills discovery (/.well-known/agent-skills/index.json) + hosted skill
+// references (/skill/references/:name) — enables `npx skills add https://palmyr.ai`.
+import agentSkillsRoutes from "./routes/agent-skills";
+app.use(agentSkillsRoutes);
 import discoveryRoutes from "./routes/discovery";
 app.use("/api/discovery", discoveryRoutes);
 // /discover (legacy server-rendered HTML) → /discovery (new React-built SPA).

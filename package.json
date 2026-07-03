@@ -1,6 +1,6 @@
 {
   "name": "palmyr",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "description": "Autonomous infrastructure for AI agents — pay with USDC on Solana via x402",
   "main": "dist/index.js",
   "scripts": {
