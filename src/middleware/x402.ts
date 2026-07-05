@@ -720,6 +720,20 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
         chain: matchedRequirement.network.startsWith("solana:") ? "solana" : "base",
       };
 
+      // x402 v2 settlement receipt (SettleResponse). Emitted for EVERY settled
+      // payment — both HTTP x402 clients (already in the CORS expose list) and
+      // the MCP proxy (services/mcp-tools.ts decodes this into the tool result's
+      // _meta["x402/payment-response"]). All paid routes reach here: routes using
+      // x402() directly AND those going through requireAuth → requireX402Payment
+      // (which IS this same handler), so one setHeader covers the whole surface.
+      const settleResponse = {
+        success: true,
+        transaction: req.payment.signature,
+        network: matchedRequirement.network,
+        payer: req.payment.payer,
+      };
+      res.setHeader("PAYMENT-RESPONSE", Buffer.from(JSON.stringify(settleResponse)).toString("base64"));
+
       next();
     } catch (err) {
       console.error("[x402] Error:", err);
