@@ -106,7 +106,7 @@ async function killAndWait(proc: ChildProcess): Promise<void> {
   clearTimeout(timer);
 }
 
-const ICON_URL = "https://palmyr.ai/favicon.png";
+const ICON_URL = "https://palmyr.ai/assets/bazaar-icon.png";
 
 describe("Bazaar discovery metadata", () => {
   let server: ChildProcess;

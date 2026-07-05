@@ -35,7 +35,15 @@ const PAY_INSTRUCTIONS =
   "then call this tool again with the same arguments plus payment=<base64 X-PAYMENT payload>. " +
   "See https://palmyr.ai/skill.md for the full payment guide.";
 
-type TextToolResult = { content: { type: "text"; text: string }[]; isError?: boolean };
+type TextToolResult = {
+  content: { type: "text"; text: string }[];
+  isError?: boolean;
+  // v2 x402 PaymentRequired on a 402 challenge (spec: mirrored in content[0].text).
+  structuredContent?: any;
+  // Transport-level x402 signals: { "x402/error": PaymentRequired } on a challenge,
+  // { "x402/payment-response": SettleResponse } on a settled success.
+  _meta?: Record<string, any>;
+};
 
 /** Replace the loopback origin (any scheme) with the canonical public origin. */
 function scrubLoopback(text: string): string {
@@ -57,7 +65,7 @@ async function proxyToApi(opts: {
   path: string;
   body?: unknown;
   payment?: string;
-}): Promise<{ status: number; text: string; json: any }> {
+}): Promise<{ status: number; text: string; json: any; headers: Record<string, string> }> {
   const url = `http://127.0.0.1:${config.port}${opts.path}`;
   const isBodyMethod = opts.method !== "GET" && opts.method !== "HEAD";
   const headers: Record<string, string> = {};
@@ -76,31 +84,64 @@ async function proxyToApi(opts: {
   } catch {
     /* non-JSON body */
   }
-  return { status: resp.status, text, json };
-}
-
-/** Derive a human USDC amount from an x402 `accepts` array (base units → USDC). */
-function amountUsdcFromAccepts(accepts: any): number | null {
-  if (!Array.isArray(accepts) || accepts.length === 0) return null;
-  const raw = accepts[0]?.amount;
-  const n = Number(raw);
-  if (!isFinite(n)) return null;
-  return n / 1_000_000;
+  // Flatten response headers (lowercased keys) so callRoute can read the
+  // spec settlement receipt (PAYMENT-RESPONSE) the x402 middleware sets.
+  const respHeaders: Record<string, string> = {};
+  resp.headers.forEach((v, k) => {
+    respHeaders[k.toLowerCase()] = v;
+  });
+  return { status: resp.status, text, json, headers: respHeaders };
 }
 
 /**
- * Shared handler for a proxied route. 402 → structured payment instructions
- * (isError:false); 2xx → JSON body as text; other 4xx/5xx → isError:true.
+ * Decode the base64 `PAYMENT-RESPONSE` header (the x402 v2 SettleResponse the
+ * middleware sets on a settled request) into an object, or null if absent/bad.
+ */
+function decodePaymentResponseHeader(headers: Record<string, string>): any | null {
+  const raw = headers["payment-response"];
+  if (!raw) return null;
+  try {
+    return JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Shared handler for a proxied route, implementing the transport-level x402
+ * exchange (x402-foundation MCP transport spec) alongside the legacy
+ * `payment=<base64>` tool-argument fallback:
+ *
+ *  • Payment source — the decoded PaymentPayload the client puts at
+ *    `params._meta["x402/payment"]` (forwarded by the SDK as
+ *    `extra._meta["x402/payment"]`) OR the base64 `payment` arg. Both converge
+ *    on the single loopback X-PAYMENT settlement (no double-settle: the loopback
+ *    API is the only settler).
+ *  • 402 → the v2 `PaymentRequired` challenge as an `isError:true` result,
+ *    carried in `structuredContent`, byte-equal in `content[0].text`, and
+ *    mirrored in `_meta["x402/error"]` (Cloudflare-client compat).
+ *  • 2xx → JSON body as text, plus the `SettleResponse` receipt at
+ *    `_meta["x402/payment-response"]` when the middleware returned one.
+ *  • other 4xx/5xx → isError:true with status + body.
  */
 async function callRoute(
   method: string,
   path: string,
   body: unknown,
-  payment: string | undefined,
+  paymentArg: string | undefined,
+  extra?: any,
+  toolName?: string,
 ): Promise<TextToolResult> {
-  let result: { status: number; text: string; json: any };
+  // Transport-native payment: the client sends the DECODED PaymentPayload at
+  // params._meta["x402/payment"]. Re-encode it to the standard base64 X-PAYMENT
+  // header so it settles through the same loopback path as the `payment=` arg.
+  const metaPay = extra?._meta?.["x402/payment"];
+  const xPayment =
+    paymentArg ?? (metaPay ? Buffer.from(JSON.stringify(metaPay)).toString("base64") : undefined);
+
+  let result: { status: number; text: string; json: any; headers: Record<string, string> };
   try {
-    result = await proxyToApi({ method, path, body, payment });
+    result = await proxyToApi({ method, path, body, payment: xPayment });
   } catch (err: any) {
     return {
       isError: true,
@@ -108,24 +149,28 @@ async function callRoute(
     };
   }
 
-  const { status, text, json } = result;
+  const { status, text, json, headers } = result;
 
   if (status === 402) {
-    const accepts = json?.accepts ?? [];
-    const resource =
-      typeof json?.resource === "string" ? json.resource : json?.resource?.url ?? null;
-    const payload = {
-      payment_required: true,
-      amount_usdc: amountUsdcFromAccepts(accepts),
-      resource,
-      accepts,
-      instructions: PAY_INSTRUCTIONS,
+    // Our HTTP 402 body is already a full v2 PaymentRequired; pass it through as
+    // the spec challenge. `error` falls back to the body message / instructions.
+    const pr = {
+      x402Version: json?.x402Version ?? 2,
+      error: json?.error ?? json?.message ?? PAY_INSTRUCTIONS,
+      resource: json?.resource ?? { url: `mcp://tool/${toolName ?? "palmyr"}`, mimeType: "application/json" },
+      accepts: json?.accepts ?? [],
     };
-    return { content: [{ type: "text", text: JSON.stringify(payload, null, 2) }] };
+    return {
+      isError: true,
+      structuredContent: pr,
+      content: [{ type: "text", text: JSON.stringify(pr) }],
+      _meta: { "x402/error": pr },
+    };
   }
 
   if (status >= 200 && status < 300) {
-    return { content: [{ type: "text", text }] };
+    const settle = decodePaymentResponseHeader(headers);
+    return { content: [{ type: "text", text }], ...(settle ? { _meta: { "x402/payment-response": settle } } : {}) };
   }
 
   return {
@@ -158,9 +203,11 @@ function addTool(
   server: McpServer,
   name: string,
   config: { title: string; description: string; inputSchema: Shape },
-  cb: (args: any) => Promise<TextToolResult>,
+  cb: (args: any, extra: any) => Promise<TextToolResult>,
 ): void {
-  (server.registerTool as any)(name, config, cb);
+  // Pass `extra` (RequestHandlerExtra) through so paid handlers can read the
+  // transport-native payment at extra._meta["x402/payment"].
+  (server.registerTool as any)(name, config, (args: any, extra: any) => cb(args, extra));
 }
 
 /**
@@ -211,9 +258,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, ...rest } = args;
-      return callRoute("POST", "/chat", rest, payment);
+      return callRoute("POST", "/chat", rest, payment, extra, "i402_plan");
     },
   );
 
@@ -232,9 +279,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, ...rest } = args;
-      return callRoute("POST", "/email/inboxes", rest, payment);
+      return callRoute("POST", "/email/inboxes", rest, payment, extra, "email_create_inbox");
     },
   );
 
@@ -254,9 +301,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, inbox_id, ...rest } = args;
-      return callRoute("POST", `/email/inboxes/${encodeURIComponent(inbox_id)}/send`, rest, payment);
+      return callRoute("POST", `/email/inboxes/${encodeURIComponent(inbox_id)}/send`, rest, payment, extra, "email_send");
     },
   );
 
@@ -274,13 +321,15 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, inbox_id, limit, cursor } = args;
       return callRoute(
         "GET",
         `/email/inboxes/${encodeURIComponent(inbox_id)}/messages${qs({ limit, cursor })}`,
         undefined,
         payment,
+        extra,
+        "email_read_messages",
       );
     },
   );
@@ -298,9 +347,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, ...rest } = args;
-      return callRoute("POST", "/phone/numbers", rest, payment);
+      return callRoute("POST", "/phone/numbers", rest, payment, extra, "phone_buy_number");
     },
   );
 
@@ -318,9 +367,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, number_id, ...rest } = args;
-      return callRoute("POST", `/phone/numbers/${encodeURIComponent(number_id)}/send`, rest, payment);
+      return callRoute("POST", `/phone/numbers/${encodeURIComponent(number_id)}/send`, rest, payment, extra, "phone_send_sms");
     },
   );
 
@@ -336,9 +385,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, number_id } = args;
-      return callRoute("GET", `/phone/numbers/${encodeURIComponent(number_id)}/messages`, undefined, payment);
+      return callRoute("GET", `/phone/numbers/${encodeURIComponent(number_id)}/messages`, undefined, payment, extra, "phone_read_messages");
     },
   );
 
@@ -358,9 +407,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, ...rest } = args;
-      return callRoute("POST", "/social/twitter/post", rest, payment);
+      return callRoute("POST", "/social/twitter/post", rest, payment, extra, "twitter_post");
     },
   );
 
@@ -383,9 +432,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, ...rest } = args;
-      return callRoute("POST", "/social/tiktok/post", rest, payment);
+      return callRoute("POST", "/social/tiktok/post", rest, payment, extra, "tiktok_post");
     },
   );
 
@@ -415,9 +464,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, ...rest } = args;
-      return callRoute("POST", "/domains/register", rest, payment);
+      return callRoute("POST", "/domains/register", rest, payment, extra, "domain_register");
     },
   );
 
@@ -438,9 +487,9 @@ export function registerPalmyrTools(server: McpServer): void {
         payment: PAYMENT_PARAM,
       } as Shape,
     },
-    async (args: any) => {
+    async (args: any, extra: any) => {
       const { payment, ...rest } = args;
-      return callRoute("POST", "/compute/servers", rest, payment);
+      return callRoute("POST", "/compute/servers", rest, payment, extra, "compute_deploy");
     },
   );
 }

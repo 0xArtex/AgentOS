@@ -7,8 +7,14 @@
  *   (a) JSON-RPC `initialize`                → 200, serverInfo.name present
  *   (b) `tools/list`                         → >= 12 tools incl. i402_plan + palmyr_pricing
  *   (c) `tools/call` palmyr_pricing (free)   → pricing JSON
- *   (d) `tools/call` i402_plan (paid, no pay)→ payment_required:true + non-empty
- *                                              accepts, resource shows palmyr.ai
+ *   (d) `tools/call` i402_plan (paid, no pay)→ spec x402 challenge: isError:true,
+ *                                              v2 PaymentRequired in structuredContent
+ *                                              + byte-equal content[0].text +
+ *                                              _meta["x402/error"], resource palmyr.ai
+ *   (d2) `tools/call` i402_plan with a bogus  → the _meta["x402/payment"] → X-PAYMENT
+ *        _meta["x402/payment"]                  bridge fires: settlement is attempted
+ *                                               downstream and fails with a non-challenge
+ *                                               error (NOT the fresh accepts challenge)
  *   (e) GET /.well-known/mcp-registry-auth   → 200 text/plain "v=MCPv1; ..."
  *       (+ a second child WITHOUT the env → 404)
  *
@@ -187,19 +193,68 @@ describe("hosted MCP server (/mcp)", () => {
     assert.ok(Array.isArray(inner.routes) && inner.routes.length > 0, "pricing routes present");
   });
 
-  it("(d) tools/call on a paid tool without payment surfaces payment_required + palmyr.ai resource", async () => {
+  it("(d) tools/call on a paid tool without payment returns the spec v2 x402 challenge", async () => {
     const res = await mcpPost(port, {
       jsonrpc: "2.0", id: 4, method: "tools/call",
       params: { name: "i402_plan", arguments: { intent: "test intent", budget_usdc: 1 } },
     });
     assert.equal(res.status, 200);
-    assert.ok(!res.body.result.isError, "payment-required is a normal (non-error) result");
+    // Spec behavior flip: the payment challenge is now an isError:true result.
+    assert.equal(res.body.result.isError, true, "payment challenge is an isError result (spec)");
+
+    // v2 PaymentRequired in structuredContent.
+    const sc = res.body.result.structuredContent;
+    assert.ok(sc, "structuredContent present");
+    assert.equal(sc.x402Version, 2, "x402Version:2");
+    assert.ok(Array.isArray(sc.accepts) && sc.accepts.length >= 1, "non-empty accepts array");
+
+    // content[0].text must parse to the SAME PaymentRequired object (fallback).
     const inner = JSON.parse(res.body.result.content[0].text);
-    assert.equal(inner.payment_required, true, "payment_required:true");
-    assert.ok(Array.isArray(inner.accepts) && inner.accepts.length >= 1, "non-empty accepts array");
-    assert.ok(typeof inner.resource === "string" && inner.resource.includes("palmyr.ai"), "resource shows palmyr.ai");
-    assert.ok(!inner.resource.includes("127.0.0.1"), "resource must not leak loopback");
-    assert.ok(!JSON.stringify(inner.accepts).includes("127.0.0.1"), "accepts must not leak loopback");
+    assert.deepEqual(inner, sc, "content[0].text parses to the same PaymentRequired object");
+    assert.equal(res.body.result.content[0].text, JSON.stringify(sc), "content[0].text byte-equal to structuredContent");
+
+    // _meta mirror for Cloudflare-client compat.
+    assert.ok(res.body.result._meta && res.body.result._meta["x402/error"], "_meta['x402/error'] mirror present");
+    assert.deepEqual(res.body.result._meta["x402/error"], sc, "_meta['x402/error'] equals the challenge");
+
+    // Resource shows palmyr.ai, never the loopback origin.
+    const resourceUrl = typeof sc.resource === "string" ? sc.resource : sc.resource?.url;
+    assert.ok(typeof resourceUrl === "string" && resourceUrl.includes("palmyr.ai"), "resource shows palmyr.ai");
+    assert.ok(!JSON.stringify(sc).includes("127.0.0.1"), "challenge must not leak loopback");
+  });
+
+  it("(d2) tools/call with a bogus _meta['x402/payment'] fires the X-PAYMENT bridge (settlement attempted, not the fresh challenge)", async () => {
+    // A decoded PaymentPayload object at params._meta["x402/payment"] must be
+    // re-encoded to the base64 X-PAYMENT header and forwarded to the loopback.
+    // A bogus EVM payload routes to the (unreachable-in-test) facilitator, so
+    // the loopback settlement path errors out — proving the bridge fired,
+    // because a NO-payment call instead returns the accepts challenge.
+    const res = await mcpPost(port, {
+      jsonrpc: "2.0", id: 44, method: "tools/call",
+      params: {
+        name: "i402_plan",
+        arguments: { intent: "test intent", budget_usdc: 1 },
+        _meta: {
+          "x402/payment": {
+            x402Version: 2,
+            scheme: "exact",
+            network: "eip155:8453",
+            payload: { signature: "0xdeadbeef", authorization: {} },
+          },
+        },
+      },
+    });
+    assert.equal(res.status, 200);
+    assert.equal(res.body.result.isError, true, "bogus payment still yields an error result");
+    const inner = JSON.parse(res.body.result.content[0].text);
+    // The KEY discriminator: a fresh no-payment challenge always carries a
+    // non-empty `accepts`. The bridge having fired means we settled downstream
+    // and failed with a different (non-challenge) error → no accepts here.
+    assert.ok(
+      !Array.isArray(inner.accepts) || inner.accepts.length === 0,
+      "bridge fired: forwarded X-PAYMENT and failed downstream, not a fresh accepts challenge",
+    );
+    assert.ok(res.body.result.structuredContent === undefined, "no PaymentRequired challenge was returned");
   });
 
   it("GET and DELETE /mcp return a JSON-RPC 405", async () => {
