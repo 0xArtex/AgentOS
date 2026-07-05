@@ -108,21 +108,78 @@ function decodePaymentResponseHeader(headers: Record<string, string>): any | nul
 }
 
 /**
+ * Map a proxied loopback response to an MCP tool result — the settled-vs-challenge
+ * discrimination, extracted as a pure function so it's unit-testable.
+ *
+ * CRITICAL (double-charge guard): a 402 that carries a settlement RECEIPT is a
+ * SETTLED response, NOT a fresh "pay me" challenge. Palmyr's i402 resolver
+ * (`/chat`) returns HTTP 402 as its "here is the plan" data channel *after* the
+ * orchestration fee has already settled on-chain. If we re-issued a payment
+ * challenge there, the agent would pay AGAIN — an unbounded double-charge loop.
+ * So: whenever a PAYMENT-RESPONSE receipt is present, pass the body through and
+ * attach the receipt; only a receipt-LESS 402 is a genuine payment challenge.
+ *
+ *  • receipt present → settled: pass body through + `_meta["x402/payment-response"]`.
+ *    (402/2xx = non-error data — incl. an i402 plan; non-402 ≥400 = the handler
+ *    failed after settling, typically refunded → surface as `isError`.)
+ *  • 402 without receipt → the v2 `PaymentRequired` challenge as `isError:true`,
+ *    in `structuredContent`, byte-equal `content[0].text`, `_meta["x402/error"]`.
+ *  • other 2xx → body as text (free/unpaid path).
+ *  • other 4xx/5xx → `isError:true` with status + body.
+ */
+export function buildToolResult(
+  status: number,
+  text: string,
+  json: any,
+  headers: Record<string, string>,
+  toolName?: string,
+): TextToolResult {
+  const settle = decodePaymentResponseHeader(headers);
+
+  if (settle) {
+    const isErr = status >= 400 && status !== 402;
+    return {
+      ...(isErr ? { isError: true } : {}),
+      content: [{ type: "text", text }],
+      _meta: { "x402/payment-response": settle },
+    };
+  }
+
+  if (status === 402) {
+    // Our HTTP 402 body is already a full v2 PaymentRequired; pass it through as
+    // the spec challenge. `error` falls back to the body message / instructions.
+    const pr = {
+      x402Version: json?.x402Version ?? 2,
+      error: json?.error ?? json?.message ?? PAY_INSTRUCTIONS,
+      resource: json?.resource ?? { url: `mcp://tool/${toolName ?? "palmyr"}`, mimeType: "application/json" },
+      accepts: json?.accepts ?? [],
+    };
+    return {
+      isError: true,
+      structuredContent: pr,
+      content: [{ type: "text", text: JSON.stringify(pr) }],
+      _meta: { "x402/error": pr },
+    };
+  }
+
+  if (status >= 200 && status < 300) {
+    return { content: [{ type: "text", text }] };
+  }
+
+  return {
+    isError: true,
+    content: [{ type: "text", text: JSON.stringify({ error: true, status, body: json ?? text }) }],
+  };
+}
+
+/**
  * Shared handler for a proxied route, implementing the transport-level x402
  * exchange (x402-foundation MCP transport spec) alongside the legacy
- * `payment=<base64>` tool-argument fallback:
- *
- *  • Payment source — the decoded PaymentPayload the client puts at
- *    `params._meta["x402/payment"]` (forwarded by the SDK as
- *    `extra._meta["x402/payment"]`) OR the base64 `payment` arg. Both converge
- *    on the single loopback X-PAYMENT settlement (no double-settle: the loopback
- *    API is the only settler).
- *  • 402 → the v2 `PaymentRequired` challenge as an `isError:true` result,
- *    carried in `structuredContent`, byte-equal in `content[0].text`, and
- *    mirrored in `_meta["x402/error"]` (Cloudflare-client compat).
- *  • 2xx → JSON body as text, plus the `SettleResponse` receipt at
- *    `_meta["x402/payment-response"]` when the middleware returned one.
- *  • other 4xx/5xx → isError:true with status + body.
+ * `payment=<base64>` tool-argument fallback. Payment source — the decoded
+ * PaymentPayload the client puts at `params._meta["x402/payment"]` (forwarded by
+ * the SDK as `extra._meta["x402/payment"]`) OR the base64 `payment` arg. Both
+ * converge on the single loopback X-PAYMENT settlement (the loopback API is the
+ * only settler). Response mapping is delegated to `buildToolResult`.
  */
 async function callRoute(
   method: string,
@@ -150,35 +207,7 @@ async function callRoute(
   }
 
   const { status, text, json, headers } = result;
-
-  if (status === 402) {
-    // Our HTTP 402 body is already a full v2 PaymentRequired; pass it through as
-    // the spec challenge. `error` falls back to the body message / instructions.
-    const pr = {
-      x402Version: json?.x402Version ?? 2,
-      error: json?.error ?? json?.message ?? PAY_INSTRUCTIONS,
-      resource: json?.resource ?? { url: `mcp://tool/${toolName ?? "palmyr"}`, mimeType: "application/json" },
-      accepts: json?.accepts ?? [],
-    };
-    return {
-      isError: true,
-      structuredContent: pr,
-      content: [{ type: "text", text: JSON.stringify(pr) }],
-      _meta: { "x402/error": pr },
-    };
-  }
-
-  if (status >= 200 && status < 300) {
-    const settle = decodePaymentResponseHeader(headers);
-    return { content: [{ type: "text", text }], ...(settle ? { _meta: { "x402/payment-response": settle } } : {}) };
-  }
-
-  return {
-    isError: true,
-    content: [
-      { type: "text", text: JSON.stringify({ error: true, status, body: json ?? text }) },
-    ],
-  };
+  return buildToolResult(status, text, json, headers, toolName);
 }
 
 /** Build a `?a=b&c=d` query string from defined values only. */
