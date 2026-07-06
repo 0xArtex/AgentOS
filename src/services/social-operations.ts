@@ -2211,6 +2211,32 @@ async function updateProfileImage(
       fileInput = page.locator('input[type="file"]').nth(kind === "avatar" ? 1 : 0);
     }
 
+    // Arm the observers BEFORE touching the file input so we capture the whole
+    // media-upload timeline (INIT→APPEND→FINALIZE), not just whatever fires after
+    // the crop is applied. The old code armed the logger only after Apply, so a
+    // slow upload's FINALIZE — and the set-image call that can only follow it —
+    // landed outside the window and the op reported a false "no API call" failure.
+    const seenPosts: string[] = [];
+    const requestLog = (req: any) => {
+      if (req.method() === "POST") {
+        const u = req.url();
+        if (/x\.com|twitter\.com/.test(u)) seenPosts.push(u);
+      }
+    };
+    page.on("request", requestLog);
+
+    // Chunked upload through a residential proxy can take tens of seconds, and X
+    // will not issue the set-image call until FINALIZE resolves. Wait for it so
+    // the media_id is ready when we click Save. Best-effort: if X instead defers
+    // the upload until Save, this simply times out and we proceed anyway.
+    const finalizeSettled = page
+      .waitForResponse(
+        (resp: any) =>
+          /\/media\/upload\.json/.test(resp.url()) && /command=FINALIZE/.test(resp.url()),
+        { timeout: 30000 }
+      )
+      .catch(() => null);
+
     await fileInput.waitFor({ state: "attached", timeout: 20000 });
     await fileInput.setInputFiles(materialized.filePath);
 
@@ -2224,6 +2250,12 @@ async function updateProfileImage(
       .first();
     await applyButton.waitFor({ state: "visible", timeout: 20000 });
     await applyButton.click({ timeout: 5000 });
+
+    // Gate the Save on media readiness — see finalizeSettled above. Without this
+    // we click Save mid-upload, the 25s wait expires before FINALIZE lands, and
+    // the finally-block close() tears the browser down before the set-image call
+    // can fire (observed as FINALIZE landing dead-last + a keepalive teardown).
+    await finalizeSettled;
 
     // Now the top-level Save on the profile editor.
     const saveButton = page
@@ -2242,20 +2274,13 @@ async function updateProfileImage(
         ? /update_profile_image|UpdateProfileImage/
         : /update_profile_banner|UpdateProfileBanner/;
 
-    // Log every POST to X's domains during the op, regardless of match.
-    const seenPosts: string[] = [];
-    const requestLog = (req: any) => {
-      if (req.method() === "POST") {
-        const u = req.url();
-        if (/x\.com|twitter\.com/.test(u)) seenPosts.push(u);
-      }
-    };
-    page.on("request", requestLog);
-
+    // The set-image call trails the upload (the slow part over a proxy), so give
+    // it a much longer window than the text-only ops' default 25s.
     const apiResult = await submitAndAwaitXApi(
       page,
       async () => { await saveButton.click({ timeout: 5000 }); },
-      apiPattern
+      apiPattern,
+      60000
     );
 
     page.off("request", requestLog);
