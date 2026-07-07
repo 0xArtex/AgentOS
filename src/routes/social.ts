@@ -84,6 +84,7 @@ import {
 } from "../services/tiktok-operations";
 import { createPostJob, getPostJob } from "../services/tiktok-post-jobs";
 import { createOpJob, getOpJob } from "../services/tiktok-ops-jobs";
+import { createXOpJob, getXOpJob } from "../services/x-ops-jobs";
 import { stashSession, claimSession } from "../services/tiktok-session-transfer";
 import { rateLimit } from "../middleware/rateLimit";
 
@@ -467,12 +468,30 @@ router.post(
   }
 );
 
-// Profile images cost slightly more because they transfer a file (up to 10 MB)
-// plus a 2-step upload+crop+save UI flow that takes ~20s of browser time.
+// avatar / banner are ASYNC: since the #342 FINALIZE-gate + 60s set-image window
+// + verify-after-write re-read, each can run ~60-90s of browser time over a
+// residential proxy — enough to brush Cloudflare's ~100s tunnel timeout and 524
+// the caller after payment settled. So they return a 202 operation envelope and
+// run in the background, auto-refunding on failure (incl. CONFIRMATION_PENDING,
+// which is safe to retry). They share the poll endpoint GET /social/twitter/
+// operations/:id and the x-ops runner. Costs the same 0.005 flat rate.
+function respondXOpAccepted(res: Response, job: { id: string; status: string }, opLabel: string) {
+  res.status(202).json({
+    operation_id: job.id,
+    status: job.status,
+    poll_url: `/social/twitter/operations/${job.id}`,
+    poll_after_seconds: 10,
+    message:
+      `X ${opLabel} started. Browser automation can take up to ~1-2 minutes. ` +
+      `Poll GET /social/twitter/operations/${job.id} until status is 'done' (carries the resulting image URL) ` +
+      `or 'failed' (auto-refunded). Do not resubmit — payment is already captured for this operation.`,
+  });
+}
+
 router.post(
   "/twitter/avatar",
   requireXEnabled,
-  requireAuth(0.005, "general", { description: "Update the avatar image of an X account you control.", category: "social", tags: ["twitter","x","avatar"] }),
+  requireAuth(0.005, "general", { description: "Update the avatar image of an X account you control. Async: returns an operation to poll.", category: "social", tags: ["twitter","x","avatar"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -482,8 +501,8 @@ router.post(
       return;
     }
     try {
-      const result = await updateAvatar({ ...common, image_base64, image_url });
-      res.status(result.success ? 200 : 400).json(result);
+      const job = createXOpJob({ op: "avatar", account_id: common.account_id, ...paymentCtx(req) }, () => updateAvatar({ ...common, image_base64, image_url }));
+      respondXOpAccepted(res, job, "avatar update");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Avatar update failed" });
     }
@@ -493,7 +512,7 @@ router.post(
 router.post(
   "/twitter/banner",
   requireXEnabled,
-  requireAuth(0.005, "general", { description: "Update the banner image of an X account you control.", category: "social", tags: ["twitter","x","banner"] }),
+  requireAuth(0.005, "general", { description: "Update the banner image of an X account you control. Async: returns an operation to poll.", category: "social", tags: ["twitter","x","banner"] }),
   async (req: AuthenticatedRequest, res: Response) => {
     const common = validateOpBody(req, res);
     if (!common) return;
@@ -503,11 +522,42 @@ router.post(
       return;
     }
     try {
-      const result = await updateBanner({ ...common, image_base64, image_url });
-      res.status(result.success ? 200 : 400).json(result);
+      const job = createXOpJob({ op: "banner", account_id: common.account_id, ...paymentCtx(req) }, () => updateBanner({ ...common, image_base64, image_url }));
+      respondXOpAccepted(res, job, "banner update");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Banner update failed" });
     }
+  }
+);
+
+// GET /social/twitter/operations/:id — poll an async X op (avatar / banner).
+// Same capability-URL model as the TikTok poll endpoint: FREE and unauthenticated
+// (the operation_id is an unguessable v4 UUID handed only to the creator in the
+// 202), and if a proven identity IS presented it must own the job. Unknown id →
+// 404. status: pending → running → done|failed.
+router.get(
+  "/twitter/operations/:id",
+  (req: AuthenticatedRequest, res: Response) => {
+    const id = String(req.params.id || "");
+    const op = getXOpJob(id);
+    if (!op) { res.status(404).json({ error: "Operation not found" }); return; }
+    if (!pollerMayRead(req, op.owner)) { res.status(404).json({ error: "Operation not found" }); return; }
+    res.json({
+      operation_id: op.id,
+      op: op.op,
+      status: op.status,
+      done: op.status === "done" || op.status === "failed",
+      account_id: op.account_id,
+      poll_url: `/social/twitter/operations/${id}`,
+      result: op.result_json ? JSON.parse(op.result_json) : null,
+      cost: op.charged_usdc,
+      error: op.error,
+      error_code: op.error_code,
+      refund_status: op.refund_status,
+      created_at: op.created_at,
+      started_at: op.started_at,
+      completed_at: op.completed_at,
+    });
   }
 );
 

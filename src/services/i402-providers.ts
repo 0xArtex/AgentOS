@@ -970,11 +970,13 @@ export function seedPalmyrPrimitives(): void {
     p("palmyr.twitter_update_profile", "twitter_update_profile", "/social/twitter/profile", {
       costUsdc: 0.001, p50: 4000, reputation: 0.8,
     }),
+    // avatar/banner are async (202 + poll): a chunked upload + crop/save +
+    // verify re-read runs ~60-90s, so advertise a realistic p99.
     p("palmyr.twitter_update_avatar", "twitter_update_avatar", "/social/twitter/avatar", {
-      costUsdc: 0.005, p50: 5000, reputation: 0.8,
+      costUsdc: 0.005, p50: 20000, p99: 120000, reputation: 0.8,
     }),
     p("palmyr.twitter_update_banner", "twitter_update_banner", "/social/twitter/banner", {
-      costUsdc: 0.005, p50: 5000, reputation: 0.8,
+      costUsdc: 0.005, p50: 20000, p99: 120000, reputation: 0.8,
     }),
     p("palmyr.twitter_change_username", "twitter_change_username", "/social/twitter/username", {
       costUsdc: 0.005, p50: 5000, reputation: 0.75,

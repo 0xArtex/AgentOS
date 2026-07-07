@@ -6730,6 +6730,55 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               err(`${subcommand} failed: ${e.message}`, EXIT.GENERAL)
             }
 
+            // avatar (pfp) / banner are ASYNC server-side: the POST returns a
+            // 202 { operation_id, poll_url } and the work runs in the background.
+            // Poll to a terminal state; --no-wait returns the id. A legacy sync
+            // server (no operation_id) falls through to the {success,data}
+            // handling below for back-compat.
+            if (data?.operation_id && (subcommand === 'pfp' || subcommand === 'banner')) {
+              const opId = data.operation_id
+              const pollUrl = data.poll_url || `/social/twitter/operations/${opId}`
+              const pollAfter = Math.max(1, Number(data.poll_after_seconds) || 10)
+              const ndjson = AGENT_MODE
+              if (flags.wait === false) {
+                log(`twitter ${subcommand} (async): ${username} op=${opId}`)
+                return print({ operation_id: opId, status: data.status || 'running', done: false, poll_url: pollUrl, message: data.message })
+              }
+              const POLL_TIMEOUT_MS = 240_000
+              const intervalMs = pollAfter * 1000
+              const deadline = Date.now() + POLL_TIMEOUT_MS
+              const maxAttempts = Math.ceil(POLL_TIMEOUT_MS / intervalMs) + 1
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+              if (!ndjson) process.stderr.write(`twitter ${subcommand}: working… (up to ~2 min)\n`)
+              let final: any = null
+              let attempt = 0
+              while (attempt < maxAttempts && Date.now() < deadline) {
+                await sleep(intervalMs)
+                attempt++
+                let op: any
+                try {
+                  op = await ao.socialTwitterOperation(opId)
+                } catch (e: any) {
+                  if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status: 'error', attempt, message: e?.message ?? String(e) }) + '\n')
+                  continue
+                }
+                if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status: op?.status || 'running', attempt }) + '\n')
+                if (op?.done === true || op?.status === 'failed') { final = op; break }
+              }
+              if (!final) {
+                log(`twitter ${subcommand} (pending): ${username} op=${opId}`)
+                return print({ operation_id: opId, status: 'running', done: false, poll_url: pollUrl, message: `Still running after ${Math.round(POLL_TIMEOUT_MS / 1000)}s. It continues server-side — re-check with GET ${pollUrl}.` })
+              }
+              if (final.status === 'failed') {
+                log(`twitter ${subcommand} (failed): ${username} op=${opId} refund=${final.refund_status || 'unknown'}`)
+                print(final)
+                process.stderr.write(JSON.stringify({ error: final.error || `twitter ${subcommand} failed`, error_code: final.error_code, refund_status: final.refund_status, exitCode: EXIT.GENERAL }) + '\n')
+                process.exit(EXIT.GENERAL)
+              }
+              // Success — reshape into the {success,data} the sync path prints.
+              data = { success: true, data: final.result || {} }
+            }
+
             if (!data?.success) {
               err(
                 `${subcommand} failed: ${data?.error || 'unknown'}` +
