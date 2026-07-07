@@ -1082,6 +1082,13 @@ export class Palmyr {
   ): Promise<any> {
     return this.request('POST', '/social/twitter/banner', { account_id: accountId, proxy_session_id: proxySessionId, cookies, ...image })
   }
+  /** Poll an async X op (avatar / banner — both return { operation_id, poll_url,
+   *  status }). Owner-scoped by the x402 signature; 404s for another wallet's
+   *  operation. Terminal status is 'done' on success (result carries the image
+   *  URL) or 'failed' (auto-refunded); `done` is true when terminal. */
+  async socialTwitterOperation(operationId: string): Promise<any> {
+    return this.request('GET', `/social/twitter/operations/${operationId}`)
+  }
   async socialTwitterUsername(
     accountId: string,
     cookies: any[],

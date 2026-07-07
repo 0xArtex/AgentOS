@@ -100,7 +100,7 @@ palmyr tiktok info|rename|remove|totp <username>  # Local account management (fr
 | Post tweet | `POST /social/twitter/post` | 0.001 |
 | Reply / Like / Retweet / Follow / Unfollow / Delete | `POST /social/twitter/{reply,like,retweet,follow,unfollow,delete}` | 0.001 |
 | Update profile (bio/name/location/website) | `POST /social/twitter/profile` | 0.001 |
-| Update avatar / banner | `POST /social/twitter/{avatar,banner}` | 0.005 |
+| Update avatar / banner (async: `202 {operation_id}` → poll `GET /social/twitter/operations/:id`; result carries the resulting `avatar_url`/`banner_url`) | `POST /social/twitter/{avatar,banner}` | 0.005 |
 | Change username | `POST /social/twitter/username` | 0.005 |
 | Dispute a bought account | `POST /social/twitter/dispute` (or `palmyr twitter dispute`) | 0.01 (ownership proof) |
 

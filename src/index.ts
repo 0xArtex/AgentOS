@@ -682,6 +682,7 @@ import { startDepositMonitor } from "./services/deposit-monitor";
 import { startDomainRegistrationRecovery } from "./services/domain-registration";
 import { startTikTokPostRecovery } from "./services/tiktok-post-jobs";
 import { startTikTokOpsRecovery } from "./services/tiktok-ops-jobs";
+import { startXOpsRecovery } from "./services/x-ops-jobs";
 import { seedPalmyrPrimitives } from "./services/i402-providers";
 import { ensureProviderEmbeddings, embeddingsAvailable } from "./services/i402-embeddings";
 import { refreshFederatedCatalogs } from "./services/i402-agentic-market";
@@ -727,6 +728,8 @@ app.listen(config.port, () => {
   // Fail+refund any TikTok follow/like/delete/profile/avatar ops orphaned by a
   // restart (safe to retry — no reconcile needed).
   startTikTokOpsRecovery();
+  // Same for orphaned X avatar/banner ops.
+  startXOpsRecovery();
   if (embeddingsAvailable()) {
     // Non-blocking: compute any missing provider embeddings in the background.
     ensureProviderEmbeddings().catch(err =>
