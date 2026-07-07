@@ -372,6 +372,10 @@ export interface OpResult<T = any> {
     | "NOT_FOUND"
     | "INVALID_INPUT"
     | "UI_TIMEOUT"
+    // Browser op ran and the media uploaded, but we could not confirm the change
+    // landed (neither the set-image API call nor a server-truth profile re-read
+    // proved it). NOT an X rejection — the caller can safely retry.
+    | "CONFIRMATION_PENDING"
     | "LAUNCH_FAILED"
     | "UNKNOWN";
   /** When rate-limited, ms the caller should wait before retrying. */
@@ -2157,6 +2161,60 @@ export async function changePassword(
 
 /* ─── updateAvatar / updateBanner: set profile picture or header image ── */
 
+/**
+ * Read the account's server-truth profile-image URL (avatar or banner) from the
+ * page as currently rendered. X paints these as an `<img src>` or an inline
+ * `background-image`, so we scan both for a pbs.twimg.com URL of the right kind
+ * (`profile_images` = avatar, `profile_banners` = banner). Returns null when none
+ * is present (default egg avatar / no banner) or on any error — callers treat
+ * null as "unknown", never as a hard failure.
+ *
+ * Page-context code is a self-invoking-expression STRING (not a typed function):
+ * tsconfig `lib` has no DOM, so `document` exists only inside Chromium — same
+ * idiom as list_my_tweets above.
+ */
+async function readProfileImageUrl(page: any, kind: "avatar" | "banner"): Promise<string | null> {
+  const marker = kind === "avatar" ? "profile_images" : "profile_banners";
+  const evalScript = `(() => {
+    const marker = ${JSON.stringify(marker)};
+    const hits = [];
+    for (const img of Array.from(document.querySelectorAll("img"))) {
+      const src = img.src || "";
+      if (src.indexOf(marker) !== -1) hits.push(src);
+    }
+    for (const el of Array.from(document.querySelectorAll("[style*='background-image']"))) {
+      const bg = (el.style && el.style.backgroundImage) || "";
+      const m = bg.match(/url\\(["']?(.*?)["']?\\)/);
+      if (m && m[1].indexOf(marker) !== -1) hits.push(m[1]);
+    }
+    return hits[0] || null;
+  })()`;
+  try {
+    return (await page.evaluate(evalScript)) as string | null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Re-load the profile editor and read the server-truth image URL — used to
+ * CONFIRM a write when we didn't catch the set-image API call (pre-save the SPA
+ * shows a local blob preview, so only a fresh load reflects what X stored).
+ * Best-effort: returns null on any nav/read error.
+ */
+async function confirmProfileImageUrl(page: any, kind: "avatar" | "banner"): Promise<string | null> {
+  try {
+    await page
+      .goto("https://x.com/settings/profile", { waitUntil: "domcontentloaded", timeout: 30000 })
+      .catch(() => {});
+    // Give the avatar/banner node a moment to hydrate from the server response.
+    await page.waitForTimeout(1500);
+    return await readProfileImageUrl(page, kind);
+  } catch {
+    return null;
+  }
+}
+
 async function updateProfileImage(
   req: OpRequest & ImageInput,
   kind: "avatar" | "banner"
@@ -2191,6 +2249,11 @@ async function updateProfileImage(
     if (isSessionExpiredUrl(page.url())) {
       return { success: false, error: "Cookies expired — re-run twitter login.", error_code: "SESSION_EXPIRED" };
     }
+
+    // Snapshot the current server-truth image URL BEFORE we upload, so we can
+    // confirm the write later even if we never catch the set-image API call
+    // (verify-after-write). Best-effort — null just means "unknown / none yet".
+    const beforeUrl = await readProfileImageUrl(page, kind);
 
     // X renders two `<input type="file">` elements on the profile editor —
     // one for the banner (header), one for the avatar. Both can share the
@@ -2285,19 +2348,12 @@ async function updateProfileImage(
 
     page.off("request", requestLog);
 
-    if (!apiResult) {
-      const shot = await debugShot(page, `${kind}-no-api-call`);
-      return {
-        success: false,
-        error:
-          `No ${kind} update API call observed. ` +
-          `Observed POSTs during op: ${seenPosts.slice(0, 10).join(" | ") || "(none)"}. ` +
-          `Screenshot: ${shot}`,
-        error_code: "UI_TIMEOUT",
-      };
-    }
+    const urlKey = kind === "avatar" ? "avatar_url" : "banner_url";
+    const observed_posts = seenPosts.slice(0, 10);
 
-    if (!apiResult.ok) {
+    // X explicitly rejected the write (auth / rate / bad format). A real failure —
+    // surface X's own error and don't waste a retry pretending otherwise.
+    if (apiResult && !apiResult.ok) {
       return {
         success: false,
         error: `X rejected ${kind} update: ${apiResult.errorMessage || `HTTP ${apiResult.status}`}`,
@@ -2305,8 +2361,39 @@ async function updateProfileImage(
       };
     }
 
-    recordAction(req.account_id, "twitter", kind);
-    return { success: true, data: { kind, observed_posts: seenPosts.slice(0, 10) } };
+    // We caught the set-image call and it succeeded. Best-effort resolve the new
+    // URL (from the API body for avatars, else the live DOM) so the caller can
+    // self-verify without opening x.com.
+    if (apiResult && apiResult.ok) {
+      recordAction(req.account_id, "twitter", kind);
+      const url =
+        (kind === "avatar" ? apiResult.json?.profile_image_url_https : null) ||
+        (await readProfileImageUrl(page, kind)) ||
+        undefined;
+      return { success: true, data: { kind, [urlKey]: url, confirmed_by: "api_call", observed_posts } };
+    }
+
+    // apiResult == null: we never caught the set-image call. That is NOT proof of
+    // failure — post-#342 it usually lands and we simply didn't observe the POST.
+    // Confirm against server truth: reload the profile and compare the stored
+    // image URL. If it changed, the write succeeded — rescue the false negative.
+    const afterUrl = await confirmProfileImageUrl(page, kind);
+    if (afterUrl && afterUrl !== beforeUrl) {
+      recordAction(req.account_id, "twitter", kind);
+      return { success: true, data: { kind, [urlKey]: afterUrl, confirmed_by: "profile_read", observed_posts } };
+    }
+
+    // Media uploaded and finalized, but we couldn't confirm the change landed.
+    // This is NOT an X rejection — don't dress it up as one; the caller can retry.
+    const shot = await debugShot(page, `${kind}-unconfirmed`);
+    return {
+      success: false,
+      error:
+        `${kind} media uploaded and finalized, but the change could not be confirmed ` +
+        `(profile still shows the previous image). Not an X rejection — safe to retry. ` +
+        `Observed POSTs: ${observed_posts.join(" | ") || "(none)"}. Screenshot: ${shot}`,
+      error_code: "CONFIRMATION_PENDING",
+    };
   } catch (e: any) {
     return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
   } finally {
