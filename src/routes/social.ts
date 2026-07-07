@@ -174,6 +174,38 @@ router.post(
 
 /* ─── Operations: post / reply / like / retweet / follow ──────────── */
 
+/**
+ * Emit the 400 for a social op missing its session fields. When the body instead
+ * carries a `handle`/`username` — the shape of an i402 /chat PLAN step — the
+ * caller almost certainly hand-executed a plan against the raw API. The planner
+ * intentionally omits credentials (they'd leak to third-party providers), leaving
+ * the executor to resolve `handle` → account_id + cookies at run time. Say so and
+ * give the two ways forward, so a direct caller isn't left guessing why a valid-
+ * looking plan step 400s (the dogfood report burned "a couple of 400s" here).
+ */
+function respondMissingSessionFields(req: AuthenticatedRequest, res: Response): null {
+  const b = (req.body || {}) as Record<string, unknown>;
+  const looksLikePlanStep = typeof b.handle === "string" || typeof b.username === "string";
+  res.status(400).json({
+    error: "Missing session fields",
+    message:
+      "This op needs a live session: account_id and a non-empty cookies array" +
+      " (plus password for username changes).",
+    ...(looksLikePlanStep
+      ? {
+          hint:
+            "You passed `handle` — that's an i402 /chat PLAN step, not an executable API body. " +
+            "The planner deliberately omits session credentials (they would leak to third-party " +
+            "providers), so `handle` is resolved to account_id + cookies by the Palmyr executor at " +
+            "run time. To run it: (a) execute the plan through the Palmyr CLI/executor, which injects " +
+            "vault creds from the handle, or (b) supply account_id + cookies yourself (from `twitter " +
+            "login` or your own account store).",
+        }
+      : {}),
+  });
+  return null;
+}
+
 function validateOpBody(req: AuthenticatedRequest, res: Response): null | {
   account_id: string;
   proxy_session_id?: string;
@@ -185,11 +217,7 @@ function validateOpBody(req: AuthenticatedRequest, res: Response): null | {
     cookies?: any[];
   };
   if (!account_id || !Array.isArray(cookies) || cookies.length === 0) {
-    res.status(400).json({
-      error: "Missing required fields",
-      message: "account_id and a non-empty cookies array are required.",
-    });
-    return null;
+    return respondMissingSessionFields(req, res);
   }
   return { account_id, proxy_session_id, cookies };
 }
@@ -1658,11 +1686,7 @@ function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | 
     cookies?: any[];
   };
   if (!account_id || !Array.isArray(cookies) || cookies.length === 0) {
-    res.status(400).json({
-      error: "Missing required fields",
-      message: "account_id and a non-empty cookies array are required.",
-    });
-    return null;
+    return respondMissingSessionFields(req, res);
   }
   return { account_id, proxy_session_id, country, cookies };
 }
