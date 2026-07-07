@@ -84,6 +84,13 @@ const DISCOVERABLE_ALLOWLIST = new Set<string>([
   "POST /social/twitter/like",
   "POST /social/twitter/follow",
   "POST /social/twitter/retweet",
+  // Social — X profile & image edits (previously callable but unadvertised, so
+  // agents had to reverse-engineer them via the /chat planner — see the dogfood
+  // report that motivated surfacing these).
+  "POST /social/twitter/profile",
+  "POST /social/twitter/avatar",
+  "POST /social/twitter/banner",
+  "POST /social/twitter/username",
   // Social — TikTok core
   "POST /social/tiktok/login",
   "POST /social/tiktok/post",
