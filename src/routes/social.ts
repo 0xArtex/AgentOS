@@ -70,6 +70,7 @@ import {
   updateBanner,
   changeUsername,
   listMyTweets,
+  getProxyHealth,
 } from "../services/social-operations";
 import { loginTikTok } from "../services/tiktok-login";
 import { putQr } from "../services/qr-handoff";
@@ -481,6 +482,14 @@ router.post(
     }
   }
 );
+
+// GET /social/proxy/health — free, unauthenticated infra signal. Returns only
+// aggregate residential-proxy status (no account data, no exit IPs), so agents
+// can stop hammering during a tunnel outage and resume once it clears, instead
+// of blindly retrying browser ops. Derived passively from recent op outcomes.
+router.get("/proxy/health", (_req: Request, res: Response) => {
+  res.json(getProxyHealth());
+});
 
 /* ─── Pool: admin seeding + status ──────────────────────────────────── */
 

@@ -376,10 +376,80 @@ export interface OpResult<T = any> {
     // landed (neither the set-image API call nor a server-truth profile re-read
     // proved it). NOT an X rejection — the caller can safely retry.
     | "CONFIRMATION_PENDING"
+    // The account's residential proxy couldn't reach the platform (tunnel down).
+    // An infrastructure outage, not a bad request — back off, don't hammer.
+    | "PROXY_UNAVAILABLE"
     | "LAUNCH_FAILED"
     | "UNKNOWN";
   /** When rate-limited, ms the caller should wait before retrying. */
   retry_after_ms?: number;
+}
+
+/* ─── Proxy health: classify residential-proxy / tunnel failures ───────────
+ * When an account's residential proxy can't reach the platform, Chromium throws
+ * net::ERR_TUNNEL_CONNECTION_FAILED (and friends) on the first navigation.
+ * Historically every social op caught that and returned an opaque UI_TIMEOUT, so
+ * an agent mid-outage couldn't tell "my request was bad" from "the proxy is
+ * down" — and kept hammering. We classify these into a distinct
+ * PROXY_UNAVAILABLE (with a back-off) and remember the last occurrence so agents
+ * can check GET /social/proxy/health before retrying. */
+const PROXY_ERROR_RE =
+  /ERR_TUNNEL_CONNECTION_FAILED|ERR_PROXY_CONNECTION_FAILED|ERR_SOCKS_CONNECTION_FAILED|ERR_HTTPS_PROXY_TUNNEL_RESPONSE|ERR_NO_SUPPORTED_PROXIES|ERR_PROXY_CERTIFICATE_INVALID|ERR_PROXY_AUTH/i;
+const PROXY_BACKOFF_MS = 60_000;
+let lastProxyErrorAt = 0;
+
+export function isProxyError(e: any): boolean {
+  return PROXY_ERROR_RE.test(String(e?.message || e || ""));
+}
+
+/**
+ * Map a thrown browser-op error to an OpResult. Residential-proxy / tunnel
+ * failures become PROXY_UNAVAILABLE (recorded + carrying a back-off hint);
+ * anything else stays the generic UI_TIMEOUT the callers used before. Every
+ * top-level social-op catch routes through this so the classification is uniform.
+ */
+export function browserOpError(e: any): OpResult {
+  const message = e?.message || String(e);
+  if (isProxyError(e)) {
+    lastProxyErrorAt = Date.now();
+    return {
+      success: false,
+      error:
+        `Residential proxy could not reach the platform (${String(message).slice(0, 120)}). ` +
+        `Infrastructure outage, not a bad request — back off and retry; ` +
+        `poll GET /social/proxy/health to see when it clears.`,
+      error_code: "PROXY_UNAVAILABLE",
+      retry_after_ms: PROXY_BACKOFF_MS,
+    };
+  }
+  return { success: false, error: message, error_code: "UI_TIMEOUT" };
+}
+
+export interface ProxyHealth {
+  healthy: boolean;
+  last_proxy_error_at: string | null;
+  seconds_since_last_error: number | null;
+  hint: string;
+}
+
+/**
+ * Passive proxy-health signal derived from recent op outcomes. Deliberately NOT
+ * an active probe — a probe would itself hang through the very tunnel that's
+ * down. "Unhealthy" while a proxy failure occurred within the back-off window;
+ * flips healthy once it elapses, so agents retry and re-learn the real state
+ * (a still-down proxy immediately re-marks it via the next PROXY_UNAVAILABLE).
+ */
+export function getProxyHealth(): ProxyHealth {
+  const since = lastProxyErrorAt ? Date.now() - lastProxyErrorAt : Infinity;
+  const healthy = since > PROXY_BACKOFF_MS;
+  return {
+    healthy,
+    last_proxy_error_at: lastProxyErrorAt ? new Date(lastProxyErrorAt).toISOString() : null,
+    seconds_since_last_error: Number.isFinite(since) ? Math.round(since / 1000) : null,
+    hint: healthy
+      ? "No proxy failures in the back-off window — browser ops should route normally."
+      : `A residential-proxy failure occurred recently — wait ~${Math.ceil(PROXY_BACKOFF_MS / 1000)}s before retrying browser ops.`,
+  };
 }
 
 export interface OpRequest {
@@ -688,7 +758,7 @@ export async function postTweet(
       },
     };
   } catch (e: any) {
-    return { success: false, error: e.message || String(e), error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     materialized?.cleanup();
     await close();
@@ -952,7 +1022,7 @@ export async function postTweetThread(
       },
     };
   } catch (e: any) {
-    return { success: false, error: e.message || String(e), error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -1054,7 +1124,7 @@ export async function replyToTweet(
       } : {},
     };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -1129,7 +1199,7 @@ export async function likeTweet(
     recordAction(req.account_id, "twitter", "like");
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -1207,7 +1277,7 @@ export async function retweetTweet(
     recordAction(req.account_id, "twitter", "retweet");
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -1281,7 +1351,7 @@ export async function deleteTweet(
     recordAction(req.account_id, "twitter", "delete");
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -1463,7 +1533,7 @@ export async function listMyTweets(
 
     return { success: true, data: { tweets } };
   } catch (e: any) {
-    return { success: false, error: e.message || String(e), error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -1636,7 +1706,7 @@ export async function unfollowUser(
     recordAction(req.account_id, "twitter", "unfollow");
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -1801,7 +1871,7 @@ export async function updateProfile(
       data: Object.fromEntries(provided),
     };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -1945,7 +2015,7 @@ export async function changeUsername(
 
     return { success: true, data: { new_username: handle } };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -2153,7 +2223,7 @@ export async function changePassword(
       },
     };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
@@ -2395,7 +2465,7 @@ async function updateProfileImage(
       error_code: "CONFIRMATION_PENDING",
     };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     materialized.cleanup();
     await close();
@@ -2483,7 +2553,7 @@ export async function followUser(
     recordAction(req.account_id, "twitter", "follow");
     return { success: true };
   } catch (e: any) {
-    return { success: false, error: e.message, error_code: "UI_TIMEOUT" };
+    return browserOpError(e);
   } finally {
     await close();
   }
