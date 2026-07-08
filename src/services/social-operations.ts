@@ -379,6 +379,11 @@ export interface OpResult<T = any> {
     // The account's residential proxy couldn't reach the platform (tunnel down).
     // An infrastructure outage, not a bad request — back off, don't hammer.
     | "PROXY_UNAVAILABLE"
+    // X refused the operation at the account level (e.g. 403 code 64 "not permitted
+    // to access this feature" on the header upload — X gates the banner feature for
+    // some restricted accounts even when avatar/text still work). Retrying the same
+    // account will NOT help — it's an X-side restriction, not a Palmyr issue.
+    | "ACCOUNT_RESTRICTED"
     | "LAUNCH_FAILED"
     | "UNKNOWN";
   /** When rate-limited, ms the caller should wait before retrying. */
@@ -2550,6 +2555,29 @@ async function updateProfileImage(
         (await readProfileImageUrl(page, kind)) ||
         undefined;
       return { success: true, data: { kind, [urlKey]: url, confirmed_by: "api_call", ...netSummary } };
+    }
+
+    // Before treating this as a retryable "unconfirmed" state, check whether X
+    // actually REFUSED the media upload. The upload command responses carry X's own
+    // errors; a 4xx/5xx there — classically 403 code 64 "not permitted to access this
+    // feature" on the header — is a HARD account restriction (X gates the banner
+    // feature for some accounts even though avatar/text work), NOT a timeout. Surface
+    // X's real reason so callers stop burning retries on something that can't succeed.
+    const rejected = uploadResponses.find((r) => /:(4\d\d|5\d\d)$/.test(r));
+    if (rejected) {
+      const body = uploadResponses.find((r) => r.includes("!")) || "";
+      const xMsg = (body.match(/"message":"([^"]+)"/) || [, ""])[1];
+      const xCode = (body.match(/"code":(\d+)/) || [, ""])[1];
+      const status = Number((rejected.match(/:(\d+)$/) || [, "0"])[1]);
+      return {
+        success: false,
+        error:
+          `X refused the ${kind} upload — ${xMsg || `HTTP ${status}`}${xCode ? ` [code ${xCode}]` : ""}. ` +
+          `This is an X-side account restriction on the ${kind}/header feature (avatar/text can still work on ` +
+          `the same account), not a Palmyr issue — retrying will not help. [${diag}]`,
+        error_code: "ACCOUNT_RESTRICTED",
+        data: { kind, confirmed_by: "x_refused_upload", ...netSummary },
+      };
     }
 
     // apiResult == null: we never caught the set-image call. That is NOT proof of
