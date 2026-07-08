@@ -95,6 +95,11 @@ export function _resetLasoCachesForTest(): void {
   _floatCache = null;
 }
 
+/** Test hook: pre-seed the float cache so preflight tests never hit an RPC. */
+export function _setFloatCacheForTest(value: number): void {
+  _floatCache = { value, at: Date.now() };
+}
+
 function lasoBase(): string {
   return config.lasoApiBase.replace(/\/+$/, "");
 }
@@ -117,6 +122,12 @@ export function readCachedTokens(): LasoTokens | null {
     console.error("[laso] token cache unreadable (master key changed?) — will re-auth:", e?.message || e);
     return null;
   }
+}
+
+/** Drop the cached tokens (e.g. after a laso_auth_rejected) so the next
+ * getLasoIdToken() is forced down the refresh/SIWX ladder. */
+export function clearCachedTokens(): void {
+  db.prepare("DELETE FROM laso_account_tokens WHERE id = 1").run();
 }
 
 export function persistTokens(idToken: string, refreshToken: string): void {
@@ -254,15 +265,18 @@ export async function lasoBuyUsCard(
 
   if (!result.ok) {
     const detail = JSON.stringify(result.data).slice(0, 300);
-    if (result.paid && result.status === 402) {
-      // Our payment header was rejected outright — normally the authorization
-      // was NOT settled, but only the on-chain oracle can say for sure.
-      const err: any = new Error(`Laso rejected the payment (402 after X-PAYMENT): ${detail}`);
+    if (result.paid) {
+      // ANY non-2xx after the payment header went out is AMBIGUOUS — a 402
+      // usually means the authorization was rejected unsettled, and a 5xx may
+      // have crashed after settling, but only the on-chain oracle
+      // (authorizationConsumed) can say which. Never classify as definitive.
+      const err: any = new Error(`Laso errored after X-PAYMENT was sent (${result.status}): ${detail}`);
       err.ambiguous = true;
       err.nonce = result.nonce;
       err.validBefore = result.validBefore;
       throw err;
     }
+    // Probe-level failure: no payment was ever signed — definitive decline.
     throw new LasoDeclinedError(result.status, detail);
   }
 

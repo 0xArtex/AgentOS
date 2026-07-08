@@ -268,6 +268,10 @@ app.use("/x", xAccountRoutes);
 app.use("/skills", skillsRoutes);
 app.use("/domains", domainRoutes);
 app.use("/compute", computeRoutes);
+// Prepaid Visa cards (Laso Finance upstream) — buy with exact balance via
+// dynamic x402 pricing; async 202+poll; PAN/CVV encrypted at rest.
+import cardsRoutes from "./routes/cards";
+app.use("/cards", cardsRoutes);
 import transfersRoutes from "./routes/transfers";
 app.use("/transfers", transfersRoutes);
 import agentChatRoutes from "./routes/agent-chat";
@@ -680,6 +684,7 @@ app.use(errorHandler);
 // ── Start ─────────────────────────────────────────────────────
 import { startDepositMonitor } from "./services/deposit-monitor";
 import { startDomainRegistrationRecovery } from "./services/domain-registration";
+import { startCardPurchaseRecovery } from "./services/card-purchases";
 import { startTikTokPostRecovery } from "./services/tiktok-post-jobs";
 import { startTikTokOpsRecovery } from "./services/tiktok-ops-jobs";
 import { startXOpsRecovery } from "./services/x-ops-jobs";
@@ -730,6 +735,10 @@ app.listen(config.port, () => {
   startTikTokOpsRecovery();
   // Same for orphaned X avatar/banner ops.
   startXOpsRecovery();
+  // Reconcile card purchases left in-flight by a previous process — the
+  // on-chain EIP-3009 nonce + Laso's account state tell us which paid (adopt
+  // the card / recover the balance) vs never paid (refund the agent).
+  startCardPurchaseRecovery();
   if (embeddingsAvailable()) {
     // Non-blocking: compute any missing provider embeddings in the background.
     ensureProviderEmbeddings().catch(err =>
