@@ -2370,6 +2370,25 @@ async function updateProfileImage(
     };
     page.on("request", requestLog);
 
+    // Capture upload.json RESPONSE statuses. The banner does INIT but never APPEND,
+    // and the client only APPENDs if INIT's response succeeds — so this distinguishes
+    // "X rejected the banner INIT" (→ no APPEND, with X's reason) from "INIT OK but we
+    // never triggered the upload" (automation gap).
+    const uploadResponses: string[] = [];
+    const responseLog = (resp: any) => {
+      try {
+        const u = resp.url();
+        if (/\/media\/upload\.json/.test(u)) {
+          const cmd = (u.match(/command=([A-Z]+)/) || [null, "?"])[1];
+          uploadResponses.push(`${cmd}:${resp.status()}`);
+          if (!resp.ok()) {
+            resp.text().then((t: string) => uploadResponses.push(`${cmd}!${String(t).slice(0, 200)}`)).catch(() => {});
+          }
+        }
+      } catch { /* noop */ }
+    };
+    page.on("response", responseLog);
+
     // Chunked upload through a residential proxy can take tens of seconds, and X
     // will not issue the set-image call until FINALIZE resolves. Wait for it so
     // the media_id is ready when we click Save. Best-effort: if X instead defers
@@ -2467,6 +2486,9 @@ async function updateProfileImage(
     );
 
     page.off("request", requestLog);
+    // Give any in-flight upload response bodies a beat to resolve, then detach.
+    await page.waitForTimeout(300);
+    page.off("response", responseLog);
 
     const urlKey = kind === "avatar" ? "avatar_url" : "banner_url";
 
@@ -2497,6 +2519,7 @@ async function updateProfileImage(
       save_testid,
       save_text,
       post_apply: postApplyDom,
+      upload_responses: uploadResponses,
       observed_posts: relevantPosts.slice(0, 20),
     };
     const diag =
@@ -2504,6 +2527,7 @@ async function updateProfileImage(
       `finalize=${finalize_resolved}${finalize_status != null ? `/${finalize_status}` : ""} ` +
       `set_call=${set_call_seen} posts=${seenPosts.length} ` +
       `apply=${apply_testid}/"${apply_text}" save=${save_testid}/"${save_text}" ` +
+      `uploadResp=[${uploadResponses.join(",")}] ` +
       `postApply=${postApplyDom ? JSON.stringify(postApplyDom) : "null"}`;
 
     // X explicitly rejected the write (auth / rate / bad format). A real failure —
