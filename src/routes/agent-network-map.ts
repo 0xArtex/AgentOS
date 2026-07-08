@@ -31,7 +31,7 @@ const nodes: NetworkNode[] = [
   { id: "mortem", name: "MORTEM", category: "liveness", status: "live" },
   { id: "heliossyn", name: "HeliosSynerga", category: "defi", status: "in-progress" },
   { id: "agentpay", name: "AgentPay", category: "payments", status: "planned" },
-  { id: "privpay", name: "PrivatePay", category: "payments", status: "planned" },
+  { id: "laso", name: "Laso Finance", category: "payments", status: "live", url: "https://laso.finance" },
 ];
 
 const edges: NetworkEdge[] = [
@@ -46,7 +46,7 @@ const edges: NetworkEdge[] = [
   { from: "palmyr", to: "mortem", type: "data-flow", description: "Liveness attestation pipeline" },
   { from: "palmyr", to: "heliossyn", type: "integration", description: "Dedicated compute for arb execution" },
   { from: "palmyr", to: "agentpay", type: "payment", description: "x402 USDC payment composability" },
-  { from: "palmyr", to: "privpay", type: "payment", description: "Virtual card provisioning via x402" },
+  { from: "palmyr", to: "laso", type: "payment", description: "Prepaid Visa card issuance via x402 (/cards)" },
   { from: "alphavault", to: "solsignal", type: "data-flow", description: "Trade signals → execution" },
   { from: "slotscribe", to: "mutualagent", type: "data-flow", description: "Verified receipts → insurance claims" },
 ];

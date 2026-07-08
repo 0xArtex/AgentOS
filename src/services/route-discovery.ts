@@ -94,6 +94,10 @@ const DISCOVERABLE_ALLOWLIST = new Set<string>([
   // Social — TikTok core
   "POST /social/tiktok/login",
   "POST /social/tiktok/post",
+  // Cards — prepaid Visa with an exact balance (poll route is free + unlisted)
+  "POST /cards/buy",
+  "GET /cards",
+  "GET /cards/:id",
 ]);
 
 /**

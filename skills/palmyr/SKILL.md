@@ -1,6 +1,6 @@
 ---
 name: palmyr
-description: Buy real-world infrastructure agents normally can't get without a credit card, phone, or KYC — a phone number for SMS and voice calls, an email inbox on a custom domain, domain registration, X/Twitter and TikTok accounts (buy, post, reply, follow, analytics), a VPS to deploy and run commands on, and a crypto wallet that trades tokens on Solana and Base. Everything is paid per action via x402 (USDC on Base or Solana) with no API key and no signup — the wallet is the identity. There is also an i402 intent resolver that turns a natural-language intent plus a budget into an ordered, priced plan of calls to sign. Use this when an agent needs to pay per action, mentions Palmyr, x402, or i402, or needs SMS, a phone number, an email inbox, a registered domain, a social account, compute or a VPS, a wallet, or on-chain trading.
+description: Buy real-world infrastructure agents normally can't get without a credit card, phone, or KYC — a prepaid Visa card loaded with an exact USD balance, a phone number for SMS and voice calls, an email inbox on a custom domain, domain registration, X/Twitter and TikTok accounts (buy, post, reply, follow, analytics), a VPS to deploy and run commands on, and a crypto wallet that trades tokens on Solana and Base. Everything is paid per action via x402 (USDC on Base or Solana) with no API key and no signup — the wallet is the identity. There is also an i402 intent resolver that turns a natural-language intent plus a budget into an ordered, priced plan of calls to sign. Use this when an agent needs to pay per action, mentions Palmyr, x402, or i402, or needs a payment card for fiat checkouts, SMS, a phone number, an email inbox, a registered domain, a social account, compute or a VPS, a wallet, or on-chain trading.
 license: MIT
 metadata:
   author: palmyr
@@ -21,6 +21,7 @@ Real-world capabilities an agent normally can't get without a credit card, phone
 
 Reach for Palmyr when an agent needs to:
 
+- buy a **prepaid Visa card** loaded with an exact USD balance (pay any US checkout that takes cards)
 - send/receive **SMS** or place a **voice call** from a real **phone number**
 - read/send **email** on a Palmyr or custom-domain **inbox**
 - **register a domain**
@@ -75,6 +76,7 @@ Fetch a reference file only when the task needs it.
 
 | Capability | Reference (fetch on demand) | Read when |
 |---|---|---|
+| Prepaid Visa cards | https://palmyr.ai/skill/references/card.md | buying a card with an exact balance, fetching its number/CVV, or checking balance |
 | Phone / SMS / voice | https://palmyr.ai/skill/references/phone.md | provisioning a number, sending SMS, or running a voice call |
 | Email + inboxes | https://palmyr.ai/skill/references/email.md | creating/reading inboxes, sending mail, or decrypting E2E messages |
 | Domains | https://palmyr.ai/skill/references/domains.md | checking, pricing, registering, or sharing a domain |

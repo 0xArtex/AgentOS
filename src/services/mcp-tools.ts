@@ -293,8 +293,83 @@ export function registerPalmyrTools(server: McpServer): void {
     },
   );
 
+  // Cards — buy a prepaid Visa card with an exact balance. Dynamic price.
+  addTool(server,
+    "card_buy",
+    {
+      title: "Buy prepaid Visa card",
+      description:
+        "Buy a USA prepaid Visa card loaded with EXACTLY the requested balance ($5–$1000). " +
+        "Dynamic x402 price = amount + fee (3% min 0.50 USDC) — the 402 instructions carry the exact total. " +
+        "Returns 202 with an operation_id: poll card_status until ready (~10s), then fetch the number with card_get. " +
+        "US merchants only; non-reloadable (spend across transactions until depleted).",
+      inputSchema: {
+        amount: z.number().describe("USD balance to load on the card (min $5, max $1000, whole cents)"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, ...rest } = args;
+      return callRoute("POST", "/cards/buy", rest, payment, extra, "card_buy");
+    },
+  );
+
+  // Cards — poll a purchase. Free.
+  addTool(server,
+    "card_status",
+    {
+      title: "Check card purchase status",
+      description:
+        "Poll a card purchase started by card_buy (free). done=true when status is 'ready' (fetch details with card_get) " +
+        "or 'failed' (payment auto-refunded — see refund_status).",
+      inputSchema: {
+        card_id: z.string().describe("operation_id / card_id returned by card_buy"),
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      return callRoute("GET", `/cards/operations/${encodeURIComponent(args.card_id)}`, {}, undefined, extra, "card_status");
+    },
+  );
+
+  // Cards — full details. 0.01 USDC ownership proof.
+  addTool(server,
+    "card_get",
+    {
+      title: "Get card number/CVV",
+      description:
+        "Retrieve a prepaid card you own: full card number, CVV, expiry, live balance. Owner-verified " +
+        "(0.01 USDC ownership proof; the paying wallet must be the card's buyer).",
+      inputSchema: {
+        card_id: z.string().describe("card_id returned by card_buy"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, card_id } = args;
+      return callRoute("GET", `/cards/${encodeURIComponent(card_id)}`, {}, payment, extra, "card_get");
+    },
+  );
+
+  // Cards — list. 0.01 USDC ownership proof.
+  addTool(server,
+    "card_list",
+    {
+      title: "List your prepaid cards",
+      description:
+        "List cards owned by the paying wallet: status, last4, balance (never full numbers — those are per-card via card_get). " +
+        "0.01 USDC ownership proof.",
+      inputSchema: {
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment } = args;
+      return callRoute("GET", "/cards", {}, payment, extra, "card_list");
+    },
+  );
+
   // Email — create inbox. 2.00 USDC.
-  addTool(server, 
+  addTool(server,
     "email_create_inbox",
     {
       title: "Create email inbox",

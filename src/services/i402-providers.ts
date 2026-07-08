@@ -266,6 +266,20 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     inputSchema: {},
     outputSchema: { owner: "string", count: "number", domains: "object[] (each: { domain, status, registrar_id, expires_at, created_at })" },
   },
+  buy_prepaid_card: {
+    name: "buy_prepaid_card",
+    description:
+      "Buy a USA prepaid Visa card loaded with EXACTLY the requested USD balance ($5–$1000). Dynamic x402 price = amount + fee (3% min $0.50). Async: responds 202 with { operation_id, card_id, poll_url } — poll the free poll_url until status 'ready' (~10s), then fetch the number/CVV/expiry with get_card_details. US merchants only; non-reloadable. Use for anything credit-card gated: SaaS checkouts, API subscriptions, marketplace buys.",
+    inputSchema: { amount: "number (USD to load, 5–1000, whole cents)" },
+    outputSchema: { operation_id: "string", card_id: "string", status: "string (pending)", poll_url: "string (free)", pricing: "object ({ card_usd, fee_usdc, charged_usdc })" },
+  },
+  get_card_details: {
+    name: "get_card_details",
+    description:
+      "Retrieve an owned prepaid card's full number, CVV, expiry and live balance ($0.01 ownership proof; the paying wallet must be the card's buyer). Call after buy_prepaid_card's poll reports status 'ready'.",
+    inputSchema: { card_id: "string (path — from buy_prepaid_card)" },
+    outputSchema: { card_id: "string", status: "string", card: "object ({ card_number, exp_month, exp_year, cvv })", available_balance: "number", usage: "string" },
+  },
   get_domain: {
     name: "get_domain",
     description: "Get the status + metadata for a single owned domain. Fields are returned flat at the top level (not wrapped).",
@@ -865,6 +879,17 @@ export function seedPalmyrPrimitives(): void {
     p("palmyr.list_domains", "list_domains", "/domains", {
       method: "GET", costUsdc: 0.0001, p50: 300,
       description: "List domains owned by the calling wallet (wallet-keyed).",
+    }),
+
+    // ── Prepaid cards ──
+    p("palmyr.buy_prepaid_card", "buy_prepaid_card", "/cards/buy", {
+      costUsdc: 20.6, p50: 12000, p99: 90000,
+      description:
+        "Buy a USA prepaid Visa card with an exact balance (dynamic pricing: amount + 3% fee, min $0.50; $20.60 is a typical $20 card). Async 202 + free poll; details via get_card_details.",
+    }),
+    p("palmyr.get_card_details", "get_card_details", "/cards/{card_id}", {
+      method: "GET", costUsdc: 0.01, p50: 400,
+      description: "Full card number / CVV / expiry + balance for an owned card.",
     }),
     p("palmyr.get_domain", "get_domain", "/domains/{domain}", {
       method: "GET", costUsdc: 0.0001, p50: 300,
