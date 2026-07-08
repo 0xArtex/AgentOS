@@ -61,4 +61,14 @@ export const config = {
   // Hetzner Cloud
   hcloudToken: optional("HCLOUD_TOKEN", ""),
   hcloudLocation: optional("HCLOUD_LOCATION", "fsn1"),
+
+  // Laso Finance prepaid cards (feature-gated on LASO_PAYER_EVM_PRIVATE_KEY,
+  // which is read lazily in services/laso.ts like the treasury keys).
+  lasoApiBase: optional("LASO_API_BASE", "https://laso.finance"),
+  lasoCardFeePct: parseFloat(optional("LASO_CARD_FEE_PCT", "0.03")),
+  lasoCardFeeMinUsdc: parseFloat(optional("LASO_CARD_FEE_MIN_USDC", "0.50")),
+  lasoMinCardUsd: parseFloat(optional("LASO_MIN_CARD_USD", "5")),
+  lasoMaxCardUsd: parseFloat(optional("LASO_MAX_CARD_USD", "1000")),
+  lasoDailyMaxUsd: parseFloat(optional("LASO_DAILY_MAX_USD", "2000")),
+  lasoAgentDailyMaxUsd: parseFloat(optional("LASO_AGENT_DAILY_MAX_USD", "500")),
 } as const;
