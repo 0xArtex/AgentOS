@@ -302,7 +302,7 @@ export function registerPalmyrTools(server: McpServer): void {
         "Buy a USA prepaid Visa card loaded with EXACTLY the requested balance ($5–$1000). " +
         "Dynamic x402 price = amount + fee (3% min 0.50 USDC) — the 402 instructions carry the exact total. " +
         "Returns 202 with an operation_id: poll card_status until ready (~10s), then fetch the number with card_get. " +
-        "US merchants only; non-reloadable (spend across transactions until depleted).",
+        "US merchants only; non-reloadable (spend across transactions until depleted); max 6 cards per agent per rolling 24h (issuer limit).",
       inputSchema: {
         amount: z.number().describe("USD balance to load on the card (min $5, max $1000, whole cents)"),
         payment: PAYMENT_PARAM,

@@ -9,6 +9,7 @@
  */
 process.env.LASO_DAILY_MAX_USD = "100";
 process.env.LASO_AGENT_DAILY_MAX_USD = "50";
+process.env.LASO_AGENT_DAILY_MAX_CARDS = "3";
 process.env.LASO_CARD_FEE_PCT = "0.03";
 process.env.LASO_CARD_FEE_MIN_USDC = "0.50";
 process.env.LASO_FLOAT_EVM_PRIVATE_KEY = process.env.LASO_FLOAT_EVM_PRIVATE_KEY || "0x" + "11".repeat(32);
@@ -118,6 +119,24 @@ test("per-agent 24h ceiling → 429 daily_agent for the CLAIMED payer on the pai
   assert.strictEqual(res.body.error_code, "daily_agent");
   assert.strictEqual(res.body.used_usd, 45);
   assert.strictEqual(res.body.limit_usd, 50);
+  assert.strictEqual(nextCalled, false);
+});
+
+test("per-agent card COUNT cap (issuer 6/day; 3 here) → 429 daily_agent_cards for the claimed payer", async () => {
+  for (let i = 0; i < 3; i++) insertUsage(PAYER, 5); // 3 cards, only $15 — dollars nowhere near the cap
+  const res = mockRes();
+  let nextCalled = false;
+  await requireCardPayment(
+    mockReq({ body: { amount: 5 }, headers: { "x-payment": evmPaymentHeader(PAYER) } }),
+    res,
+    () => {
+      nextCalled = true;
+    }
+  );
+  assert.strictEqual(res.statusCode, 429);
+  assert.strictEqual(res.body.error_code, "daily_agent_cards");
+  assert.strictEqual(res.body.used_cards, 3);
+  assert.strictEqual(res.body.limit_cards, 3);
   assert.strictEqual(nextCalled, false);
 });
 

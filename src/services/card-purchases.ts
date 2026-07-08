@@ -175,11 +175,13 @@ export function validCardAmount(amount: unknown): amount is number {
 
 export interface CardLimitStatus {
   ok: boolean;
-  code: "daily_global" | "daily_agent" | null;
+  code: "daily_global" | "daily_agent" | "daily_agent_cards" | null;
   globalUsedUsd: number;
   agentUsedUsd: number;
   globalMaxUsd: number;
   agentMaxUsd: number;
+  agentUsedCards: number;
+  agentMaxCards: number;
 }
 
 function window24hCutoff(): string {
@@ -190,17 +192,24 @@ function window24hCutoff(): string {
  * Would a purchase of `cardUsd` by `owner` fit the rolling-24h ceilings?
  * Failed rows don't count (the agent was refunded, no lasting exposure);
  * everything else — including in-flight reservations — does.
+ *
+ * Three ceilings: global dollars (operator float exposure), per-agent dollars
+ * (velocity), and per-agent CARD COUNT — the last mirrors Laso's confirmed
+ * per-wallet limit of 6 cards/day (each agent is its own wallet upstream, so
+ * exceeding it would just make Laso decline that agent's 7th card anyway).
  */
 export function checkCardLimits(owner: string, cardUsd: number): CardLimitStatus {
   const cutoff = window24hCutoff();
   const globalUsed = (db
     .prepare("SELECT COALESCE(SUM(card_usd), 0) AS s FROM card_purchases WHERE created_at > ? AND status != 'failed'")
     .get(cutoff) as any).s as number;
-  const agentUsed = (db
+  const agent = db
     .prepare(
-      "SELECT COALESCE(SUM(card_usd), 0) AS s FROM card_purchases WHERE created_at > ? AND status != 'failed' AND owner = ?"
+      "SELECT COALESCE(SUM(card_usd), 0) AS s, COUNT(*) AS c FROM card_purchases WHERE created_at > ? AND status != 'failed' AND owner = ?"
     )
-    .get(cutoff, owner) as any).s as number;
+    .get(cutoff, owner) as any;
+  const agentUsed = agent.s as number;
+  const agentCards = agent.c as number;
 
   const status: CardLimitStatus = {
     ok: true,
@@ -209,6 +218,8 @@ export function checkCardLimits(owner: string, cardUsd: number): CardLimitStatus
     agentUsedUsd: agentUsed,
     globalMaxUsd: config.lasoDailyMaxUsd,
     agentMaxUsd: config.lasoAgentDailyMaxUsd,
+    agentUsedCards: agentCards,
+    agentMaxCards: config.lasoAgentDailyMaxCards,
   };
   if (globalUsed + cardUsd > config.lasoDailyMaxUsd) {
     status.ok = false;
@@ -216,6 +227,9 @@ export function checkCardLimits(owner: string, cardUsd: number): CardLimitStatus
   } else if (agentUsed + cardUsd > config.lasoAgentDailyMaxUsd) {
     status.ok = false;
     status.code = "daily_agent";
+  } else if (agentCards + 1 > config.lasoAgentDailyMaxCards) {
+    status.ok = false;
+    status.code = "daily_agent_cards";
   }
   return status;
 }
@@ -223,9 +237,11 @@ export function checkCardLimits(owner: string, cardUsd: number): CardLimitStatus
 export class CardLimitError extends Error {
   constructor(public limit: CardLimitStatus) {
     super(
-      limit.code === "daily_agent"
-        ? `Per-agent 24h card issuance limit reached ($${limit.agentUsedUsd}/$${limit.agentMaxUsd} used)`
-        : `Global 24h card issuance limit reached ($${limit.globalUsedUsd}/$${limit.globalMaxUsd} used)`
+      limit.code === "daily_agent_cards"
+        ? `Per-agent 24h card COUNT limit reached (${limit.agentUsedCards}/${limit.agentMaxCards} cards — issuer allows ${limit.agentMaxCards}/day per account)`
+        : limit.code === "daily_agent"
+          ? `Per-agent 24h card issuance limit reached ($${limit.agentUsedUsd}/$${limit.agentMaxUsd} used)`
+          : `Global 24h card issuance limit reached ($${limit.globalUsedUsd}/$${limit.globalMaxUsd} used)`
     );
     this.name = "CardLimitError";
   }

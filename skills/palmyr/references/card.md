@@ -42,7 +42,7 @@ palmyr card refresh --id <card_id> # Live balance + transactions ($0.01)
 ## Limits & gotchas
 
 - Per card: **$5 minimum, $1000 maximum**, whole cents.
-- Rolling-24h issuance ceilings apply (per-wallet and platform-wide) — a `429` with `error_code: daily_agent | daily_global` means wait for the window to roll; your wallet is NOT charged on a 429.
+- Rolling-24h issuance ceilings apply (per-wallet and platform-wide) — a `429` with `error_code: daily_agent | daily_agent_cards | daily_global` means wait for the window to roll; your wallet is NOT charged on a 429. The count ceiling (default **6 cards per agent per day**) mirrors the issuer's own per-account limit.
 - A `503 issuer_float_low` means the operator's card float is being topped up — retry after `retry_after_seconds`; you were not charged.
 - The free poll never returns the card number; only the owner-verified `GET /cards/:id` does.
 - Card details are recoverable: they're stored encrypted server-side and any later `GET /cards/:id` from the owner wallet returns them again.
