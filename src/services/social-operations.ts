@@ -2333,15 +2333,27 @@ async function updateProfileImage(
     const containerTestId = kind === "avatar" ? "photoInputAvatarItem" : "photoInputBannerItem";
     const legacyTestId = kind === "avatar" ? "photoInput" : "headerInput";
 
+    // Record which selector actually matched, plus how many file inputs the editor
+    // rendered. For a banner op, finding only one input (or zero) is a strong signal
+    // X didn't render the header uploader at all — which cleanly explains a blank
+    // banner. Preserves the original selection order: container → legacy → positional.
+    const fileInputCount = await page.locator('input[type="file"]').count();
+    let inputMethod: "container" | "legacy" | "positional" | "none";
+
     let fileInput = page
       .locator(`[data-testid="${containerTestId}"] input[type="file"]`)
       .first();
-    if ((await fileInput.count()) === 0) {
+    if ((await fileInput.count()) > 0) {
+      inputMethod = "container";
+    } else {
       fileInput = page.locator(`input[type="file"][data-testid="${legacyTestId}"]`).first();
-    }
-    if ((await fileInput.count()) === 0) {
-      // Positional fallback: banner = 0, avatar = 1
-      fileInput = page.locator('input[type="file"]').nth(kind === "avatar" ? 1 : 0);
+      if ((await fileInput.count()) > 0) {
+        inputMethod = "legacy";
+      } else {
+        // Positional fallback: banner = 0, avatar = 1
+        fileInput = page.locator('input[type="file"]').nth(kind === "avatar" ? 1 : 0);
+        inputMethod = (await fileInput.count()) > 0 ? "positional" : "none";
+      }
     }
 
     // Arm the observers BEFORE touching the file input so we capture the whole
@@ -2388,7 +2400,12 @@ async function updateProfileImage(
     // we click Save mid-upload, the 25s wait expires before FINALIZE lands, and
     // the finally-block close() tears the browser down before the set-image call
     // can fire (observed as FINALIZE landing dead-last + a keepalive teardown).
-    await finalizeSettled;
+    // Capture the SETTLED FINALIZE result (the Response, or null on timeout) — not
+    // just that we awaited it — so a failure can distinguish "upload never finalized"
+    // from "finalized but the set-image call never fired".
+    const finalizeResp = await finalizeSettled;
+    const finalize_resolved = !!finalizeResp;
+    const finalize_status: number | null = finalizeResp ? finalizeResp.status() : null;
 
     // Now the top-level Save on the profile editor.
     const saveButton = page
@@ -2419,7 +2436,35 @@ async function updateProfileImage(
     page.off("request", requestLog);
 
     const urlKey = kind === "avatar" ? "avatar_url" : "banner_url";
-    const observed_posts = seenPosts.slice(0, 10);
+
+    // Build an op-RELEVANT network summary. The raw POST log is dominated by
+    // page-load telemetry (viewer_context, ads-api, promoted_content); the old
+    // seenPosts.slice(0,10) truncated the media upload + set-image call clean off,
+    // so a failure could not be diagnosed at all. Filter to the calls that prove
+    // the op progressed and surface them as booleans the next failure reads at a glance.
+    const upload_seen = seenPosts.some((u) => /media\/upload\.json/.test(u));
+    const finalize_seen = seenPosts.some(
+      (u) => /media\/upload\.json/.test(u) && /command=FINALIZE/.test(u)
+    );
+    const set_call_seen = seenPosts.some((u) => apiPattern.test(u));
+    const relevantPosts = seenPosts.filter((u) =>
+      /media\/upload\.json|account\/update_profile|update_profile_image|update_profile_banner|graphql\/[^/]*profile/i.test(u)
+    );
+    const netSummary = {
+      input_method: inputMethod,
+      file_input_count: fileInputCount,
+      upload_seen,
+      finalize_seen,
+      finalize_resolved,
+      finalize_status,
+      set_call_seen,
+      total_post_count: seenPosts.length,
+      observed_posts: relevantPosts.slice(0, 20),
+    };
+    const diag =
+      `input=${inputMethod}(${fileInputCount}) upload=${upload_seen} ` +
+      `finalize=${finalize_resolved}${finalize_status != null ? `/${finalize_status}` : ""} ` +
+      `set_call=${set_call_seen} posts=${seenPosts.length}`;
 
     // X explicitly rejected the write (auth / rate / bad format). A real failure —
     // surface X's own error and don't waste a retry pretending otherwise.
@@ -2440,7 +2485,7 @@ async function updateProfileImage(
         (kind === "avatar" ? apiResult.json?.profile_image_url_https : null) ||
         (await readProfileImageUrl(page, kind)) ||
         undefined;
-      return { success: true, data: { kind, [urlKey]: url, confirmed_by: "api_call", observed_posts } };
+      return { success: true, data: { kind, [urlKey]: url, confirmed_by: "api_call", ...netSummary } };
     }
 
     // apiResult == null: we never caught the set-image call. That is NOT proof of
@@ -2450,7 +2495,7 @@ async function updateProfileImage(
     const afterUrl = await confirmProfileImageUrl(page, kind);
     if (afterUrl && afterUrl !== beforeUrl) {
       recordAction(req.account_id, "twitter", kind);
-      return { success: true, data: { kind, [urlKey]: afterUrl, confirmed_by: "profile_read", observed_posts } };
+      return { success: true, data: { kind, [urlKey]: afterUrl, confirmed_by: "profile_read", ...netSummary } };
     }
 
     // Media uploaded and finalized, but we couldn't confirm the change landed.
@@ -2459,10 +2504,11 @@ async function updateProfileImage(
     return {
       success: false,
       error:
-        `${kind} media uploaded and finalized, but the change could not be confirmed ` +
-        `(profile still shows the previous image). Not an X rejection — safe to retry. ` +
-        `Observed POSTs: ${observed_posts.join(" | ") || "(none)"}. Screenshot: ${shot}`,
+        `${kind} change could not be confirmed (profile still shows the previous image). ` +
+        `Not an X rejection — safe to retry. [${diag}] Relevant POSTs: ` +
+        `${netSummary.observed_posts.join(" | ") || "(none)"}. Screenshot: ${shot}`,
       error_code: "CONFIRMATION_PENDING",
+      data: { kind, confirmed_by: "unconfirmed", ...netSummary },
     };
   } catch (e: any) {
     return browserOpError(e);
