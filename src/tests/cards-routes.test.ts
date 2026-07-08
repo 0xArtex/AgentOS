@@ -11,7 +11,7 @@ process.env.LASO_DAILY_MAX_USD = "100";
 process.env.LASO_AGENT_DAILY_MAX_USD = "50";
 process.env.LASO_CARD_FEE_PCT = "0.03";
 process.env.LASO_CARD_FEE_MIN_USDC = "0.50";
-process.env.LASO_PAYER_EVM_PRIVATE_KEY = process.env.LASO_PAYER_EVM_PRIVATE_KEY || "0x" + "11".repeat(32);
+process.env.LASO_FLOAT_EVM_PRIVATE_KEY = process.env.LASO_FLOAT_EVM_PRIVATE_KEY || "0x" + "11".repeat(32);
 if (!process.env.SECRETS_MASTER_KEY) process.env.ALLOW_INSECURE_SECRETS_KEY = "1";
 
 import { test, beforeEach } from "node:test";
@@ -19,10 +19,10 @@ import assert from "node:assert";
 import { randomUUID } from "crypto";
 import { db } from "../db";
 import { requireCardPayment } from "../routes/cards";
-import { _resetLasoCachesForTest, _setFloatCacheForTest } from "../services/laso";
+import { _resetCardWalletCachesForTest, _setFloatCacheForTest } from "../services/card-payer-wallets";
 
 const PAYER = "0x2222222222222222222222222222222222222222";
-const PAYER_KEY = process.env.LASO_PAYER_EVM_PRIVATE_KEY!;
+const FLOAT_KEY = process.env.LASO_FLOAT_EVM_PRIVATE_KEY!;
 
 function mockReq(over: any = {}): any {
   return { headers: {}, body: {}, method: "POST", originalUrl: "/cards/buy", ...over };
@@ -56,14 +56,15 @@ function insertUsage(owner: string, cardUsd: number, status = "ready"): void {
 
 beforeEach(() => {
   db.prepare("DELETE FROM card_purchases").run();
-  process.env.LASO_PAYER_EVM_PRIVATE_KEY = PAYER_KEY;
-  _resetLasoCachesForTest();
+  process.env.LASO_FLOAT_EVM_PRIVATE_KEY = FLOAT_KEY;
+  _resetCardWalletCachesForTest();
   _setFloatCacheForTest(10_000); // float never blocks unless a test lowers it
 });
 
 test("feature disabled → 503 cards_disabled, wallet not charged", async () => {
-  delete process.env.LASO_PAYER_EVM_PRIVATE_KEY;
-  _resetLasoCachesForTest();
+  delete process.env.LASO_FLOAT_EVM_PRIVATE_KEY;
+  delete process.env.LASO_PAYER_EVM_PRIVATE_KEY; // legacy fallback must be absent too
+  _resetCardWalletCachesForTest();
   const res = mockRes();
   let nextCalled = false;
   await requireCardPayment(mockReq({ body: { amount: 20 } }), res, () => {

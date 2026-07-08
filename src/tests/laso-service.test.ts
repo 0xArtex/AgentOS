@@ -1,37 +1,51 @@
 /**
- * Laso provider client (services/laso.ts).
+ * Laso provider client (services/laso.ts) — per-account context edition.
  *
  * Pins the auth ladder (cached token → refresh grant → SIWX wallet sign-in),
- * encryption-at-rest of the token cache, and the buy flow's error taxonomy
- * (definitive decline vs ambiguous-after-payment) that the card state machine
- * depends on. The SIWX test exercises the REAL @x402/extensions helper against
- * a faked Laso: challenge → EIP-191 signature → verified server-side with the
- * same package's verifier.
+ * and the buy flow's error taxonomy (definitive decline vs ambiguous-after-
+ * payment) that the card state machine depends on. Every function takes an
+ * explicit LasoAuthCtx (wallet + token cache) — the per-agent sharding model
+ * Laso asked for. The SIWX test exercises the REAL @x402/extensions helper
+ * against a faked Laso: challenge → EIP-191 signature → verified server-side
+ * with the same package's verifier.
  */
-import { test, beforeEach } from "node:test";
-import assert from "node:assert";
-import { db } from "../db";
-
-// Env must be in place before the service module loads. The payer key is a
-// deterministic zero-entropy test key (0x1111…11) — not a real secret.
-process.env.LASO_PAYER_EVM_PRIVATE_KEY = process.env.LASO_PAYER_EVM_PRIVATE_KEY || "0x" + "11".repeat(32);
 if (!process.env.SECRETS_MASTER_KEY) process.env.ALLOW_INSECURE_SECRETS_KEY = "1";
 
+import { test } from "node:test";
+import assert from "node:assert";
 import {
-  lasoEnabled,
-  loadLasoPayer,
-  persistTokens,
-  readCachedTokens,
   getLasoIdToken,
   lasoBuyUsCard,
   lasoListCards,
   LasoDeclinedError,
-  _resetLasoCachesForTest,
 } from "../services/laso";
+import type { LasoAuthCtx } from "../services/card-payer-wallets";
 
 // eslint-disable-next-line @typescript-eslint/no-var-requires
-const { ethers: testEthers } = require("ethers");
-const TEST_ADDR = new testEthers.Wallet(process.env.LASO_PAYER_EVM_PRIVATE_KEY!).address;
+const { ethers } = require("ethers");
+// Deterministic zero-entropy test key (0x1111…11) — not a real secret.
+const wallet = new ethers.Wallet("0x" + "11".repeat(32));
+const TEST_ADDR = wallet.address;
+
+/** In-memory auth context standing in for a card_payer_wallets row. */
+function makeCtx(seed?: { id_token: string; refresh_token: string; ageMs?: number }): LasoAuthCtx & {
+  persisted: Array<{ id: string; refresh: string }>;
+} {
+  let tokens = seed
+    ? { id_token: seed.id_token, refresh_token: seed.refresh_token, obtained_at_ms: Date.now() - (seed.ageMs ?? 0) }
+    : null;
+  const persisted: Array<{ id: string; refresh: string }> = [];
+  return {
+    wallet,
+    persisted,
+    readTokens: () => tokens,
+    persistTokens(id: string, refresh: string) {
+      tokens = { id_token: id, refresh_token: refresh, obtained_at_ms: Date.now() };
+      persisted.push({ id, refresh });
+    },
+  };
+}
+
 const LASO_REQ = {
   scheme: "exact",
   network: "eip155:8453",
@@ -60,53 +74,26 @@ function json(status: number, body: any, headers: Record<string, string> = {}): 
   });
 }
 
-beforeEach(() => {
-  db.prepare("DELETE FROM laso_account_tokens").run();
-  _resetLasoCachesForTest();
-});
-
-test("payer wallet loads from env and gates the feature", () => {
-  assert.strictEqual(lasoEnabled(), true);
-  const w = loadLasoPayer();
-  assert.strictEqual(w.address, TEST_ADDR);
-});
-
-test("token cache roundtrips and is ciphertext at rest", () => {
-  persistTokens("id-token-1", "refresh-token-1");
-  const raw = db.prepare("SELECT tokens_ciphertext FROM laso_account_tokens WHERE id = 1").get() as any;
-  assert.ok(raw.tokens_ciphertext.startsWith("enc:v1:"));
-  assert.ok(!raw.tokens_ciphertext.includes("id-token-1"));
-  const tokens = readCachedTokens();
-  assert.strictEqual(tokens!.id_token, "id-token-1");
-  assert.strictEqual(tokens!.refresh_token, "refresh-token-1");
-});
-
 test("getLasoIdToken serves a fresh cached token without any network call", async () => {
-  persistTokens("fresh-token", "refresh-1");
+  const ctx = makeCtx({ id_token: "fresh-token", refresh_token: "r1" });
   const fetchImpl = (async () => {
     throw new Error("should not be called");
   }) as any;
-  assert.strictEqual(await getLasoIdToken(fetchImpl), "fresh-token");
+  assert.strictEqual(await getLasoIdToken(ctx, fetchImpl), "fresh-token");
 });
 
 test("getLasoIdToken refreshes a stale token via the refresh_token grant", async () => {
-  persistTokens("stale-token", "refresh-1");
-  // Age the cache row past the staleness window.
-  db.prepare("UPDATE laso_account_tokens SET obtained_at = ? WHERE id = 1").run(
-    new Date(Date.now() - 60 * 60 * 1000).toISOString()
-  );
+  const ctx = makeCtx({ id_token: "stale-token", refresh_token: "refresh-1", ageMs: 60 * 60 * 1000 });
   let refreshBody: any = null;
   const fetchImpl = (async (input: any, init?: RequestInit) => {
-    const url = String(input);
-    assert.ok(url.endsWith("/auth"));
+    assert.ok(String(input).endsWith("/auth"));
     refreshBody = JSON.parse(String(init?.body));
     return json(200, { auth: { id_token: "new-id", refresh_token: "new-refresh", expires_in: "3600" } });
   }) as any;
-  assert.strictEqual(await getLasoIdToken(fetchImpl), "new-id");
+  assert.strictEqual(await getLasoIdToken(ctx, fetchImpl), "new-id");
   assert.strictEqual(refreshBody.grant_type, "refresh_token");
   assert.strictEqual(refreshBody.refresh_token, "refresh-1");
-  // New tokens persisted for the next caller.
-  assert.strictEqual(readCachedTokens()!.id_token, "new-id");
+  assert.deepStrictEqual(ctx.persisted.at(-1), { id: "new-id", refresh: "new-refresh" });
 });
 
 test("getLasoIdToken falls back to SIWX sign-in when no cache exists (real helper, verified signature)", async () => {
@@ -143,8 +130,6 @@ test("getLasoIdToken falls back to SIWX sign-in when no cache exists (real helpe
         },
       });
     }
-    // Server side of the exchange: parse + cryptographically verify the proof
-    // with the same package Laso uses.
     const payload = siwx.parseSIWxHeader(header);
     assert.strictEqual(payload.address.toLowerCase(), TEST_ADDR.toLowerCase());
     const verdict = await siwx.verifySIWxSignature(payload);
@@ -153,12 +138,13 @@ test("getLasoIdToken falls back to SIWX sign-in when no cache exists (real helpe
     return json(200, { auth: { id_token: "siwx-id", refresh_token: "siwx-refresh", expires_in: "3600" }, user_id: TEST_ADDR });
   }) as any;
 
-  assert.strictEqual(await getLasoIdToken(fetchImpl), "siwx-id");
+  const ctx = makeCtx();
+  assert.strictEqual(await getLasoIdToken(ctx, fetchImpl), "siwx-id");
   assert.strictEqual(sawVerifiedSignIn, true);
-  assert.strictEqual(readCachedTokens()!.id_token, "siwx-id");
+  assert.deepStrictEqual(ctx.persisted.at(-1), { id: "siwx-id", refresh: "siwx-refresh" });
 });
 
-test("lasoBuyUsCard pays the challenge, returns the card handle, persists tokens", async () => {
+test("lasoBuyUsCard pays with the ctx wallet, returns the card handle, persists tokens", async () => {
   const nonces: string[] = [];
   const fetchImpl = (async (input: any, init?: RequestInit) => {
     const url = String(input);
@@ -168,6 +154,7 @@ test("lasoBuyUsCard pays the challenge, returns the card handle, persists tokens
     if (!payment) return challenge402();
     const decoded = JSON.parse(Buffer.from(payment, "base64").toString("utf8"));
     assert.strictEqual(decoded.payload.authorization.value, "20000000");
+    assert.strictEqual(decoded.payload.authorization.from.toLowerCase(), TEST_ADDR.toLowerCase());
     return json(200, {
       auth: { id_token: "buy-id", refresh_token: "buy-refresh", expires_in: "3600" },
       user_id: TEST_ADDR.toLowerCase(),
@@ -175,21 +162,22 @@ test("lasoBuyUsCard pays the challenge, returns the card handle, persists tokens
     });
   }) as any;
 
-  const out = await lasoBuyUsCard(20, (info) => {
+  const ctx = makeCtx();
+  const out = await lasoBuyUsCard(ctx, 20, (info) => {
     nonces.push(info.nonce);
   }, fetchImpl);
   assert.strictEqual(out.cardId, "card_abc");
   assert.strictEqual(out.status, "pending");
   assert.strictEqual(out.paidUsdc, 20);
   assert.strictEqual(out.nonce, nonces[0]);
-  // Tokens from the paid response are cached for the poll loop.
-  assert.strictEqual(readCachedTokens()!.id_token, "buy-id");
+  // Tokens from the paid response are persisted for the poll loop.
+  assert.deepStrictEqual(ctx.persisted.at(-1), { id: "buy-id", refresh: "buy-refresh" });
 });
 
 test("lasoBuyUsCard: probe-level 4xx (never paid) raises LasoDeclinedError", async () => {
   const fetchImpl = (async () => json(400, { error: "Amount must be at least $5. Received: $2" })) as any;
   await assert.rejects(
-    lasoBuyUsCard(2, () => {}, fetchImpl),
+    lasoBuyUsCard(makeCtx(), 2, () => {}, fetchImpl),
     (e: any) => e instanceof LasoDeclinedError && e.httpStatus === 400
   );
 });
@@ -202,7 +190,7 @@ test("lasoBuyUsCard: 402 AFTER payment is ambiguous and carries the nonce", asyn
     return challenge402(); // payment rejected → fresh challenge
   }) as any;
   await assert.rejects(
-    lasoBuyUsCard(20, (i) => {
+    lasoBuyUsCard(makeCtx(), 20, (i) => {
       nonce = i.nonce;
     }, fetchImpl),
     (e: any) => e.ambiguous === true && e.nonce === nonce
@@ -224,7 +212,7 @@ test("lasoBuyUsCard: upstream asking MORE than the card amount aborts before sig
       },
     })) as any;
   await assert.rejects(
-    lasoBuyUsCard(20, () => {
+    lasoBuyUsCard(makeCtx(), 20, () => {
       signed++;
     }, fetchImpl),
     /exceeds the ceiling/

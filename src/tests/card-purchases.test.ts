@@ -53,8 +53,8 @@ function insertJob(over: Partial<CardPurchaseRow> = {}): string {
   db.prepare(
     `INSERT INTO card_purchases
        (id, owner, payment_signature, payment_chain, charged_usdc, card_usd, fee_usdc, status,
-        laso_card_id, payment_nonce, payment_valid_before, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        laso_card_id, payment_nonce, payment_valid_before, payer_address, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     id,
     over.owner ?? OWNER,
@@ -67,12 +67,14 @@ function insertJob(over: Partial<CardPurchaseRow> = {}): string {
     over.laso_card_id ?? null,
     over.payment_nonce ?? null,
     over.payment_valid_before ?? null,
+    over.payer_address ?? null,
     over.created_at ?? new Date().toISOString()
   );
   return id;
 }
 
 interface Calls {
+  funded: number;
   buy: number;
   poll: number;
   list: number;
@@ -81,6 +83,8 @@ interface Calls {
   withdraw: number;
   refund: number;
   refundDashboard: number;
+  lastFunded?: { owner: string; amountUsd: number };
+  lastConsumedPayer?: string;
   lastRefund?: any;
   lastDashboardRefund?: any;
   lastWithdraw?: number;
@@ -95,10 +99,22 @@ const READY_DETAILS = {
 };
 
 function makeDeps(over: Partial<CardPurchaseDeps> = {}): { deps: CardPurchaseDeps; calls: Calls } {
-  const calls: Calls = { buy: 0, poll: 0, list: 0, consumed: 0, balance: 0, withdraw: 0, refund: 0, refundDashboard: 0 };
+  const calls: Calls = {
+    funded: 0,
+    buy: 0,
+    poll: 0,
+    list: 0,
+    consumed: 0,
+    balance: 0,
+    withdraw: 0,
+    refund: 0,
+    refundDashboard: 0,
+  };
+  const baseFunded: CardPurchaseDeps["ensureFunded"] =
+    over.ensureFunded ?? (async () => ({ address: PAYER, fundedUsdc: 20, fundingTx: "0xfund" }));
   const baseBuy: CardPurchaseDeps["buyCard"] =
     over.buyCard ??
-    (async (amountUsd, onBeforePay) => {
+    (async (_owner, amountUsd, onBeforePay) => {
       await onBeforePay({ nonce: "0x" + "aa".repeat(32), validBefore: Math.floor(Date.now() / 1000) + 600 });
       return {
         cardId: "laso-happy",
@@ -110,7 +126,8 @@ function makeDeps(over: Partial<CardPurchaseDeps> = {}): { deps: CardPurchaseDep
       } as any;
     });
   const basePoll: CardPurchaseDeps["getCardData"] =
-    over.getCardData ?? (async (id) => ({ card_id: id, status: "ready", usd_amount: 20, card_details: READY_DETAILS }));
+    over.getCardData ??
+    (async (_owner, id) => ({ card_id: id, status: "ready", usd_amount: 20, card_details: READY_DETAILS }));
   const baseList = over.listCards ?? (async () => []);
   const baseConsumed = over.authorizationConsumed ?? (async () => false);
   const baseBalance = over.accountBalance ?? (async () => 0);
@@ -119,30 +136,36 @@ function makeDeps(over: Partial<CardPurchaseDeps> = {}): { deps: CardPurchaseDep
   const baseRefundDashboard = over.refundDashboard ?? (() => {});
 
   const deps: CardPurchaseDeps = {
-    buyCard: (a, cb) => {
+    ensureFunded: (o, a) => {
+      calls.funded++;
+      calls.lastFunded = { owner: o, amountUsd: a };
+      return baseFunded(o, a);
+    },
+    buyCard: (o, a, cb) => {
       calls.buy++;
-      return baseBuy(a, cb);
+      return baseBuy(o, a, cb);
     },
-    getCardData: (id) => {
+    getCardData: (o, id) => {
       calls.poll++;
-      return basePoll(id);
+      return basePoll(o, id);
     },
-    listCards: () => {
+    listCards: (o) => {
       calls.list++;
-      return baseList();
+      return baseList(o);
     },
     authorizationConsumed: (p, n) => {
       calls.consumed++;
+      calls.lastConsumedPayer = p;
       return baseConsumed(p, n);
     },
-    accountBalance: () => {
+    accountBalance: (o) => {
       calls.balance++;
-      return baseBalance();
+      return baseBalance(o);
     },
-    withdraw: (amt) => {
+    withdraw: (o, amt) => {
       calls.withdraw++;
       calls.lastWithdraw = amt;
-      return baseWithdraw(amt);
+      return baseWithdraw(o, amt);
     },
     refund: (o) => {
       calls.refund++;
@@ -154,7 +177,7 @@ function makeDeps(over: Partial<CardPurchaseDeps> = {}): { deps: CardPurchaseDep
       calls.lastDashboardRefund = { uid, amt, ref, reason };
       baseRefundDashboard(uid, amt, ref, reason);
     },
-    payerAddress: over.payerAddress ?? (() => PAYER),
+    payerAddressFor: over.payerAddressFor ?? (() => PAYER),
     pollIntervalMs: over.pollIntervalMs ?? 5,
     pollBudgetMs: over.pollBudgetMs ?? 400,
   };
@@ -200,6 +223,10 @@ test("happy path: pending → purchasing → provisioning → ready, details enc
   assert.strictEqual(job.upstream_paid_usdc, 20);
   assert.strictEqual(job.last4, "4444");
   assert.strictEqual(job.available_balance, 20);
+  assert.strictEqual(job.payer_address, PAYER); // the owner's own payer wallet
+  assert.strictEqual(job.funding_tx, "0xfund"); // audit handle for the top-up
+  assert.strictEqual(calls.funded, 1);
+  assert.deepStrictEqual(calls.lastFunded, { owner: OWNER, amountUsd: 20 });
   assert.ok(job.payment_nonce!.startsWith("0x")); // persisted pre-send
   assert.ok(job.card_ciphertext!.startsWith("enc:v1:"));
   assert.ok(!job.card_ciphertext!.includes("4111")); // PAN not in plaintext
@@ -246,7 +273,7 @@ test("probe-level decline: failed + agent auto-refunded once", async () => {
 // ─── Ambiguous outcomes → oracle-driven reconcile ───
 
 function ambiguousBuy(validBeforeOffsetSec: number): CardPurchaseDeps["buyCard"] {
-  return async (_amt, onBeforePay) => {
+  return async (_owner, _amt, onBeforePay) => {
     await onBeforePay({
       nonce: "0x" + "cc".repeat(32),
       validBefore: Math.floor(Date.now() / 1000) + validBeforeOffsetSec,
@@ -256,6 +283,53 @@ function ambiguousBuy(validBeforeOffsetSec: number): CardPurchaseDeps["buyCard"]
     throw err;
   };
 }
+
+// ─── Funding step ───
+
+test("insolvent float → definitive failure + refund, buy never attempted", async () => {
+  const id = insertJob();
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { CardFundingError } = require("../services/card-payer-wallets");
+  const { deps, calls } = makeDeps({
+    ensureFunded: async () => {
+      throw new CardFundingError("float wallet holds $3 but $20 is needed", true);
+    },
+  });
+  await runCardPurchase(id, deps);
+  const job = getCardPurchase(id)!;
+  assert.strictEqual(job.status, "failed");
+  assert.strictEqual(job.error_code, "float_insufficient");
+  assert.strictEqual(job.refund_status, "sent");
+  assert.strictEqual(calls.buy, 0);
+  assert.strictEqual(calls.refund, 1);
+});
+
+test("funding hiccup (RPC/transfer) → parked back to pending, NO refund; sweep re-runs to ready", async () => {
+  const staleTs = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const id = insertJob({ created_at: staleTs });
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { CardFundingError } = require("../services/card-payer-wallets");
+  let fundAttempts = 0;
+  const { deps, calls } = makeDeps({
+    ensureFunded: async () => {
+      fundAttempts++;
+      if (fundAttempts === 1) throw new CardFundingError("rpc down", false);
+      return { address: PAYER, fundedUsdc: 20, fundingTx: "0xretry" };
+    },
+  });
+  await runCardPurchase(id, deps);
+  let job = getCardPurchase(id)!;
+  assert.strictEqual(job.status, "pending"); // parked — money (if any moved) is in OUR wallet
+  assert.strictEqual(job.error_code, "funding_retry");
+  assert.strictEqual(calls.refund, 0);
+  assert.strictEqual(calls.buy, 0);
+
+  await recoverStuckCardPurchases(deps); // sweep re-runs; shortfall logic self-heals
+  job = getCardPurchase(id)!;
+  assert.strictEqual(job.status, "ready");
+  assert.strictEqual(fundAttempts, 2);
+  assert.strictEqual(calls.buy, 1);
+});
 
 test("ambiguous + unused nonce + window still open → deferred, NO refund", async () => {
   const id = insertJob();

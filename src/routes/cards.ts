@@ -21,13 +21,8 @@ import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest } from "../types";
 import { refundAndRespond } from "../services/refund";
 import { config } from "../config";
-import {
-  lasoEnabled,
-  lasoPayerFloat,
-  lasoGetCardData,
-  lasoRefreshCardData,
-  getLasoIdToken,
-} from "../services/laso";
+import { lasoGetCardData, lasoRefreshCardData, getLasoIdToken } from "../services/laso";
+import { lasoEnabled, floatUsdcBalance, payerAuthCtx } from "../services/card-payer-wallets";
 import {
   cardPriceUsdc,
   cardFeeUsdc,
@@ -134,9 +129,11 @@ async function requireCardPayment(req: AuthenticatedRequest, res: Response, next
     return;
   }
 
-  // Operator float: refuse orders the payer wallet can't fund upstream.
-  // Unknown float (RPC blip) proceeds — the job reconciles safely either way.
-  const float = await lasoPayerFloat();
+  // Operator float: refuse orders the float wallet can't fund. (Per-agent
+  // payer wallets are topped up just-in-time from this float — see
+  // card-payer-wallets.ts.) Unknown float (RPC blip) proceeds — the job
+  // reconciles safely either way.
+  const float = await floatUsdcBalance();
   if (float != null && float < amount) {
     console.error(`[cards] payer float too low: have $${float}, need $${amount}`);
     res.setHeader("Retry-After", "300");
@@ -399,7 +396,7 @@ router.post(
       return;
     }
     try {
-      const idToken = await getLasoIdToken();
+      const idToken = await getLasoIdToken(payerAuthCtx(job.owner));
       // Best-effort re-scrape request; the follow-up read returns whatever the
       // issuer currently has even when the re-scrape was rate-limited.
       const refresh = await lasoRefreshCardData(job.laso_card_id, idToken);
