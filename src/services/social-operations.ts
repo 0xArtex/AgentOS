@@ -2394,7 +2394,33 @@ async function updateProfileImage(
       )
       .first();
     await applyButton.waitFor({ state: "visible", timeout: 20000 });
+    // Diagnostic: what did the SHARED Apply selector actually resolve to for this
+    // kind? Banner uploads INIT then die with no APPEND/FINALIZE — is the banner
+    // "Apply" a different/wrong control than the avatar crop-modal's applyButton?
+    const apply_testid = await applyButton.getAttribute("data-testid").catch(() => null);
+    const apply_text = ((await applyButton.textContent().catch(() => "")) || "").trim().slice(0, 40);
     await applyButton.click({ timeout: 5000 });
+
+    // Editor state RIGHT AFTER Apply — before Save and the confirm-reload wipe it —
+    // pins where the banner upload stalls after INIT (is the crop dialog still open?
+    // did the banner region get the blob preview?). Guarded string eval (no DOM types).
+    const postApplyDom: any = await page
+      .evaluate(`(() => {
+        try {
+          const scheme = (el) => {
+            if (!el) return "none";
+            const raw = el.tagName === "IMG" ? (el.src || "") : (((el.style && el.style.backgroundImage) || "").match(/url\\(["']?(.*?)["']?\\)/) || [null, ""])[1];
+            return !raw ? "none" : (raw.indexOf("blob:") === 0 ? "blob" : (raw.indexOf("http") === 0 ? "http" : "other"));
+          };
+          return {
+            dialogOpen: !!document.querySelector('[role="dialog"]'),
+            fileInputCount: document.querySelectorAll('input[type="file"]').length,
+            bannerScheme: scheme(document.querySelector('[data-testid="photoInputBannerItem"] img, [data-testid="photoInputBannerItem"] [style*="background-image"]')),
+            avatarScheme: scheme(document.querySelector('[data-testid="photoInputAvatarItem"] img, [data-testid="photoInputAvatarItem"] [style*="background-image"]'))
+          };
+        } catch (e) { return { error: String((e && e.message) || e) }; }
+      })()`)
+      .catch(() => null);
 
     // Gate the Save on media readiness — see finalizeSettled above. Without this
     // we click Save mid-upload, the 25s wait expires before FINALIZE lands, and
@@ -2415,6 +2441,8 @@ async function updateProfileImage(
       )
       .first();
     await saveButton.waitFor({ state: "visible", timeout: 15000 });
+    const save_testid = await saveButton.getAttribute("data-testid").catch(() => null);
+    const save_text = ((await saveButton.textContent().catch(() => "")) || "").trim().slice(0, 40);
 
     // X's specific endpoint patterns for each image kind. Keep these tight
     // because a generic `update_profile.json` also fires on Save for
@@ -2459,12 +2487,19 @@ async function updateProfileImage(
       finalize_status,
       set_call_seen,
       total_post_count: seenPosts.length,
+      apply_testid,
+      apply_text,
+      save_testid,
+      save_text,
+      post_apply: postApplyDom,
       observed_posts: relevantPosts.slice(0, 20),
     };
     const diag =
       `input=${inputMethod}(${fileInputCount}) upload=${upload_seen} ` +
       `finalize=${finalize_resolved}${finalize_status != null ? `/${finalize_status}` : ""} ` +
-      `set_call=${set_call_seen} posts=${seenPosts.length}`;
+      `set_call=${set_call_seen} posts=${seenPosts.length} ` +
+      `apply=${apply_testid}/"${apply_text}" save=${save_testid}/"${save_text}" ` +
+      `postApply=${postApplyDom ? JSON.stringify(postApplyDom) : "null"}`;
 
     // X explicitly rejected the write (auth / rate / bad format). A real failure —
     // surface X's own error and don't waste a retry pretending otherwise.
