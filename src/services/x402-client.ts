@@ -340,7 +340,11 @@ export async function paidFetch(url: string, opts: PaidFetchOptions): Promise<Pa
   const encoded = encodeXPayment(signed, requirement, parsed!.resource, parsed!.extensions);
   const paidInit: RequestInit = {
     method,
-    headers: { ...baseHeaders, "X-PAYMENT": encoded },
+    // x402 v2 servers (@x402/core readers — Laso included) look ONLY at
+    // PAYMENT-SIGNATURE; X-PAYMENT is the v1 name. Send both so either
+    // generation of upstream sees the payment. (Live-confirmed 2026-07-09:
+    // X-PAYMENT alone gets a fresh 402 re-challenge from Laso.)
+    headers: { ...baseHeaders, "PAYMENT-SIGNATURE": encoded, "X-PAYMENT": encoded },
   };
   if (opts.body && method !== "GET" && method !== "HEAD") paidInit.body = opts.body;
 

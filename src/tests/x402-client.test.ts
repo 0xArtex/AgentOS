@@ -175,10 +175,13 @@ test("paidFetch pays a header-challenge 402 and surfaces the settle receipt", as
   const fetchImpl = (async (input: any, init?: RequestInit) => {
     const url = String(input);
     const headers = new Headers(init?.headers as any);
-    const payment = headers.get("x-payment");
+    // v2 servers read ONLY payment-signature (x-payment is the v1 name) —
+    // this stub reads the v2 header and ALSO asserts both are sent equal.
+    const payment = headers.get("payment-signature");
     calls.push({ url, payment });
     events.push(payment ? "paid-request" : "probe");
     if (!payment) return headerChallengeResponse();
+    assert.strictEqual(headers.get("x-payment"), payment); // v1 alias carried too
     // Verify the paid retry carries a decodable, spec-shaped payload.
     const decoded = JSON.parse(Buffer.from(payment, "base64").toString("utf8"));
     assert.strictEqual(decoded.x402Version, 2);
