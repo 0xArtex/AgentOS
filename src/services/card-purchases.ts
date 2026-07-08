@@ -1,5 +1,5 @@
 /**
- * Async prepaid-card purchases (Laso Finance upstream).
+ * Async prepaid-card purchases (Laso Finance upstream, per-agent accounts).
  *
  * Modeled on domain-registration.ts — the money-moving, non-idempotent,
  * externally-side-effecting job class: the agent's USDC settles to our
@@ -9,18 +9,27 @@
  * oracles instead of guessing:
  *
  *   1. authorizationConsumed(payer, nonce) — the on-chain EIP-3009 state on
- *      Base USDC. We persist the payment nonce BEFORE the paid request goes
- *      out, so after any crash we can ask the chain "did that exact payment
- *      move money?". Unused + validBefore expired ⇒ provably never paid ⇒
- *      safe to auto-refund the agent. Consumed ⇒ money reached Laso ⇒ go
- *      find what it bought.
- *   2. Laso's own account state — lasoListCards() finds an orphaned card a
- *      crashed job paid for (adopt it), and the account balance catches the
- *      settled-but-no-card case (Laso credits unfulfilled charges to the
- *      account; withdraw + refund the agent).
+ *      Base USDC. We persist the payment nonce (and the payer address) BEFORE
+ *      the paid request goes out, so after any crash we can ask the chain
+ *      "did that exact payment move money?". Unused + validBefore expired ⇒
+ *      provably never paid ⇒ safe to auto-refund the agent. Consumed ⇒ money
+ *      reached Laso ⇒ go find what it bought.
+ *   2. Laso's own account state — lasoListCards() on the OWNER'S account
+ *      finds an orphaned card a crashed job paid for (adopt it), and the
+ *      account balance catches the settled-but-no-card case (Laso credits
+ *      unfulfilled charges to the account; withdraw + refund the agent).
+ *
+ * Per-agent sharding (Laso's guidance, 2026-07-09): every owner buys through
+ * its own dedicated payer wallet (services/card-payer-wallets.ts) = its own
+ * Laso account. The worker gains a FUNDING step — the operator's float wallet
+ * tops the owner's payer wallet up by the shortfall just-in-time. Funding is
+ * crash-safe by construction: money only ever moves between wallets WE hold,
+ * and shortfall-only top-ups mean a re-run after any partial state converges
+ * instead of double-funding. Fund+buy runs under a per-owner lock.
  *
  * Lifecycle: pending → purchasing → provisioning → (ready | failed)
- *   pending      — row exists, upstream untouched (safe to re-run)
+ *   pending      — row exists, upstream untouched (safe to re-run; a funding
+ *                  hiccup parks the job back here for the sweep)
  *   purchasing   — payment may have been sent (reconcile only, never re-buy)
  *   provisioning — Laso confirmed the purchase (card_id held); polling for
  *                  PAN/CVV. The card EXISTS: this state never refunds.
@@ -46,12 +55,19 @@ import {
   lasoAccountBalance,
   lasoWithdraw,
   getLasoIdToken,
-  clearCachedTokens,
-  loadLasoPayer,
   LasoBuyResult,
   LasoCardData,
   LasoDeclinedError,
 } from "./laso";
+import {
+  payerAuthCtx,
+  payerAddressFor,
+  ensurePayerFunded,
+  clearPayerTokens,
+  withOwnerLock,
+  CardFundingError,
+  EnsureFundedResult,
+} from "./card-payer-wallets";
 import { authorizationConsumed } from "./x402-client";
 
 const DASHBOARD_OWNER_PREFIX = "dashboard:";
@@ -75,6 +91,8 @@ export interface CardPurchaseRow {
   upstream_paid_usdc: number | null;
   payment_nonce: string | null;
   payment_valid_before: number | null;
+  payer_address: string | null;
+  funding_tx: string | null;
   card_ciphertext: string | null;
   last4: string | null;
   available_balance: number | null;
@@ -105,6 +123,8 @@ db.exec(`
     upstream_paid_usdc REAL,
     payment_nonce TEXT,
     payment_valid_before INTEGER,
+    payer_address TEXT,
+    funding_tx TEXT,
     card_ciphertext TEXT,
     last4 TEXT,
     available_balance REAL,
@@ -121,6 +141,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_card_purchases_status ON card_purchases(status);
   CREATE INDEX IF NOT EXISTS idx_card_purchases_created ON card_purchases(created_at);
 `);
+// Pre-sharding dev DBs created the table without the per-agent columns.
+{
+  const cols = db.prepare("PRAGMA table_info(card_purchases)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "payer_address")) db.exec("ALTER TABLE card_purchases ADD COLUMN payer_address TEXT");
+  if (!cols.some((c) => c.name === "funding_tx")) db.exec("ALTER TABLE card_purchases ADD COLUMN funding_tx TEXT");
+}
 
 const nowIso = () => new Date().toISOString();
 
@@ -208,41 +234,44 @@ export class CardLimitError extends Error {
 // ─── Dependency injection (testability — every oracle/side-effect is a dep) ───
 
 export interface CardPurchaseDeps {
-  /** Paid upstream purchase. onBeforePay persists the nonce pre-send. */
+  /** Top the owner's payer wallet up to `amountUsd` (shortfall-only). */
+  ensureFunded: (owner: string, amountUsd: number) => Promise<EnsureFundedResult>;
+  /** Paid upstream purchase from the owner's wallet. onBeforePay persists the nonce pre-send. */
   buyCard: (
+    owner: string,
     amountUsd: number,
     onBeforePay: (info: { nonce: string; validBefore: number }) => void | Promise<void>
   ) => Promise<LasoBuyResult>;
-  /** Poll one card (auth handled internally; retries once on token rejection). */
-  getCardData: (lasoCardId: string) => Promise<LasoCardData>;
-  /** Reconciliation: every card on the upstream account. */
-  listCards: () => Promise<LasoCardData[]>;
-  /** On-chain oracle: was our EIP-3009 authorization redeemed? */
-  authorizationConsumed: (payer: string, nonce: string) => Promise<boolean>;
-  /** Upstream account balance (settled-but-unfulfilled charges land here). */
-  accountBalance: () => Promise<number>;
-  /** Recover stranded upstream balance to the payer wallet (best-effort). */
-  withdraw: (amountUsd: number) => Promise<void>;
+  /** Poll one card on the owner's account (auth handled internally; retries once on token rejection). */
+  getCardData: (owner: string, lasoCardId: string) => Promise<LasoCardData>;
+  /** Reconciliation: every card on the owner's upstream account. */
+  listCards: (owner: string) => Promise<LasoCardData[]>;
+  /** On-chain oracle: was this exact EIP-3009 authorization redeemed? */
+  authorizationConsumed: (payerAddress: string, nonce: string) => Promise<boolean>;
+  /** The owner's upstream account balance (settled-but-unfulfilled charges land here). */
+  accountBalance: (owner: string) => Promise<number>;
+  /** Recover stranded upstream balance to the owner's payer wallet (best-effort). */
+  withdraw: (owner: string, amountUsd: number) => Promise<void>;
   /** Refund the agent on definitive failure (idempotent on signature). */
   refund: (opts: RefundOpts) => Promise<RefundResult>;
   /** Dashboard-balance payers get an internal credit instead. */
   refundDashboard: (userId: string, amountUsdc: number, referenceId: string, reason: string) => void;
-  /** Payer wallet address (nonce oracle needs it). */
-  payerAddress: () => string | null;
+  /** The owner's payer wallet address (nonce-oracle fallback for legacy rows). */
+  payerAddressFor: (owner: string) => string | null;
   /** Poll cadence/budget (tests shrink these). */
   pollIntervalMs?: number;
   pollBudgetMs?: number;
 }
 
-function defaultGetCardData(): (lasoCardId: string) => Promise<LasoCardData> {
-  return async (lasoCardId: string) => {
+function defaultGetCardData(): (owner: string, lasoCardId: string) => Promise<LasoCardData> {
+  return async (owner: string, lasoCardId: string) => {
     try {
-      return await lasoGetCardData(lasoCardId, await getLasoIdToken());
+      return await lasoGetCardData(lasoCardId, await getLasoIdToken(payerAuthCtx(owner)));
     } catch (e: any) {
       if (String(e?.message || "").startsWith("laso_auth_rejected")) {
         // Token went stale mid-loop — force the refresh/SIWX ladder once.
-        clearCachedTokens();
-        return await lasoGetCardData(lasoCardId, await getLasoIdToken());
+        clearPayerTokens(owner);
+        return await lasoGetCardData(lasoCardId, await getLasoIdToken(payerAuthCtx(owner)));
       }
       throw e;
     }
@@ -251,19 +280,20 @@ function defaultGetCardData(): (lasoCardId: string) => Promise<LasoCardData> {
 
 export function defaultCardDeps(): CardPurchaseDeps {
   return {
-    buyCard: (amountUsd, onBeforePay) => lasoBuyUsCard(amountUsd, onBeforePay),
+    ensureFunded: (owner, amountUsd) => ensurePayerFunded(owner, amountUsd),
+    buyCard: (owner, amountUsd, onBeforePay) => lasoBuyUsCard(payerAuthCtx(owner), amountUsd, onBeforePay),
     getCardData: defaultGetCardData(),
-    listCards: async () => lasoListCards(await getLasoIdToken()),
-    authorizationConsumed: (payer, nonce) => authorizationConsumed(payer, nonce),
-    accountBalance: async () => lasoAccountBalance(await getLasoIdToken()),
-    withdraw: async (amountUsd) => {
-      await lasoWithdraw(amountUsd, await getLasoIdToken());
+    listCards: async (owner) => lasoListCards(await getLasoIdToken(payerAuthCtx(owner))),
+    authorizationConsumed: (payerAddress, nonce) => authorizationConsumed(payerAddress, nonce),
+    accountBalance: async (owner) => lasoAccountBalance(await getLasoIdToken(payerAuthCtx(owner))),
+    withdraw: async (owner, amountUsd) => {
+      await lasoWithdraw(amountUsd, await getLasoIdToken(payerAuthCtx(owner)));
     },
     refund: (opts) => refundUsdcToPayer(opts),
     refundDashboard: (userId, amountUsdc, referenceId, reason) => {
       balanceService.refund(userId, amountUsdc, `card purchase refund: ${reason}`, referenceId);
     },
-    payerAddress: () => loadLasoPayer()?.address ?? null,
+    payerAddressFor: (owner) => payerAddressFor(owner),
   };
 }
 
@@ -347,18 +377,54 @@ export async function runCardPurchase(jobId: string, deps: CardPurchaseDeps = de
     jobId
   );
 
+  // Fund + buy under the per-owner lock so two purchases by the same owner
+  // can't race the shortfall computation into a double-fund.
   let bought: LasoBuyResult;
   try {
-    bought = await deps.buyCard(job.card_usd, (info) => {
-      // Persist the reconciliation handle BEFORE the payment can reach the
-      // wire. If we die after this line, the nonce tells the truth later.
-      db.prepare("UPDATE card_purchases SET payment_nonce = ?, payment_valid_before = ? WHERE id = ?").run(
-        info.nonce,
-        info.validBefore,
+    bought = await withOwnerLock(job.owner, async () => {
+      // ── Funding step ──
+      let funded: EnsureFundedResult;
+      try {
+        funded = await deps.ensureFunded(job.owner, job.card_usd);
+      } catch (e: any) {
+        if (e instanceof CardFundingError && e.definitive) throw e;
+        // Non-definitive (RPC hiccup, transfer timeout): the money — if any
+        // moved — is in a wallet WE hold, and the next attempt only funds the
+        // remaining shortfall. Park back to 'pending' for the sweep.
+        const parked: any = new CardFundingError(String(e?.message || e), false);
+        throw parked;
+      }
+      db.prepare("UPDATE card_purchases SET payer_address = ?, funding_tx = COALESCE(?, funding_tx) WHERE id = ?").run(
+        funded.address,
+        funded.fundingTx,
         jobId
       );
+
+      // ── Purchase step ──
+      return deps.buyCard(job.owner, job.card_usd, (info) => {
+        // Persist the reconciliation handle BEFORE the payment can reach the
+        // wire. If we die after this line, the nonce tells the truth later.
+        db.prepare("UPDATE card_purchases SET payment_nonce = ?, payment_valid_before = ? WHERE id = ?").run(
+          info.nonce,
+          info.validBefore,
+          jobId
+        );
+      });
     });
   } catch (e: any) {
+    if (e instanceof CardFundingError) {
+      if (e.definitive) {
+        // Float wallet missing/insolvent — nothing moved. Definitive.
+        const reason = `funding_failed: ${e.message}`;
+        markFailed(jobId, "float_insufficient", reason);
+        await issueRefund(getCardPurchase(jobId)!, deps, reason);
+      } else {
+        db.prepare(
+          "UPDATE card_purchases SET status = 'pending', error = ?, error_code = 'funding_retry' WHERE id = ? AND status = 'purchasing'"
+        ).run(String(e.message), jobId);
+      }
+      return;
+    }
     if (e instanceof LasoDeclinedError) {
       // Probe-level decline: nothing was ever signed. Definitive.
       const reason = `laso_declined: ${e.message}`;
@@ -401,7 +467,7 @@ export async function pollUntilReady(jobId: string, deps: CardPurchaseDeps = def
   while (Date.now() < deadline) {
     let data: LasoCardData | null = null;
     try {
-      data = await deps.getCardData(job.laso_card_id);
+      data = await deps.getCardData(job.owner, job.laso_card_id);
     } catch (e: any) {
       console.warn("[card-purchases] poll error (will retry):", e?.message || String(e));
     }
@@ -515,7 +581,7 @@ const VALID_BEFORE_GRACE_SECONDS = 120;
  *   no nonce on row              → nothing was ever signed → safe re-run
  *   nonce unused + window passed → provably never paid → failed + refund
  *   nonce unused + window open   → still settleable → defer to next sweep
- *   nonce consumed               → money reached Laso:
+ *   nonce consumed               → money reached the owner's Laso account:
  *       unclaimed upstream card matching amount → adopt → provisioning
  *       account balance ≥ amount → withdraw (best-effort) → failed + refund
  *       neither                  → defer with loud breadcrumb (manual ops)
@@ -537,7 +603,8 @@ export async function reconcileCardPurchase(
 
   if (!job.payment_nonce) {
     // onBeforePay never ran → no authorization exists → re-running cannot
-    // double-pay. Reset to pending; only the recovery sweep re-runs (inline
+    // double-pay (funding, if it partially happened, only shrinks the next
+    // shortfall). Reset to pending; only the recovery sweep re-runs (inline
     // callers just leave it for the sweep to avoid tight retry loops).
     db.prepare(
       "UPDATE card_purchases SET status = 'pending', error = ?, error_code = 'retry_never_signed' WHERE id = ? AND status = 'purchasing'"
@@ -546,9 +613,9 @@ export async function reconcileCardPurchase(
     return;
   }
 
-  const payer = deps.payerAddress();
+  const payer = job.payer_address || deps.payerAddressFor(job.owner);
   if (!payer) {
-    console.error("[card-purchases] reconcile blocked — payer wallet unavailable", { jobId });
+    console.error("[card-purchases] reconcile blocked — payer wallet unknown", { jobId, owner: job.owner });
     return;
   }
 
@@ -577,10 +644,10 @@ export async function reconcileCardPurchase(
     return;
   }
 
-  // Money reached Laso. Find what it bought.
+  // Money reached the owner's Laso account. Find what it bought.
   let upstreamCards: LasoCardData[];
   try {
-    upstreamCards = await deps.listCards();
+    upstreamCards = await deps.listCards(job.owner);
   } catch (e: any) {
     console.warn("[card-purchases] upstream card list unreachable — deferring", { jobId, error: e?.message || String(e) });
     return;
@@ -614,16 +681,16 @@ export async function reconcileCardPurchase(
   }
 
   // Paid, no card. Laso credits unfulfilled charges to the account balance —
-  // recover it, then make the agent whole.
+  // recover it to the owner's payer wallet, then make the agent whole.
   let balance: number | null = null;
   try {
-    balance = await deps.accountBalance();
+    balance = await deps.accountBalance(job.owner);
   } catch {
     balance = null;
   }
   if (balance != null && balance >= job.card_usd - 0.01) {
     try {
-      await deps.withdraw(job.card_usd);
+      await deps.withdraw(job.owner, job.card_usd);
     } catch (e: any) {
       console.error("[card-purchases] withdraw of stranded balance failed (refunding agent regardless)", {
         jobId,

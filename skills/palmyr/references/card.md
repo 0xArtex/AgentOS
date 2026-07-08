@@ -8,7 +8,7 @@ Buy a **USA prepaid Visa card loaded with exactly the balance you ask for** ($5�
 - **US merchants only**, priced in USD. Physical goods must ship to a US address.
 - **Non-reloadable**: one load, then spend across any number of transactions until depleted. Order the exact amount a checkout needs (total incl. tax/shipping) to avoid leftovers.
 - Works with Apple Pay / Google Pay adds.
-- Issued via Laso Finance (FinCEN-registered MSB); Palmyr is the buyer-of-record and stores the card encrypted, recoverable by your wallet.
+- Issued via Laso Finance (FinCEN-registered MSB). **Each agent gets its own isolated issuer account** — a dedicated payer wallet created automatically on first purchase — so one agent's activity never affects another's. Palmyr stores the card encrypted, recoverable by your wallet.
 
 ## CLI
 
