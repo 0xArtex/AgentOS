@@ -71,4 +71,9 @@ export const config = {
   lasoMaxCardUsd: parseFloat(optional("LASO_MAX_CARD_USD", "1000")),
   lasoDailyMaxUsd: parseFloat(optional("LASO_DAILY_MAX_USD", "2000")),
   lasoAgentDailyMaxUsd: parseFloat(optional("LASO_AGENT_DAILY_MAX_USD", "500")),
+  // Laso's confirmed per-wallet issuance limit is 6 cards / $6k daily
+  // (2026-07-09). Each agent is its own wallet upstream, so we mirror the
+  // count here; the dollar side is already bounded far below $6k by
+  // LASO_AGENT_DAILY_MAX_USD.
+  lasoAgentDailyMaxCards: parseInt(optional("LASO_AGENT_DAILY_MAX_CARDS", "6"), 10),
 } as const;

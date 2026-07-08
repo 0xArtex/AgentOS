@@ -13,6 +13,7 @@
 // its own process, so this can't leak into other suites).
 process.env.LASO_DAILY_MAX_USD = "100";
 process.env.LASO_AGENT_DAILY_MAX_USD = "50";
+process.env.LASO_AGENT_DAILY_MAX_CARDS = "4";
 process.env.LASO_CARD_FEE_PCT = "0.03";
 process.env.LASO_CARD_FEE_MIN_USDC = "0.50";
 if (!process.env.SECRETS_MASTER_KEY) process.env.ALLOW_INSECURE_SECRETS_KEY = "1";
@@ -578,6 +579,42 @@ test("limits: in-flight reservations (pending/purchasing/provisioning) count", (
   const s = checkCardLimits(OWNER, 15);
   assert.strictEqual(s.code, "daily_agent"); // 40 reserved + 15 > 50
   assert.strictEqual(s.agentUsedUsd, 40);
+});
+
+test("per-agent card COUNT cap (issuer's 6/day, 4 in this suite): boundary allowed, next rejected", () => {
+  // Three small cards — dollars are nowhere near the $50 agent cap.
+  insertJob({ owner: OWNER, card_usd: 5, status: "ready" });
+  insertJob({ owner: OWNER, card_usd: 5, status: "ready" });
+  insertJob({ owner: OWNER, card_usd: 5, status: "pending" }); // in-flight counts
+  const fourth = checkCardLimits(OWNER, 5);
+  assert.strictEqual(fourth.ok, true); // 3 + 1 = 4 = cap, allowed
+  insertJob({ owner: OWNER, card_usd: 5, status: "ready" });
+  const fifth = checkCardLimits(OWNER, 5);
+  assert.strictEqual(fifth.ok, false);
+  assert.strictEqual(fifth.code, "daily_agent_cards");
+  assert.strictEqual(fifth.agentUsedCards, 4);
+  assert.strictEqual(fifth.agentMaxCards, 4);
+});
+
+test("card COUNT cap: failed rows and other agents don't count", () => {
+  for (let i = 0; i < 4; i++) insertJob({ owner: OWNER, card_usd: 5, status: "failed" });
+  for (let i = 0; i < 4; i++) insertJob({ owner: OWNER_B, card_usd: 5, status: "ready" });
+  assert.strictEqual(checkCardLimits(OWNER, 5).ok, true); // 4 failed + B's 4 don't count against OWNER
+});
+
+test("card COUNT cap enforced transactionally at reservation", () => {
+  for (let i = 0; i < 4; i++) insertJob({ owner: OWNER, card_usd: 5, status: "ready" });
+  const { deps } = makeDeps();
+  assert.throws(
+    () =>
+      createCardPurchase(
+        { owner: OWNER, paymentSignature: "sig-c", paymentChain: "base", chargedUsdc: 5.5, cardUsd: 5, feeUsdc: 0.5 },
+        deps
+      ),
+    (e: any) => e instanceof CardLimitError && e.limit.code === "daily_agent_cards"
+  );
+  const count = (db.prepare("SELECT COUNT(*) AS c FROM card_purchases WHERE owner = ?").get(OWNER) as any).c;
+  assert.strictEqual(count, 4); // no fifth row
 });
 
 test("reservation is transactional: over-cap insert throws CardLimitError and leaves no row", async () => {

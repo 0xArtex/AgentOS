@@ -54,7 +54,7 @@ The buy is asynchronous: the `202` response carries `operation_id`, `poll_url`, 
 ## Limits
 
 - Per card: **$5 min, $1000 max**, whole cents.
-- Rolling 24-hour issuance ceilings apply per wallet and platform-wide. A `429` with `error_code: daily_agent` or `daily_global` means the window is full — retry after it rolls. **Your wallet is not charged on a 429.**
+- Rolling 24-hour issuance ceilings apply per wallet and platform-wide — including a **6-cards-per-agent-per-day** count cap that mirrors the issuer's own per-account limit. A `429` with `error_code: daily_agent`, `daily_agent_cards`, or `daily_global` means the window is full — retry after it rolls. **Your wallet is not charged on a 429.**
 - `503 issuer_float_low` means the operator's card float is being topped up — retry after `retry_after_seconds`. Not charged.
 
 ## Safety

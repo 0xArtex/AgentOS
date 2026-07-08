@@ -112,17 +112,24 @@ async function requireCardPayment(req: AuthenticatedRequest, res: Response, next
   // post-settlement inside createCardPurchase's transaction).
   const payer = claimedPayer(req) || req.agentId || "";
   const limits = checkCardLimits(payer || "anonymous-preflight", amount);
-  const limitBreached = !limits.ok && (limits.code === "daily_global" || (limits.code === "daily_agent" && !!payer));
+  const agentScoped = limits.code === "daily_agent" || limits.code === "daily_agent_cards";
+  const limitBreached = !limits.ok && (limits.code === "daily_global" || (agentScoped && !!payer));
   if (limitBreached) {
     res.setHeader("Retry-After", "3600");
     res.status(429).json({
       error:
-        limits.code === "daily_agent"
-          ? "Per-agent 24h card issuance limit reached"
-          : "Global 24h card issuance limit reached",
+        limits.code === "daily_agent_cards"
+          ? "Per-agent 24h card count limit reached (issuer allows a fixed number of cards per account per day)"
+          : limits.code === "daily_agent"
+            ? "Per-agent 24h card issuance limit reached"
+            : "Global 24h card issuance limit reached",
       error_code: limits.code,
-      limit_usd: limits.code === "daily_agent" ? limits.agentMaxUsd : limits.globalMaxUsd,
-      used_usd: limits.code === "daily_agent" ? limits.agentUsedUsd : limits.globalUsedUsd,
+      ...(limits.code === "daily_agent_cards"
+        ? { limit_cards: limits.agentMaxCards, used_cards: limits.agentUsedCards }
+        : {
+            limit_usd: limits.code === "daily_agent" ? limits.agentMaxUsd : limits.globalMaxUsd,
+            used_usd: limits.code === "daily_agent" ? limits.agentUsedUsd : limits.globalUsedUsd,
+          }),
       retry_after_seconds: 3600,
       hint: "Your wallet has NOT been charged. The window is rolling 24h.",
     });
