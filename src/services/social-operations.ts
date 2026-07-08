@@ -2399,6 +2399,9 @@ async function updateProfileImage(
     // "Apply" a different/wrong control than the avatar crop-modal's applyButton?
     const apply_testid = await applyButton.getAttribute("data-testid").catch(() => null);
     const apply_text = ((await applyButton.textContent().catch(() => "")) || "").trim().slice(0, 40);
+    // Screenshots (only under PALMYR_SOCIAL_DEBUG=1) of the crop modal just before
+    // Apply and the editor just after — to see why the banner crop never commits.
+    const cropShot = await debugShot(page, `${kind}-crop-ready`);
     await applyButton.click({ timeout: 5000 });
 
     // Editor state RIGHT AFTER Apply — before Save and the confirm-reload wipe it —
@@ -2421,6 +2424,8 @@ async function updateProfileImage(
         } catch (e) { return { error: String((e && e.message) || e) }; }
       })()`)
       .catch(() => null);
+    const afterApplyShot = await debugShot(page, `${kind}-after-apply`);
+    void cropShot; void afterApplyShot;
 
     // Gate the Save on media readiness — see finalizeSettled above. Without this
     // we click Save mid-upload, the 25s wait expires before FINALIZE lands, and
