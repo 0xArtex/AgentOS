@@ -797,6 +797,31 @@ const DOMAIN_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
 }
 
+const CARD_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
+  buy: [
+    { flag: '--amount <usd>', desc: 'USD balance to load on the card ($5–$1000, whole cents; positional also accepted)' },
+    { flag: '--no-wait', desc: 'Return the operation_id immediately instead of polling to completion' },
+    { flag: '--no-details', desc: 'Skip the automatic card-details fetch after the card is ready' },
+    { flag: '(async)', desc: 'Purchase is async: returns an operation polled until ready/failed (~3s cadence, free polls). Card is typically ready in ~10s.' },
+    { flag: '(price)', desc: 'Dynamic: amount + fee (3% min $0.50) via x402; the details fetch afterwards costs 0.01 USDC' },
+    { flag: '(card)', desc: 'USA prepaid Visa — US merchants only, non-reloadable, spend until depleted' },
+    { flag: '(example)', desc: 'palmyr card buy --amount 20' },
+  ],
+  list: [
+    { flag: '(no args)', desc: 'List cards owned by your wallet: status, last4, balance' },
+    { flag: '(price)', desc: '$0.01 ownership-proof micro-payment' },
+  ],
+  get: [
+    { flag: '--id <card_id>', desc: 'Card id from card buy (positional also accepted)' },
+    { flag: '(price)', desc: '$0.01 ownership-proof micro-payment — returns full number / CVV / expiry (owner-only)' },
+    { flag: '(example)', desc: 'palmyr card get --id 3f2a…' },
+  ],
+  refresh: [
+    { flag: '--id <card_id>', desc: 'Card id to refresh (positional also accepted)' },
+    { flag: '(price)', desc: '$0.01 — live balance + issuer transactions (issuer re-scrape limited to 1/5min per card)' },
+  ],
+}
+
 const CHAT_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
   run: [
     { flag: '"<intent>"', desc: 'Plain-string intent (positional or --intent)' },
@@ -1388,6 +1413,7 @@ const TOP_LEVEL_COMMANDS: Array<{ name: string; description: string }> = [
   { name: 'email', description: 'create · read · send · threads' },
   { name: 'compute', description: 'plans · deploy · list · delete' },
   { name: 'domain', description: 'check · pricing · buy · dns' },
+  { name: 'card', description: 'buy · list · get · refresh' },
   { name: 'wallet', description: 'create · import · list · export · sign · api-key · buy · sell · positions' },
   { name: 'twitter', description: 'X/Twitter accounts: import · buy · login · post · reply · like · follow' },
   { name: 'tiktok', description: 'TikTok accounts: connect · import · post · schedule · follow · like · analytics' },
@@ -2666,6 +2692,240 @@ async function main() {
         break
       }
 
+      case 'card': {
+        if (!subcommand || (flags.help && !CARD_HELP[subcommand])) {
+          showMenu({
+            command: 'card',
+            title: 'card',
+            subtitle: 'Prepaid Visa cards with exact balances',
+            footerLeft: 'Card operations',
+            commands: [
+              { name: 'buy', description: 'Buy a USA prepaid Visa card', hint: '--amount 20' },
+              { name: 'list', description: 'List your cards (status, last4, balance)', hint: '' },
+              { name: 'get', description: 'Card number / CVV / expiry (owner-only)', hint: '--id <card_id>' },
+              { name: 'refresh', description: 'Live balance + transactions', hint: '--id <card_id>' },
+            ],
+            fromHome,
+          })
+          break
+        }
+        if (flags.help && subcommand && CARD_HELP[subcommand]) {
+          subcommandHelp('card', subcommand, CARD_HELP[subcommand])
+          break
+        }
+        switch (subcommand) {
+          case 'buy': {
+            const amount = Number(flags.amount ?? positional[0])
+            if (!Number.isFinite(amount) || amount <= 0) err('--amount <usd> required (e.g. palmyr card buy --amount 20)')
+            const noWait = flags.wait === false
+            const skipDetails = flags.details === false
+            const ndjson = AGENT_MODE
+            const spin = new Spinner()
+            spin.start(`Buying $${amount} prepaid card...`)
+
+            const initial = await ao.cardBuy(amount)
+            const opId = initial?.operation_id || initial?.card_id
+            if (!opId) {
+              spin.stop('Unexpected response', false)
+              return print(initial)
+            }
+            const pollUrl = initial.poll_url || `/cards/operations/${opId}`
+            const pollAfter = Math.max(1, Number(initial.poll_after_seconds) || 3)
+
+            if (noWait) {
+              spin.stop('Card purchase started', true)
+              log(`card buy (async): $${amount} op=${opId}`)
+              if (AGENT_MODE) return print(initial)
+              render(React.createElement(SuccessScreen, {
+                version: VERSION,
+                title: 'Card purchase started',
+                subtitle: `$${amount} prepaid Visa`,
+                footerLeft: 'Polling skipped (--no-wait)',
+                details: [
+                  { label: 'Card', value: String(opId) },
+                  { label: 'Poll', value: `GET ${pollUrl} (free)` },
+                  { label: 'Status', value: initial.status || 'pending' },
+                ],
+              }))
+              break
+            }
+
+            // Poll loop — the poll route is FREE, so a tight ~3s cadence is
+            // fine. Cards are typically ready in ~10s; cap at 90s.
+            const POLL_TIMEOUT_MS = 90_000
+            const intervalMs = pollAfter * 1000
+            const deadline = Date.now() + POLL_TIMEOUT_MS
+            const maxAttempts = Math.ceil(POLL_TIMEOUT_MS / intervalMs) + 1
+            const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+            let final: any = null
+            let attempt = 0
+            while (attempt < maxAttempts && Date.now() < deadline) {
+              await sleep(intervalMs)
+              attempt++
+              let op: any
+              try {
+                op = await ao.cardOperation(opId)
+              } catch (e: any) {
+                if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status: 'error', attempt, message: e?.message ?? String(e) }) + '\n')
+                else spin.update(`polling… (attempt ${attempt}, retrying after error)`)
+                continue
+              }
+              const status = op?.status || 'pending'
+              if (ndjson) process.stderr.write(JSON.stringify({ event: 'poll', status, attempt }) + '\n')
+              else spin.update(`${status}… (attempt ${attempt})`)
+              if (op?.done === true || status === 'ready' || status === 'failed') {
+                final = op
+                break
+              }
+            }
+
+            if (!final) {
+              spin.stop('Still provisioning — purchase continues server-side', false)
+              log(`card buy (pending): $${amount} op=${opId}`)
+              const pendingOut = {
+                operation_id: opId,
+                card_id: opId,
+                status: 'pending',
+                done: false,
+                poll_url: pollUrl,
+                message: `Timed out after ${Math.round(POLL_TIMEOUT_MS / 1000)}s of polling. The purchase continues server-side — re-check with GET ${pollUrl} (free), then fetch details with: palmyr card get --id ${opId}`,
+              }
+              if (AGENT_MODE) return print(pendingOut)
+              render(React.createElement(SuccessScreen, {
+                version: VERSION,
+                title: 'Card still provisioning',
+                subtitle: `$${amount} prepaid Visa`,
+                footerLeft: 'Re-check later — it continues server-side',
+                details: [
+                  { label: 'Card', value: String(opId) },
+                  { label: 'Poll', value: `GET ${pollUrl}` },
+                ],
+              }))
+              break
+            }
+
+            if (final.status === 'failed') {
+              spin.stop('Card purchase failed', false)
+              log(`card buy (failed): $${amount} op=${opId} refund=${final.refund_status || 'unknown'}`)
+              if (AGENT_MODE) {
+                print(final)
+                process.stderr.write(JSON.stringify({ error: final.error || 'card purchase failed', error_code: final.error_code, refund_status: final.refund_status, exitCode: EXIT.GENERAL }) + '\n')
+                process.exit(EXIT.GENERAL)
+              }
+              const refundLine = final.refund_status === 'sent'
+                ? 'Refund sent automatically'
+                : final.refund_status === 'manual_needed'
+                  ? 'Refund needs manual review — contact support'
+                  : final.refund_status === 'failed'
+                    ? 'Automatic refund failed — contact support'
+                    : 'Refund status unknown'
+              render(React.createElement(ErrorScreen, {
+                version: VERSION,
+                title: 'Card purchase failed',
+                message: `${final.error || 'Purchase failed'}${final.error_code ? ` (${final.error_code})` : ''}. ${refundLine}.`,
+                footerLeft: refundLine,
+              }))
+              process.exit(EXIT.GENERAL)
+            }
+
+            // ── Ready. Fetch the actual card details (0.01 USDC) unless opted out.
+            spin.stop(`Card ready — $${final.available_balance ?? amount} loaded`, true)
+            log(`card buy: $${amount} op=${opId} last4=${final.last4 || '????'}`)
+            if (skipDetails) {
+              const out = { ...final, message: `Card ready. Fetch the number with: palmyr card get --id ${opId}` }
+              if (AGENT_MODE) return print(out)
+              render(React.createElement(SuccessScreen, {
+                version: VERSION,
+                title: 'Card ready',
+                subtitle: `$${amount} prepaid Visa •••• ${final.last4 || ''}`,
+                footerLeft: 'US merchants only · non-reloadable',
+                details: [
+                  { label: 'Card', value: String(opId) },
+                  { label: 'Details', value: `palmyr card get --id ${opId}` },
+                ],
+              }))
+              break
+            }
+            const details = await ao.cardGet(String(opId))
+            if (AGENT_MODE) return print(details)
+            const c = details?.card || {}
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'Card ready',
+              subtitle: `$${details.available_balance ?? amount} prepaid Visa`,
+              footerLeft: 'US merchants only · non-reloadable · spend until depleted',
+              details: [
+                { label: 'Number', value: String(c.card_number || '') },
+                { label: 'Expiry', value: `${c.exp_month || '??'}/${c.exp_year || '????'}` },
+                { label: 'CVV', value: String(c.cvv || '') },
+                { label: 'Balance', value: `$${details.available_balance ?? amount}` },
+                { label: 'Card id', value: String(opId) },
+              ],
+            }))
+            break
+          }
+          case 'list': {
+            const data = await ao.cardList()
+            if (AGENT_MODE) return print(data)
+            const cards = data?.cards || []
+            console.log(`\n  ${t.accent}your cards${t.reset} — ${t.muted}${data.owner}${t.reset}\n`)
+            if (cards.length === 0) {
+              console.log(`  ${t.muted}No cards yet. Try: palmyr card buy --amount 20${t.reset}\n`)
+              return
+            }
+            for (const r of cards) {
+              const statusColor = r.status === 'ready' ? t.success : r.status === 'failed' ? t.error : t.warn
+              const last4 = r.last4 ? `•••• ${r.last4}` : '•••• ····'
+              const bal = r.available_balance != null ? `$${r.available_balance}` : '—'
+              console.log(`  ${last4}  ${statusColor}${(r.status + '          ').slice(0, 12)}${t.reset} ${t.warn}${bal.padStart(9)}${t.reset}  ${t.muted}${r.card_id}${t.reset}`)
+            }
+            console.log(`\n  ${t.muted}${cards.length} card(s)${t.reset}\n`)
+            return
+          }
+          case 'get': {
+            const id = flags.id as string || positional[0]
+            if (!id) err('--id <card_id> required')
+            const data = await ao.cardGet(id)
+            if (AGENT_MODE) return print(data)
+            if (data?.status && data.status !== 'ready') {
+              console.log(`\n  ${t.warn}Card not ready${t.reset} — status: ${data.status}${data.error ? ` (${data.error})` : ''}\n`)
+              return
+            }
+            const c = data?.card || {}
+            render(React.createElement(SuccessScreen, {
+              version: VERSION,
+              title: 'Card details',
+              subtitle: `$${data.available_balance ?? data.card_usd} prepaid Visa`,
+              footerLeft: 'US merchants only · non-reloadable',
+              details: [
+                { label: 'Number', value: String(c.card_number || '') },
+                { label: 'Expiry', value: `${c.exp_month || '??'}/${c.exp_year || '????'}` },
+                { label: 'CVV', value: String(c.cvv || '') },
+                { label: 'Balance', value: `$${data.available_balance ?? '—'}` },
+              ],
+            }))
+            break
+          }
+          case 'refresh': {
+            const id = flags.id as string || positional[0]
+            if (!id) err('--id <card_id> required')
+            const data = await ao.cardRefresh(id)
+            if (AGENT_MODE) return print(data)
+            console.log(`\n  ${t.accent}card balance${t.reset} — ${t.warn}$${data.available_balance ?? '—'}${t.reset}${data.hint ? `\n  ${t.muted}${data.hint}${t.reset}` : ''}\n`)
+            const txs = data?.transactions || []
+            for (const tx of txs.slice(0, 15)) {
+              const amt = tx.is_credit ? `+$${tx.amount}` : `-$${tx.amount}`
+              console.log(`  ${(tx.date || '').slice(0, 10)}  ${tx.is_credit ? t.success : t.error}${amt.padStart(10)}${t.reset}  ${t.muted}${tx.description || tx.merchant || ''}${t.reset}`)
+            }
+            if (txs.length) console.log(`\n  ${t.muted}${txs.length} transaction(s)${t.reset}\n`)
+            return
+          }
+          default:
+            err(`Unknown card subcommand: ${subcommand}. Try: buy, list, get, refresh`)
+        }
+        break
+      }
       case 'domain': {
         if (!subcommand || (flags.help && !DOMAIN_HELP[subcommand])) {
           showMenu({

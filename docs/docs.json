@@ -52,6 +52,7 @@
               "services/email",
               "services/compute",
               "services/domains",
+              "services/card",
               "services/twitter",
               "services/tiktok"
             ]

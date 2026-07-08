@@ -1,0 +1,64 @@
+---
+title: "Cards"
+description: "Buy a USA prepaid Visa card loaded with exactly the balance you ask for ($5–$1000), paid per-action in USDC. Dynamic price: amount + 3% fee (min $0.50); reads cost $0.01."
+icon: "credit-card"
+---
+
+Buy a **prepaid Visa card with an exact USD balance** straight from the CLI or API. One x402 payment covers the card and the fee; the card number, CVV, and expiry are ready about ten seconds later. The wallet that pays owns the card — no accounts, no KYC, no API keys.
+
+This is the escape hatch for everything that's credit-card gated: API subscriptions, one-off SaaS checkouts, marketplace purchases — anywhere a US online checkout accepts Visa prepaid.
+
+<Note>
+  **Card facts.** USA merchants only, priced in USD; physical goods must ship to a US address. Cards are **non-reloadable** — one load, spend across any number of transactions until depleted. Order the exact checkout total (incl. tax/shipping) to avoid leftovers. Apple Pay / Google Pay adds work. Issued via Laso Finance (FinCEN-registered MSB); Palmyr stores the card details encrypted, recoverable by your wallet at any time.
+</Note>
+
+## Quickstart
+
+```bash
+# Buy a $20 card — pays $20.60 (amount + 3% fee, min $0.50), ready in ~10s
+palmyr card buy --amount 20
+
+# Your cards: status, last4, balance ($0.01 ownership proof)
+palmyr card list
+
+# Full number / CVV / expiry — owner-only ($0.01)
+palmyr card get --id <card_id>
+
+# Live balance + transactions from the issuer ($0.01)
+palmyr card refresh --id <card_id>
+```
+
+`card buy` polls the purchase to completion and prints the card details in one shot. Pass `--no-wait` to get the operation handle back immediately, or `--no-details` to skip the final details fetch.
+
+## Commands
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr card buy --amount 20` | dynamic: `amount + max(3%, $0.50)` | Buys a card loaded with exactly `--amount`. Async: 202 + free poll, ready in ~10s. |
+| `palmyr card list` | $0.01 | Cards your wallet owns — status, last4, balance. Never full numbers. |
+| `palmyr card get --id <card_id>` | $0.01 | Full card number, CVV, expiry, balance. Owner-only. |
+| `palmyr card refresh --id <card_id>` | $0.01 | Live balance + issuer transaction list (re-scrape limited to 1/5min per card). |
+
+## API
+
+| Action | Endpoint | Cost (USDC) |
+|---|---|---|
+| Buy a card | `POST /cards/buy` `{ amount }` | dynamic — exact total in the 402 challenge |
+| Poll the purchase | `GET /cards/operations/:id` | free |
+| List your cards | `GET /cards` | 0.01 |
+| Card number / CVV | `GET /cards/:id` | 0.01 |
+| Live balance / transactions | `POST /cards/:id/refresh` | 0.01 |
+
+The buy is asynchronous: the `202` response carries `operation_id`, `poll_url`, and `poll_after_seconds`. Poll until `done: true` — `ready` means fetch details via `GET /cards/:id`; `failed` means the payment was **refunded automatically** (`refund_status: sent`). Never re-send the paid request.
+
+## Limits
+
+- Per card: **$5 min, $1000 max**, whole cents.
+- Rolling 24-hour issuance ceilings apply per wallet and platform-wide. A `429` with `error_code: daily_agent` or `daily_global` means the window is full — retry after it rolls. **Your wallet is not charged on a 429.**
+- `503 issuer_float_low` means the operator's card float is being topped up — retry after `retry_after_seconds`. Not charged.
+
+## Safety
+
+<Warning>
+  Treat `GET /cards/:id` output like a password — it's a live card number. The free poll endpoint never returns it; only the owner wallet's paid read does. If a purchase fails after payment, the refund is automatic and idempotent — check `refund_status` before re-buying.
+</Warning>

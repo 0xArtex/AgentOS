@@ -777,6 +777,45 @@ export class Palmyr {
     return this.request('POST', `/domains/${domain}/unshare`, { wallet })
   }
 
+  // ── Cards (prepaid Visa) ──
+  /**
+   * Buy a USA prepaid Visa card loaded with exactly `amount` USD ($5–$1000).
+   * Async: the server responds **202** with `{ operation_id, card_id,
+   * status: 'pending', poll_url, poll_after_seconds, pricing }` and the
+   * purchase runs in the background. Poll {@link cardOperation} until
+   * `done === true` (`ready` → fetch the number with {@link cardGet};
+   * `failed` → `refund_status` reflects the automatic refund).
+   * Charged via x402: amount + fee (3% min $0.50); auto-paid when autoPay is on.
+   */
+  async cardBuy(amount: number): Promise<any> {
+    return this.request('POST', '/cards/buy', { amount })
+  }
+
+  /**
+   * Poll a card purchase started by {@link cardBuy}. FREE — poll every
+   * `poll_after_seconds` (~3s). `status` ∈
+   * `pending|purchasing|provisioning|ready|failed`; `done` is true on
+   * `ready`/`failed`. Never carries the card number — that's {@link cardGet}.
+   */
+  async cardOperation(operationId: string): Promise<any> {
+    return this.request('GET', `/cards/operations/${encodeURIComponent(operationId)}`)
+  }
+
+  /** List cards owned by the paying wallet (status, last4, balance). $0.01 ownership proof. */
+  async cardList(): Promise<any> {
+    return this.request('GET', '/cards')
+  }
+
+  /** Full card number / CVV / expiry + balance — owner-only. $0.01 ownership proof. */
+  async cardGet(cardId: string): Promise<any> {
+    return this.request('GET', `/cards/${encodeURIComponent(cardId)}`)
+  }
+
+  /** Live balance + issuer transactions ($0.01; issuer re-scrape rate-limited to 1/5min per card). */
+  async cardRefresh(cardId: string): Promise<any> {
+    return this.request('POST', `/cards/${encodeURIComponent(cardId)}/refresh`)
+  }
+
   // ── X account pool: transfer / share / claim ──
   async xAccountTransfer(id: string, toWallet: string): Promise<any> {
     return this.request('POST', `/x/accounts/${encodeURIComponent(id)}/transfer`, { to_wallet: toWallet })
