@@ -94,10 +94,13 @@ const DISCOVERABLE_ALLOWLIST = new Set<string>([
   // Social — TikTok core
   "POST /social/tiktok/login",
   "POST /social/tiktok/post",
-  // Cards — prepaid Visa with an exact balance (poll route is free + unlisted)
+  // Cards — prepaid Visa with an exact balance. The poll route is free +
+  // unlisted; GET /cards/:id and :id/refresh are deliberately NOT here (and
+  // carry metadata.discoverable=false): per-id paid routes would register
+  // each settle's CONCRETE URL on the Bazaar, leaking the capability ids.
+  // Agents reach them via the buy flow's detail_url.
   "POST /cards/buy",
   "GET /cards",
-  "GET /cards/:id",
 ]);
 
 /**

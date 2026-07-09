@@ -248,6 +248,10 @@ router.get("/operations/:id", (req: AuthenticatedRequest, res: Response) => {
     res.status(404).json({ error: "Operation not found" });
     return;
   }
+  // Deliberately NO card data here beyond status — not even last4/balance.
+  // This route is free + unauthenticated (capability URL), so if the id ever
+  // leaks (explorer indexing, logs, referrers) the leak reveals only that a
+  // purchase of $X exists. Card fields live behind the owner-verified read.
   res.json({
     operation_id: job.id,
     card_id: job.id,
@@ -256,8 +260,6 @@ router.get("/operations/:id", (req: AuthenticatedRequest, res: Response) => {
     card_usd: job.card_usd,
     fee_usdc: job.fee_usdc,
     cost: job.charged_usdc,
-    last4: job.status === "ready" ? job.last4 : null,
-    available_balance: job.status === "ready" ? job.available_balance : null,
     detail_url: job.status === "ready" ? `/cards/${job.id}` : null,
     poll_url: `/cards/operations/${job.id}`,
     error: job.error,
@@ -320,6 +322,11 @@ router.get(
       "Retrieve a prepaid card you own: full card number, CVV, expiry, balance. Owner-verified ($0.01 ownership proof).",
     category: "cards",
     tags: ["card", "details"],
+    // Per-id paid route: every settle would otherwise register the CONCRETE
+    // /cards/<uuid> URL on the Bazaar/x402scan explorers — publishing the
+    // capability id the free poll route trusts. Reachable via the buy flow's
+    // detail_url instead of the catalog.
+    discoverable: false,
   }),
   (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
@@ -386,6 +393,7 @@ router.post(
       "Refresh a card's live balance and transactions from the issuer (rate-limited upstream: 1 per 5 min per card).",
     category: "cards",
     tags: ["card", "balance", "transactions"],
+    discoverable: false, // per-id settles must not register concrete URLs
   }),
   async (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;

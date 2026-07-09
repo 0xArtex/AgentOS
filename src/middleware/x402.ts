@@ -326,7 +326,14 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
   const description = metadata?.description || "Palmyr: " + req.method + " " + req.originalUrl;
   const amount = String(Math.round(minUsdc * 1e6));
 
-  const bazaar: Record<string, any> = { discoverable: true };
+  // Honor metadata.discoverable in the SETTLEMENT channel too, not just our
+  // own /.well-known listing: the CDP facilitator registers the CONCRETE
+  // resource URL (req.originalUrl — real ids included) in the Bazaar on every
+  // settled Base payment. For per-id routes (GET /cards/:id, DELETE
+  // /compute/servers/:id, …) that publishes each caller's actual resource id
+  // as its own explorer entry — spam at best, a capability-URL leak at worst.
+  // discoverable:false tells the facilitator not to index the settle.
+  const bazaar: Record<string, any> = { discoverable: metadata?.discoverable !== false };
   if (metadata?.category) bazaar.category = metadata.category;
   if (metadata?.tags && metadata.tags.length > 0) bazaar.tags = metadata.tags;
   // Bazaar schema declaration. The x402scan validator's `extractSchemas2`

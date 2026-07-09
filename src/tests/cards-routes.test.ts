@@ -20,6 +20,7 @@ import assert from "node:assert";
 import { randomUUID } from "crypto";
 import { db } from "../db";
 import { requireCardPayment } from "../routes/cards";
+import { send402Response } from "../middleware/x402";
 import { _resetCardWalletCachesForTest, _setFloatCacheForTest } from "../services/card-payer-wallets";
 
 const PAYER = "0x2222222222222222222222222222222222222222";
@@ -177,4 +178,38 @@ test("failed rows do not consume the window at the route gate either", async () 
   const res = mockRes();
   await requireCardPayment(mockReq({ body: { amount: 20 } }), res, () => {});
   assert.strictEqual(res.body.error_code, "issuer_float_low");
+});
+
+// ─── Bazaar settlement-registration suppression ───
+// The CDP facilitator registers the CONCRETE resource URL of every settled
+// Base payment using the challenge's bazaar extension. Per-id routes must
+// carry discoverable:false there, or each caller's real card UUID becomes its
+// own public explorer entry (the /compute delete-server failure mode).
+
+function challengeFor(metadata: any, url: string): any {
+  const res = mockRes();
+  const req = mockReq({ method: "GET", originalUrl: url });
+  req.get = (h: string) => (h.toLowerCase() === "host" ? "palmyr.ai" : undefined);
+  send402Response(res, req, 0.01, "pay up", metadata);
+  return res.body;
+}
+
+test("402 challenges honor metadata.discoverable=false in the bazaar extension", () => {
+  const hidden = challengeFor({ description: "d", discoverable: false }, "/cards/some-uuid");
+  assert.strictEqual(hidden.extensions.bazaar.discoverable, false);
+  const listed = challengeFor({ description: "d" }, "/cards/buy");
+  assert.strictEqual(listed.extensions.bazaar.discoverable, true);
+});
+
+test("the per-id card read advertises discoverable:false on its live 402", async () => {
+  // Unpaid probe of GET /cards/:id goes through requireAuth's 402 path with
+  // the route's metadata — assert the wire carries the suppression flag.
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const cardsRouter = require("../routes/cards").default;
+  const layer = cardsRouter.stack.find(
+    (l: any) => l.route?.path === "/:id" && l.route?.methods?.get
+  );
+  assert.ok(layer, "GET /cards/:id route exists");
+  const authLayer = layer.route.stack[0];
+  assert.strictEqual(authLayer.handle._x402Metadata?.discoverable, false);
 });
