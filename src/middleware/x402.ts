@@ -326,14 +326,24 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
   const description = metadata?.description || "Palmyr: " + req.method + " " + req.originalUrl;
   const amount = String(Math.round(minUsdc * 1e6));
 
-  // Honor metadata.discoverable in the SETTLEMENT channel too, not just our
-  // own /.well-known listing: the CDP facilitator registers the CONCRETE
-  // resource URL (req.originalUrl — real ids included) in the Bazaar on every
-  // settled Base payment. For per-id routes (GET /cards/:id, DELETE
-  // /compute/servers/:id, …) that publishes each caller's actual resource id
-  // as its own explorer entry — spam at best, a capability-URL leak at worst.
-  // discoverable:false tells the facilitator not to index the settle.
-  const bazaar: Record<string, any> = { discoverable: metadata?.discoverable !== false };
+  // The SETTLEMENT channel registers the CONCRETE resource URL
+  // (req.originalUrl — real ids included) in the Bazaar on every settled Base
+  // payment. For per-id routes (GET /cards/:id, POST /phone/numbers/:id/send,
+  // DELETE /compute/servers/:id, …) that publishes each caller's actual
+  // resource id as its own explorer entry — spam at best, a capability-URL
+  // leak at worst (this bit the compute delete route, then nearly the card
+  // detail route). Two suppressions compose here:
+  //   1. metadata.discoverable === false — explicit per-route opt-out;
+  //   2. AUTOMATIC: any parameterized route (the matched Express route path
+  //      contains ':' or '*') — a per-id route has no stable URL, so the only
+  //      possible Bazaar entries are leaky one-per-caller ones. Zero entries
+  //      is always correct, including for routes added later.
+  // Our own /.well-known + /openapi.json listings are unaffected (they read
+  // the route TEMPLATE from the router, never this flag), so parameterized
+  // routes stay documented — they just never index their settles.
+  const routePath = String((req as any).route?.path ?? "");
+  const parameterized = routePath.includes(":") || routePath.includes("*");
+  const bazaar: Record<string, any> = { discoverable: metadata?.discoverable !== false && !parameterized };
   if (metadata?.category) bazaar.category = metadata.category;
   if (metadata?.tags && metadata.tags.length > 0) bazaar.tags = metadata.tags;
   // Bazaar schema declaration. The x402scan validator's `extractSchemas2`

@@ -186,10 +186,11 @@ test("failed rows do not consume the window at the route gate either", async () 
 // carry discoverable:false there, or each caller's real card UUID becomes its
 // own public explorer entry (the /compute delete-server failure mode).
 
-function challengeFor(metadata: any, url: string): any {
+function challengeFor(metadata: any, url: string, routePath?: string): any {
   const res = mockRes();
   const req = mockReq({ method: "GET", originalUrl: url });
   req.get = (h: string) => (h.toLowerCase() === "host" ? "palmyr.ai" : undefined);
+  if (routePath) req.route = { path: routePath };
   send402Response(res, req, 0.01, "pay up", metadata);
   return res.body;
 }
@@ -199,6 +200,21 @@ test("402 challenges honor metadata.discoverable=false in the bazaar extension",
   assert.strictEqual(hidden.extensions.bazaar.discoverable, false);
   const listed = challengeFor({ description: "d" }, "/cards/buy");
   assert.strictEqual(listed.extensions.bazaar.discoverable, true);
+});
+
+test("parameterized routes auto-suppress settlement registration — no per-route flag needed", () => {
+  // Any route whose matched Express path carries a param: phone sends, compute
+  // exec/delete, DNS, … Their settles' concrete URLs must never index.
+  for (const routePath of ["/numbers/:id/send", "/servers/:id", "/:domain/dns", "/accounts/:id/*"]) {
+    const c = challengeFor({ description: "d" }, "/whatever/8f3a-real-id/send", routePath);
+    assert.strictEqual(c.extensions.bazaar.discoverable, false, `route ${routePath} should suppress`);
+  }
+  // Static routes keep their stable single Bazaar entry.
+  const stat = challengeFor({ description: "d" }, "/phone/numbers", "/numbers");
+  assert.strictEqual(stat.extensions.bazaar.discoverable, true);
+  // Explicit metadata opt-out still wins on static paths too.
+  const optOut = challengeFor({ description: "d", discoverable: false }, "/phone/numbers", "/numbers");
+  assert.strictEqual(optOut.extensions.bazaar.discoverable, false);
 });
 
 test("the per-id card read advertises discoverable:false on its live 402", async () => {
