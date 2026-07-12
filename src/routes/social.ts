@@ -622,7 +622,9 @@ router.post(
       };
 
       const TOTP_RE = /^[A-Z2-7]{16,64}$/;       // RFC 4648 base32
-      const CT0_RE = /^[0-9a-f]{16,64}$/i;       // X `ct0` cookie
+      // X's `ct0` (CSRF) cookie grew from ~40 to ~160 hex chars; the old 64-char
+      // cap rejected every current cookie, breaking cookie-path pool seeding.
+      const CT0_RE = /^[0-9a-f]{16,256}$/i;      // X `ct0` cookie (now ~160 hex)
       const AUTH_TOKEN_RE = /^[0-9a-f]{32,80}$/i; // X `auth_token` cookie
 
       if (parts.length === 5) {
