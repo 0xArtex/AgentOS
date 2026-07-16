@@ -40,12 +40,10 @@ router.get("/api/agent-snapshot", (req: Request, res: Response) => {
       } catch {}
     }
     
-    const deadline = new Date("2026-02-12T17:00:00Z");
     const now = new Date();
-    const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
-    
+
     db.close();
-    
+
     res.json({
       snapshot: {
         timestamp: now.toISOString(),
@@ -59,14 +57,9 @@ router.get("/api/agent-snapshot", (req: Request, res: Response) => {
           }
         },
         agent: agentData,
-        hackathon: {
-          hours_remaining: Math.round(hoursLeft * 10) / 10,
-          deadline: "2026-02-12T17:00:00Z",
-          status: hoursLeft > 48 ? "building" : hoursLeft > 24 ? "crunch" : hoursLeft > 6 ? "final-sprint" : "submit-now"
-        },
         links: {
-          docs: "http://77.42.89.233:3001/docs",
-          skill: "http://77.42.89.233:3001/skill.md",
+          docs: "https://palmyr.ai/docs",
+          skill: "https://palmyr.ai/skill.md",
           github: "https://github.com/0xArtex/Palmyr"
         }
       }

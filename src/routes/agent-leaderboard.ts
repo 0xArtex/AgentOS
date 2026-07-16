@@ -27,8 +27,7 @@ router.get("/", (req: Request, res: Response) => {
       leaderboard: agents,
       meta: {
         total_agents: totalAgents,
-        generated_at: new Date().toISOString(),
-        hackathon_mode: "FREE until Feb 12, 2026"
+        generated_at: new Date().toISOString()
       }
     });
   } catch (err: any) {

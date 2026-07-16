@@ -9,8 +9,8 @@ router.get("/", (_req: Request, res: Response) => {
     stack: {
       runtime: "Node.js + TypeScript + Express",
       database: "SQLite (better-sqlite3)",
-      payments: "x402 protocol - USDC on Solana",
-      auth: "X-Agent-Id header (free tier) + API keys (production)"
+      payments: "x402 protocol - USDC on Solana and Base",
+      auth: "Wallet identity via x402 — the wallet that pays owns the resource"
     },
     services: {
       phone: "Provision numbers, send/receive SMS",
@@ -20,9 +20,9 @@ router.get("/", (_req: Request, res: Response) => {
       wallet: "Solana keypair generation",
       analytics: "Usage tracking and metrics"
     },
-    security: ["Rate limiting (100 RPM)", "Input validation", "Agent isolation", "CORS", "Request timeouts"],
-    endpoints: "92+ across 92 route modules",
-    developer_experience: ["Swagger docs at /docs", "Skill file at /skill.md", "SDK guides at /api/sdk", "Debug tools at /api/debug"]
+    security: ["Rate limiting", "Input validation", "Agent isolation", "CORS", "Request timeouts"],
+    endpoints: "See /openapi.json for the full, generated route list",
+    developer_experience: ["Swagger docs at /docs", "Skill file at /skill.md", "Debug tools at /api/debug"]
   });
 });
 

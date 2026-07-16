@@ -19,16 +19,16 @@ router.get("/", (req: Request, res: Response) => {
   if (agentId) {
     checks.push({ name: "X-Agent-Id Header", status: "pass", message: `Agent identified as: ${agentId}` });
   } else {
-    checks.push({ name: "X-Agent-Id Header", status: "warn", message: "Missing X-Agent-Id header. Add it for free hackathon access and analytics tracking." });
+    checks.push({ name: "X-Agent-Id Header", status: "warn", message: "Missing X-Agent-Id header. Add it so your requests are attributed to your agent." });
   }
-  
+
   // Check auth
   if (authHeader && authHeader.startsWith("Bearer ")) {
     checks.push({ name: "Authorization", status: "pass", message: "Bearer token present" });
   } else if (agentId) {
-    checks.push({ name: "Authorization", status: "pass", message: "Hackathon mode: X-Agent-Id is sufficient (free until Feb 12)" });
+    checks.push({ name: "Authorization", status: "pass", message: "X-Agent-Id present. Paid endpoints settle per call via x402 — your wallet is your identity." });
   } else {
-    checks.push({ name: "Authorization", status: "warn", message: "No auth provided. Use X-Agent-Id header for free hackathon access." });
+    checks.push({ name: "Authorization", status: "warn", message: "No auth provided. Free endpoints work anonymously; paid endpoints settle via x402." });
   }
   
   // Check connectivity
@@ -37,10 +37,7 @@ router.get("/", (req: Request, res: Response) => {
   // System info
   const uptimeSeconds = Math.floor((Date.now() - startTime) / 1000);
   const memUsed = process.memoryUsage();
-  
-  const deadlineUTC = new Date("2026-02-12T17:00:00Z").getTime();
-  const hoursLeft = Math.max(0, (deadlineUTC - Date.now()) / 3600000).toFixed(1);
-  
+
   res.json({
     title: "Palmyr Integration Debugger",
     description: "Use this endpoint to verify your agent is properly configured",
@@ -58,14 +55,9 @@ router.get("/", (req: Request, res: Response) => {
       node_version: process.version,
       platform: os.platform(),
     },
-    hackathon: {
-      hours_remaining: parseFloat(hoursLeft),
-      deadline: "2026-02-12T17:00:00Z",
-      free_access: true,
-    },
     next_steps: [
-      "GET /api/quickstart — Step-by-step setup guide",
-      "GET /api/agent-kit — Complete starter bundle",
+      "GET /skill.md — Agent-readable guide to the whole API",
+      "GET /pricing — Live per-call x402 pricing",
       "POST /agents/register — Register your agent",
       "GET /docs — Full API documentation",
     ],

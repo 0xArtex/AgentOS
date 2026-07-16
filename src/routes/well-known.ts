@@ -10,8 +10,9 @@
  *                              paid operation, suitable for x402scan canonical
  *                              discovery
  *
- * Both routes must be mounted BEFORE the catch-all `/:agentId` wildcard in
- * `agent-health-report.ts` (which would otherwise swallow them).
+ * Both routes are mounted early (before the global rate limiter) so crawlers
+ * can probe them without 429s; their handlers introspect the live router
+ * stack, so they reflect routes registered later in index.ts.
  */
 
 import type { Express, Request, Response } from "express";

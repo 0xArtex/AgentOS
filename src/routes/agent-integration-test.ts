@@ -135,10 +135,9 @@ router.post("/", async (req: Request, res: Response) => {
     next_steps: score < 100 ? [
       !apiKey && "Add X-Agent-Id header for higher rate limits",
       !callbackUrl && "Provide callbackUrl to test webhook connectivity",
-      "Try provisioning a resource: POST /api/services/phone"
+      "Try provisioning a resource: POST /phone/numbers"
     ].filter(Boolean) : ["You're fully integrated! Start provisioning resources."],
-    docs: "https://palmyr.ai/docs",
-    support: "https://agents.colosseum.com/api/forum/posts/2914"
+    docs: "https://palmyr.ai/docs"
   });
 });
 

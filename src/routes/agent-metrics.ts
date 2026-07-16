@@ -73,7 +73,7 @@ router.get("/", (_req: Request, res: Response) => {
         requests_24h: today,
         avg_response_ms: Math.round(avgResponse),
         error_rate_pct: totalRequests > 0 ? parseFloat(((errorCount / totalRequests) * 100).toFixed(2)) : 0,
-        uptime_pct: 99.9,
+        process_uptime_s: Math.round(process.uptime()),
       },
       top_agents: topAgents,
       generated_at: new Date().toISOString(),

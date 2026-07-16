@@ -298,7 +298,7 @@ async function preflightProvisionNumber(req: Request, res: Response, next: NextF
 
 /**
  * POST /phone/numbers — Provision a new phone number
- * Cost: 3.00 USDC (or free during hackathon with agent limits)
+ * Priced via x402 — see /pricing for the live amount.
  */
 router.get("/numbers", requireAuth(0.01, "general", {
   description: "List all phone numbers owned by or shared with the calling wallet.",
@@ -354,7 +354,7 @@ router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone", {
 
 /**
  * GET /phone/numbers/:id/messages — Get all messages for a number
- * Cost: 0.01 USDC (or free during hackathon)
+ * Priced via x402 — see /pricing for the live amount.
  */
 router.get("/numbers/:id/messages", requireAuth(0.02, "general", {
   description: "Read all SMS messages received on a phone number you own or have shared access to.",
@@ -486,7 +486,7 @@ async function preflightSendSms(req: Request, res: Response, next: NextFunction)
 
 /**
  * POST /phone/numbers/:id/send — Send an SMS
- * Cost: 0.05 USDC (or free during hackathon)
+ * Priced via x402 — see /pricing for the live amount.
  */
 router.post("/numbers/:id/send", preflightSendSms, requireAuth(0.05, "general", {
   description: "Send an SMS message from a phone number you own or have shared access to. Body: { to: E.164, body: string }",
@@ -515,7 +515,7 @@ router.post("/numbers/:id/send", preflightSendSms, requireAuth(0.05, "general", 
 
 /**
  * DELETE /phone/numbers/:id — Release a phone number
- * Cost: 0.01 USDC (or free during hackathon)
+ * Priced via x402 — see /pricing for the live amount.
  */
 router.delete("/numbers/:id", requireAuth(0.01, "general"), async (req: AuthenticatedRequest, res: Response) => {
   try {

@@ -54,17 +54,12 @@ router.get("/", (_req: Request, res: Response) => {
           description: "Discover and connect with other agents",
           endpoint: "GET /api/agent-directory",
           capabilities: ["search by keyword", "search by service", "register your agent"]
-        },
-        ecosystem: {
-          description: "Browse ecosystem partners",
-          endpoint: "GET /api/ecosystem",
-          capabilities: ["partner discovery", "integration status", "collaboration"]
         }
       }
     },
-    quickStart: "curl http://77.42.89.233:3001/api -H X-Agent-Id: your-agent",
-    docs: "http://77.42.89.233:3001/docs",
-    pricing: "FREE during Colosseum Hackathon (until Feb 12, 2026)"
+    quickStart: "curl https://palmyr.ai/api",
+    docs: "https://palmyr.ai/docs",
+    pricing: "Pay-per-call USDC via x402 — see /pricing for live amounts"
   });
 });
 

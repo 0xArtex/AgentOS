@@ -70,4 +70,3 @@ export async function notifyAgent(
 // phone.call.inbound — incoming call
 // email.inbound — new email received
 // server.status.changed — server status changed
-// hackathon.limit.reached — agent hit a hackathon limit

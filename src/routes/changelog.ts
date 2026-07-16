@@ -4,89 +4,48 @@ const router = Router();
 
 const CHANGELOG = [
   {
-    version: "0.4.3",
-    date: "2026-02-09",
+    date: "2026-07",
     changes: [
-      "Platform status dashboard: GET /status — comprehensive overview with health, stats, top agents, links",
+      "Prepaid Visa cards: /cards — buy, list, get, refresh via dynamic x402 pricing (CLI 1.14.0)",
     ],
   },
   {
-    version: "0.4.2",
-    date: "2026-02-09",
+    date: "2026-07",
     changes: [
-      "Changelog endpoint: GET /changelog — full version history",
+      "Distribution surfaces: hosted MCP server at /mcp (ai.palmyr/palmyr), Agent Skill via `npx skills add https://palmyr.ai`, Bazaar discovery metadata",
     ],
   },
   {
-    version: "0.4.1",
-    date: "2026-02-09",
+    date: "2026-06",
     changes: [
-      "Analytics endpoint: GET /analytics?hours=N — usage stats by endpoint, agent, hour, status code",
+      "i402 orchestrator at /chat — multi-step plan execution with dynamic pricing and async polling",
+      "Security hardening sweep across payments, wallet, and social routes",
+      "Removed dead hackathon-era routes; /pricing and /openapi.json now generated from the live route registry",
     ],
   },
   {
-    version: "0.4.0",
-    date: "2026-02-09",
+    date: "2026-05",
     changes: [
-      "Onboarding quickstart: POST /onboarding/quickstart — one API call to register + provision phone + email",
-      "Integration guide: GET /onboarding/guide",
+      "Trading lifecycle: any wallet trades on Solana + Base with SOL/ETH or USDC funding, per-asset PnL, TTL auto-lock",
     ],
   },
   {
-    version: "0.3.3",
-    date: "2026-02-09",
+    date: "2026-05-11",
     changes: [
-      "Agent search: GET /agents/search?q=name",
-      "Landing page: live hackathon countdown timer",
-      "Landing page: real-time activity feed",
+      "Rebrand: AgentOS is now Palmyr",
     ],
   },
   {
-    version: "0.3.2",
-    date: "2026-02-09",
+    date: "2026-05",
     changes: [
-      "Full CORS preflight support for browser-based agents",
-      "Request timeout: 30s global with 408 responses",
-      "Global rate limiting: 60 req/min per IP on all routes",
+      "Email send/receive on custom domains via Mailgun",
     ],
   },
   {
-    version: "0.3.1",
-    date: "2026-02-09",
+    date: "2026-02",
     changes: [
-      "Landing page: live stats from /stats endpoint",
-      "Input validation middleware with type/pattern/enum/minLength/maxLength checks",
-    ],
-  },
-  {
-    version: "0.3.0",
-    date: "2026-02-09",
-    changes: [
-      "Enhanced /health: DB check, memory usage, system info, hackathon status",
-      "/version endpoint: version, name, build SHA, node version",
-      "/activity endpoint: platform activity feed",
-      "Better error handler: JSON parse errors, payload too large",
-    ],
-  },
-  {
-    version: "0.4.3",
-    date: "2026-02-08",
-    changes: [
-      "Agent registration and leaderboard",
-      "Agent-to-agent messaging",
-      "Webhook notifications",
-      "Stream overlay endpoint",
-      "Request logging middleware",
-    ],
-  },
-  {
-    version: "0.1.0",
-    date: "2026-02-08",
-    changes: [
-      "Initial release: phone, email, domain, compute provisioning",
-      "x402 payment integration",
-      "Hackathon mode: free infra with X-Agent-Id header",
-      "Swagger API documentation",
+      "Initial release: phone, email, domain, and compute provisioning paid per call with USDC via x402",
+      "Swagger API documentation at /docs",
     ],
   },
 ];

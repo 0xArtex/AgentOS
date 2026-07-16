@@ -64,13 +64,7 @@ router.get("/service-health", async (req: Request, res: Response) => {
     status: allHealthy ? "operational" : "degraded",
     response_time_ms: latency,
     timestamp: new Date().toISOString(),
-    version: "v1.0.0",
-    checks,
-    hackathon: {
-      deadline: "2026-02-12T17:00:00Z",
-      hours_remaining: Math.max(0, Math.round((new Date("2026-02-12T17:00:00Z").getTime() - Date.now()) / 3600000)),
-      free_tier: true
-    }
+    checks
   });
 });
 

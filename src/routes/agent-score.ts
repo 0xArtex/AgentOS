@@ -49,12 +49,12 @@ router.get("/", (req: Request, res: Response) => {
   };
 
   const weights: Record<string, { points: number; label: string; tip: string }> = {
-    phone: { points: 20, label: "Phone/SMS", tip: "Provision via POST /api/phone — enables voice calls and SMS alerts" },
-    email: { points: 20, label: "Email", tip: "Provision via POST /api/email — enables sending/receiving emails" },
-    compute: { points: 25, label: "Compute", tip: "Provision via POST /api/compute — dedicated processing power" },
-    domain: { points: 10, label: "Custom Domain", tip: "Provision via POST /api/domain — professional agent identity" },
-    storage: { points: 10, label: "Persistent Storage", tip: "Provision via POST /api/compute with storage flag" },
-    wallet: { points: 15, label: "USDC Wallet", tip: "Required for post-hackathon x402 payments" },
+    phone: { points: 20, label: "Phone/SMS", tip: "Provision via POST /phone/numbers — enables voice calls and SMS alerts" },
+    email: { points: 20, label: "Email", tip: "Provision via POST /email/inboxes — enables sending/receiving emails" },
+    compute: { points: 25, label: "Compute", tip: "Provision via POST /compute/servers — dedicated processing power" },
+    domain: { points: 10, label: "Custom Domain", tip: "Provision via POST /domains/register — professional agent identity" },
+    storage: { points: 10, label: "Persistent Storage", tip: "Provision via POST /compute/servers with storage flag" },
+    wallet: { points: 15, label: "USDC Wallet", tip: "Required for x402 payments" },
   };
 
   let score = 0;
@@ -91,8 +91,8 @@ router.get("/", (req: Request, res: Response) => {
     nextStep: recommendations.length > 0
       ? `Add ${recommendations[0].service} (+${recommendations[0].points} points): ${recommendations[0].tip}`
       : "You're fully provisioned! 🎉",
-    hackathonNote: "All services FREE during Colosseum hackathon (until Feb 12). Add X-Agent-Id header to get started.",
-    docs: "http://77.42.89.233:3001/docs",
+    pricing: "Pay-per-call USDC via x402 — see /pricing for live amounts.",
+    docs: "https://palmyr.ai/docs",
   });
 });
 

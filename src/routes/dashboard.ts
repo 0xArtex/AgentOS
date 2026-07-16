@@ -36,7 +36,6 @@ router.get("/", requireAuth(0, 'general'), async (req: AuthenticatedRequest, res
     res.json({
       agent: {
         id: owner,
-        hackathon_mode: req.isHackathonMode || false,
       },
       resources: {
         phone_numbers: phones,
@@ -55,8 +54,8 @@ router.get("/", requireAuth(0, 'general'), async (req: AuthenticatedRequest, res
         sms_received: smsReceived?.count || 0,
       },
       links: {
-        docs: "http://77.42.89.233:3001/docs",
-        skill: "http://77.42.89.233:3001/skill.md",
+        docs: "https://palmyr.ai/docs",
+        skill: "https://palmyr.ai/skill.md",
         github: "https://github.com/0xArtex/Palmyr",
       }
     });

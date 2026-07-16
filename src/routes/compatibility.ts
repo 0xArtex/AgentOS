@@ -39,7 +39,7 @@ router.get("/", (_req: Request, res: Response) => {
         language: "TypeScript",
         compatible: true,
         integration: "Native skill system — drop SKILL.md pointing to Palmyr",
-        example: "See /api/integrations for OpenClaw skill template",
+        example: "npx skills add https://palmyr.ai, or fetch /skill.md directly",
         difficulty: "trivial"
       },
       {
@@ -73,9 +73,9 @@ router.get("/", (_req: Request, res: Response) => {
     },
     requirements: {
       auth: "x402 USDC payment, or a Bearer agent token from POST /wallet/{id}/api-key",
-      payment: "x402 USDC on Solana (FREE during hackathon with X-Agent-Id header)",
+      payment: "x402 USDC on Solana or Base — see /pricing for live per-call amounts",
       format: "JSON REST API",
-      docs: "http://77.42.89.233:3001/docs"
+      docs: "https://palmyr.ai/docs"
     }
   });
 });

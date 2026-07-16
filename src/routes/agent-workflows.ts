@@ -3,7 +3,7 @@ import { Router, Request, Response } from "express";
 const router = Router({ mergeParams: true });
 
 /**
- * GET /agent-workflows — Pre-built multi-step workflow recipes
+ * GET /agent-workflows -- Pre-built multi-step workflow recipes
  * Real composable pipelines agents can execute step-by-step
  */
 router.get("/", (_req: Request, res: Response) => {
@@ -51,14 +51,14 @@ router.get("/", (_req: Request, res: Response) => {
             note: "Make your agent discoverable"
           }
         ],
-        totalCost: "2.55 USDC (free during hackathon)"
+        totalCost: "2.55 USDC -- see /pricing for live per-call amounts"
       },
       {
         id: "trading-alerts",
         name: "Trading Alert Pipeline",
         difficulty: "intermediate",
         estimatedTime: "10 minutes",
-        description: "Multi-channel alert system: detect signal → notify via SMS + email",
+        description: "Multi-channel alert system: detect signal -> notify via SMS + email",
         steps: [
           {
             step: 1,
@@ -89,11 +89,11 @@ router.get("/", (_req: Request, res: Response) => {
             action: "Send test SMS alert",
             method: "POST",
             endpoint: "/phone/numbers/{id}/send",
-            body: { to: "+1234567890", body: "🚨 SOL breakout detected: $185.50 (+12.3%)" },
+            body: { to: "+1234567890", body: "SOL breakout detected: $185.50 (+12.3%)" },
             note: "Verify the pipeline works end-to-end"
           }
         ],
-        totalCost: "3.55 USDC (free during hackathon)"
+        totalCost: "3.55 USDC -- see /pricing for live per-call amounts"
       },
       {
         id: "multi-agent-team",
@@ -142,7 +142,7 @@ router.get("/", (_req: Request, res: Response) => {
             note: "Coordinator delegates tasks via messaging API"
           }
         ],
-        totalCost: "6.10 USDC (free during hackathon)"
+        totalCost: "6.10 USDC -- see /pricing for live per-call amounts"
       },
       {
         id: "saas-mvp",
@@ -197,11 +197,11 @@ router.get("/", (_req: Request, res: Response) => {
             note: "Agent wallet for receiving USDC payments"
           }
         ],
-        totalCost: "8.50 USDC (free during hackathon)"
+        totalCost: "8.50 USDC -- see /pricing for live per-call amounts"
       }
     ],
-    hackathonNote: "All workflows are FREE during the Colosseum hackathon. Just include X-Agent-Id header.",
-    tryIt: "curl http://77.42.89.233:3001/api/agent-workflows"
+    pricing: "Paid steps settle per call in USDC via x402 -- see /pricing for live amounts.",
+    tryIt: "curl https://palmyr.ai/api/agent-workflows"
   });
 });
 

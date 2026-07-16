@@ -6,10 +6,6 @@ const router = Router();
 
 // GET /api/agent-pulse - Real-time platform pulse with live metrics
 router.get("/", (_req: Request, res: Response) => {
-  const now = Date.now();
-  const deadline = new Date("2026-02-12T17:00:00Z").getTime();
-  const hoursLeft = Math.max(0, (deadline - now) / 3600000);
-
   // Live DB counts
   const safeCount = (table: string): number => {
     try { return (db.prepare(`SELECT COUNT(*) as c FROM ${table}`).get() as any).c; } catch { return 0; }
@@ -39,16 +35,8 @@ router.get("/", (_req: Request, res: Response) => {
     topEndpoints = db.prepare("SELECT path, COUNT(*) as hits FROM request_log WHERE created_at > datetime(\"now\", \"-24 hours\") GROUP BY path ORDER BY hits DESC LIMIT 5").all();
   } catch {}
 
-  const urgency = hoursLeft > 24 ? "BUILDING" : hoursLeft > 12 ? "CRUNCH_TIME" : hoursLeft > 6 ? "FINAL_SPRINT" : hoursLeft > 0 ? "LAST_STAND" : "SUBMITTED";
-
   res.json({
     pulse: "alive",
-    urgency,
-    hackathon: {
-      hoursRemaining: Math.round(hoursLeft * 10) / 10,
-      deadline: "2026-02-12T17:00:00Z",
-      status: hoursLeft > 0 ? "ACTIVE" : "ENDED"
-    },
     platform: {
       agents,
       phones,

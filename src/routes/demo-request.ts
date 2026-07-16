@@ -32,10 +32,10 @@ router.post("/", async (req: Request, res: Response) => {
 
   return res.json({
     success: true,
-    message: "Demo request received! We will reach out within 24h.",
+    message: "Demo request received.",
     request,
-    quickStart: "Cannot wait? Try our sandbox: GET /api/sandbox",
-    docs: "http://77.42.89.233:3001/docs",
+    quickStart: "Cannot wait? Fetch the agent guide: GET /skill.md",
+    docs: "https://palmyr.ai/docs",
   });
 });
 

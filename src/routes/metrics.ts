@@ -49,14 +49,8 @@ router.get("/", (_req: Request, res: Response) => {
     ? (apiMetrics.lastHourRequests.length / Math.min(60, uptimeMs / 60000)).toFixed(2)
     : "0";
 
-  const hackathonDeadline = new Date("2026-02-12T17:00:00Z").getTime();
-  const timeLeft = hackathonDeadline - Date.now();
-  const daysLeft = Math.floor(timeLeft / 86400000);
-  const hoursLeft = Math.floor((timeLeft % 86400000) / 3600000);
-
   res.json({
     platform: "Palmyr",
-    version: "0.6.7",
     uptime: `${uptimeHours}h ${uptimeMinutes}m`,
     uptimeMs,
     metrics: {
@@ -70,20 +64,6 @@ router.get("/", (_req: Request, res: Response) => {
     },
     topEndpoints,
     topAgents,
-    hackathon: {
-      deadline: "2026-02-12T17:00:00Z",
-      timeRemaining: `${daysLeft}d ${hoursLeft}h`,
-      status: timeLeft > 0 ? "active" : "ended",
-      freeAccess: timeLeft > 0,
-    },
-    services: {
-      phone: { status: "operational", provisioned: 0 },
-      email: { status: "operational", provisioned: 0 },
-      compute: { status: "operational", instances: 0 },
-      domains: { status: "operational", registered: 0 },
-      storage: { status: "operational", used: "0 MB" },
-      analytics: { status: "operational" },
-    },
   });
 });
 
