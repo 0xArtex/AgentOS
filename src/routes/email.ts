@@ -1,7 +1,7 @@
 import { Router, Request, Response, NextFunction, urlencoded } from "express";
 import { requireAuth } from "../middleware/auth";
 import { x402 } from "../middleware/x402";
-import { AuthenticatedRequest } from "../types";
+import { AuthenticatedRequest, EmailInbox } from "../types";
 import * as emailService from "../services/email";
 import { storage } from "../services/storage";
 import { db } from "../db";
@@ -61,6 +61,18 @@ router.post("/provision", validateInboxInputs, requireAuth(2.0, "email", {
     });
   } catch (err: any) {
     console.error("[email] Provision error:", err);
+    if (/already exists|UNIQUE constraint failed: email_inboxes/i.test(String(err?.message))) {
+      // Duplicate that slipped past the free pre-payment 409 (legacy alias
+      // shares validateInboxInputs). The charge settled — refund, never a
+      // charged 500.
+      await refundAndRespond(req, res, {
+        reason: `Inbox provision duplicate: ${err.message}`,
+        userMessage: `${err.message} — your payment is being refunded. Pick a different name.`,
+        errorLabel: "Conflict",
+        httpStatus: 409,
+      });
+      return;
+    }
     res.status(500).json({ error: "Inbox Creation Failed", message: err.message });
   }
 });
@@ -87,6 +99,26 @@ function validateInboxInputs(req: Request, res: Response, next: NextFunction): v
   }
   if (!/^[a-z0-9\-_.]+$/i.test(String(name).toLowerCase().replace(/[^a-z0-9\-_.]/g, ''))) {
     res.status(400).json({ error: "Invalid inbox name" });
+    return;
+  }
+
+  // Free pre-payment duplicate check: an ACTIVE inbox at this address is a
+  // guaranteed "already exists" failure in the handler, which only runs AFTER
+  // the $2 charge settles — so reject here, where nothing has been charged.
+  // Soft-deleted addresses are deliberately NOT rejected: the handler
+  // reactivates them for their former owner (delete-then-recreate) and
+  // refunds anyone else. Address normalization mirrors createInbox exactly.
+  const dupLocal = String(name).toLowerCase().replace(/[^a-z0-9\-_.]/g, "");
+  const dupDomainRaw = String(domain ?? "").trim();
+  const dupDomain = (dupDomainRaw && /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i.test(dupDomainRaw))
+    ? dupDomainRaw.toLowerCase()
+    : config.emailDomain;
+  if (dupLocal && storage.hasActiveEmailAddress(`${dupLocal}@${dupDomain}`)) {
+    res.status(409).json({
+      error: "Inbox already exists",
+      message: `${dupLocal}@${dupDomain} is already provisioned. Pick a different name.`,
+      hint: "Your wallet has NOT been charged — this check ran before payment.",
+    });
     return;
   }
   // walletAddress is fully optional: an inbox is owned by the x402 payer on
@@ -186,8 +218,37 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
     }
   }
 
+  // Delete-then-recreate: if this exact address exists as a SOFT-DELETED
+  // inbox, re-provisioning by its former owner REACTIVATES it (same id, same
+  // keys, retained messages) instead of colliding with UNIQUE(address). Any
+  // other collision — a different wallet hitting a reserved address, or an
+  // active duplicate that raced past the free pre-payment 409 — is refunded,
+  // never a charged 500.
+  const prospectiveLocal = String(name || "").toLowerCase().replace(/[^a-z0-9\-_.]/g, "");
+  const prospectiveAddress = `${prospectiveLocal}@${resolvedDomain || config.emailDomain}`;
+  const existingId = prospectiveLocal ? storage.getEmailInboxByAddress(prospectiveAddress) : undefined;
+  let reactivatedInbox: EmailInbox | undefined;
+  if (existingId) {
+    const existing = storage.getEmailInbox(existingId);
+    const identities = [req.payment?.payer, req.agentId].filter(Boolean) as string[];
+    const isFormerOwner = !!existing && !existing.active &&
+      identities.some(w => w === existing.owner || w === existing.solanaPublicKey);
+    if (existing && isFormerOwner) {
+      storage.reactivateEmailInbox(existing.id);
+      reactivatedInbox = { ...existing, active: true };
+    } else {
+      await refundAndRespond(req, res, {
+        reason: `Inbox address '${prospectiveAddress}' already exists${existing && !existing.active ? " (reserved by a deleted inbox owned by another wallet)" : ""}`,
+        userMessage: `'${prospectiveAddress}' is not available — your payment is being refunded. Pick a different name.`,
+        errorLabel: "Conflict",
+        httpStatus: 409,
+      });
+      return;
+    }
+  }
+
   try {
-    const result = emailService.createInbox(name, owner, encryptionKey, resolvedDomain);
+    const result = reactivatedInbox ?? emailService.createInbox(name, owner, encryptionKey, resolvedDomain);
 
     // For custom domains, register the domain with our email backend (Mailgun)
     // and write the DKIM + SPF records it asks for to the user's Namecheap
@@ -248,6 +309,7 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         address: result.address,
         walletAddress: result.solanaPublicKey,
       },
+      reactivated: reactivatedInbox ? true : undefined,
       dnsApplied: resolvedDomain ? dnsApplied : undefined,
       mailgunRegistered: resolvedDomain ? mailgunRegistered : undefined,
       mailgunIdentity,
@@ -262,6 +324,18 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
         : undefined,
     });
   } catch (err: any) {
+    if (/already exists|UNIQUE constraint failed: email_inboxes/i.test(String(err?.message))) {
+      // Backstop for the pre-check/INSERT race: another request claimed the
+      // address after our duplicate checks ran. The charge already settled,
+      // so refund — a charged bare 500 is never acceptable here.
+      await refundAndRespond(req, res, {
+        reason: `Inbox creation raced a duplicate: ${err.message}`,
+        userMessage: `${err.message} — your payment is being refunded. Pick a different name.`,
+        errorLabel: "Conflict",
+        httpStatus: 409,
+      });
+      return;
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -544,6 +618,84 @@ router.post("/inboxes/:id/send", x402(0.08, {
 });
 
 /**
+ * DELETE /email/inboxes/:id — Delete an inbox you own.
+ * Cost: 0.01 USDC — the same cheap ownership-proof pricing as the sibling
+ * owner actions (list inboxes, phone number release).
+ *
+ * Soft delete: the row flips active=0 and stays in the DB. Stored messages
+ * are retained (encrypted at rest) but unreachable through the API — every
+ * per-inbox route resolves the inbox via emailService.getInbox, which now
+ * filters inactive rows, so reads/sends/threads 404 from here on. Inbound
+ * mail to the address is dropped, and the address stays reserved (never
+ * recycled to a different wallet).
+ *
+ * Mailgun cleanup is best-effort: default-domain inboxes share one catch-all
+ * route, so there is nothing per-inbox to remove upstream. When this was the
+ * LAST active inbox on a custom domain, the domain's Mailgun registration is
+ * deleted too. An upstream failure NEVER blocks the local delete — the
+ * response just reports `mailgun_cleanup: false`.
+ */
+router.delete("/inboxes/:id", requireAuth(0.01, "general", {
+  description: "Delete an email inbox you own. Inbound mail stops and API reads 404; stored messages are retained encrypted. The address stays reserved.",
+  category: "communications",
+  tags: ["email", "inbox", "delete"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const inboxId = String(req.params.id);
+    // getInbox is active-only, so deleting an already-deleted inbox 404s —
+    // consistent with every other read of a deleted inbox.
+    const inbox = emailService.getInbox(inboxId);
+    if (!inbox) {
+      res.status(404).json({ error: "Inbox not found" });
+      return;
+    }
+
+    // Owner-only — accept EITHER verified identity (x402 payer or registered
+    // agent wallet). Provision sets owner from `req.agentId || payer`, so a
+    // token-registered agent whose payer differs from its registered wallet
+    // must still be able to delete what it created.
+    const identities = [req.payment?.payer, req.agentId].filter(Boolean) as string[];
+    const isOwner = identities.some(w => w === inbox.owner || w === inbox.solanaPublicKey);
+    if (!isOwner) {
+      res.status(403).json({
+        error: "Wallet mismatch",
+        message: "Only the wallet that owns this inbox can delete it.",
+      });
+      return;
+    }
+
+    emailService.deleteInbox(inboxId);
+
+    // Best-effort upstream cleanup — runs AFTER the local delete so a
+    // Mailgun hiccup can never leave the endpoint half-failing.
+    let mailgunCleanup = true;
+    const inboxDomain = inbox.address.split("@")[1];
+    if (inboxDomain && inboxDomain !== config.emailDomain) {
+      try {
+        const { isMailgunConfigured, deleteMailgunDomain } = await import("../services/mailgun");
+        if (isMailgunConfigured() && storage.countActiveEmailInboxesOnDomain(inboxDomain) === 0) {
+          await deleteMailgunDomain(inboxDomain);
+        }
+      } catch (mgErr: any) {
+        mailgunCleanup = false;
+        console.warn(`[email] mailgun cleanup for ${inboxDomain} failed (non-fatal):`, mgErr?.message || mgErr);
+      }
+    }
+
+    res.json({
+      deleted: true,
+      id: inboxId,
+      address: inbox.address,
+      mailgun_cleanup: mailgunCleanup,
+      messages_retained: true,
+    });
+  } catch (err: any) {
+    console.error("[email] Delete error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /email/inbound — Webhook for inbound emails (Mailgun Routes target).
  *
  * Mailgun POSTs as multipart form-data (or url-encoded) containing the parsed
@@ -754,6 +906,7 @@ router.get("/info", (_req, res: Response) => {
       threads: "0.02 USDC",
       attachments: "0.02 USDC",
       webhooks: "0.02 USDC",
+      delete: "0.01 USDC",
     },
     features: ["E2E encryption", "threads", "attachments", "webhooks", "custom domains (coming)"],
     security: {

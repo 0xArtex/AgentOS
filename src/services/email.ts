@@ -315,6 +315,12 @@ export function handleInboundEmail(
     console.warn(`[email] Inbox ${inboxId} not found`);
     return null;
   }
+  if (!inbox.active) {
+    // Deleted inbox — the Mailgun catch-all still forwards its mail, so drop
+    // it here instead of accumulating messages the owner can never read.
+    console.warn(`[email] Inbound email to deleted inbox ${inboxId} — dropped`);
+    return null;
+  }
 
   // Encrypt: use wallet key (E2E) if available, else server-managed
   const useE2E = inbox.publicKey && inbox.e2eEnabled;
@@ -469,11 +475,25 @@ async function sendOutboundEmail(
 }
 
 export function getInbox(id: string): EmailInbox | undefined {
-  return storage.getEmailInbox(id);
+  const inbox = storage.getEmailInbox(id);
+  // A soft-deleted (active=0) inbox is gone as far as the API is concerned.
+  // Every per-inbox route resolves through here first, so filtering once
+  // makes reads/sends/threads/webhooks all 404 after DELETE /email/inboxes/:id.
+  return inbox && inbox.active ? inbox : undefined;
 }
 
 export function listInboxes(owner: string): EmailInbox[] {
-  return storage.getEmailInboxesByOwner(owner);
+  return storage.getEmailInboxesByOwner(owner).filter(i => i.active);
+}
+
+/**
+ * Soft-delete an inbox: flip `active` off. The row and its stored messages
+ * are retained — encrypted at rest, unreachable via the API — so a mistaken
+ * delete is operator-recoverable and the address stays reserved rather than
+ * being recycled to a different wallet. Inbound mail is dropped from now on.
+ */
+export function deleteInbox(id: string): boolean {
+  return storage.deactivateEmailInbox(id);
 }
 
 export function generateChallenge(inboxId: string): { challenge: string; expiresAt: string } {
