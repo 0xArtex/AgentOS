@@ -62,11 +62,10 @@ router.get("/", (_req: Request, res: Response) => {
       "POST /api/agent-webhooks/test": "Send a test event"
     },
     try_it: [
-      'curl -X POST http://77.42.89.233:3001/api/agent-webhooks -H "Content-Type: application/json" -d \'{"agent_id":"my-agent","url":"https://example.com/webhook","events":"task.completed,health.degraded"}\'',
-      'curl http://77.42.89.233:3001/api/agent-webhooks/my-agent',
-      'curl -X POST http://77.42.89.233:3001/api/agent-webhooks/test -H "Content-Type: application/json" -d \'{"webhook_id":1,"event":"task.completed"}\''
-    ],
-    hackathon_note: "Free during Colosseum hackathon — unlimited webhooks"
+      'curl -X POST https://palmyr.ai/api/agent-webhooks -H "Content-Type: application/json" -d \'{"agent_id":"my-agent","url":"https://example.com/webhook","events":"task.completed,health.degraded"}\'',
+      'curl https://palmyr.ai/api/agent-webhooks/my-agent',
+      'curl -X POST https://palmyr.ai/api/agent-webhooks/test -H "Content-Type: application/json" -d \'{"webhook_id":1,"event":"task.completed"}\''
+    ]
   });
 });
 

@@ -41,14 +41,14 @@ router.get("/", (_req: Request, res: Response) => {
         name: "Full-Stack Autonomous Agent",
         description: "The ultimate setup: phone + email + server + domain. An agent with a complete digital identity, able to interact with the real world.",
         services: ["phone", "email", "compute", "domains"],
-        example: "POST /onboarding/quickstart → provisions everything in one call",
+        example: "POST /phone/numbers → POST /email/inboxes → POST /compute/servers → POST /domains/register",
         difficulty: "advanced"
       }
     ],
     pricing: {
       model: "pay-per-call (x402 USDC)",
       note: "Each call settles in USDC via x402 at request time — see /pricing for exact per-call amounts.",
-      getStarted: "POST /onboarding/quickstart with X-Agent-Id header"
+      getStarted: "Fetch /skill.md for the agent-readable guide"
     }
   });
 });

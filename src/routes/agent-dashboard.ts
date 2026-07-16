@@ -40,21 +40,16 @@ router.get("/", (req: Request, res: Response) => {
     routeCount = fs.readdirSync(routeDir).filter(f => f.endsWith(".ts") || f.endsWith(".js")).length;
   } catch {}
 
-  // Hackathon countdown
-  const deadline = new Date("2026-02-12T17:00:00Z");
-  const now = new Date();
-  const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
-
   res.json({
     agent: {
       id: agentId,
       resources: { phones, emails, servers, domains },
       setupScore: Math.round(([phones, emails, servers, domains].filter(x => x > 0).length / 4) * 100),
       recommendations: [
-        ...(phones === 0 ? ["Provision a phone: POST /api/phones/provision"] : []),
-        ...(emails === 0 ? ["Set up email: POST /api/emails/provision"] : []),
-        ...(servers === 0 ? ["Launch compute: POST /api/compute/provision"] : []),
-        ...(domains === 0 ? ["Register domain: POST /api/domains/register"] : []),
+        ...(phones === 0 ? ["Provision a phone: POST /phone/numbers"] : []),
+        ...(emails === 0 ? ["Set up email: POST /email/inboxes"] : []),
+        ...(servers === 0 ? ["Launch compute: POST /compute/servers"] : []),
+        ...(domains === 0 ? ["Register domain: POST /domains/register"] : []),
       ]
     },
     platform: {
@@ -66,27 +61,20 @@ router.get("/", (req: Request, res: Response) => {
       cpuLoad: cpuLoad[0].toFixed(2),
       status: "operational"
     },
-    hackathon: {
-      hoursRemaining: Math.round(hoursLeft * 10) / 10,
-      deadline: deadline.toISOString(),
-      status: hoursLeft > 24 ? "building" : hoursLeft > 6 ? "crunch-time" : hoursLeft > 0 ? "final-sprint" : "submitted",
-      freeAccess: true,
-      tip: hoursLeft > 24 ? "Explore all services — everything is free" : "Ship what you have, polish the demo"
-    },
     quickActions: {
       health: "GET /api/service-health",
-      register: "POST /api/agents/register",
-      phone: "POST /api/phones/provision",
-      email: "POST /api/emails/provision",
-      compute: "POST /api/compute/provision",
+      register: "POST /agents/register",
+      phone: "POST /phone/numbers",
+      email: "POST /email/inboxes",
+      compute: "POST /compute/servers",
       billing: "GET /api/agent-billing",
-      logs: "GET /api/agent-logs",
+      logs: "GET /api/logs",
       messages: "GET /api/agent-comms/inbox"
     },
     links: {
-      docs: "http://77.42.89.233:3001/docs",
+      docs: "https://palmyr.ai/docs",
       github: "https://github.com/0xArtex/Palmyr",
-      skill: "http://77.42.89.233:3001/skill.md"
+      skill: "https://palmyr.ai/skill.md"
     }
   });
 });

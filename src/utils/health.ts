@@ -2,7 +2,25 @@ import { db } from "../db";
 import os from "os";
 
 const startTime = Date.now();
-const VERSION = "0.4.3";
+
+/**
+ * Read the real version from the root package.json (same dist-safe pattern as
+ * well-known.ts readPackageVersion): require() resolves relative to this file
+ * (dist/utils or src/utils), so ../../package.json points at the project root
+ * in both layouts. Read once at module load, behind a try/catch — a missing or
+ * garbled package.json must never make a health request throw.
+ */
+function readPackageVersion(): string {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const pkg = require("../../package.json");
+    const v = pkg && typeof pkg.version === "string" ? pkg.version : "";
+    return v || "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
+const VERSION = readPackageVersion();
 
 export function getHealth() {
   // DB check

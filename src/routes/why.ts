@@ -11,10 +11,7 @@ function safeCount(table: string): number {
 }
 
 router.get("/", (_req: Request, res: Response) => {
-  const deadline = new Date("2026-02-12T17:00:00Z");
-  const now = new Date();
-  const hoursLeft = Math.max(0, (deadline.getTime() - now.getTime()) / 3600000);
-  const routeCount = (() => { try { return fs.readdirSync(path.join(__dirname, ".")).filter(f => f.endsWith(".ts") || f.endsWith(".js")).length; } catch { return 200; } })();
+  const routeCount = (() => { try { return fs.readdirSync(path.join(__dirname, ".")).filter(f => f.endsWith(".ts") || f.endsWith(".js")).length; } catch { return 0; } })();
 
   res.json({
     question: "Why does Palmyr exist?",
@@ -31,28 +28,27 @@ router.get("/", (_req: Request, res: Response) => {
     the_solution: {
       description: "One API for all operational infrastructure",
       services: {
-        phone: "SMS + voice calls via /api/phone",
-        email: "Send/receive via /api/email",
-        compute: "Isolated instances via /api/compute",
-        domains: "Custom domains via /api/domains",
-        wallet: "Solana wallet management via /api/wallet",
+        phone: "SMS + voice calls via /phone",
+        email: "Send/receive via /email",
+        compute: "Isolated instances via /compute",
+        domains: "Custom domains via /domains",
+        wallet: "Wallet management via /wallet",
         identity: "DID-compatible verification via /api/agents/verify"
       },
       payment: "USDC via x402 protocol",
-      onboarding: "Add X-Agent-Id header. Start using. That is it."
+      onboarding: "Fund a wallet and call the API — the wallet that pays owns the resource."
     },
     proof_its_real: {
-      endpoints_live: routeCount,
+      route_modules: routeCount,
       agents_registered: safeCount("agents"),
       phones_provisioned: safeCount("phone_numbers"),
       emails_provisioned: safeCount("email_inboxes"),
-      uptime_hours: Math.round(os.uptime() / 3600),
-      hackathon_hours_remaining: Math.round(hoursLeft * 10) / 10
+      uptime_hours: Math.round(os.uptime() / 3600)
     },
     try_it: {
-      quickstart: "curl https://palmyr.ai/api/quickstart",
+      api: "curl https://palmyr.ai/api",
       docs: "https://palmyr.ai/docs",
-      for_judges: "curl https://palmyr.ai/api/for-judges"
+      skill: "curl https://palmyr.ai/skill.md"
     }
   });
 });

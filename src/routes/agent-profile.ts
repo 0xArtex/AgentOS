@@ -62,14 +62,13 @@ router.get("/:agentId", (req: Request, res: Response) => {
       score: readinessScore,
       tier: readinessScore >= 80 ? "production" : readinessScore >= 40 ? "development" : "starter",
       recommendations: [
-        ...(phones.length === 0 ? ["Add a phone: POST /api/phone/provision"] : []),
-        ...(emails.length === 0 ? ["Add email: POST /api/email/provision"] : []),
-        ...(servers.length === 0 ? ["Add compute: POST /api/compute/provision"] : []),
-        ...(wallets.length === 0 ? ["Add wallet: POST /api/wallet/create"] : []),
+        ...(phones.length === 0 ? ["Add a phone: POST /phone/numbers"] : []),
+        ...(emails.length === 0 ? ["Add email: POST /email/inboxes"] : []),
+        ...(servers.length === 0 ? ["Add compute: POST /compute/servers"] : []),
+        ...(wallets.length === 0 ? ["Add wallet: POST /wallet/create"] : []),
       ]
     },
-    activity: { total: activityCount },
-    hackathon: { mode: "FREE", deadline: "2026-02-12T17:00:00Z" }
+    activity: { total: activityCount }
   });
 });
 

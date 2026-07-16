@@ -14,7 +14,7 @@ const router = Router();
 
 /**
  * POST /email/provision — Create an email inbox
- * Cost: 1.00 USDC (or free during hackathon)
+ * Priced via x402 — see /pricing for the live amount.
  */
 router.post("/provision", validateInboxInputs, requireAuth(2.0, "email", {
   description: "Create an end-to-end encrypted email inbox at {name}@palmyr.ai, keyed to your Solana wallet.",

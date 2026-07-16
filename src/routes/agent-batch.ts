@@ -60,7 +60,6 @@ router.post("/", async (req: Request, res: Response) => {
       example: {
         operations: [
           { method: "GET", path: "/api/service-health" },
-          { method: "GET", path: "/api/hackathon" },
           { method: "GET", path: "/api/agent-dashboard" }
         ]
       }
@@ -150,7 +149,6 @@ router.get("/", (_req: Request, res: Response) => {
     example: {
       operations: [
         { method: "GET", path: "/api/service-health" },
-        { method: "GET", path: "/api/hackathon" },
         { method: "GET", path: "/api/agent-dashboard" }
       ]
     },
