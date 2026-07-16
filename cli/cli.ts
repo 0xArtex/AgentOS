@@ -25,6 +25,7 @@ import { Palmyr } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addNote } from './config.js'
 import { getState as getTelemetryState, setEnabled as setTelemetryEnabled, queuedCount as telemetryQueuedCount, appendEventSync as telemetryAppendEvent, flushQueue as telemetryFlushQueue } from './telemetry.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel, setAgentMode as setUiAgentMode } from './ui.js'
+import { GLOBAL_FLAGS as GLOBAL_FLAG_NAMES, findUnknownFlags, flagNamesFromTable, insufficientBalanceMessage, usdcShortfall } from './cli-guards.js'
 import { existsSync, readFileSync } from 'fs'
 import { randomBytes } from 'crypto'
 import { homedir } from 'os'
@@ -98,10 +99,16 @@ const BOOLEAN_FLAGS = new Set([
   // tiktok connect hand-off flags. Default is QR (zero-install phone scan);
   // --local opens the browser on this machine. ('qr' tolerated as explicit default.)
   'qr', 'local',
+  // chat run/resume: bypass the USDC balance preflight
+  'skip-balance-check',
 ])
 
 function parse(argv: string[]) {
   const flags: Record<string, string | boolean> = {}
+  // Every `--flag` key exactly as typed (before the `no-` normalization below),
+  // in argv order — the unknown-flag guard validates these against the resolved
+  // command's allowlist before dispatch.
+  const flagKeys: string[] = []
   const positional: string[] = []
   let command = ''
   let subcommand = ''
@@ -122,12 +129,15 @@ function parse(argv: string[]) {
       // Handle --key=value syntax
       const eqIdx = arg.indexOf('=')
       if (eqIdx !== -1) {
-        flags[arg.slice(2, eqIdx)] = arg.slice(eqIdx + 1)
+        const key = arg.slice(2, eqIdx)
+        flags[key] = arg.slice(eqIdx + 1)
+        flagKeys.push(key)
         continue
       }
 
       // Handle --no-prefix as boolean false
       const key = arg.slice(2)
+      flagKeys.push(key)
       if (key.startsWith('no-')) {
         flags[key.slice(3)] = false
         continue
@@ -151,7 +161,7 @@ function parse(argv: string[]) {
       positional.push(arg)
     }
   }
-  return { command, subcommand, positional, flags }
+  return { command, subcommand, positional, flags, flagKeys }
 }
 
 // Global agent-mode flag — set early in main() based on TTY detection + the
@@ -830,6 +840,7 @@ const CHAT_HELP: Record<string, Array<{ flag: string; desc: string; hint?: strin
     { flag: '--execute', desc: 'Auto-execute the plan once generated' },
     { flag: '--auto-approve-under <USDC>', desc: 'Skip approval prompts for steps cheaper than this' },
     { flag: '--max-usdc <USDC>', desc: 'Hard spend ceiling per payment; aborts before signing if exceeded (env: PALMYR_MAX_USDC)' },
+    { flag: '--skip-balance-check', desc: 'Skip the USDC balance preflight (read before the orchestration fee is paid; plan totals are estimates — dynamically-priced steps can settle for less)' },
     { flag: '(price)', desc: '$0.10 orchestration fee + sum of per-step costs (capped by --budget)' },
     { flag: '(example)', desc: 'palmyr chat run "launch a sneaker brand" --budget 50' },
   ],
@@ -840,6 +851,7 @@ const CHAT_HELP: Record<string, Array<{ flag: string; desc: string; hint?: strin
     { flag: '--plan-id <id>', desc: 'Plan id to approve (pair with --approve)' },
     { flag: '--budget <USDC>', desc: 'Override session budget (default $20)' },
     { flag: '--execute', desc: 'Auto-execute the new plan' },
+    { flag: '--skip-balance-check', desc: 'Skip the USDC balance preflight (see `chat run --help`)' },
     { flag: '(price)', desc: '$0.10 orchestration fee per new plan + per-step costs' },
     { flag: '(example)', desc: 'palmyr chat resume sess_abc "now post 3 videos"' },
   ],
@@ -1269,6 +1281,139 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
 }
 
+// ─── Strict unknown-flag guard ───
+//
+// A typo like `--dubject` used to fall through the parser silently and
+// resurface as a confusing "missing required flag" error. Before dispatch,
+// main() checks every `--flag` on the argv against the resolved command's
+// allowlist and fails fast with the valid options (see rejectUnknownFlags).
+//
+// A command's allowlist is the union of:
+//   - every `--flag` mentioned anywhere in its help table (all subcommands,
+//     descriptions and hints included — deliberately lenient so documented
+//     aliases and grouped case-arms never false-positive on a valid flag)
+//   - EXTRA_FLAGS: accepted-but-undocumented aliases found by auditing every
+//     `flags.<x>` read in this file (e.g. phone share reads `--wallet` as an
+//     alias for its documented `--with`)
+//   - GLOBAL_FLAGS (--json, --help, --token, ...)
+//
+// Only commands keyed in EXTRA_FLAGS are validated — when adding a new
+// command, add its key here (an empty array is fine) or it ships unguarded.
+//
+// Passthrough audit (nothing needs an exemption):
+//   - `compute exec <id> -- <cmd> --any-flag`: everything after a bare `--`
+//     is a positional by the time parse() returns, so the guard never sees
+//     remote flags. The explicit form carries them inside `--command`/`--arg`
+//     string values.
+//   - templates (`wallet buy/cohort --template`): strategy fields come from
+//     the YAML body, not argv flags.
+//   - `chat run`: the intent is a positional/`--intent` string; flags are fixed.
+
+const COMMAND_HELP_TABLES: Record<string, Record<string, Array<{ flag: string; desc: string; hint?: string }>>> = {
+  phone: PHONE_HELP,
+  email: EMAIL_HELP,
+  compute: COMPUTE_HELP,
+  card: CARD_HELP,
+  domain: DOMAIN_HELP,
+  wallet: WALLET_HELP,
+  chat: CHAT_HELP,
+  twitter: TWITTER_HELP,
+  tiktok: TIKTOK_HELP,
+}
+
+const EXTRA_FLAGS: Record<string, string[]> = {
+  setup: ['keyfile', 'chain'],
+  status: [],
+  note: [],
+  worker: [],
+  telemetry: [],
+  config: [],
+  doctor: [],
+  pricing: [],
+  health: [],
+  email: [],
+  card: [],
+  phone: ['message'], // sms-status alias for --id
+  domain: ['wallet'], // unshare alias for --from
+  chat: ['auto-execute'], // alias for --execute
+  compute: [
+    'id', 'name', // every server-targeting subcommand accepts these next to the positional
+    'file', 'label', // ssh-key add aliases
+    'generate', 'publicKey', 'ssh-key-file', 'key-path', 'private-key', 'progress', // deploy/wait/setup-ssh key plumbing
+    'identity', // ssh alias for --key
+    'to', 'new-name', // rename aliases
+    'command', 'arg', // exec explicit (non `--`) form
+  ],
+  wallet: [
+    'managed', // create: web-passkey managed wallet flow
+    'label', // create/import alias for --name
+    'message', // sign-message alias for --msg
+    'webhook', // register alias for --webhook-url
+    'per-tx', // request-approval alias for --tx
+    'take-profit', // buy/cohort alias for --tp
+    'progress', // buy/sell/cohort inline progress toggle
+    'history', // positions: include closed
+    'budget', // live-test spend cap
+  ],
+  twitter: [
+    'email-password', 'emailpw', 'totp', 'authtoken', 'recovery-codes', 'profile-url', // import field aliases
+    'id', // schedule cancel / dispute / unregister accept --id
+    'path', // post/thread/pfp/banner media alias for --file
+    'community-id', // post/schedule alias for --community
+    'target', // follow/unfollow alias for --user
+    'name', // display-name alias for --display
+    'wait', // --no-wait on banner/pfp media ops
+    'age-category', 'batch', // pool buy/add filters
+    'wallet', // share/unshare alias
+  ],
+  tiktok: [
+    'username', 'login', 'password', 'email', 'email-password', 'emailpw', 'tt-csrf', 'tt-webid',
+    'totp-seed', 'totp', 'profile-url', 'force-email', // import field aliases
+    'code', 'transfer', // pull hand-off code alias
+    'body', 'path', 'when', // draft/post aliases for --caption/--file/--at
+    'id', // draft approve/reject accept --id
+    'interval', // monitor alias for --every
+    'target', 'name', // follow/profile aliases
+    'wait', // --no-wait on media ops
+    'qr', // connect: explicit form of the default QR hand-off mode (--local is the alternative)
+  ],
+}
+
+/**
+ * Fail fast (exit 2) when the argv carries a `--flag` the resolved command
+ * doesn't know. Skipped for unknown commands (the dispatcher's default case
+ * owns that error) and when --help is present (help beats strictness).
+ */
+function rejectUnknownFlags(command: string, subcommand: string, flagKeys: string[]) {
+  const extras = EXTRA_FLAGS[command]
+  if (extras === undefined) return // unregistered command → `Unknown command` path
+  const table = COMMAND_HELP_TABLES[command]
+  const allowed = flagNamesFromTable(table)
+  for (const f of GLOBAL_FLAG_NAMES) allowed.add(f)
+  for (const f of extras) allowed.add(f.toLowerCase())
+  const unknown = findUnknownFlags(flagKeys, allowed)
+  if (unknown.length === 0) return
+  // List the resolved subcommand's documented flags when we have them — the
+  // command-wide union is a typo net, not a schema, and can be huge.
+  const scoped = table?.[subcommand]
+  const valid = [...(scoped ? flagNamesFromTable({ [subcommand]: scoped }) : allowed)]
+    .filter((f) => !GLOBAL_FLAG_NAMES.includes(f))
+    .sort()
+  const where = scoped ? `palmyr ${command} ${subcommand}` : `palmyr ${command}`
+  const validStr = valid.length
+    ? valid.map((f) => `--${f}`).join(', ')
+    : '(none — global flags like --json/--help only)'
+  err(
+    `Unknown flag: --${unknown[0]}. Valid flags for \`${where}\`: ${validStr}`,
+    EXIT.BAD_INPUT,
+    {
+      unknownFlags: unknown.map((f) => `--${f}`),
+      validFlags: valid.map((f) => `--${f}`),
+      hint: `Run: palmyr ${command} ${scoped ? `${subcommand} ` : ''}--help`,
+    },
+  )
+}
+
 /**
  * Render a per-command menu (no subcommand given). On a TTY → Ink MenuScreen
  * with the Palmyr aesthetic. In agent mode → flat JSON listing the available
@@ -1473,8 +1618,71 @@ function help() {
 }
 
 // ─── Commands ───
+// Server-side constant (src/routes/agent-chat.ts ORCHESTRATION_FEE_USDC). Only
+// used as the *minimum* balance needed to even ask for a plan — the real gate
+// compares plan.totals after the plan lands.
+const CHAT_ORCHESTRATION_FEE_USDC = 0.10
+
+/**
+ * `chat run` / `chat resume` USDC balance preflight. One RPC balance read on
+ * the configured pay rail (same wallet/chain resolution the x402 payment path
+ * uses) BEFORE the orchestration fee is signed, so a doomed run never pays
+ * anything:
+ *
+ *   - no usable pay wallet / can't decrypt → abort (the fee payment was
+ *     guaranteed to fail anyway; this surfaces the fix earlier and cleaner)
+ *   - balance < fee → abort with balance vs required + funding instructions
+ *   - RPC hiccup (balance unknowable) → warn on stderr and continue; never
+ *     block a run on infrastructure flakiness
+ *
+ * Returns the balance reading so the caller can gate step execution against
+ * plan.totals once the plan lands, or null when the balance couldn't be read.
+ * Callers skip entirely on --skip-balance-check / PALMYR_NO_PREFLIGHT=1.
+ */
+async function chatUsdcPreflight(passphrase?: string): Promise<{ balanceUsdc: number; chain: string; walletAddress: string | null } | null> {
+  const { fullPreflight } = await import('./pay-preflight.js')
+  const spin = new Spinner()
+  spin.start('Checking USDC balance...')
+  let report
+  try {
+    report = await fullPreflight({ passphrase, minUsdc: CHAT_ORCHESTRATION_FEE_USDC })
+  } catch (e: any) {
+    // The preflight itself must never be a new way to fail a run.
+    spin.stop('Balance check skipped', false)
+    process.stderr.write(`[palmyr] warning: balance preflight failed (${e?.message ?? e}) — continuing without it.\n`)
+    return null
+  }
+  if (!report.walletId || !report.canDecrypt) {
+    spin.stop('No usable pay wallet', false)
+    err(report.fix || 'No usable pay wallet. Create one with: palmyr wallet create', EXIT.PAYMENT)
+  }
+  const balance = report.usdc?.balance ?? null
+  if (balance === null) {
+    spin.stop('Balance check skipped', false)
+    process.stderr.write(`[palmyr] warning: could not read the USDC balance on ${report.payChain} — continuing without the balance preflight.${report.fix ? ` ${report.fix}` : ''}\n`)
+    return null
+  }
+  const short = usdcShortfall(balance, CHAT_ORCHESTRATION_FEE_USDC)
+  if (short !== null) {
+    spin.stop(`Balance $${balance.toFixed(2)} USDC on ${report.payChain}`, false)
+    err(
+      insufficientBalanceMessage({
+        balanceUsdc: balance,
+        requiredUsdc: CHAT_ORCHESTRATION_FEE_USDC,
+        chain: report.payChain,
+        walletAddress: report.walletAddress,
+        context: `the $${CHAT_ORCHESTRATION_FEE_USDC.toFixed(2)} i402 orchestration fee`,
+      }),
+      EXIT.PAYMENT,
+      { balanceUsdc: balance, requiredUsdc: CHAT_ORCHESTRATION_FEE_USDC, shortfallUsdc: short, chain: report.payChain, walletAddress: report.walletAddress },
+    )
+  }
+  spin.stop(`Balance $${balance.toFixed(2)} USDC on ${report.payChain}`, true)
+  return { balanceUsdc: balance, chain: report.payChain, walletAddress: report.walletAddress }
+}
+
 async function main() {
-  const { command, subcommand, positional, flags } = parse(process.argv)
+  const { command, subcommand, positional, flags, flagKeys } = parse(process.argv)
   const fromHome = process.env.PALMYR_FROM_HOME === '1'
 
   // Reinforce NO_COLOR. The parser turns `--no-color` into `flags.color ===
@@ -1546,6 +1754,10 @@ async function main() {
     }))
     return
   }
+
+  // Fail fast on flag typos before any command logic (and before any paid
+  // call). `--help` bypasses the guard: help output beats strictness.
+  if (!flags.help) rejectUnknownFlags(command, subcommand, flagKeys)
 
   // Always ensure ~/.palmyr/ exists on any command
   ensureDirs()
@@ -5838,6 +6050,13 @@ async function main() {
             const autoExecute = flags.execute === true || flags['auto-execute'] === true
             const autoApprove = flags['auto-approve-under'] ? parseFloat(flags['auto-approve-under'] as string) : undefined
 
+            // Balance preflight: read the pay wallet's USDC BEFORE the $0.10
+            // orchestration fee is signed, so a wallet that can't cover the
+            // fee never pays anything. The same reading gates step execution
+            // against plan.totals below (post-plan, pre-step-1).
+            const skipBalanceCheck = flags['skip-balance-check'] === true || process.env.PALMYR_NO_PREFLIGHT === '1'
+            const preBalance = skipBalanceCheck ? null : await chatUsdcPreflight(passphrase)
+
             const spin = new Spinner()
             spin.start('Generating i402 plan...')
             const plan = await ao.chat(intent, {
@@ -5892,6 +6111,38 @@ async function main() {
                 console.log(`  ${c.gray}${i + 1}${c.white}  ${padLabel(stepLabel(s))} ${c.gray}$${(s.cost_usdc ?? 0).toFixed(2)}${c.white}`)
               })
               console.log('')
+            }
+
+            // Gate execution on the plan's estimated total vs the balance read
+            // before the fee was paid (total_cost_usdc includes the fee, so
+            // comparing the pre-fee balance against the full total is exact).
+            // About to execute → hard abort BEFORE step 1 pays anything;
+            // plan-only → stderr warning so the user doesn't approve a plan
+            // the wallet can't fund.
+            if (preBalance !== null) {
+              const totalUsdc = Number(plan.totals?.total_cost_usdc)
+              const short = Number.isFinite(totalUsdc) ? usdcShortfall(preBalance.balanceUsdc, totalUsdc) : null
+              if (short !== null) {
+                const msg = insufficientBalanceMessage({
+                  balanceUsdc: preBalance.balanceUsdc,
+                  requiredUsdc: totalUsdc,
+                  chain: preBalance.chain,
+                  walletAddress: preBalance.walletAddress,
+                  context: 'this plan',
+                })
+                if (autoExecute || plan.status === 'approved') {
+                  err(msg, EXIT.PAYMENT, {
+                    balanceUsdc: preBalance.balanceUsdc,
+                    requiredUsdc: totalUsdc,
+                    shortfallUsdc: short,
+                    chain: preBalance.chain,
+                    walletAddress: preBalance.walletAddress,
+                    sessionId: plan.session_id,
+                    planId: plan.plan_id,
+                  })
+                }
+                process.stderr.write(`[palmyr] warning: ${msg}\n`)
+              }
             }
 
             if (!autoExecute && plan.status !== 'approved') {
@@ -5986,6 +6237,10 @@ async function main() {
             if (intent) {
               const budget = flags.budget ? parseFloat(flags.budget as string) : 20
               const autoExecute = flags.execute === true || flags['auto-execute'] === true
+              // Same balance preflight as `chat run` — a new plan pays the
+              // $0.10 orchestration fee, so read the balance before signing it.
+              const skipBalanceCheck = flags['skip-balance-check'] === true || process.env.PALMYR_NO_PREFLIGHT === '1'
+              const preBalance = skipBalanceCheck ? null : await chatUsdcPreflight(passphrase)
               const plan = await ao.chat(intent, {
                 sessionId,
                 budgetUsdc: budget,
@@ -6003,6 +6258,34 @@ async function main() {
               } else {
                 console.log(`${c.cyan}New plan in session${c.white} ${sessionId}`)
                 console.log(`  plan_id: ${plan.plan_id}  cost: $${plan.totals?.total_cost_usdc?.toFixed(2) ?? '?'}`)
+              }
+              // Same gate as `chat run`: about to execute → hard abort before
+              // step 1 pays anything; plan-only → stderr warning so the user
+              // doesn't approve a plan the wallet can't fund.
+              if (preBalance !== null) {
+                const totalUsdc = Number(plan.totals?.total_cost_usdc)
+                const short = Number.isFinite(totalUsdc) ? usdcShortfall(preBalance.balanceUsdc, totalUsdc) : null
+                if (short !== null) {
+                  const msg = insufficientBalanceMessage({
+                    balanceUsdc: preBalance.balanceUsdc,
+                    requiredUsdc: totalUsdc,
+                    chain: preBalance.chain,
+                    walletAddress: preBalance.walletAddress,
+                    context: 'this plan',
+                  })
+                  if (autoExecute) {
+                    err(msg, EXIT.PAYMENT, {
+                      balanceUsdc: preBalance.balanceUsdc,
+                      requiredUsdc: totalUsdc,
+                      shortfallUsdc: short,
+                      chain: preBalance.chain,
+                      walletAddress: preBalance.walletAddress,
+                      sessionId,
+                      planId: plan.plan_id,
+                    })
+                  }
+                  process.stderr.write(`[palmyr] warning: ${msg}\n`)
+                }
               }
               if (!autoExecute) break
               const maxUsdc = flags['max-usdc'] ? parseFloat(flags['max-usdc'] as string) : undefined

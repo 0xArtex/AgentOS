@@ -223,15 +223,18 @@ describe("i402 end-to-end (fake Palmyr + real CLI binary)", () => {
         "chat", "run", "launch a product",
         "--budget", "20",
         "--execute",
-        "--url", `http://127.0.0.1:${server.port}`,
       ],
       {
-        // PALMYR_API is NOT honored by the CLI main (it only uses --url / config),
-        // but pointing at an absent API via env avoids accidentally talking to prod
-        // if the flag were ever ignored.
+        // The CLI resolves its API base from PALMYR_API (env) || config.api.
+        // (An earlier revision passed a --url flag here too, but main() never
+        // read it — and the strict unknown-flag guard now rejects it.)
         PALMYR_API: `http://127.0.0.1:${server.port}`,
         // paidRequest lazy-loads the vault; set a dummy passphrase so no prompt.
         PALMYR_WALLET_PASSPHRASE: "test-passphrase-not-used",
+        // Skip the chat-run USDC balance preflight: this harness is hermetic
+        // (fake server, 200s instead of 402s, no wallet), while the preflight
+        // would read the host's real vault/config + a mainnet RPC balance.
+        PALMYR_NO_PREFLIGHT: "1",
       }
     );
 
