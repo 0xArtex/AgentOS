@@ -261,6 +261,43 @@ class Storage {
     }));
   }
 
+  /** Like hasEmailAddress, but only counts ACTIVE (non-deleted) inboxes. */
+  hasActiveEmailAddress(address: string): boolean {
+    const stmt = db.prepare('SELECT 1 FROM email_inboxes WHERE address = ? AND active = 1 LIMIT 1');
+    return Boolean(stmt.get(address.toLowerCase()));
+  }
+
+  /**
+   * Soft-delete: flip `active` off, keeping the row (and its messages) in
+   * place. Returns false when the inbox is missing or already inactive.
+   */
+  deactivateEmailInbox(id: string): boolean {
+    const res = db.prepare('UPDATE email_inboxes SET active = 0 WHERE id = ? AND active = 1').run(id);
+    return res.changes > 0;
+  }
+
+  /**
+   * Undo a soft delete: flip `active` back on. Used when the former owner
+   * re-provisions the same address — the row (keys, messages) is reused so
+   * delete-then-recreate works instead of colliding with UNIQUE(address).
+   */
+  reactivateEmailInbox(id: string): boolean {
+    const res = db.prepare('UPDATE email_inboxes SET active = 1 WHERE id = ? AND active = 0').run(id);
+    return res.changes > 0;
+  }
+
+  /**
+   * How many ACTIVE inboxes live on a domain. Used by inbox deletion to know
+   * whether a custom domain's Mailgun registration is still in use. Exact
+   * match on the address's domain part — no LIKE wildcards.
+   */
+  countActiveEmailInboxesOnDomain(domain: string): number {
+    const row = db.prepare(
+      "SELECT COUNT(*) AS n FROM email_inboxes WHERE active = 1 AND substr(address, instr(address, '@') + 1) = ?"
+    ).get(domain.toLowerCase()) as any;
+    return Number(row?.n || 0);
+  }
+
   // ── Email Challenges (for wallet auth) ────────────────────
 
   setEmailChallenge(inboxId: string, challenge: string, expiresAt: number): void {

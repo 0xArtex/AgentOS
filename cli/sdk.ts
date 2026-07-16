@@ -594,6 +594,10 @@ export class Palmyr {
     return this.request('GET', `/email/inboxes/${inboxId}/threads`)
   }
 
+  async emailDelete(inboxId: string): Promise<any> {
+    return this.request('DELETE', `/email/inboxes/${encodeURIComponent(inboxId)}`)
+  }
+
   // ── Compute ──
   async computePlans(opts: { location?: string } = {}): Promise<any> {
     const qs = opts.location ? `?location=${encodeURIComponent(opts.location)}` : ''

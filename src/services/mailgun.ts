@@ -218,6 +218,23 @@ export async function forceVerifyMailgunDomain(
 }
 
 /**
+ * Delete a domain's Mailgun registration. Used when the LAST active inbox on
+ * a custom domain is deleted — the sending-domain registration is no longer
+ * needed, and re-provisioning later re-registers it (idempotently). A 404
+ * from Mailgun means it's already gone, which is the desired end state.
+ */
+export async function deleteMailgunDomain(domain: string): Promise<void> {
+  if (!isMailgunConfigured()) {
+    throw new Error('MAILGUN_API_KEY not set');
+  }
+  const resp = await mgFetch(`/v3/domains/${encodeURIComponent(domain)}`, { method: 'DELETE' });
+  if (!resp.ok && resp.status !== 404) {
+    const text = await resp.text().catch(() => '');
+    throw new Error(`Mailgun delete ${domain} failed (${resp.status}): ${text.slice(0, 200)}`);
+  }
+}
+
+/**
  * Verify a Mailgun inbound webhook signature. Mailgun signs every webhook
  * POST with HMAC-SHA256(timestamp + token, signing_key). Reject anything
  * that doesn't match — otherwise an attacker who finds the public webhook

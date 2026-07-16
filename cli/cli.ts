@@ -657,6 +657,11 @@ const EMAIL_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
     { flag: '(price)', desc: '$0.02 per call' },
     { flag: '(example)', desc: 'palmyr email threads --id INB_abc123' },
   ],
+  delete: [
+    { flag: '--id <INBOX_ID>', desc: 'Inbox id (a UUID, from `palmyr email list`) to delete (required; positional also accepted)', hint: 'inbound mail stops; reads 404; stored messages retained encrypted' },
+    { flag: '(price)', desc: '$0.01 per call' },
+    { flag: '(example)', desc: 'palmyr email delete --id 8b6cf4a2-91d3-4f0e-b2a7-3c5d1e9f6a04' },
+  ],
 }
 
 const COMPUTE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
@@ -1410,7 +1415,7 @@ function padLabel(s: string, w = 38): string {
 const TOP_LEVEL_COMMANDS: Array<{ name: string; description: string }> = [
   { name: 'chat', description: 'i402 intent layer: describe an outcome, pay USDC, get a plan (run · resume · status · sessions)' },
   { name: 'phone', description: 'search · buy · sms · call' },
-  { name: 'email', description: 'create · read · send · threads' },
+  { name: 'email', description: 'create · read · send · delete' },
   { name: 'compute', description: 'plans · deploy · list · delete' },
   { name: 'domain', description: 'check · pricing · buy · dns' },
   { name: 'card', description: 'buy · list · get · refresh' },
@@ -1932,6 +1937,7 @@ async function main() {
               { name: 'read', description: 'Read inbox messages', hint: '--id INBOX_ID' },
               { name: 'send', description: 'Send an email', hint: '--id ID --to x@y.com --subject ... --body ...' },
               { name: 'threads', description: 'List threads', hint: '--id INBOX_ID' },
+              { name: 'delete', description: 'Delete an inbox (inbound mail stops; reads 404)', hint: '--id INBOX_ID' },
             ],
             fromHome,
           })
@@ -2061,7 +2067,16 @@ async function main() {
             }))
             break
           }
-          default: err(`Unknown email command: ${subcommand}. Try: create, list, status, register, read, send, threads`)
+          case 'delete': {
+            const id = flags.id as string || positional[0]
+            if (!id) err('--id INBOX_ID required (a UUID from `palmyr email list`, e.g. palmyr email delete --id 8b6cf4a2-91d3-4f0e-b2a7-3c5d1e9f6a04)')
+            const spin = new Spinner()
+            spin.start('Deleting inbox...')
+            const data = await ao.emailDelete(id)
+            spin.stop('Inbox deleted', true)
+            return print(data)
+          }
+          default: err(`Unknown email command: ${subcommand}. Try: create, list, status, register, read, send, threads, delete`)
         }
         break
       }
