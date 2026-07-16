@@ -493,6 +493,19 @@ export class Palmyr {
     return this.request('GET', `/phone/messages/${messageId}`)
   }
 
+  // Blocking wait for an SMS verification code (OTP). The server holds the
+  // request up to timeout_s (max 90) and returns { found, code, ... }.
+  async phoneWaitOtp(
+    phoneId: string,
+    opts: { timeoutS?: number; lookbackS?: number; pattern?: string } = {},
+  ): Promise<any> {
+    const body: Record<string, unknown> = {}
+    if (opts.timeoutS !== undefined) body.timeout_s = opts.timeoutS
+    if (opts.lookbackS !== undefined) body.lookback_s = opts.lookbackS
+    if (opts.pattern !== undefined) body.pattern = opts.pattern
+    return this.request('POST', `/phone/numbers/${phoneId}/wait-otp`, body)
+  }
+
   async phoneCalls(phoneId: string): Promise<any> {
     return this.request('GET', `/phone/numbers/${phoneId}/calls`)
   }

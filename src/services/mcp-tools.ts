@@ -495,6 +495,34 @@ export function registerPalmyrTools(server: McpServer): void {
     },
   );
 
+  // Phone — blocking wait for an SMS verification code (OTP). 0.02 USDC.
+  addTool(server,
+    "wait_for_otp",
+    {
+      title: "Wait for SMS verification code (OTP)",
+      description:
+        "Wait for an SMS verification code / OTP to arrive on a Palmyr phone number you own, and return the parsed code. " +
+        "Blocks up to timeout_s (default 60, max 90) checking every ~2s — one call replaces hand-rolled polling of phone_read_messages " +
+        "during account signups and 2FA flows. Messages that arrived up to lookback_s seconds (default 10) BEFORE the call also match, " +
+        "so a code that landed early is not missed — pass lookback_s=0 when reusing a number across signups so a stale code can't be re-served. " +
+        "Default extraction handles standalone 4-8 digit codes, 'code is/code:' tokens, and Google-style G-XXXXXX; pass pattern to override " +
+        "(max 256 chars; a pattern that blows its per-match budget is dropped mid-wait and pattern_timeout: true is reported). " +
+        "Returns { found: true, code, message_text } on a hit or { found: false, waited_s } on timeout (not an error — just call again). " +
+        "Costs 0.02 USDC, paid per-action via x402.",
+      inputSchema: {
+        number_id: z.string().describe("Phone number id returned by phone_buy_number"),
+        timeout_s: z.number().optional().describe("Seconds to block waiting (default 60, max 90)"),
+        lookback_s: z.number().optional().describe("Also match messages received up to this many seconds before the call (default 10; use 0 for reused numbers)"),
+        pattern: z.string().optional().describe("Custom extraction regex overriding the default OTP formats (first capture group wins, else the full match; max 256 chars)"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, number_id, ...rest } = args;
+      return callRoute("POST", `/phone/numbers/${encodeURIComponent(number_id)}/wait-otp`, rest, payment, extra, "wait_for_otp");
+    },
+  );
+
   // Twitter/X — post. 0.001 USDC.
   addTool(server, 
     "twitter_post",
