@@ -51,6 +51,7 @@ const DISCOVERABLE_ALLOWLIST = new Set<string>([
   "GET /phone/numbers",
   "POST /phone/numbers/:id/send",
   "GET /phone/numbers/:id/messages",
+  "POST /phone/numbers/:id/wait-otp",
   "GET /phone/messages/:id",
   "POST /phone/numbers/:id/call",
   "DELETE /phone/numbers/:id",

@@ -1,4 +1,5 @@
 import Telnyx from "telnyx";
+import { Worker } from "worker_threads";
 import { v4 as uuid } from "uuid";
 import { config } from "../config";
 import { PhoneNumber, SmsMessage } from "../types";
@@ -194,6 +195,163 @@ export async function sendSms(
  */
 export function getMessage(id: string): SmsMessage | undefined {
   return storage.getSmsMessage(id);
+}
+
+// ── OTP extraction / wait ───────────────────────────────────
+
+/** How often the wait-otp loop re-checks the message store. */
+export const OTP_POLL_INTERVAL_MS = 2_000;
+
+/** Caller-supplied patterns are rejected above this length (pre-payment). */
+export const OTP_PATTERN_MAX_LENGTH = 256;
+
+/** Hard budget for ONE custom-pattern match, enforced by worker termination. */
+const OTP_PATTERN_MATCH_TIMEOUT_MS = 100;
+
+/**
+ * Extract a verification code from an SMS body. With a custom `pattern`, the
+ * first capture group wins (else the full match). Default formats, in order:
+ *   1. standalone 4–8 digit code        — "Your code is 482913"
+ *   2. "code is" / "code:" + token      — "code: X7K2P9"
+ *   3. G-XXXXXX (Google-style)          — "G-482913" (returned with the G-)
+ * Returns null when nothing matches (or the custom pattern doesn't compile).
+ */
+export function extractOtp(text: string, pattern?: string): string | null {
+  if (pattern !== undefined) {
+    let re: RegExp;
+    try { re = new RegExp(pattern); } catch { return null; }
+    const m = text.match(re);
+    return m ? (m[1] ?? m[0]) : null;
+  }
+  // 1. Standalone digits: not glued to letters/digits/hyphen/slash or a
+  //    currency symbol on the left (so "G-482913", the tail of "+15551234567",
+  //    "07/16/2026" and "$2026" don't half-match) and not followed by a
+  //    digit/hyphen/slash (so date-ish "2026-07-16" / "2026/07/16" is skipped).
+  const standalone = text.match(/(?<![A-Za-z0-9/$€£¥-])(\d{4,8})(?![\d/-])/);
+  if (standalone) return standalone[1];
+  // 2. "code is <token>" / "code: <token>" — alphanumeric token, 4–12 chars.
+  //    The separator must be "is" and/or ":" so prose like "no code here"
+  //    never yields a bogus token.
+  const labeled = text.match(/\bcode(?:\s+is\b\s*:?\s*|\s*:\s*)"?([A-Za-z0-9][A-Za-z0-9-]{3,11})/i);
+  if (labeled) return labeled[1];
+  // 3. Google-style G-XXXXXX. Returned whole — message_text lets callers strip.
+  const google = text.match(/\bG-\d{4,8}\b/i);
+  if (google) return google[0];
+  return null;
+}
+
+/**
+ * Run a CALLER-SUPPLIED regex against an SMS body inside a worker thread with
+ * a hard time budget. A catastrophic pattern ((a+)+$ etc.) would otherwise
+ * pin the single-threaded event loop for the whole process — timers can't
+ * even fire while a synchronous match spins, so no in-thread guard can help.
+ * The worker is plain JS (eval'd, empty execArgv so ts-node isn't dragged in)
+ * and is force-terminated on overrun. The default extraction regexes are
+ * trusted and stay on the main thread (see extractOtp).
+ */
+function matchPatternInWorker(
+  text: string,
+  pattern: string,
+  budgetMs: number = OTP_PATTERN_MATCH_TIMEOUT_MS,
+): Promise<{ code: string | null; timedOut: boolean }> {
+  return new Promise(resolve => {
+    let worker: Worker;
+    try {
+      worker = new Worker(
+        `const { parentPort, workerData } = require("worker_threads");
+         let out = null;
+         try {
+           const m = workerData.text.match(new RegExp(workerData.pattern));
+           if (m) out = m[1] !== undefined ? m[1] : m[0];
+         } catch { out = null; }
+         parentPort.postMessage(out);`,
+        { eval: true, workerData: { text, pattern }, execArgv: [] },
+      );
+    } catch {
+      resolve({ code: null, timedOut: false });
+      return;
+    }
+    // Never let a (possibly regex-stuck) worker hold the process open — the
+    // event loop must be able to exit even if V8 takes a while to act on the
+    // termination interrupt.
+    worker.unref();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let settled = false;
+    const done = (code: string | null, timedOut: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      void worker.terminate();
+      resolve({ code, timedOut });
+    };
+    // Start the budget once the worker is actually running so spawn latency
+    // (tens of ms) doesn't eat into the match budget.
+    worker.once("online", () => { timer = setTimeout(() => done(null, true), budgetMs); });
+    worker.once("message", msg => done(typeof msg === "string" ? msg : null, false));
+    worker.once("error", () => done(null, false));
+    worker.once("exit", () => done(null, false));
+  });
+}
+
+/**
+ * Block until an inbound message on `phoneNumberId` yields a verification
+ * code, or `timeoutMs` elapses. Checks immediately, then every
+ * OTP_POLL_INTERVAL_MS. Messages received up to `lookbackMs` BEFORE the call
+ * also match (catches the race where the OTP landed just before the agent
+ * asked). Newest message wins when several are in the window.
+ *
+ * `shouldAbort` is checked every iteration — return true when the client is
+ * gone (disconnect / upstream timeout) and the loop stops polling instead of
+ * burning the box behind a dead request.
+ *
+ * A custom `pattern` runs in a worker thread with a hard per-match budget.
+ * The FIRST overrun (catastrophic backtracking) drops the pattern for the
+ * rest of the wait — matching degrades to the default extraction — and
+ * `patternTimedOut` is reported so the caller knows their regex was abandoned.
+ */
+export async function waitForOtp(
+  phoneNumberId: string,
+  opts: {
+    timeoutMs: number;
+    lookbackMs: number;
+    pattern?: string;
+    shouldAbort?: () => boolean;
+  },
+): Promise<{ hit: { code: string; message: SmsMessage } | null; patternTimedOut: boolean }> {
+  const start = Date.now();
+  const windowStart = start - opts.lookbackMs;
+  const deadline = start + opts.timeoutMs;
+
+  let activePattern = opts.pattern;
+  let patternTimedOut = false;
+
+  for (;;) {
+    if (opts.shouldAbort?.()) return { hit: null, patternTimedOut };
+    // Newest-first (storage orders by timestamp DESC) → latest OTP wins.
+    const msgs = storage.getSmsMessages(phoneNumberId) || [];
+    for (const m of msgs) {
+      if (m.direction !== "inbound") continue;
+      const ts = Date.parse(m.timestamp);
+      if (!Number.isFinite(ts) || ts < windowStart) continue;
+      let code: string | null;
+      if (activePattern !== undefined) {
+        const res = await matchPatternInWorker(m.body, activePattern);
+        if (res.timedOut) {
+          activePattern = undefined;
+          patternTimedOut = true;
+          code = extractOtp(m.body);
+        } else {
+          code = res.code;
+        }
+      } else {
+        code = extractOtp(m.body);
+      }
+      if (code) return { hit: { code, message: m }, patternTimedOut };
+    }
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) return { hit: null, patternTimedOut };
+    await new Promise(r => setTimeout(r, Math.min(OTP_POLL_INTERVAL_MS, remaining)));
+  }
 }
 
 /**

@@ -32,6 +32,32 @@ declare module "express-serve-static-core" {
   }
 }
 
+// /phone/numbers/:id/wait-otp deliberately blocks up to 90s waiting for an
+// inbound SMS verification code. Match ONLY that route — never all of /phone.
+const WAIT_OTP_PATH = /^\/phone\/numbers\/[^/]+\/wait-otp\/?$/;
+
+/**
+ * Paths exempt from the global 30s request timeout. These are the slow
+ * synchronous ops that legitimately outlive 30s:
+ *   • /social — headless browser through residential proxies (60–90s)
+ *   • /chat — i402 plan execution streams for compound outcomes (minutes)
+ *   • /mcp — MCP tool calls proxy to the routes above over loopback
+ *   • /domains/register — blocks on Namecheap availability + registration
+ *   • /phone/numbers/:id/wait-otp — paid blocking wait (up to 90s) for an SMS
+ *     verification code; a 30s 408 would fire AFTER x402 settlement and drop
+ *     a code the payer already paid for
+ * Exported so tests can pin the list without booting the whole app.
+ */
+export function isTimeoutExempt(path: string): boolean {
+  return (
+    path.startsWith("/social") ||
+    path.startsWith("/chat") ||
+    path.startsWith("/mcp") ||
+    path === "/domains/register" ||
+    WAIT_OTP_PATH.test(path)
+  );
+}
+
 export function requestTimeout(ms: number = 30_000) {
   return (req: Request, res: Response, next: NextFunction): void => {
     const controller = new AbortController();

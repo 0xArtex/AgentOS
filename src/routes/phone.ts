@@ -1,5 +1,10 @@
 import express, { Router, Request, Response, NextFunction } from "express";
 import nacl from "tweetnacl";
+// Side-effect import: loads the express Request augmentation (req.timedOut /
+// req.timeoutSignal) declared by the timeout middleware. The wait-otp abort
+// check reads req.timedOut, and ts-node's per-file compilation only sees the
+// augmentation when the declaring module is in the import graph.
+import "../middleware/timeout";
 import { requireAuth } from "../middleware/auth";
 import { AuthenticatedRequest, PhoneNumber, ProvisionNumberRequest, SendSmsRequest } from "../types";
 import * as phoneService from "../services/phone";
@@ -376,6 +381,190 @@ router.get("/numbers/:id/messages", requireAuth(0.02, "general", {
       message: err.message || "Could not find messages for this phone number",
       hint: "Check the phone number ID and ensure you own this number",
     });
+  }
+});
+
+// ── wait-otp: blocking wait for an SMS verification code ────
+
+// Hard ceiling on the blocking wait. Prod sits behind a Cloudflare Tunnel with
+// a ~100s edge limit — never let a request hold longer than 90s. The route is
+// exempted from the global 30s request timeout (see isTimeoutExempt in
+// middleware/timeout.ts) — without that, the 408 would fire mid-wait AFTER
+// x402 settlement and drop a code the payer already paid for.
+const WAIT_OTP_MAX_TIMEOUT_S = 90;
+const WAIT_OTP_DEFAULT_TIMEOUT_S = 60;
+// Lookback defaults LOW: a number reused for a second signup shortly after a
+// first would otherwise instantly re-serve the FIRST signup's stale code.
+// Callers reusing a number across signups should pass lookback_s=0.
+const WAIT_OTP_DEFAULT_LOOKBACK_S = 10;
+const WAIT_OTP_MAX_LOOKBACK_S = 300;
+
+/** Coerce an optional body/query param to a clamped integer. */
+function clampInt(v: unknown, def: number, min: number, max: number): number {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return def;
+  return Math.min(max, Math.max(min, Math.round(n)));
+}
+
+/**
+ * Validate a caller-supplied extraction pattern: bounded length (it's a raw
+ * regex from an untrusted wallet) and compilable. Returns the 400 body on
+ * failure, undefined when acceptable. Shared by the pre-charge preflight and
+ * the in-handler defense-in-depth check.
+ */
+function validateWaitOtpPattern(pattern: string | undefined):
+  | { error: string; message: string; hint: string }
+  | undefined {
+  if (pattern === undefined) return undefined;
+  if (pattern.length > phoneService.OTP_PATTERN_MAX_LENGTH) {
+    return {
+      error: "Pattern too long",
+      message: `The custom extraction pattern must be at most ${phoneService.OTP_PATTERN_MAX_LENGTH} characters (got ${pattern.length})`,
+      hint: "OTP formats are short — a real extraction regex fits well under the cap.",
+    };
+  }
+  try { new RegExp(pattern); } catch {
+    return {
+      error: "Invalid 'pattern'",
+      message: "The custom extraction pattern is not a valid regular expression",
+      hint: "Fix the regex (JS syntax, no flags) or omit it to use the default OTP formats.",
+    };
+  }
+  return undefined;
+}
+
+/** Read wait-otp params — body first, query as fallback (all optional). */
+function readWaitOtpParams(req: Request): { timeoutS: number; lookbackS: number; pattern?: string } {
+  const body = (req.body || {}) as Record<string, unknown>;
+  const pick = (key: string) => body[key] ?? req.query[key];
+  const rawPattern = pick("pattern");
+  return {
+    timeoutS: clampInt(pick("timeout_s"), WAIT_OTP_DEFAULT_TIMEOUT_S, 1, WAIT_OTP_MAX_TIMEOUT_S),
+    lookbackS: clampInt(pick("lookback_s"), WAIT_OTP_DEFAULT_LOOKBACK_S, 0, WAIT_OTP_MAX_LOOKBACK_S),
+    pattern: typeof rawPattern === "string" && rawPattern !== "" ? rawPattern : undefined,
+  };
+}
+
+/**
+ * Pre-flight for wait-otp. Runs BEFORE the paywall so callers keep their USDC
+ * when the wait is obviously going to fail (bad regex, unknown/released
+ * number). Skipped without a payment header so x402 answers discovery probes.
+ */
+function preflightWaitOtp(req: Request, res: Response, next: NextFunction): void {
+  const hasPayment = !!(req.headers["payment-signature"] || req.headers["x-payment"]);
+  if (!hasPayment) { next(); return; }
+
+  const { pattern } = readWaitOtpParams(req);
+  const patternError = validateWaitOtpPattern(pattern);
+  if (patternError) {
+    res.status(400).json({ ...patternError, hint: `${patternError.hint} You have NOT been charged.` });
+    return;
+  }
+
+  const number = phoneService.getNumber(String(req.params.id));
+  if (!number) {
+    res.status(404).json({
+      error: "Phone Number Not Found",
+      message: `No phone number with ID ${req.params.id}`,
+      hint: "Check the ID. You have NOT been charged.",
+    });
+    return;
+  }
+  if (!number.active) {
+    res.status(410).json({
+      error: "Phone Number Deactivated",
+      message: "This number has been released — no new SMS will arrive on it",
+      hint: "Provision a new number. You have NOT been charged.",
+    });
+    return;
+  }
+  next();
+}
+
+/**
+ * POST /phone/numbers/:id/wait-otp — Blocking wait for an SMS verification code
+ * Cost: 0.02 USDC — same tier as reading the inbox. One paid call replaces a
+ * hand-rolled poll of GET /numbers/:id/messages during account signups.
+ *
+ * Body/query (all optional): timeout_s (default 60, max 90), lookback_s
+ * (default 10 — also match messages that arrived up to this many seconds
+ * BEFORE the request; pass 0 when reusing a number across signups so a stale
+ * code can't be re-served), pattern (custom extraction regex, ≤256 chars;
+ * first capture group wins, else the full match — runs in a worker thread
+ * with a hard per-match budget; on overrun it's dropped for the rest of the
+ * wait, extraction degrades to the defaults, and pattern_timeout: true is
+ * reported).
+ *
+ * 200 { found: true, code, message_text, message_id, received_at } on a hit;
+ * 200 { found: false, waited_s } on timeout — not an error, just call again.
+ */
+router.post("/numbers/:id/wait-otp", preflightWaitOtp, requireAuth(0.02, "general", {
+  description:
+    "Wait (blocking, up to 90s) for an SMS verification code / OTP to arrive on a phone number you own, and return the parsed code. Body (all optional): { timeout_s (default 60, max 90), lookback_s (default 10; pass 0 for reused numbers), pattern (custom regex, max 256 chars) }",
+  category: "communications",
+  tags: ["phone", "sms", "otp", "verification", "code", "wait", "2fa"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const phoneNumberId = String(req.params.id);
+    const caller = req.payment?.payer || req.agentId;
+    if (!caller) {
+      return res.status(401).json({ error: "No caller identity — cannot verify ownership" });
+    }
+    const number = phoneService.getNumber(phoneNumberId);
+    if (!number) {
+      return res.status(404).json({ error: "Phone Number Not Found", message: `No phone number with ID ${phoneNumberId}` });
+    }
+    if (denyIfNotNumberAccess(req, res, phoneNumberId)) return;
+
+    const { timeoutS, lookbackS, pattern } = readWaitOtpParams(req);
+    // Defense-in-depth: the preflight already rejected bad patterns pre-charge,
+    // but re-validate so a direct token-auth hit can't start a wait with an
+    // oversized or uncompilable regex.
+    const patternError = validateWaitOtpPattern(pattern);
+    if (patternError) {
+      return res.status(400).json(patternError);
+    }
+
+    // Stop polling the moment the client is gone: connection closed, or an
+    // upstream timeout layer already answered. Never write after that.
+    // NOTE: deliberately NOT req.destroyed — Node destroys the fully-consumed
+    // request stream on a perfectly healthy connection, so that flag is true
+    // mid-wait for every request. The response side is the truth: res 'close'
+    // before we've written means the connection died under us.
+    let clientClosed = false;
+    res.once("close", () => { clientClosed = true; });
+    const aborted = () =>
+      clientClosed || Boolean(req.timedOut) || res.destroyed || res.writableEnded;
+
+    const started = Date.now();
+    const result = await phoneService.waitForOtp(phoneNumberId, {
+      timeoutMs: timeoutS * 1000,
+      lookbackMs: lookbackS * 1000,
+      pattern,
+      shouldAbort: aborted,
+    });
+
+    if (aborted() || res.headersSent) return; // client gone — nothing to write to
+
+    const patternFlag = result.patternTimedOut ? { pattern_timeout: true } : {};
+    if (result.hit) {
+      res.json({
+        found: true,
+        code: result.hit.code,
+        message_text: result.hit.message.body,
+        message_id: result.hit.message.id,
+        received_at: result.hit.message.timestamp,
+        ...patternFlag,
+      });
+    } else {
+      // Timeout is a normal outcome, not an error — agents just call again.
+      res.json({ found: false, waited_s: Math.round((Date.now() - started) / 1000), ...patternFlag });
+    }
+  } catch (err: any) {
+    console.error("[phone] wait-otp error:", err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: "Wait Failed", message: err.message });
+    }
   }
 });
 

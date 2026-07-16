@@ -50,7 +50,7 @@ import { errorHandler, notFoundHandler } from "./middleware/errors";
 import agentNetworkRouter from "./routes/agent-network";
 import { requestLogger } from "./middleware/requestLog";
 import { cors } from "./middleware/cors";
-import { requestTimeout } from "./middleware/timeout";
+import { requestTimeout, isTimeoutExempt } from "./middleware/timeout";
 import { rateLimit } from "./middleware/rateLimit";
 import { securityHeaders, paramPollution, sqlInjectionGuard, sanitizeInputs, bruteForceProtection } from "./middleware/security";
 import activityRoutes from "./routes/activity";
@@ -158,14 +158,13 @@ app.use("/wallet", walletPasskeyRoutes);
 // /domains/register blocks on Namecheap (availability + balance preflight, then
 // the actual registration), which can exceed 30s — killing it mid-flight after
 // x402 settlement would charge the payer for a registration that never lands.
-// Skip the default 30s timeout for these slow synchronous ops.
+// /phone/numbers/:id/wait-otp (and ONLY that phone route) blocks up to 90s by
+// design — a 30s 408 would fire AFTER x402 settlement and drop a verification
+// code the payer already paid for. Skip the default 30s timeout for these
+// slow synchronous ops (predicate lives in middleware/timeout.ts so tests can
+// pin the list).
 app.use((req, res, next) => {
-  if (
-    req.path.startsWith("/social") ||
-    req.path.startsWith("/chat") ||
-    req.path.startsWith("/mcp") ||
-    req.path === "/domains/register"
-  ) {
+  if (isTimeoutExempt(req.path)) {
     return next();
   }
   return requestTimeout(30_000)(req, res, next);

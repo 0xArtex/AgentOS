@@ -136,6 +136,12 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     inputSchema: { phone_number_id: "string (path)", limit: "number?", since: "iso8601?" },
     outputSchema: { messages: "object[] (each: { id, phoneNumberId, direction, from, to, body, timestamp })" },
   },
+  wait_for_otp: {
+    name: "wait_for_otp",
+    description: "Block (up to 90s) until an SMS verification code / OTP arrives on an owned phone number, then return the parsed code. Also matches codes that arrived up to lookback_s seconds before the call (pass 0 for a number reused across signups). found=false on timeout — call again.",
+    inputSchema: { phone_number_id: "string (path)", timeout_s: "number? (default 60, max 90)", lookback_s: "number? (default 10; 0 for reused numbers)", pattern: "string? (custom extraction regex, max 256 chars)" },
+    outputSchema: { found: "boolean", code: "string?", message_text: "string?", message_id: "string?", received_at: "iso8601?", waited_s: "number? (present when found=false)", pattern_timeout: "boolean? (custom pattern blew its match budget and was dropped)" },
+  },
 
   // ── Voice ──
   start_voice_call: {
@@ -809,6 +815,10 @@ export function seedPalmyrPrimitives(): void {
     }),
     p("palmyr.read_sms", "read_sms", "/phone/numbers/{phone_number_id}/messages", {
       method: "GET", costUsdc: 0.02, p50: 400, p99: 1500,
+    }),
+    p("palmyr.wait_for_otp", "wait_for_otp", "/phone/numbers/{phone_number_id}/wait-otp", {
+      costUsdc: 0.02, p50: 15000, p99: 90000,
+      description: "Blocking wait for an SMS verification code (OTP) on an owned number; returns the parsed code.",
     }),
 
     // ── Voice ──

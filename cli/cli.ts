@@ -519,6 +519,14 @@ const PHONE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
     { flag: '(price)', desc: '$0.005 per readback — cheap so agents can poll until delivery_status is terminal' },
     { flag: '(example)', desc: 'palmyr phone message <message-id-from-sms-response>' },
   ],
+  'wait-otp': [
+    { flag: '<number-id>', desc: 'Phone number id to wait on (required; --id also accepted)' },
+    { flag: '--timeout <s>', desc: 'Seconds to block waiting — integer 1-90 (default 60)' },
+    { flag: '--lookback <s>', desc: 'Also match codes that arrived up to this many seconds BEFORE the call — integer 0-300 (default 10)', hint: 'pass 0 when reusing a number across signups so a stale code can’t be re-served' },
+    { flag: '--pattern <regex>', desc: 'Custom extraction regex overriding the default OTP formats (first capture group wins; max 256 chars)' },
+    { flag: '(price)', desc: '$0.02 per wait — one call replaces hand-rolled polling of `phone messages`' },
+    { flag: '(example)', desc: 'palmyr phone wait-otp PN_abc --timeout 90' },
+  ],
   'sms-status': [
     { flag: '<message-id>', desc: 'Alias for `palmyr phone message <id>` — readback by id' },
     { flag: '(price)', desc: '$0.005 per readback' },
@@ -1678,6 +1686,7 @@ async function main() {
               { name: 'sms', description: 'Send an SMS', hint: '--id ID --to +1... --body "hi"' },
               { name: 'messages', description: 'Read SMS messages received on a number', hint: '--id PHONE_ID' },
               { name: 'message', description: 'Get one SMS message by id (incl. delivery status)', hint: '--id MESSAGE_ID' },
+              { name: 'wait-otp', description: 'Block until an SMS verification code arrives, print the code', hint: '<number-id> [--timeout <s>] [--lookback <s>] [--pattern <regex>]' },
               { name: 'call', description: 'Place a voice call', hint: '--id ID --to +1... --tts "hello"' },
               { name: 'calls', description: 'List calls placed/received on a number', hint: '--id PHONE_ID' },
               { name: 'call-info', description: 'Get details on a single call', hint: '--call CALL_CONTROL_ID' },
@@ -1791,6 +1800,44 @@ async function main() {
             if (!messageId) err('Usage: palmyr phone message <message-id>')
             const data = await ao.phoneMessage(messageId!)
             return print(data)
+          }
+          case 'wait-otp': {
+            // Blocking paid wait for an SMS verification code. The server holds
+            // the request (up to --timeout, max 90s) and returns the parsed
+            // code — one call instead of hand-rolled polling of `phone messages`.
+            const id = (flags.id as string) || positional[0]
+            if (!id) err('Usage: palmyr phone wait-otp <number-id> [--timeout <s>] [--lookback <s>] [--pattern <regex>]')
+            const opts: { timeoutS?: number; lookbackS?: number; pattern?: string } = {}
+            // Validate client-side: the server clamps silently, and a clamped
+            // `--timeout 500` waiting 90s while the spinner claims 500s (or
+            // `--timeout abc` quietly becoming 60) is worse than an error.
+            if (flags.timeout !== undefined) {
+              const t = typeof flags.timeout === 'string' ? Number(flags.timeout) : NaN
+              if (!Number.isInteger(t) || t < 1 || t > 90) err(`--timeout must be an integer between 1 and 90 seconds (got '${flags.timeout}')`)
+              opts.timeoutS = t
+            }
+            if (flags.lookback !== undefined) {
+              const l = typeof flags.lookback === 'string' ? Number(flags.lookback) : NaN
+              if (!Number.isInteger(l) || l < 0 || l > 300) err(`--lookback must be an integer between 0 and 300 seconds (got '${flags.lookback}'). Use 0 when reusing a number across signups.`)
+              opts.lookbackS = l
+            }
+            if (flags.pattern) opts.pattern = flags.pattern as string
+            if (AGENT_MODE) {
+              const data = await ao.phoneWaitOtp(id!, opts)
+              return print(data)
+            }
+            const spin = new Spinner()
+            spin.start(`Waiting for verification code (up to ${opts.timeoutS ?? 60}s)...`)
+            const data = await ao.phoneWaitOtp(id!, opts)
+            const patternNote = data?.pattern_timeout ? ' (custom --pattern exceeded its match budget and was ignored — default extraction was used)' : ''
+            if (data && data.found) {
+              spin.stop(`Verification code received${patternNote}`, true)
+              // Plain code on its own line — easy to copy, easy to pipe.
+              console.log(String(data.code))
+            } else {
+              spin.stop(`No verification code after ${data?.waited_s ?? '?'}s — run again to keep waiting${patternNote}`, false)
+            }
+            break
           }
           case 'calls': {
             const id = (flags.id as string) || positional[0]
@@ -1912,7 +1959,7 @@ async function main() {
             const data = await ao.phoneTransfer(callId, to)
             return print(data)
           }
-          default: err(`Unknown phone command: ${subcommand}. Try: search, buy, list, release, transfer-ownership, share, unshare, sms, messages, message, call, calls, call-info, speak, play, dtmf, gather, record, record-stop, hangup, answer, transfer`)
+          default: err(`Unknown phone command: ${subcommand}. Try: search, buy, list, release, transfer-ownership, share, unshare, sms, messages, message, wait-otp, call, calls, call-info, speak, play, dtmf, gather, record, record-stop, hangup, answer, transfer`)
         }
         break
       }

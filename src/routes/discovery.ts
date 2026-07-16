@@ -16,7 +16,7 @@ interface CapabilityGroup {
 }
 
 const GROUPS: CapabilityGroup[] = [
-  { key: "phone",    label: "Phone",    test: n => /^(provision_phone|release_phone|send_sms|read_sms)$/.test(n) },
+  { key: "phone",    label: "Phone",    test: n => /^(provision_phone|release_phone|send_sms|read_sms|wait_for_otp)$/.test(n) },
   { key: "voice",    label: "Voice",    test: n => /^(start_voice_call|list_calls|get_call_details|voice_)/.test(n) },
   { key: "email",    label: "Email",    test: n => /^(provision_email_inbox|send_email|read_email|list_email_threads|read_email_thread)$/.test(n) },
   { key: "domain",   label: "Domain",   test: n => /^(register_domain|list_domains|get_domain|dns_manage|transfer_domain)/.test(n) },
