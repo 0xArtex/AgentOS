@@ -91,6 +91,10 @@ export interface EmailInbox {
   e2eEnabled?: boolean;
   createdAt: string;
   active: boolean;
+  /** ISO timestamp when a disposable temp inbox expires. Absent on normal
+   *  (owned, non-expiring) inboxes. After this instant the inbox is treated as
+   *  gone (reads 404, inbound mail dropped) and is hard-deleted after a grace. */
+  expiresAt?: string;
 }
 
 export interface EmailMessage {

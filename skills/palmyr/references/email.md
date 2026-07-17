@@ -6,6 +6,7 @@
 
 ```bash
 palmyr email create --name agent --wallet SOL_PUBKEY   # Create inbox ($2); a SOL pubkey → E2E
+palmyr email temp [--ttl 3600]                         # Disposable receive-only inbox ($0.50); auto-expires (default 24h)
 palmyr email read --id INBOX_ID                        # Read messages ($0.02)
 palmyr email send --id ID --to x@y.com --subject "Hi" --body "..."   # Send ($0.08)
 palmyr email threads --id INBOX_ID                     # List threads ($0.02)
@@ -16,6 +17,7 @@ palmyr email threads --id INBOX_ID                     # List threads ($0.02)
 | Action | Endpoint | Cost (USDC) |
 |---|---|---|
 | Provision inbox | `POST /email/inboxes` (or `POST /email/provision`) | 2.00 |
+| Temp inbox (disposable, receive-only) | `POST /email/temp` | 0.50 |
 | List inboxes | `GET /email/inboxes` | 0.01 |
 | Read inbox | `GET /email/inboxes/:id/messages` | 0.02 |
 | Send email | `POST /email/inboxes/:id/send` | 0.08 |
@@ -25,6 +27,17 @@ palmyr email threads --id INBOX_ID                     # List threads ($0.02)
 | Register webhook | `POST /email/webhooks` | 0.02 |
 | Register custom domain | `POST /email/domains/:domain/register` | 0.05 |
 | Domain status | `GET /email/domains/:domain/status` | 0.01 |
+
+## Disposable temp inboxes (`POST /email/temp`, $0.50)
+
+A cheap, auto-expiring, **receive-only** inbox for one-off checkout / signup flows — receive an order confirmation or a verification email, then let it evaporate. Owned by the paying wallet under the same read-auth model as a normal inbox, but:
+
+- The server generates a random `tmp-XXXX@palmyr.ai` address (you don't pick the name; there's no `domain` param).
+- **Never E2E** — always server-side AES, so a paid read from the owning wallet returns **plaintext** (no key to manage). Response: `{ id, address, expires_at }`.
+- **Receive-only** — `POST /email/inboxes/:id/send` hard-403s a temp inbox.
+- **Auto-expires** — pass optional `ttl_seconds` (default 86400 = 24h, clamped to [300, 604800]). After expiry, reads 404 and inbound mail is dropped; the row is hard-deleted 48h later.
+
+Read it with the same `GET /email/inboxes/:id/messages` ($0.02) as any inbox.
 
 ## Encryption (two-tier; end-to-end is opt-in)
 

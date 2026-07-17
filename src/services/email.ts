@@ -159,11 +159,23 @@ function encryptForWallet(plaintext: string, x25519PubKey: Uint8Array): string {
 
 // ── Email Service ───────────────────────────────────────────
 
+/**
+ * A disposable temp inbox is functionally gone once its `expiresAt` passes:
+ * reads 404 and inbound mail is dropped, well before the background sweep
+ * hard-deletes the row. Normal inboxes have no `expiresAt` and never expire.
+ */
+export function isInboxExpired(inbox: Pick<EmailInbox, "expiresAt">): boolean {
+  if (!inbox.expiresAt) return false;
+  const t = Date.parse(inbox.expiresAt);
+  return Number.isFinite(t) && t <= Date.now();
+}
+
 export function createInbox(
   name: string,
   owner: string,
   solanaPublicKey?: string,
-  domain?: string
+  domain?: string,
+  ttlSeconds?: number
 ): EmailInbox & { decryptionGuide: object } {
   const localPart = name.toLowerCase().replace(/[^a-z0-9\-_.]/g, "");
   if (!localPart) throw new Error("Invalid inbox name");
@@ -195,6 +207,11 @@ export function createInbox(
     }
   }
 
+  // Disposable temp inboxes pass a ttl → set an expiry. Owned inboxes pass none.
+  const expiresAt = (typeof ttlSeconds === "number" && ttlSeconds > 0)
+    ? new Date(Date.now() + ttlSeconds * 1000).toISOString()
+    : undefined;
+
   const inbox: EmailInbox = {
     id: uuid(),
     address,
@@ -205,6 +222,7 @@ export function createInbox(
     e2eEnabled,
     createdAt: new Date().toISOString(),
     active: true,
+    ...(expiresAt ? { expiresAt } : {}),
   };
 
   storage.setEmailInbox(inbox.id, inbox);
@@ -303,7 +321,11 @@ export function handleInboundEmail(
 
   let inboxId = storage.getEmailInboxByAddress(addr);
   if (!inboxId && addr.endsWith('@' + config.emailDomain)) {
-    inboxId = storage.getEmailInboxByLocalPart(match[1].toLowerCase());
+    // Legacy fallback, scoped to ACTIVE inboxes on the default domain only —
+    // never resolve a bare local-part to a soft-deleted row or to a
+    // same-local-part inbox on another domain (a mis-delivery path that only
+    // gets worse as short-lived tmp-* addresses multiply).
+    inboxId = storage.getEmailInboxByLocalPart(match[1].toLowerCase(), config.emailDomain);
   }
   if (!inboxId) {
     console.warn(`[email] Inbound email to unknown address: ${to}`);
@@ -319,6 +341,12 @@ export function handleInboundEmail(
     // Deleted inbox — the Mailgun catch-all still forwards its mail, so drop
     // it here instead of accumulating messages the owner can never read.
     console.warn(`[email] Inbound email to deleted inbox ${inboxId} — dropped`);
+    return null;
+  }
+  if (isInboxExpired(inbox)) {
+    // Expired disposable temp inbox — same treatment as a deleted one: the row
+    // still exists (until the sweep) but is functionally gone, so drop the mail.
+    console.warn(`[email] Inbound email to expired temp inbox ${inboxId} — dropped`);
     return null;
   }
 
@@ -476,14 +504,16 @@ async function sendOutboundEmail(
 
 export function getInbox(id: string): EmailInbox | undefined {
   const inbox = storage.getEmailInbox(id);
-  // A soft-deleted (active=0) inbox is gone as far as the API is concerned.
-  // Every per-inbox route resolves through here first, so filtering once
-  // makes reads/sends/threads/webhooks all 404 after DELETE /email/inboxes/:id.
-  return inbox && inbox.active ? inbox : undefined;
+  // A soft-deleted (active=0) inbox — OR an expired disposable temp inbox — is
+  // gone as far as the API is concerned. Every per-inbox route resolves through
+  // here first, so filtering once makes reads/sends/threads/webhooks all 404
+  // after DELETE /email/inboxes/:id and once a temp inbox's TTL passes.
+  if (!inbox || !inbox.active || isInboxExpired(inbox)) return undefined;
+  return inbox;
 }
 
 export function listInboxes(owner: string): EmailInbox[] {
-  return storage.getEmailInboxesByOwner(owner).filter(i => i.active);
+  return storage.getEmailInboxesByOwner(owner).filter(i => i.active && !isInboxExpired(i));
 }
 
 /**

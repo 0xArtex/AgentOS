@@ -15,6 +15,7 @@ import { config } from "./config";
 import "./db"; // Initialize database
 import { DATA_DIR, db } from "./db";
 import { classifyAgent } from "./utils/agent-classifier";
+import { storage } from "./services/storage";
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
 import socialRoutes from "./routes/social";
@@ -584,6 +585,17 @@ app.listen(config.port, () => {
   if (refreshMinutes > 0 && process.env.I402_AGENTIC_MARKET_CATALOG_URL) {
     setInterval(refreshI402Federations, refreshMinutes * 60 * 1000).unref();
   }
+  // Hard-delete disposable temp inboxes 48h past their expiry — only hard
+  // deletion frees the UNIQUE(address) slot so a tmp-* address can be recycled.
+  // Hourly, unref'd so it never holds the process open. Errors never crash.
+  setInterval(() => {
+    try {
+      const n = storage.deleteExpiredTempInboxes(48 * 3600);
+      if (n > 0) console.log(`[email] swept ${n} expired temp inbox(es)`);
+    } catch (err: any) {
+      console.warn("[email] temp inbox sweep failed:", err?.message ?? err);
+    }
+  }, 60 * 60 * 1000).unref();
   console.log(`⚡ Palmyr running on port ${config.port}`);
   console.log(`   Treasury: ${config.treasuryWallet}`);
   console.log(`   Network:  Solana (${config.solanaRpcUrl})`);

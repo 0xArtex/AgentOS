@@ -124,7 +124,8 @@ export function initDatabase(): void {
       solana_public_key TEXT,
       e2e_enabled INTEGER DEFAULT 1,
       created_at TEXT NOT NULL,
-      active INTEGER DEFAULT 1
+      active INTEGER DEFAULT 1,
+      expires_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS email_challenges (
@@ -221,6 +222,15 @@ export function initDatabase(): void {
       throw err;
     }
     if (fkBefore?.foreign_keys === 1) db.exec("PRAGMA foreign_keys = ON");
+  }
+
+  // Idempotent migration: add expires_at for disposable temp inboxes. Runs
+  // AFTER the legacy-unique rebuild above (which recreates the table without
+  // this column), so the probe re-adds it regardless of which path ran. NULL
+  // on every normal/owned inbox; an ISO timestamp only on temp inboxes.
+  const inboxCols2 = db.prepare("PRAGMA table_info(email_inboxes)").all() as Array<{ name: string }>;
+  if (!inboxCols2.some(c => c.name === 'expires_at')) {
+    db.exec("ALTER TABLE email_inboxes ADD COLUMN expires_at TEXT");
   }
 
   // Email Messages table — created without indexes first so the column
