@@ -18,11 +18,13 @@
  *    expires_at NULL) inbox nor an unexpired temp one
  *
  * Harness mirrors email-delete-inbox.test.ts: PALMYR_SELF_HOSTED bypasses the
- * x402 paywall in requireAuth (the logic under test is independent of payment),
- * and a shim injects req.payment from an `x-test-payer` header. Reads/sends go
- * through raw x402() (no self-hosted bypass), so the paid read route can't be
- * driven in-harness — its ownership check is identical to the owner-gated DELETE
- * route we DO drive, and its plaintext behavior is asserted at the service layer.
+ * x402 paywall in BOTH requireAuth and bare x402() routes (the logic under test
+ * is independent of payment), and a shim injects req.payment from an
+ * `x-test-payer` header — which the x402 bypass now preserves, so the paid
+ * read/send routes resolve the same wallet identity as the requireAuth routes.
+ * The full paid-read plaintext path is exercised end-to-end in
+ * full-checkout-e2e.test.ts; here we assert the receive-only send guard and the
+ * service-layer plaintext behavior.
  */
 
 import { describe, it, before, after, beforeEach } from "node:test";
@@ -243,7 +245,7 @@ describe("POST /email/inboxes/:id/send — temp inboxes are receive-only", () =>
     assert.match(String(res.json.error || ""), /receive-only/i);
   });
 
-  it("does NOT 403 a normal (non-temp) inbox — it reaches the paywall instead", async () => {
+  it("does NOT block a normal (non-temp) inbox — the receive-only guard passes it through", async () => {
     const normal = emailService.createInbox("normal-box", WALLET_A);
     const res = await request(
       "POST",
@@ -251,9 +253,15 @@ describe("POST /email/inboxes/:id/send — temp inboxes are receive-only", () =>
       { "x-test-payer": WALLET_A },
       { to: "x@y.com", subject: "hi", body: "legit" },
     );
-    // The temp guard passes; x402 (no self-hosted bypass) then demands payment.
+    // blockTempSend only rejects disposable temp inboxes; a normal inbox passes
+    // it. In self-hosted mode the x402 paywall is now bypassed (it used to 402
+    // here), the shim's WALLET_A payer owns the inbox, so the request reaches
+    // the send handler and 500s ONLY because Mailgun isn't configured in-test —
+    // never the receive-only guard, never a wallet mismatch.
     assert.notEqual(res.status, 403);
-    assert.equal(res.status, 402);
+    assert.notEqual(res.json?.error, "temp inboxes are receive-only");
+    assert.equal(res.status, 500, JSON.stringify(res.json));
+    assert.match(String(res.json?.error || ""), /Mailgun|send unavailable|MAILGUN_API_KEY/i);
   });
 });
 

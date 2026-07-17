@@ -4,6 +4,7 @@ import { config } from "../config";
 import { AuthenticatedRequest } from "../types";
 import { verifySvmPayment, settleSvmPayment } from "./x402-svm-verify";
 import { db } from "../db";
+import { isSelfHosted, selfHostedIdentity } from "../services/self-hosted";
 
 const { encodePaymentRequiredHeader, decodePaymentSignatureHeader } = require("@x402/core/http");
 const { HTTPFacilitatorClient } = require("@x402/core/server");
@@ -609,6 +610,30 @@ async function handleEvmPayment(
 
 export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
   const handler = async (req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> => {
+    // Self-hosted single-operator instance: the operator owns the box, so there
+    // is no paywall — mirror the same bypass requireAuth uses (auth.ts). Bare
+    // x402() routes (the email read/send/threads/attachment/webhook endpoints)
+    // don't go through requireAuth, so without this a self-hoster 402s on their
+    // OWN mail — they literally can't read their inbox. Hard-gated by
+    // isSelfHosted(), which fails closed on any hosted/multi-tenant signal
+    // (NODE_ENV=production, a configured treasury wallet, PALMYR_MULTI_TENANT),
+    // so this can never engage on the hosted deployment. Identity is any
+    // already-established one (a token agentId, or an upstream-set payer) else
+    // the operator wallet, so ownership checks (payer === inbox.owner) resolve.
+    if (isSelfHosted()) {
+      const id = req.agentId || req.payment?.payer || selfHostedIdentity();
+      req.agentId = id;
+      req.payment = {
+        signature: req.payment?.signature ?? "self-hosted",
+        payer: req.payment?.payer ?? id,
+        amountLamports: req.payment?.amountLamports ?? BigInt(0),
+        verifiedAt: req.payment?.verifiedAt ?? Date.now(),
+        chain: req.payment?.chain ?? "base",
+      };
+      next();
+      return;
+    }
+
     const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
 
     if (!paymentHeader) {
