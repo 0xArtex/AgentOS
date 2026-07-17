@@ -199,10 +199,10 @@ class Storage {
     // would silently delete a conflicting row on any UNIQUE conflict, which
     // is data-loss waiting to happen.
     const stmt = db.prepare(`
-      INSERT INTO email_inboxes (id, address, local_part, owner, public_key, solana_public_key, e2e_enabled, created_at, active)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO email_inboxes (id, address, local_part, owner, public_key, solana_public_key, e2e_enabled, created_at, active, expires_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, inbox.address, inbox.localPart, inbox.owner, inbox.publicKey, inbox.solanaPublicKey, inbox.e2eEnabled ? 1 : 0, inbox.createdAt, inbox.active ? 1 : 0);
+    stmt.run(id, inbox.address, inbox.localPart, inbox.owner, inbox.publicKey, inbox.solanaPublicKey, inbox.e2eEnabled ? 1 : 0, inbox.createdAt, inbox.active ? 1 : 0, inbox.expiresAt ?? null);
   }
 
   getEmailInbox(id: string): EmailInbox | undefined {
@@ -219,13 +219,23 @@ class Storage {
       solanaPublicKey: row.solana_public_key,
       e2eEnabled: Boolean(row.e2e_enabled),
       createdAt: row.created_at,
-      active: Boolean(row.active)
+      active: Boolean(row.active),
+      expiresAt: row.expires_at ?? undefined
     };
   }
 
-  getEmailInboxByLocalPart(localPart: string): string | undefined {
-    const stmt = db.prepare('SELECT id FROM email_inboxes WHERE local_part = ?');
-    const row = stmt.get(localPart) as any;
+  /**
+   * Legacy inbound fallback resolver: match a bare local-part to an inbox id.
+   * Scoped to ACTIVE inboxes and (when `domain` is given) only those whose
+   * address is on that domain — a bare local-part must NEVER misdeliver a
+   * default-domain address to a same-local-part inbox on another domain, and a
+   * soft-deleted / reserved row must never absorb new mail.
+   */
+  getEmailInboxByLocalPart(localPart: string, domain?: string): string | undefined {
+    const stmt = domain
+      ? db.prepare("SELECT id FROM email_inboxes WHERE local_part = ? AND active = 1 AND substr(address, instr(address, '@') + 1) = ? LIMIT 1")
+      : db.prepare('SELECT id FROM email_inboxes WHERE local_part = ? AND active = 1 LIMIT 1');
+    const row = (domain ? stmt.get(localPart, domain.toLowerCase()) : stmt.get(localPart)) as any;
     return row?.id;
   }
 
@@ -258,6 +268,7 @@ class Storage {
       e2eEnabled: Boolean(row.e2e_enabled),
       createdAt: row.created_at,
       active: Boolean(row.active),
+      expiresAt: row.expires_at ?? undefined,
     }));
   }
 
@@ -296,6 +307,39 @@ class Storage {
       "SELECT COUNT(*) AS n FROM email_inboxes WHERE active = 1 AND substr(address, instr(address, '@') + 1) = ?"
     ).get(domain.toLowerCase()) as any;
     return Number(row?.n || 0);
+  }
+
+  /**
+   * HARD-delete disposable temp inboxes whose expiry is more than `graceSeconds`
+   * in the past, together with all their child rows. Only hard deletion frees
+   * the UNIQUE(address) slot so a `tmp-*` address can be recycled; the functional
+   * expiry (reads 404, inbound dropped) is handled lazily in emailService.
+   *
+   * Scoped to `expires_at IS NOT NULL` — a normal (owned) inbox has a NULL
+   * expiry and is NEVER touched here, no matter how old. Deletes children before
+   * parents (attachments → messages → threads → webhooks → inbox row) so
+   * foreign keys stay satisfied. Returns the number of inbox rows removed.
+   */
+  deleteExpiredTempInboxes(graceSeconds: number): number {
+    const cutoff = new Date(Date.now() - Math.max(0, graceSeconds) * 1000).toISOString();
+    const rows = db.prepare(
+      "SELECT id FROM email_inboxes WHERE expires_at IS NOT NULL AND expires_at < ?"
+    ).all(cutoff) as Array<{ id: string }>;
+    if (rows.length === 0) return 0;
+    const ids = rows.map(r => r.id);
+    const placeholders = ids.map(() => '?').join(',');
+
+    const purge = db.transaction((inboxIds: string[]) => {
+      db.prepare(
+        `DELETE FROM email_attachments WHERE message_id IN (SELECT id FROM email_messages WHERE inbox_id IN (${placeholders}))`
+      ).run(...inboxIds);
+      db.prepare(`DELETE FROM email_messages WHERE inbox_id IN (${placeholders})`).run(...inboxIds);
+      db.prepare(`DELETE FROM email_threads WHERE inbox_id IN (${placeholders})`).run(...inboxIds);
+      db.prepare(`DELETE FROM email_webhooks WHERE inbox_id IN (${placeholders})`).run(...inboxIds);
+      const res = db.prepare(`DELETE FROM email_inboxes WHERE id IN (${placeholders})`).run(...inboxIds);
+      return res.changes;
+    });
+    return Number(purge(ids));
   }
 
   // ── Email Challenges (for wallet auth) ────────────────────

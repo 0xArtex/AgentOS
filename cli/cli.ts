@@ -642,6 +642,12 @@ const EMAIL_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
     { flag: '(price)', desc: '$2.00 per inbox provisioned' },
     { flag: '(example)', desc: 'palmyr email create --name agent --domain example.com' },
   ],
+  temp: [
+    { flag: '--ttl <seconds>', desc: 'Lifetime before the inbox auto-expires (optional; default 86400 = 24h, min 300, max 604800)' },
+    { flag: '(note)', desc: 'Disposable, receive-only inbox at tmp-XXXX@palmyr.ai — the name is server-generated; reads return plaintext' },
+    { flag: '(price)', desc: '$0.50 per disposable inbox' },
+    { flag: '(example)', desc: 'palmyr email temp --ttl 3600' },
+  ],
   list: [
     { flag: '(no args)', desc: 'List inboxes owned by your wallet' },
     { flag: '(price)', desc: '$0.01 per call' },
@@ -2190,6 +2196,7 @@ async function main() {
             footerLeft: 'Email operations',
             commands: [
               { name: 'create', description: 'Create an inbox', hint: '--name agent [--domain example.com]' },
+              { name: 'temp', description: 'Create a disposable receive-only inbox (auto-expires)', hint: '[--ttl SECONDS]' },
               { name: 'list', description: 'List inboxes owned by your wallet' },
               { name: 'status', description: 'Domain verification status (Mailgun)', hint: '<domain>' },
               { name: 'register', description: 'Register / re-register a wallet-owned domain with Mailgun', hint: '<domain>' },
@@ -2258,6 +2265,22 @@ async function main() {
             spin.start('Creating inbox...')
             const data = await ao.emailCreate(name, walletAddress, domain)
             spin.stop('Inbox created', true)
+            return print(data)
+          }
+          case 'temp': {
+            // Disposable, receive-only inbox. No --name/--wallet: the server
+            // generates a random tmp-XXXX@palmyr.ai and owns it to the paying
+            // wallet (no E2E — plaintext reads). Only the TTL is tunable.
+            const ttlRaw = (flags.ttl as string) ?? undefined
+            let ttl: number | undefined
+            if (ttlRaw != null) {
+              ttl = Number(ttlRaw)
+              if (!Number.isFinite(ttl) || ttl <= 0) err('--ttl must be a positive number of seconds (default 86400 = 24h, min 300, max 604800)')
+            }
+            const spin = new Spinner()
+            spin.start('Creating temp inbox...')
+            const data = await ao.emailTemp(ttl)
+            spin.stop('Temp inbox created', true)
             return print(data)
           }
           case 'list': {
@@ -2335,7 +2358,7 @@ async function main() {
             spin.stop('Inbox deleted', true)
             return print(data)
           }
-          default: err(`Unknown email command: ${subcommand}. Try: create, list, status, register, read, send, threads, delete`)
+          default: err(`Unknown email command: ${subcommand}. Try: create, temp, list, status, register, read, send, threads, delete`)
         }
         break
       }

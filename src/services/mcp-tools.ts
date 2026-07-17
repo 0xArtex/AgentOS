@@ -389,6 +389,24 @@ export function registerPalmyrTools(server: McpServer): void {
     },
   );
 
+  // Email — create a disposable temp inbox. 0.50 USDC.
+  addTool(server,
+    "email_create_temp",
+    {
+      title: "Create disposable temp inbox",
+      description:
+        "Provision a cheap, disposable, receive-only email inbox at tmp-XXXX@palmyr.ai — ideal for receiving a one-off verification or order-confirmation email during a checkout/signup flow. Auto-expires (default 24h). Reads return plaintext to the owning wallet (no E2E key to manage). Costs 0.50 USDC, paid per-action via x402.",
+      inputSchema: {
+        ttl_seconds: z.number().optional().describe("Lifetime in seconds before the inbox auto-expires (default 86400 = 24h, min 300, max 604800)"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, ...rest } = args;
+      return callRoute("POST", "/email/temp", rest, payment, extra, "email_create_temp");
+    },
+  );
+
   // Email — send. 0.08 USDC.
   addTool(server, 
     "email_send",

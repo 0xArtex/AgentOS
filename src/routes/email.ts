@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction, urlencoded } from "express";
+import { randomBytes } from "crypto";
 import { requireAuth } from "../middleware/auth";
 import { x402 } from "../middleware/x402";
 import { AuthenticatedRequest, EmailInbox } from "../types";
@@ -341,6 +342,78 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
 });
 
 /**
+ * POST /email/temp — Provision a DISPOSABLE, receive-only inbox.
+ *
+ * A cheap ($0.50) auto-expiring inbox for agent checkout flows — receive one
+ * order confirmation / verification email, then let it evaporate. It is owned
+ * by the paying wallet with the SAME owner + read-auth model as a normal inbox
+ * (a paid read from the owning wallet returns PLAINTEXT); "disposable" is the
+ * lifecycle, not the ownership.
+ *
+ * Deliberately DIFFERENT from POST /email/inboxes:
+ *  - No E2E: we NEVER pass a wallet key to createInbox, so the inbox always uses
+ *    the server-side AES-256-GCM path (plaintext to the owner on a paid read).
+ *    A Solana payer must not silently receive ciphertext they'd have to decrypt.
+ *  - Server-generated random local-part (tmp-<8 hex>) on the default domain —
+ *    the caller does not choose the name and there is no `domain` param.
+ *  - Receive-only: the send route hard-403s a temp inbox (see below).
+ *  - TTL: expires_at = now + ttl (default 24h, clamp [5m, 7d]); functionally
+ *    gone at expiry, hard-deleted by the hourly sweep 48h later.
+ */
+router.post("/temp", requireAuth(0.5, "email", {
+  description: "Provision a cheap, disposable, receive-only email inbox at tmp-XXXX@palmyr.ai for receiving a verification or order-confirmation email. Auto-expires (default 24h). Reads return plaintext after an x402 ownership proof from the owning wallet.",
+  category: "communications",
+  tags: ["email", "inbox", "temp", "disposable", "ephemeral"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const DEFAULT_TTL = 86400, MIN_TTL = 300, MAX_TTL = 604800;
+    const rawTtl = Number(req.body?.ttl_seconds);
+    const ttlSeconds = Number.isFinite(rawTtl) && rawTtl > 0
+      ? Math.min(Math.max(Math.floor(rawTtl), MIN_TTL), MAX_TTL)
+      : DEFAULT_TTL;
+
+    const owner = req.agentId || req.payment?.payer || "unknown";
+
+    // Server-generated random local-part. 32 bits of entropy; retry a few times
+    // on the astronomically-unlikely collision so we never 500 on UNIQUE(address)
+    // (only the hard-delete sweep frees an address, so collisions are possible in
+    // principle within the 48h grace window).
+    let name = "";
+    for (let i = 0; i < 5; i++) {
+      const candidate = `tmp-${randomBytes(4).toString("hex")}`;
+      if (!storage.hasEmailAddress(`${candidate}@${config.emailDomain}`)) { name = candidate; break; }
+    }
+    if (!name) name = `tmp-${randomBytes(6).toString("hex")}`;
+
+    // CRITICAL: always pass `undefined` for the wallet key so createInbox uses
+    // the server-side (non-E2E) path — never copy the provision handler's
+    // candidateKey/solanaPublicKey block here.
+    const result = emailService.createInbox(name, owner, undefined, undefined, ttlSeconds);
+
+    res.status(201).json({
+      id: result.id,
+      address: result.address,
+      expires_at: result.expiresAt,
+    });
+  } catch (err: any) {
+    console.error("[email] Temp inbox error:", err);
+    if (/already exists|UNIQUE constraint failed: email_inboxes/i.test(String(err?.message))) {
+      // Address collision that survived the retry loop (only possible with an
+      // astronomically-full temp pool). The $0.50 already settled — refund
+      // instead of a charged 500, matching the /inboxes provision handler.
+      await refundAndRespond(req, res, {
+        reason: `Temp inbox collision: ${err.message}`,
+        userMessage: "Could not allocate a temp address — your payment is being refunded. Please retry.",
+        errorLabel: "Conflict",
+        httpStatus: 409,
+      });
+      return;
+    }
+    res.status(500).json({ error: "Temp Inbox Creation Failed", message: err.message });
+  }
+});
+
+/**
  * POST /email/domains/:domain/register - explicitly register a wallet-owned
  * domain with Mailgun and write the required DKIM/SPF/MX DNS records via Namecheap.
  *
@@ -579,10 +652,29 @@ router.get("/inboxes/:id/messages", x402(0.02, {
 });
 
 /**
- * POST /email/inboxes/:id/send — Send email
- * Cost: 0.05 USDC
+ * Reject sends from a DISPOSABLE temp inbox BEFORE the x402 paywall — a $0.50
+ * receive-only address must never be able to originate mail (spam vector that
+ * would burn the shared Mailgun sending reputation). Running before x402 means
+ * the caller is never charged $0.08 only to be blocked. Non-temp inboxes (and
+ * unknown/expired ids, which fall through to the handler's own 404) pass through.
  */
-router.post("/inboxes/:id/send", x402(0.08, {
+function blockTempSend(req: Request, res: Response, next: NextFunction): void {
+  const inbox = emailService.getInbox(String(req.params.id));
+  if (inbox && inbox.expiresAt) {
+    res.status(403).json({
+      error: "temp inboxes are receive-only",
+      message: "Disposable temp inboxes cannot send — they exist only to receive verification / confirmation mail. Provision a normal inbox via POST /email/inboxes to send.",
+    });
+    return;
+  }
+  next();
+}
+
+/**
+ * POST /email/inboxes/:id/send — Send email
+ * Cost: 0.08 USDC
+ */
+router.post("/inboxes/:id/send", blockTempSend, x402(0.08, {
   description: "Send an email from an inbox you own. Body: { to, subject, body, html? }",
   category: "communications",
   tags: ["email", "send", "outbound"],
@@ -901,6 +993,7 @@ router.get("/info", (_req, res: Response) => {
     domain: "palmyr.ai",
     pricing: {
       provision: "2.00 USDC",
+      temp: "0.50 USDC",
       read: "0.02 USDC",
       send: "0.08 USDC",
       threads: "0.02 USDC",
@@ -908,7 +1001,7 @@ router.get("/info", (_req, res: Response) => {
       webhooks: "0.02 USDC",
       delete: "0.01 USDC",
     },
-    features: ["E2E encryption", "threads", "attachments", "webhooks", "custom domains (coming)"],
+    features: ["E2E encryption", "disposable temp inboxes", "threads", "attachments", "webhooks", "custom domains (coming)"],
     security: {
       encryption: "E2E — NaCl box (X25519 + XSalsa20-Poly1305). Server cannot read emails.",
       authentication: "x402 USDC payment — your wallet address = your identity",
@@ -916,10 +1009,11 @@ router.get("/info", (_req, res: Response) => {
       model: "Encrypted with wallet public key → server stores ciphertext → agent decrypts with private key",
     },
     howItWorks: [
-      "1. POST /email/inboxes — provision inbox (1 USDC)",
+      "1. POST /email/inboxes — provision inbox (2 USDC)",
       "2. Receive emails at {name}@palmyr.ai — stored encrypted",
       "3. GET /email/inboxes/:id/messages — pay $0.02 via x402, get decrypted messages",
-      "4. POST /email/inboxes/:id/send — send email ($0.05 via x402)",
+      "4. POST /email/inboxes/:id/send — send email ($0.08 via x402)",
+      "5. POST /email/temp — cheap disposable receive-only inbox ($0.50), auto-expires (default 24h)",
     ],
   });
 });

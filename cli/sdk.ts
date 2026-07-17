@@ -583,6 +583,12 @@ export class Palmyr {
     return this.request('POST', '/email/inboxes', body)
   }
 
+  async emailTemp(ttlSeconds?: number): Promise<any> {
+    const body: Record<string, unknown> = {}
+    if (ttlSeconds != null) body.ttl_seconds = ttlSeconds
+    return this.request('POST', '/email/temp', body)
+  }
+
   async emailListInboxes(): Promise<any> {
     return this.request('GET', '/email/inboxes')
   }
