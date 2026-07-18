@@ -407,6 +407,24 @@ export function registerPalmyrTools(server: McpServer): void {
     },
   );
 
+  // Email — extend a temp inbox's TTL. 0.50 USDC.
+  addTool(server,
+    "email_extend_temp",
+    {
+      title: "Extend disposable temp inbox",
+      description:
+        "Rent another 7 days on a live disposable temp inbox — each call pushes expires_at exactly 7 days further (fixed, stackable, no cap). Owner-only; expired temp inboxes cannot be revived (buy a new one via email_create_temp). Costs 0.50 USDC, paid per-action via x402.",
+      inputSchema: {
+        inbox_id: z.string().describe("Temp inbox id returned by email_create_temp"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, inbox_id } = args;
+      return callRoute("POST", `/email/temp/${encodeURIComponent(inbox_id)}/extend`, {}, payment, extra, "email_extend_temp");
+    },
+  );
+
   // Email — send. 0.08 USDC.
   addTool(server, 
     "email_send",

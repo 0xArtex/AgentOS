@@ -55,9 +55,10 @@ const DISCOVERABLE_ALLOWLIST = new Set<string>([
   "GET /phone/messages/:id",
   "POST /phone/numbers/:id/call",
   "DELETE /phone/numbers/:id",
-  // Email — provision, temp, list, send, read, delete
+  // Email — provision, temp (+ rent extension), list, send, read, delete
   "POST /email/inboxes",
   "POST /email/temp",
+  "POST /email/temp/:id/extend",
   "GET /email/inboxes",
   "POST /email/inboxes/:id/send",
   "GET /email/inboxes/:id/messages",

@@ -413,6 +413,162 @@ router.post("/temp", requireAuth(0.5, "email", {
   }
 });
 
+/** Seconds one $0.50 extension rents on a temp inbox: exactly 7 days. */
+const TEMP_EXTEND_SECONDS = 604800;
+
+/**
+ * Validate the extend target BEFORE the paywall. Wrong-type (a normal $2
+ * inbox), unknown, deleted, and already-expired inboxes are all guaranteed
+ * failures in the handler, which only runs AFTER the $0.50 charge settles —
+ * so reject here, where nothing has been charged (mirrors validateInboxInputs).
+ * The owner pre-check is best-effort (Solana claimed payer only, like the
+ * provision domain pre-check); spoofing the claim gains nothing because the
+ * full x402 verifier still refuses settlement and the handler re-checks the
+ * VERIFIED payer.
+ */
+function validateExtendTarget(req: Request, res: Response, next: NextFunction): void {
+  // Skip when request has no payment header so x402 discovery probes (CDP Bazaar
+  // crawler) receive 402, not 400/404. Anyone without a payment header can't be
+  // charged yet, so there's nothing to protect against here — the handler
+  // repeats every check post-auth for the bypass/self-hosted path.
+  const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
+  if (!paymentHeader) { next(); return; }
+
+  const inbox = storage.getEmailInbox(String(req.params.id));
+  if (!inbox || !inbox.active || emailService.isInboxExpired(inbox)) {
+    // Unknown, soft-deleted, or expired — all read as gone, exactly like the
+    // paid read routes treat them. No revival: expired means buy a new one.
+    res.status(404).json({
+      error: "Inbox not found",
+      message: "No live temp inbox with this id. Expired temp inboxes cannot be revived — provision a new one via POST /email/temp.",
+      hint: "Your wallet has NOT been charged — this check ran before payment.",
+    });
+    return;
+  }
+  if (!inbox.expiresAt) {
+    res.status(400).json({
+      error: "Not a temp inbox",
+      message: "This is a persistent inbox — persistent inboxes never expire, so there is nothing to extend. Only disposable temp inboxes (POST /email/temp) have a TTL.",
+      hint: "Your wallet has NOT been charged — this check ran before payment.",
+    });
+    return;
+  }
+
+  // Registered-agent callers may legitimately pay from a wallet that is NOT
+  // the inbox owner (owner = the agent's registered wallet via req.agentId,
+  // set only AFTER requireAuth). The claimed-payer pre-check below would
+  // deterministically lock them out, so skip it — the handler still enforces
+  // ownership with verified identities (and refunds a mismatch).
+  const tokenHeader = String(
+    req.headers["authorization"] || req.headers["x-api-key"] || req.headers["x-agent-token"] || ""
+  ).replace(/^Bearer\s+/i, "");
+  if (/^(aos_|agt_)/.test(tokenHeader)) { next(); return; }
+
+  // Best-effort owner pre-check: extractClaimedSvmPayer only reads the Solana
+  // payer; on a Base payment it returns null — skip and let the post-payment
+  // handler enforce ownership with the verified payer.
+  const claimedPayer = extractClaimedSvmPayer(String(paymentHeader));
+  if (claimedPayer && claimedPayer !== inbox.owner && claimedPayer !== inbox.solanaPublicKey) {
+    res.status(403).json({
+      error: "Wallet mismatch",
+      message: "Only the wallet that owns this temp inbox can extend it. Pay from the wallet that created it.",
+      hint: "Your wallet has NOT been charged — this check ran before payment.",
+    });
+    return;
+  }
+
+  next();
+}
+
+/**
+ * POST /email/temp/:id/extend — rent another 7 days on a live temp inbox.
+ *
+ * Dead simple rent model: a fixed +7d per call, no request params, no cap —
+ * another $0.50 buys another week, called as many times as you like. The new
+ * expiry stacks on the CURRENT one (`expires_at += 7d`), so extending early
+ * never wastes remaining time. Owner-only, live-only: an expired temp inbox is
+ * gone for good (404 — buy a new one), and a normal $2 inbox has no TTL to
+ * extend (400). Both rejections are FREE via validateExtendTarget above.
+ * The receive-only send-block and the hard-delete sweep need no changes — both
+ * key off `expires_at`, so the 48h grace simply runs from the new expiry.
+ */
+router.post("/temp/:id/extend", validateExtendTarget, requireAuth(0.5, "email", {
+  description: "Rent another 7 days on a live disposable temp inbox — each $0.50 call pushes expires_at exactly 7 days further. Stackable with no cap; owner-only; expired temp inboxes cannot be revived (buy a new one).",
+  category: "communications",
+  tags: ["email", "inbox", "temp", "disposable", "extend"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const inboxId = String(req.params.id);
+    // Re-run the guard's checks with verified auth in place — the guard is
+    // skipped without a payment header (discovery probes, self-hosted bypass),
+    // and the inbox could in principle expire between guard and settlement.
+    // These rejections run AFTER the $0.50 settled (the free guard can only
+    // pre-check what it can see: Base payments hide the payer, and the inbox
+    // can expire or be deleted during settlement). A charged rejection without
+    // a refund is never acceptable — same invariant as the provision/temp
+    // routes — so every path below goes through refundAndRespond.
+    const inbox = storage.getEmailInbox(inboxId);
+    if (!inbox || !inbox.active || emailService.isInboxExpired(inbox)) {
+      await refundAndRespond(req, res, {
+        reason: `Temp extend target gone/expired post-payment: ${inboxId}`,
+        userMessage: "No live temp inbox with this id — it may have expired or been deleted while the payment settled. Expired temp inboxes cannot be revived; your payment is being refunded. Provision a new one via POST /email/temp.",
+        errorLabel: "Inbox not found",
+        httpStatus: 404,
+      });
+      return;
+    }
+    if (!inbox.expiresAt) {
+      await refundAndRespond(req, res, {
+        reason: `Temp extend on persistent inbox: ${inboxId}`,
+        userMessage: "This is a persistent inbox — persistent inboxes never expire, so there is nothing to extend. Your payment is being refunded. Only disposable temp inboxes (POST /email/temp) have a TTL.",
+        errorLabel: "Not a temp inbox",
+        httpStatus: 400,
+      });
+      return;
+    }
+
+    // Owner-only — accept EITHER verified identity (x402 payer or registered
+    // agent wallet), same as DELETE: temp creation sets owner from
+    // `req.agentId || payer`, so both must be able to extend what they created.
+    // The guard could not pre-check a Base payer (extractClaimedSvmPayer is
+    // Solana-only), so a non-owner reaches here already charged — refund.
+    const identities = [req.payment?.payer, req.agentId].filter(Boolean) as string[];
+    const isOwner = identities.some(w => w === inbox.owner || w === inbox.solanaPublicKey);
+    if (!isOwner) {
+      await refundAndRespond(req, res, {
+        reason: `Temp extend wallet mismatch: ${inboxId}`,
+        userMessage: "Only the wallet that owns this temp inbox can extend it. Your payment is being refunded — pay from the wallet that created it.",
+        errorLabel: "Wallet mismatch",
+        httpStatus: 403,
+      });
+      return;
+    }
+
+    const newExpiresAt = new Date(Date.parse(inbox.expiresAt) + TEMP_EXTEND_SECONDS * 1000).toISOString();
+    if (!storage.updateEmailInboxExpiry(inboxId, newExpiresAt)) {
+      // The scoped UPDATE no-opped: the row changed underneath us between the
+      // checks above and the write. Never 200 with an expiry that wasn't
+      // stored, and never keep the charge for an extension that didn't happen.
+      await refundAndRespond(req, res, {
+        reason: `Temp extend UPDATE no-op (row changed during request): ${inboxId}`,
+        userMessage: "Could not extend — the inbox changed state while the payment settled. Your payment is being refunded.",
+        errorLabel: "Extension Failed",
+        httpStatus: 409,
+      });
+      return;
+    }
+
+    res.json({
+      id: inbox.id,
+      address: inbox.address,
+      expires_at: newExpiresAt,
+    });
+  } catch (err: any) {
+    console.error("[email] Temp extend error:", err);
+    res.status(500).json({ error: "Temp Inbox Extension Failed", message: err.message });
+  }
+});
+
 /**
  * POST /email/domains/:domain/register - explicitly register a wallet-owned
  * domain with Mailgun and write the required DKIM/SPF/MX DNS records via Namecheap.
@@ -994,6 +1150,7 @@ router.get("/info", (_req, res: Response) => {
     pricing: {
       provision: "2.00 USDC",
       temp: "0.50 USDC",
+      extend: "0.50 USDC",
       read: "0.02 USDC",
       send: "0.08 USDC",
       threads: "0.02 USDC",
@@ -1014,6 +1171,7 @@ router.get("/info", (_req, res: Response) => {
       "3. GET /email/inboxes/:id/messages — pay $0.02 via x402, get decrypted messages",
       "4. POST /email/inboxes/:id/send — send email ($0.08 via x402)",
       "5. POST /email/temp — cheap disposable receive-only inbox ($0.50), auto-expires (default 24h)",
+      "6. POST /email/temp/:id/extend — rent another 7 days on a live temp inbox ($0.50 per call, stackable)",
     ],
   });
 });

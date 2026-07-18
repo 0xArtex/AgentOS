@@ -648,6 +648,12 @@ const EMAIL_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
     { flag: '(price)', desc: '$0.50 per disposable inbox' },
     { flag: '(example)', desc: 'palmyr email temp --ttl 3600' },
   ],
+  extend: [
+    { flag: '--id <INBOX_ID>', desc: 'Temp inbox id (from `palmyr email temp`) to extend (required; positional also accepted)' },
+    { flag: '(note)', desc: 'Rents another 7 days on a LIVE temp inbox — fixed +7d per call, stackable, no cap. Expired temp inboxes cannot be revived (buy a new one).' },
+    { flag: '(price)', desc: '$0.50 per 7-day extension' },
+    { flag: '(example)', desc: 'palmyr email extend --id 8b6cf4a2-91d3-4f0e-b2a7-3c5d1e9f6a04' },
+  ],
   list: [
     { flag: '(no args)', desc: 'List inboxes owned by your wallet' },
     { flag: '(price)', desc: '$0.01 per call' },
@@ -2197,6 +2203,7 @@ async function main() {
             commands: [
               { name: 'create', description: 'Create an inbox', hint: '--name agent [--domain example.com]' },
               { name: 'temp', description: 'Create a disposable receive-only inbox (auto-expires)', hint: '[--ttl SECONDS]' },
+              { name: 'extend', description: 'Rent another 7 days on a live temp inbox ($0.50, stackable)', hint: '--id INBOX_ID' },
               { name: 'list', description: 'List inboxes owned by your wallet' },
               { name: 'status', description: 'Domain verification status (Mailgun)', hint: '<domain>' },
               { name: 'register', description: 'Register / re-register a wallet-owned domain with Mailgun', hint: '<domain>' },
@@ -2283,6 +2290,18 @@ async function main() {
             spin.stop('Temp inbox created', true)
             return print(data)
           }
+          case 'extend': {
+            // Rent another 7 days on a live temp inbox. Fixed +7d per call —
+            // no params beyond the id; call again for another week. Expired
+            // temp inboxes 404 (no revival) and normal inboxes 400 (no TTL).
+            const id = flags.id as string || positional[0]
+            if (!id) err('--id INBOX_ID required (a UUID from `palmyr email temp`, e.g. palmyr email extend --id 8b6cf4a2-91d3-4f0e-b2a7-3c5d1e9f6a04)')
+            const spin = new Spinner()
+            spin.start('Extending temp inbox...')
+            const data = await ao.emailExtendTemp(id)
+            spin.stop('Temp inbox extended', true)
+            return print(data)
+          }
           case 'list': {
             const data = await ao.emailListInboxes()
             return print(data)
@@ -2358,7 +2377,7 @@ async function main() {
             spin.stop('Inbox deleted', true)
             return print(data)
           }
-          default: err(`Unknown email command: ${subcommand}. Try: create, temp, list, status, register, read, send, threads, delete`)
+          default: err(`Unknown email command: ${subcommand}. Try: create, temp, extend, list, status, register, read, send, threads, delete`)
         }
         break
       }

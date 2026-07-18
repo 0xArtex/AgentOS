@@ -298,6 +298,17 @@ class Storage {
   }
 
   /**
+   * Push a disposable temp inbox's expiry (TTL rent extension). Scoped to
+   * `expires_at IS NOT NULL` — a normal (owned) inbox has a NULL expiry and
+   * must NEVER gain one here, mirroring deleteExpiredTempInboxes' temp-only
+   * scope. Returns false when the inbox is missing or not a temp inbox.
+   */
+  updateEmailInboxExpiry(id: string, expiresAt: string): boolean {
+    const res = db.prepare('UPDATE email_inboxes SET expires_at = ? WHERE id = ? AND expires_at IS NOT NULL AND active = 1').run(expiresAt, id);
+    return res.changes > 0;
+  }
+
+  /**
    * How many ACTIVE inboxes live on a domain. Used by inbox deletion to know
    * whether a custom domain's Mailgun registration is still in use. Exact
    * match on the address's domain part — no LIKE wildcards.

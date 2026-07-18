@@ -7,6 +7,7 @@
 ```bash
 palmyr email create --name agent --wallet SOL_PUBKEY   # Create inbox ($2); a SOL pubkey → E2E
 palmyr email temp [--ttl 3600]                         # Disposable receive-only inbox ($0.50); auto-expires (default 24h)
+palmyr email extend --id INBOX_ID                      # Rent another 7 days on a live temp inbox ($0.50, stackable)
 palmyr email read --id INBOX_ID                        # Read messages ($0.02)
 palmyr email send --id ID --to x@y.com --subject "Hi" --body "..."   # Send ($0.08)
 palmyr email threads --id INBOX_ID                     # List threads ($0.02)
@@ -18,6 +19,7 @@ palmyr email threads --id INBOX_ID                     # List threads ($0.02)
 |---|---|---|
 | Provision inbox | `POST /email/inboxes` (or `POST /email/provision`) | 2.00 |
 | Temp inbox (disposable, receive-only) | `POST /email/temp` | 0.50 |
+| Extend temp inbox (+7 days, stackable) | `POST /email/temp/:id/extend` | 0.50 |
 | List inboxes | `GET /email/inboxes` | 0.01 |
 | Read inbox | `GET /email/inboxes/:id/messages` | 0.02 |
 | Send email | `POST /email/inboxes/:id/send` | 0.08 |
@@ -36,6 +38,7 @@ A cheap, auto-expiring, **receive-only** inbox for one-off checkout / signup flo
 - **Never E2E** — always server-side AES, so a paid read from the owning wallet returns **plaintext** (no key to manage). Response: `{ id, address, expires_at }`.
 - **Receive-only** — `POST /email/inboxes/:id/send` hard-403s a temp inbox.
 - **Auto-expires** — pass optional `ttl_seconds` (default 86400 = 24h, clamped to [300, 604800]). After expiry, reads 404 and inbound mail is dropped; the row is hard-deleted 48h later.
+- **Extendable while live** — `POST /email/temp/:id/extend` ($0.50) pushes `expires_at` exactly **7 days** further per call: fixed amount, no params, no cap — another $0.50 buys another week (useful for e.g. tracking a 2-week shipment). Owner-only. An **expired** temp inbox cannot be revived (404 — buy a new one), and a normal $2 inbox has no TTL to extend (400); both rejections happen **before** payment, so they're free. Response: `{ id, address, expires_at }`.
 
 Read it with the same `GET /email/inboxes/:id/messages` ($0.02) as any inbox.
 
