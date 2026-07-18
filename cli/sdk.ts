@@ -583,6 +583,10 @@ export class Palmyr {
     return this.request('POST', '/email/inboxes', body)
   }
 
+  async emailExtendTemp(inboxId: string): Promise<any> {
+    return this.request('POST', `/email/temp/${encodeURIComponent(inboxId)}/extend`)
+  }
+
   async emailTemp(ttlSeconds?: number): Promise<any> {
     const body: Record<string, unknown> = {}
     if (ttlSeconds != null) body.ttl_seconds = ttlSeconds
