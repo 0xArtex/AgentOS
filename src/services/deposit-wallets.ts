@@ -29,6 +29,10 @@ db.exec(`
 
 // Migration: add session_secret column if missing
 try { db.exec("ALTER TABLE deposit_wallets ADD COLUMN session_secret TEXT DEFAULT ''"); } catch {}
+// Migration: add vault_wallet_id if missing (pre-vault rows keep NULL — the
+// read path already skips them). Without this, any SELECT naming the column
+// throws on a pre-vault DB and the deposit-monitor sweep fails every cycle.
+try { db.exec("ALTER TABLE deposit_wallets ADD COLUMN vault_wallet_id TEXT"); } catch {}
 
 // ─── Encryption at rest ───
 const MASTER_KEY_ENV = "DEPOSIT_MASTER_KEY";
