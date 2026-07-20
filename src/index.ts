@@ -94,7 +94,15 @@ app.use((req, res, next) => {
     : IMAGE_UPLOAD_ROUTES.has(p)
       ? "15mb"
       : "100kb";
-  return express.json({ limit })(req, res, next);
+  // Capture the exact request bytes so Ed25519/HMAC webhook verifiers (Telnyx
+  // `${timestamp}|${rawBody}`) can prove authenticity — the parsed body does
+  // NOT round-trip through JSON.stringify for real provider payloads, so
+  // without this every signed webhook silently fails verification. Cheap: the
+  // buffer is already in memory during parsing.
+  return express.json({
+    limit,
+    verify: (r: any, _res, buf: Buffer) => { r.rawBody = buf; },
+  })(req, res, next);
 });
 
 app.use(cors);

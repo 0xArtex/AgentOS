@@ -222,6 +222,47 @@ describe("Telnyx webhook signature verification — /webhooks/telnyx", () => {
     assert.equal(res.status, 200);
     assert.equal(phoneService.getMessages("pn-wh-4", OWNER).length, 1);
   });
+
+  // Real Telnyx payloads are NOT byte-identical to JSON.stringify(parsed)
+  // (whitespace, key order, unicode escaping), so the re-serialize fallback
+  // cannot reproduce the signed bytes. Production MUST capture rawBody via the
+  // global json `verify` hook — without it every inbound SMS silently 401'd
+  // (the index.ts bug these two tests guard against).
+  function prettyInboundBody(text: string): string {
+    return JSON.stringify({
+      data: {
+        event_type: "message.received",
+        payload: { from: { phone_number: "+15551112222" }, to: [{ phone_number: NUMBER }], text },
+      },
+    }, null, 2); // pretty-printed → differs from the compact JSON.stringify(parsed)
+  }
+
+  it("stores a real-world (non-round-trippable) payload when rawBody is preserved (hook wiring)", async () => {
+    insertNumber("pn-wh-raw-ok");
+    const ts = nowSecs();
+    const raw = prettyInboundBody("code 424242");
+    assert.notEqual(raw, JSON.stringify(JSON.parse(raw)), "setup: raw bytes must differ from compact re-serialization");
+    const res = await request(hookPort, "POST", "/phone/webhooks/telnyx", raw, {
+      "telnyx-signature-ed25519": telnyxSign(ts, raw),
+      "telnyx-timestamp": ts,
+    });
+    assert.equal(res.status, 200);
+    const msgs = phoneService.getMessages("pn-wh-raw-ok", OWNER);
+    assert.equal(msgs.length, 1, "hook wiring must store a real-world (pretty) payload");
+    assert.equal(msgs[0].body, "code 424242");
+  });
+
+  it("DROPS the same real-world payload (401) under the plain re-serialize fallback — the production bug this guards", async () => {
+    insertNumber("pn-wh-raw-drop");
+    const ts = nowSecs();
+    const raw = prettyInboundBody("code 424242");
+    const res = await request(plainPort, "POST", "/phone/webhooks/telnyx", raw, {
+      "telnyx-signature-ed25519": telnyxSign(ts, raw),
+      "telnyx-timestamp": ts,
+    });
+    assert.equal(res.status, 401, "plain wiring cannot verify a non-round-trippable payload");
+    assert.equal(phoneService.getMessages("pn-wh-raw-drop", OWNER).length, 0);
+  });
 });
 
 describe("Telnyx webhook signature verification — /webhooks/voice", () => {
