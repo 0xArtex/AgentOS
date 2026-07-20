@@ -49,6 +49,8 @@ const DISCOVERABLE_ALLOWLIST = new Set<string>([
   // Phone — provision, messaging, calling, lifecycle
   "POST /phone/numbers",
   "GET /phone/numbers",
+  "POST /phone/temp",
+  "POST /phone/temp/:id/extend",
   "POST /phone/numbers/:id/send",
   "GET /phone/numbers/:id/messages",
   "POST /phone/numbers/:id/wait-otp",

@@ -500,6 +500,17 @@ const PHONE_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
     { flag: '(price)', desc: '$3.00 per number provisioned' },
     { flag: '(example)', desc: 'palmyr phone buy --country US' },
   ],
+  temp: [
+    { flag: '--ttl <seconds>', desc: 'Lease lifetime before auto-expiry (default 1800 = 30min, min 300, max 1800)' },
+    { flag: '(price)', desc: '$0.20 per 30-min lease — instant, receive-only US number from a pool' },
+    { flag: '(note)', desc: 'Receive-only for verification codes (Google/X/Discord OK; Telegram/WhatsApp/OpenAI often block VoIP). Call `phone wait-otp <id>` to catch the code.' },
+    { flag: '(example)', desc: 'palmyr phone temp --ttl 1800' },
+  ],
+  extend: [
+    { flag: '<id>', desc: 'Temp lease id (from `palmyr phone temp`) to extend (required; --id also accepted)' },
+    { flag: '(price)', desc: '$0.20 per +30min — stackable up to 24h total; expired leases 404 (no revival)' },
+    { flag: '(example)', desc: 'palmyr phone extend PN_abc' },
+  ],
   sms: [
     { flag: '--id <PHONE_ID>', desc: 'Source phone number id (required)' },
     { flag: '--to <+E.164>', desc: 'Destination phone number (required)', hint: 'e.g. +15551234567' },
@@ -1907,6 +1918,8 @@ async function main() {
             commands: [
               { name: 'search', description: 'Search available numbers', hint: '--country US' },
               { name: 'buy', description: 'Buy a phone number', hint: '--country US' },
+              { name: 'temp', description: 'Lease a disposable receive-only US number for an SMS code', hint: '[--ttl 1800]' },
+              { name: 'extend', description: 'Rent another 30 min on a live temp number', hint: '<id>' },
               { name: 'list', description: 'List numbers owned by or shared with your wallet' },
               { name: 'release', description: 'Release a phone number', hint: '--id PHONE_ID' },
               { name: 'transfer-ownership', description: 'Hand a number to another wallet', hint: '--id PHONE_ID --to <wallet>' },
@@ -1992,6 +2005,33 @@ async function main() {
               ],
             }))
             break
+          }
+          case 'temp': {
+            // Disposable, receive-only pooled number. No --country/--area: the
+            // server leases a US pool number and owns it to the paying wallet.
+            // Only the TTL is tunable. Receive-only — call `phone wait-otp <id>`.
+            const ttlRaw = (flags.ttl as string) ?? undefined
+            let ttl: number | undefined
+            if (ttlRaw != null) {
+              ttl = Number(ttlRaw)
+              if (!Number.isFinite(ttl) || ttl <= 0) err('--ttl must be a positive number of seconds (default 1800 = 30min, min 300, max 1800)')
+            }
+            const spin = new Spinner()
+            spin.start('Leasing temp number...')
+            const data = await ao.phoneTemp(ttl)
+            spin.stop('Temp number leased', true)
+            return print(data)
+          }
+          case 'extend': {
+            // Rent another 30 min on a live temp lease. Fixed +30min per call,
+            // stackable to 24h. Expired leases 404 (no revival); permanent 400.
+            const id = (flags.id as string) || positional[0]
+            if (!id) err('--id PHONE_ID required (a lease id from `palmyr phone temp`)')
+            const spin = new Spinner()
+            spin.start('Extending temp number...')
+            const data = await ao.phoneExtendTemp(id)
+            spin.stop('Temp number extended', true)
+            return print(data)
           }
           case 'sms': {
             const id = flags.id as string; const to = flags.to as string; const body = flags.body as string

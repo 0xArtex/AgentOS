@@ -510,6 +510,18 @@ export class Palmyr {
     return this.request('GET', `/phone/numbers/${phoneId}/calls`)
   }
 
+  // Disposable receive-only temp numbers (pooled) — the phone analogue of the
+  // temp email inbox. $0.20/30min lease; extend +30min (stackable, 24h cap).
+  async phoneTemp(ttlSeconds?: number): Promise<any> {
+    const body: Record<string, unknown> = {}
+    if (ttlSeconds != null) body.ttl_seconds = ttlSeconds
+    return this.request('POST', '/phone/temp', body)
+  }
+
+  async phoneExtendTemp(phoneId: string): Promise<any> {
+    return this.request('POST', `/phone/temp/${encodeURIComponent(phoneId)}/extend`)
+  }
+
   async phoneRelease(phoneId: string): Promise<any> {
     return this.request('DELETE', `/phone/numbers/${phoneId}`)
   }

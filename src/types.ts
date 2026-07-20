@@ -40,6 +40,16 @@ export interface PhoneNumber {
   active: boolean;
   /** Wallets granted shared use (send/read/call) — cannot release, transfer, or re-share */
   sharedWith?: string[];
+  /**
+   * Disposable temp-lease fields (all NULL/undefined on a normal bought number).
+   * A lease is functionally gone once `expiresAt` passes (reads 410, inbound
+   * dropped), and hard-deleted by the sweep 15min later so the pool number frees.
+   */
+  expiresAt?: string;
+  /** Lease start — clamps the visible SMS window so a lessee can't see a prior lessee's codes. */
+  leaseStart?: string;
+  /** True when this row is a lease of a pooled number (not a bought/permanent number). */
+  poolNumber?: boolean;
 }
 
 export interface SmsMessage {

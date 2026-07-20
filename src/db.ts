@@ -77,9 +77,53 @@ export function initDatabase(): void {
   // number — but cannot release, re-transfer, or unshare). Same shape as
   // domains.shared_with. Probe PRAGMA since SQLite has no IF NOT EXISTS on columns.
   const phoneCols = db.prepare("PRAGMA table_info(phone_numbers)").all() as Array<{ name: string }>;
-  if (!phoneCols.some(c => c.name === 'shared_with')) {
+  const phoneColNames = new Set(phoneCols.map(c => c.name));
+  if (!phoneColNames.has('shared_with')) {
     db.exec("ALTER TABLE phone_numbers ADD COLUMN shared_with TEXT DEFAULT '[]'");
   }
+  // Disposable temp-number leases reuse the phone_numbers table: each lease is a
+  // FRESH row (new id) pointing at a pooled E.164 number, with a TTL. A permanent
+  // (bought) number has all three NULL; a temp lease sets all three. Probe PRAGMA
+  // since SQLite has no IF NOT EXISTS on columns. NOTE: phone_number stays UNIQUE,
+  // so a pooled number can hold at most one lease row at a time — re-leasing only
+  // happens after the previous lease row is hard-deleted (sweep + quarantine).
+  if (!phoneColNames.has('expires_at')) {
+    db.exec("ALTER TABLE phone_numbers ADD COLUMN expires_at TEXT");
+  }
+  if (!phoneColNames.has('lease_start')) {
+    db.exec("ALTER TABLE phone_numbers ADD COLUMN lease_start TEXT");
+  }
+  if (!phoneColNames.has('pool_number')) {
+    db.exec("ALTER TABLE phone_numbers ADD COLUMN pool_number INTEGER");
+  }
+
+  // Pre-owned pool of US local numbers seeded by OPS (never bought in the
+  // request path — cost control). A temp lease allocates a FREE pool number
+  // (one with no live lease and past its inter-lease quarantine) and returns it
+  // to the pool at expiry. Flat + strings, mirroring the dead-simple schema rule.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS phone_pool (
+      phone_number TEXT UNIQUE NOT NULL,
+      telnyx_id TEXT,
+      added_at TEXT NOT NULL,
+      active INTEGER DEFAULT 1
+    );
+    CREATE INDEX IF NOT EXISTS idx_phone_pool_active ON phone_pool(active);
+  `);
+
+  // Durable per-wallet lease ledger for the rolling-24h cap. The lease ROWS in
+  // phone_numbers get hard-deleted 15min after expiry (quarantine), so they
+  // can't back a 24h count — a short lease is long gone within the window. This
+  // append-only log survives the sweep; old rows are pruned past 24h. Concurrent
+  // (live) leases are still counted from phone_numbers directly.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS temp_phone_leases (
+      id TEXT PRIMARY KEY,
+      owner TEXT NOT NULL,
+      leased_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_temp_phone_leases_owner ON temp_phone_leases(owner, leased_at);
+  `);
 
   // SMS Messages table
   db.exec(`

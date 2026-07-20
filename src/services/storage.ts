@@ -74,6 +74,9 @@ function rowToPhoneNumber(row: any): PhoneNumber {
     provisionedAt: row.provisioned_at,
     active: Boolean(row.active),
     sharedWith,
+    ...(row.expires_at ? { expiresAt: row.expires_at } : {}),
+    ...(row.lease_start ? { leaseStart: row.lease_start } : {}),
+    ...(row.pool_number ? { poolNumber: true } : {}),
   };
 }
 
@@ -100,11 +103,18 @@ class Storage {
   // ── Phone ─────────────────────────────────────────────────
 
   setPhoneNumber(id: string, record: PhoneNumber): void {
+    // Carry the temp-lease columns through every write (transfer/share/release
+    // all re-save via this path via a full record round-tripped through
+    // getPhoneNumber, so the lease metadata is preserved not clobbered).
     const stmt = db.prepare(`
-      INSERT OR REPLACE INTO phone_numbers (id, phone_number, country, owner, provisioned_at, active, shared_with)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT OR REPLACE INTO phone_numbers (id, phone_number, country, owner, provisioned_at, active, shared_with, expires_at, lease_start, pool_number)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    stmt.run(id, record.phoneNumber, record.country, record.owner, record.provisionedAt, record.active ? 1 : 0, JSON.stringify(record.sharedWith || []));
+    stmt.run(
+      id, record.phoneNumber, record.country, record.owner, record.provisionedAt,
+      record.active ? 1 : 0, JSON.stringify(record.sharedWith || []),
+      record.expiresAt ?? null, record.leaseStart ?? null, record.poolNumber ? 1 : null,
+    );
   }
 
   getPhoneNumber(id: string): PhoneNumber | undefined {
@@ -134,6 +144,191 @@ class Storage {
     const row = stmt.get(phoneNumber) as any;
     if (!row) return undefined;
     return [row.id, rowToPhoneNumber(row)];
+  }
+
+  /**
+   * Resolve a phone number to its LIVE lease/row only. "Live" = active AND
+   * (no TTL, i.e. a permanent number, OR TTL still in the future). Inbound SMS
+   * MUST route through this — never bare findPhoneByNumber — so a code that
+   * arrives after a lease expired (or during the inter-lease quarantine) is
+   * dropped instead of landing in a dead row a later lessee could read.
+   */
+  findLivePhoneByNumber(phoneNumber: string): [string, PhoneNumber] | undefined {
+    const now = new Date().toISOString();
+    const row = db.prepare(
+      "SELECT * FROM phone_numbers WHERE phone_number = ? AND active = 1 AND (expires_at IS NULL OR expires_at > ?) LIMIT 1"
+    ).get(phoneNumber, now) as any;
+    if (!row) return undefined;
+    return [row.id, rowToPhoneNumber(row)];
+  }
+
+  // ── Temp-number pool + leasing ────────────────────────────
+
+  /** OPS: add a pre-owned US number to the lease pool (idempotent on the number). */
+  addPoolNumber(phoneNumber: string, telnyxId?: string): void {
+    // Never pool a number that already has a PERMANENT (non-lease) row — that
+    // may be a dedicated number sold to an agent, and pooling it would let a
+    // temp lease delete/hijack it. Temp lease rows (expires_at NOT NULL) may
+    // coexist harmlessly.
+    const permanent = db.prepare(
+      "SELECT 1 FROM phone_numbers WHERE phone_number = ? AND expires_at IS NULL LIMIT 1"
+    ).get(phoneNumber);
+    if (permanent) {
+      throw new Error(`Cannot pool ${phoneNumber}: a permanent (dedicated) number row exists for it. Release that number first.`);
+    }
+    db.prepare(
+      "INSERT OR IGNORE INTO phone_pool (phone_number, telnyx_id, added_at, active) VALUES (?, ?, ?, 1)"
+    ).run(phoneNumber, telnyxId ?? null, new Date().toISOString());
+  }
+
+  /** OPS: list the whole pool (for seeding/inspection). */
+  listPool(): Array<{ phone_number: string; telnyx_id: string | null; added_at: string; active: number }> {
+    return db.prepare("SELECT phone_number, telnyx_id, added_at, active FROM phone_pool ORDER BY added_at ASC").all() as any[];
+  }
+
+  /**
+   * Count pool numbers currently FREE to lease. A number is free when it has NO
+   * lease row whose expiry is newer than the quarantine cutoff (now - grace):
+   * a live lease (expiry in the future) blocks it, and a just-expired lease
+   * within the grace window keeps it quarantined so a late SMS for the prior
+   * lessee can't bleed into a new lease. Used pre-paywall to 503 without charging.
+   */
+  countFreePoolNumbers(graceSeconds: number): number {
+    const quarantineCutoff = new Date(Date.now() - Math.max(0, graceSeconds) * 1000).toISOString();
+    const row = db.prepare(`
+      SELECT COUNT(*) AS n FROM phone_pool pp
+      WHERE pp.active = 1
+        AND NOT EXISTS (
+          SELECT 1 FROM phone_numbers pn
+          WHERE pn.phone_number = pp.phone_number AND (pn.expires_at IS NULL OR pn.expires_at > ?)
+        )
+    `).get(quarantineCutoff) as any;
+    return Number(row?.n || 0);
+  }
+
+  /**
+   * Atomically lease a FREE pool number to `owner` for `ttlSeconds`. Picks the
+   * free number whose most-recent lease is oldest (fair rotation / longest-
+   * rested), hard-deletes any leftover past-quarantine dead row for it (FK-safe),
+   * and inserts a FRESH lease row (new id, new lease_start) — the fresh row +
+   * lease_start clamp is what guarantees the new lessee can't see the previous
+   * lessee's SMS. Returns the lease, or null when nothing is free (caller refunds
+   * — this is the residual post-payment allocation race).
+   */
+  leaseTempNumber(owner: string, ttlSeconds: number, graceSeconds: number): PhoneNumber | undefined {
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const expiresIso = new Date(nowMs + ttlSeconds * 1000).toISOString();
+    const quarantineCutoff = new Date(nowMs - Math.max(0, graceSeconds) * 1000).toISOString();
+
+    const txn = db.transaction((): PhoneNumber | undefined => {
+      const cand = db.prepare(`
+        SELECT pp.phone_number AS phone_number,
+               (SELECT MAX(pn.expires_at) FROM phone_numbers pn WHERE pn.phone_number = pp.phone_number) AS last_expiry
+        FROM phone_pool pp
+        WHERE pp.active = 1
+          AND NOT EXISTS (
+            SELECT 1 FROM phone_numbers pn
+            WHERE pn.phone_number = pp.phone_number AND (pn.expires_at IS NULL OR pn.expires_at > ?)
+          )
+        ORDER BY (last_expiry IS NOT NULL), last_expiry ASC
+        LIMIT 1
+      `).get(quarantineCutoff) as { phone_number: string } | undefined;
+      if (!cand) return undefined;
+
+      // Hard-delete any leftover dead lease row for this number (its SMS first,
+      // FK-safe) so the fresh INSERT can't collide with UNIQUE(phone_number) and
+      // the prior lessee's messages are gone for good.
+      const dead = db.prepare("SELECT id FROM phone_numbers WHERE phone_number = ? AND expires_at IS NOT NULL").all(cand.phone_number) as Array<{ id: string }>;
+      for (const d of dead) {
+        db.prepare("DELETE FROM sms_messages WHERE phone_number_id = ?").run(d.id);
+        db.prepare("DELETE FROM phone_numbers WHERE id = ?").run(d.id);
+      }
+
+      const record: PhoneNumber = {
+        id: require("uuid").v4(),
+        phoneNumber: cand.phone_number,
+        country: "US",
+        owner,
+        provisionedAt: nowIso,
+        active: true,
+        sharedWith: [],
+        expiresAt: expiresIso,
+        leaseStart: nowIso,
+        poolNumber: true,
+      };
+      this.setPhoneNumber(record.id, record);
+      db.prepare("INSERT INTO temp_phone_leases (id, owner, leased_at) VALUES (?, ?, ?)").run(record.id, owner, nowIso);
+      return record;
+    });
+    return txn();
+  }
+
+  /** Count an owner's currently-live temp leases (for the concurrent cap). */
+  countActiveTempLeases(owner: string): number {
+    const now = new Date().toISOString();
+    const row = db.prepare(
+      "SELECT COUNT(*) AS n FROM phone_numbers WHERE owner = ? AND pool_number = 1 AND active = 1 AND expires_at > ?"
+    ).get(owner, now) as any;
+    return Number(row?.n || 0);
+  }
+
+  /** Count an owner's temp leases started within the rolling window (for the daily cap). */
+  countTempLeasesSince(owner: string, sinceIso: string): number {
+    const row = db.prepare(
+      "SELECT COUNT(*) AS n FROM temp_phone_leases WHERE owner = ? AND leased_at >= ?"
+    ).get(owner, sinceIso) as any;
+    return Number(row?.n || 0);
+  }
+
+  /** Count inbound SMS to a number within the window (AIT circuit-breaker). */
+  countRecentInboundToNumber(toNumber: string, sinceIso: string): number {
+    const row = db.prepare(
+      "SELECT COUNT(*) AS n FROM sms_messages WHERE to_number = ? AND direction = 'inbound' AND timestamp >= ?"
+    ).get(toNumber, sinceIso) as any;
+    return Number(row?.n || 0);
+  }
+
+  /**
+   * Push a temp lease's expiry (rent extension / early release). Scoped to
+   * `expires_at IS NOT NULL AND active = 1` so a permanent number (NULL expiry)
+   * can NEVER gain one here, mirroring updateEmailInboxExpiry. Returns false when
+   * the row is missing or not a temp lease.
+   */
+  updatePhoneNumberExpiry(id: string, expiresAt: string): boolean {
+    const res = db.prepare(
+      "UPDATE phone_numbers SET expires_at = ? WHERE id = ? AND expires_at IS NOT NULL AND active = 1"
+    ).run(expiresAt, id);
+    return res.changes > 0;
+  }
+
+  /**
+   * HARD-delete temp leases expired more than `graceSeconds` ago, together with
+   * their SMS (FK-safe: children first). Pure-DB — NEVER calls Telnyx; a pooled
+   * number is returned to the pool, not released upstream. The grace IS the
+   * inter-lease quarantine: until the dead row is gone the number stays
+   * unleased. Scoped to `expires_at IS NOT NULL` so a permanent number is never
+   * touched. Also prunes the 24h lease ledger. Returns rows removed.
+   */
+  deleteExpiredTempPhoneLeases(graceSeconds: number): number {
+    const cutoff = new Date(Date.now() - Math.max(0, graceSeconds) * 1000).toISOString();
+    const rows = db.prepare(
+      "SELECT id FROM phone_numbers WHERE expires_at IS NOT NULL AND expires_at < ?"
+    ).all(cutoff) as Array<{ id: string }>;
+    const ledgerCutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+
+    const purge = db.transaction((ids: string[]) => {
+      let removed = 0;
+      if (ids.length > 0) {
+        const placeholders = ids.map(() => '?').join(',');
+        db.prepare(`DELETE FROM sms_messages WHERE phone_number_id IN (${placeholders})`).run(...ids);
+        const res = db.prepare(`DELETE FROM phone_numbers WHERE id IN (${placeholders})`).run(...ids);
+        removed = Number(res.changes);
+      }
+      db.prepare("DELETE FROM temp_phone_leases WHERE leased_at < ?").run(ledgerCutoff);
+      return removed;
+    });
+    return purge(rows.map(r => r.id));
   }
 
   initSmsMessages(phoneNumberId: string): void {
