@@ -9,6 +9,8 @@ Every command is `palmyr phone ...` and maps to an HTTP endpoint (table below). 
 ```bash
 palmyr phone search --country US                     # Search numbers (free)
 palmyr phone buy --country US                        # Buy a number ($3)
+palmyr phone temp --ttl 1800                          # Lease a disposable receive-only number ($0.20/30min)
+palmyr phone extend PN_abc                            # Rent another 30 min on a temp number ($0.20)
 palmyr phone sms --id ID --to +1... --body "hi"      # Send SMS ($0.05)
 palmyr phone wait-otp ID --timeout 90                # Wait for a verification code ($0.02)
 palmyr phone call --id ID --to +1... --tts "hello"   # Voice call ($0.10)
@@ -20,6 +22,8 @@ palmyr phone call --id ID --to +1... --tts "hello"   # Voice call ($0.10)
 |---|---|---|
 | Search numbers | `GET /phone/numbers/search?country=US` | Free |
 | Provision number | `POST /phone/numbers` | 3.00 |
+| Lease temp number | `POST /phone/temp` | 0.20 |
+| Extend temp number | `POST /phone/temp/:id/extend` | 0.20 |
 | Send SMS | `POST /phone/numbers/:id/send` | 0.05 |
 | Read messages | `GET /phone/numbers/:id/messages` | 0.02 |
 | Wait for OTP | `POST /phone/numbers/:id/wait-otp` | 0.02 |
@@ -34,6 +38,20 @@ palmyr phone call --id ID --to +1... --tts "hello"   # Voice call ($0.10)
 | Transfer call | `POST /phone/calls/:callControlId/transfer` | 0.10 |
 | List calls | `GET /phone/numbers/:id/calls` | 0.02 |
 | Call details | `GET /phone/calls/:id` | 0.02 |
+
+## Disposable temp numbers (pooled, receive-only)
+
+`POST /phone/temp` leases a cheap, instant, **receive-only** US number from a pre-owned pool — the phone analogue of a disposable temp email inbox. Use it to catch one SMS verification code during a signup/2FA flow, then let it evaporate. **$0.20 for 30 minutes** (`ttl_seconds`, default 1800, clamped 300–1800); `POST /phone/temp/:id/extend` rents another 30 min per $0.20 call (stackable up to **24h total**). The lease is owned by the paying wallet — read codes with `wait-otp` / `messages` exactly like a bought number. Returns `{ id, phone_number, expires_at, note }`.
+
+Receive-only: `send` / `call` / `transfer-ownership` / `share` / `unshare` all hard-403 on a temp number (use `POST /phone/numbers` for a number that can send). `DELETE /phone/numbers/:id` early-releases the lease back to the pool. An expired lease reads/waits as **410** — lease a fresh one, no revival. When the pool is momentarily dry you get a **503** and are **not charged**.
+
+> **Important — recycled numbers, best-effort delivery.**
+> 1. **Use for one-time codes only.** These are shared pool numbers reused across agents (a number rests ~1h after your lease, then someone else can lease it). Never permanently bind a temp number to an account you want to keep (2FA / account recovery) — after your lease ends a later agent could receive that account's codes. Buy a dedicated number (`POST /phone/numbers`) for anything long-lived.
+> 2. **US VoIP line — works with most, not all.** Confirmed delivering: **Google, X/Twitter, Discord**. Some services block VoIP numbers as anti-fraud: **Telegram, WhatsApp, OpenAI**. If a service rejects the number, release it and lease another (it's $0.20), or use a dedicated number.
+
+> **VoIP reality:** Receive-only US number for verification codes. Works with most major services (confirmed: Google, X/Twitter, Discord). Some services block VoIP numbers as anti-fraud (e.g. Telegram, WhatsApp, OpenAI) — if a service rejects this number, release it and lease another, or use a dedicated number (`POST /phone/numbers`). Codes usually arrive within seconds; call `wait-otp` to receive.
+
+Per-wallet caps: **3 concurrent** live leases and **12 per rolling 24h** (429 before charging when exceeded).
 
 ## Waiting for a verification code (OTP)
 

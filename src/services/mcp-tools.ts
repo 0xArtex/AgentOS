@@ -559,6 +559,43 @@ export function registerPalmyrTools(server: McpServer): void {
     },
   );
 
+  // Phone — lease a disposable receive-only temp number. 0.20 USDC.
+  addTool(server,
+    "phone_temp_number",
+    {
+      title: "Lease disposable temp phone number",
+      description:
+        "Lease a cheap, instant, receive-only US phone number from a pool to receive one SMS verification code — the phone analogue of a disposable temp email inbox. $0.20 for 30 min (ttl_seconds, clamped 300–1800), returned to the pool at expiry; call wait_for_otp to catch the code. " +
+        "Receive-only US number for verification codes. Works with most major services (confirmed: Google, X/Twitter, Discord). Some services block VoIP numbers as anti-fraud (e.g. Telegram, WhatsApp, OpenAI) — if a service rejects this number, release it and lease another, or buy a dedicated number with phone_buy_number. Costs 0.20 USDC, paid per-action via x402.",
+      inputSchema: {
+        ttl_seconds: z.number().optional().describe("Lease lifetime in seconds before auto-expiry (default 1800 = 30min, min 300, max 1800)"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, ...rest } = args;
+      return callRoute("POST", "/phone/temp", rest, payment, extra, "phone_temp_number");
+    },
+  );
+
+  // Phone — extend a temp number lease. 0.20 USDC.
+  addTool(server,
+    "phone_extend_temp",
+    {
+      title: "Extend disposable temp phone number",
+      description:
+        "Rent another 30 minutes on a live disposable temp number — each call pushes expires_at 30 min further (stackable up to 24h total lease). Owner-only; expired temp leases cannot be revived (lease a fresh one via phone_temp_number). Costs 0.20 USDC, paid per-action via x402.",
+      inputSchema: {
+        number_id: z.string().describe("Temp number lease id returned by phone_temp_number"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, number_id } = args;
+      return callRoute("POST", `/phone/temp/${encodeURIComponent(number_id)}/extend`, {}, payment, extra, "phone_extend_temp");
+    },
+  );
+
   // Twitter/X — post. 0.001 USDC.
   addTool(server, 
     "twitter_post",

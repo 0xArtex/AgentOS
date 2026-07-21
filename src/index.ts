@@ -604,6 +604,18 @@ app.listen(config.port, () => {
       console.warn("[email] temp inbox sweep failed:", err?.message ?? err);
     }
   }, 60 * 60 * 1000).unref();
+  // Hard-delete disposable temp phone leases 15min past expiry (the grace IS the
+  // inter-lease quarantine that keeps a pooled number un-leasable until its dead
+  // lease row is gone). Pure-DB — never calls Telnyx (pooled numbers stay on our
+  // account). Hourly, unref'd; errors never crash.
+  setInterval(() => {
+    try {
+      const n = storage.deleteExpiredTempPhoneLeases(15 * 60);
+      if (n > 0) console.log(`[phone] swept ${n} expired temp lease(s) back to the pool`);
+    } catch (err: any) {
+      console.warn("[phone] temp lease sweep failed:", err?.message ?? err);
+    }
+  }, 60 * 60 * 1000).unref();
   console.log(`⚡ Palmyr running on port ${config.port}`);
   console.log(`   Treasury: ${config.treasuryWallet}`);
   console.log(`   Network:  Solana (${config.solanaRpcUrl})`);

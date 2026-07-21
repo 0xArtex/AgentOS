@@ -114,6 +114,98 @@ export function hasNumberAccess(number: PhoneNumber, wallet: string): boolean {
   return number.owner === wallet || (number.sharedWith || []).includes(wallet);
 }
 
+// ── Disposable temp-number leases ───────────────────────────
+// A cheap, instant, receive-only US number leased from a pre-owned pool. The
+// phone analogue of the disposable temp email inbox.
+
+/** Lease pricing/TTL (LOCKED): $0.20 for 30min, extend +30min, hard cap 24h. */
+export const TEMP_LEASE_PRICE_USDC = 0.20;
+export const TEMP_LEASE_DEFAULT_TTL_S = 1800;
+export const TEMP_LEASE_MIN_TTL_S = 300;
+export const TEMP_LEASE_MAX_TTL_S = 1800;
+export const TEMP_LEASE_EXTEND_S = 1800;
+export const TEMP_LEASE_MAX_TOTAL_S = 24 * 3600;
+/** Inter-lease quarantine + sweep grace: a number rests this long after its
+ *  lease expires before it can be re-leased (also when the sweep hard-deletes
+ *  the dead row). 1h shrinks the window in which a straggler code for the prior
+ *  lessee could reach a new lessee — see TEMP_PHONE_NOTE for the recycling caveat. */
+export const TEMP_LEASE_GRACE_S = 3600;
+/** Per-wallet abuse caps. */
+export const TEMP_LEASE_MAX_CONCURRENT = 3;
+export const TEMP_LEASE_MAX_PER_DAY = 12;
+/** AIT circuit-breaker: stop storing once a number crosses this many inbound/hour. */
+export const TEMP_INBOUND_HOURLY_CAP = 100;
+
+/** The VoIP-reality caveat surfaced on every temp-number surface (lease note, docs, MCP, skill). */
+export const TEMP_PHONE_NOTE =
+  "Receive-only US number for verification codes. Works with most major services (confirmed: Google, X/Twitter, Discord). " +
+  "Some services block VoIP numbers as anti-fraud (e.g. Telegram, WhatsApp, OpenAI) — if a service rejects this number, " +
+  "release it and lease another, or use a dedicated number (POST /phone/numbers). Codes usually arrive within seconds; call wait-otp to receive. " +
+  "IMPORTANT: this is a RECYCLED pool number — use it only for one-time codes. Do NOT permanently bind it to an account you want to keep (2FA, recovery): " +
+  "after your lease ends it returns to the pool and a later user could receive that account's codes. For a number nobody else will hold, buy a dedicated one via POST /phone/numbers.";
+
+/**
+ * A temp lease is functionally gone once `expiresAt` passes: reads/wait 410 and
+ * inbound SMS is dropped, well before the sweep hard-deletes the row. A
+ * permanent (bought) number has no `expiresAt` and never expires.
+ */
+export function isNumberExpired(number: Pick<PhoneNumber, "expiresAt">): boolean {
+  if (!number.expiresAt) return false;
+  const t = Date.parse(number.expiresAt);
+  return Number.isFinite(t) && t <= Date.now();
+}
+
+/** True when the number is a disposable temp lease (has a TTL), vs a bought number. */
+export function isTempLease(number: Pick<PhoneNumber, "expiresAt" | "poolNumber">): boolean {
+  return !!number.expiresAt || !!number.poolNumber;
+}
+
+/** How many pool numbers are free to lease right now (pre-paywall exhaustion check). */
+export function countFreePoolNumbers(): number {
+  return storage.countFreePoolNumbers(TEMP_LEASE_GRACE_S);
+}
+
+/**
+ * Per-wallet lease caps: at most 3 concurrent live leases AND 12 leases per
+ * rolling 24h. Returns { ok:false, code } to 429 (pre-paywall where the owner
+ * is derivable, else post-payment with refund).
+ */
+export function checkTempLeaseLimits(owner: string): { ok: true } | { ok: false; code: "concurrent" | "daily" } {
+  if (storage.countActiveTempLeases(owner) >= TEMP_LEASE_MAX_CONCURRENT) return { ok: false, code: "concurrent" };
+  const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+  if (storage.countTempLeasesSince(owner, since) >= TEMP_LEASE_MAX_PER_DAY) return { ok: false, code: "daily" };
+  return { ok: true };
+}
+
+/**
+ * Lease a free pool number to `owner`. Returns the lease record, or null when
+ * the pool raced empty between the preflight and here (caller refunds).
+ */
+export function leaseTempNumber(owner: string, ttlSeconds: number): PhoneNumber | undefined {
+  const ttl = Number.isFinite(ttlSeconds) && ttlSeconds > 0
+    ? Math.min(Math.max(Math.floor(ttlSeconds), TEMP_LEASE_MIN_TTL_S), TEMP_LEASE_MAX_TTL_S)
+    : TEMP_LEASE_DEFAULT_TTL_S;
+  return storage.leaseTempNumber(owner, ttl, TEMP_LEASE_GRACE_S);
+}
+
+/**
+ * Early-release a temp lease back to the pool: set expiry to now and — crucially
+ * — do NOT release at Telnyx (the pooled number stays on our account for the
+ * next lessee). The quarantine + sweep reclaim the row. No-op-safe.
+ */
+export function releaseTempLease(phoneNumberId: string): void {
+  storage.updatePhoneNumberExpiry(phoneNumberId, new Date().toISOString());
+}
+
+/**
+ * Push a temp lease's expiry (rent extension). Scoped in storage to temp leases
+ * only. Returns false when the row is missing / not a temp lease / changed
+ * underneath (caller refunds).
+ */
+export function updatePhoneNumberExpiry(phoneNumberId: string, expiresAt: string): boolean {
+  return storage.updatePhoneNumberExpiry(phoneNumberId, expiresAt);
+}
+
 /**
  * Get all messages for a phone number. Access scope is enforced — callers
  * must present their identity; we refuse to return messages for a number
@@ -129,6 +221,20 @@ export function getMessages(phoneNumberId: string, owner?: string): SmsMessage[]
   }
   const msgs = storage.getSmsMessages(phoneNumberId);
   if (!msgs) throw new Error(`Phone number ${phoneNumberId} not found`);
+  // MESSAGE ISOLATION: on a temp lease, clamp visibility to messages that
+  // arrived at/after this lease began. Belt-and-braces alongside fresh lease
+  // rows (a recycled number gets a new row id, so a raw phone_number_id query
+  // already can't reach the prior lessee's rows) — the clamp defends any path
+  // that might reuse a row id.
+  if (number.leaseStart) {
+    const start = Date.parse(number.leaseStart);
+    if (Number.isFinite(start)) {
+      return msgs.filter(m => {
+        const ts = Date.parse(m.timestamp);
+        return !Number.isFinite(ts) || ts >= start;
+      });
+    }
+  }
   return msgs;
 }
 
@@ -319,7 +425,15 @@ export async function waitForOtp(
   },
 ): Promise<{ hit: { code: string; message: SmsMessage } | null; patternTimedOut: boolean }> {
   const start = Date.now();
-  const windowStart = start - opts.lookbackMs;
+  // MESSAGE ISOLATION: never look back past this lease's start. Without the
+  // clamp, a large lookback on a recycled number could surface a PRIOR lessee's
+  // code. `windowStart = max(now - lookback, lease_start)`.
+  const leaseStartMs = (() => {
+    const n = storage.getPhoneNumber(phoneNumberId);
+    const t = n?.leaseStart ? Date.parse(n.leaseStart) : NaN;
+    return Number.isFinite(t) ? t : -Infinity;
+  })();
+  const windowStart = Math.max(start - opts.lookbackMs, leaseStartMs);
   const deadline = start + opts.timeoutMs;
 
   let activePattern = opts.pattern;
@@ -372,12 +486,28 @@ export function updateOutboundDeliveryStatus(
  * Telnyx sends webhooks as { data: { event_type, payload } }
  */
 export function handleInboundSms(from: string, to: string, body: string): void {
-  const found = storage.findPhoneByNumber(to);
+  // Route to the LIVE lease/row only. A recycled pool number whose prior lease
+  // expired (or is in its quarantine window) has no live row, so a stray code
+  // for the previous lessee is dropped instead of stored where a new lessee
+  // could read it. This is the security-critical inbound half of message
+  // isolation (findLivePhoneByNumber replaces the active-blind findPhoneByNumber).
+  const found = storage.findLivePhoneByNumber(to);
   if (!found) {
-    console.warn(`[phone] Inbound SMS to unknown number: ${to}`);
+    console.warn(`[phone] Inbound SMS to number with no live lease: ${to} — dropped`);
     return;
   }
   const [id] = found;
+
+  // AIT (artificially-inflated-traffic) circuit-breaker: an attacker pumping a
+  // number with junk inbound to burn stored rows / trigger costs is capped. Once
+  // a number crosses the hourly threshold we log and stop storing for the rest
+  // of the window (real OTP volume is a handful of messages).
+  const hourAgo = new Date(Date.now() - 3600 * 1000).toISOString();
+  if (storage.countRecentInboundToNumber(to, hourAgo) >= TEMP_INBOUND_HOURLY_CAP) {
+    console.warn(`[phone] Inbound SMS circuit-breaker tripped for ${to} (>${TEMP_INBOUND_HOURLY_CAP}/hr) — dropping`);
+    return;
+  }
+
   const msg: SmsMessage = {
     id: uuid(),
     phoneNumberId: id,
@@ -443,6 +573,14 @@ export function unshareNumber(phoneNumberId: string, wallet: string): string[] {
 export async function deleteNumber(phoneNumberId: string): Promise<void> {
   const number = storage.getPhoneNumber(phoneNumberId);
   if (!number) throw new Error(`Phone number ${phoneNumberId} not found`);
+
+  // Temp lease: early release returns the pooled number to the pool — it is
+  // NOT released at Telnyx (we keep the number on our account for the next
+  // lessee). Just expire the lease; the quarantine + sweep reclaim the row.
+  if (isTempLease(number)) {
+    releaseTempLease(phoneNumberId);
+    return;
+  }
 
   const client = getClient();
 

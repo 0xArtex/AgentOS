@@ -12,6 +12,7 @@ import * as voiceService from "../services/voice";
 import { config } from "../config";
 import { checkTelnyxCredit } from "../services/telnyx-balance";
 import { refundAndRespond } from "../services/refund";
+import { extractClaimedSvmPayer } from "../middleware/x402-svm-verify";
 
 
 const router = Router({ mergeParams: true });
@@ -357,6 +358,297 @@ router.post("/numbers", preflightProvisionNumber, requireAuth(3.0, "phone", {
   }
 });
 
+// ── Disposable temp numbers (pooled, receive-only) ──────────
+// The phone analogue of the shipped disposable temp EMAIL inbox: lease a cheap,
+// instant, receive-only US number from a pre-owned pool to catch one SMS code.
+
+/** Wallet identity a temp caller would own the lease as (verified, post-auth). */
+function tempOwner(req: AuthenticatedRequest): string {
+  return req.agentId || req.payment?.payer || "unknown";
+}
+
+/** 429 body tailored to which cap was hit — "release one" is wrong advice for
+ *  a daily-cap breach (nothing active to release), so distinguish the two. */
+function tempLimitBody(code: "concurrent" | "daily") {
+  return {
+    error: "Temp-number limit reached",
+    message: code === "concurrent"
+      ? `You already hold the max ${phoneService.TEMP_LEASE_MAX_CONCURRENT} active temp numbers. Release one (DELETE /phone/numbers/:id) or let a lease expire, then retry.`
+      : `You've hit the daily temp-number limit (${phoneService.TEMP_LEASE_MAX_PER_DAY} per wallet per 24h). Wait for earlier leases to age out, or use POST /phone/numbers for a dedicated number.`,
+  };
+}
+
+/** 503 body for pool exhaustion. */
+const TEMP_EXHAUSTED_BODY = {
+  error: "No temp numbers available",
+  message: "All temp numbers are currently in use. Try again in a minute, or use POST /phone/numbers for a dedicated number.",
+};
+
+/**
+ * Pre-flight for POST /phone/temp. Runs BEFORE the paywall so we NEVER charge
+ * when we can't fulfill: pool exhausted → 503, per-wallet cap → 429. Pool
+ * availability is identity-free; the cap pre-check is best-effort (the claimed
+ * Solana payer only — a Base payer is invisible pre-settlement and a token
+ * caller pays from a wallet that may differ from the owner, so both are
+ * re-checked post-payment with refund). Skipped without a payment header so x402
+ * answers discovery probes with a 402.
+ */
+function preflightLeaseTempNumber(req: Request, res: Response, next: NextFunction): void {
+  const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
+  if (!paymentHeader) { next(); return; }
+
+  if (phoneService.countFreePoolNumbers() === 0) {
+    res.status(503).json({ ...TEMP_EXHAUSTED_BODY, hint: "Your wallet has NOT been charged." });
+    return;
+  }
+
+  // Best-effort cap pre-check — skip for token callers (their owner is the
+  // registered wallet, not the claimed payer) so the handler enforces it.
+  const tokenHeader = String(
+    req.headers["authorization"] || req.headers["x-api-key"] || req.headers["x-agent-token"] || ""
+  ).replace(/^Bearer\s+/i, "");
+  if (!/^(aos_|agt_)/.test(tokenHeader)) {
+    const claimed = extractClaimedSvmPayer(String(paymentHeader));
+    if (claimed) {
+      const lim = phoneService.checkTempLeaseLimits(claimed);
+      if (!lim.ok) {
+        res.status(429).json({ ...tempLimitBody(lim.code), hint: "Your wallet has NOT been charged." });
+        return;
+      }
+    }
+  }
+  next();
+}
+
+/**
+ * POST /phone/temp — lease a disposable, receive-only US number from the pool.
+ *
+ * $0.20 for 30min (ttl_seconds default 1800, clamp [300, 1800]). Owned by the
+ * paying wallet with the same owner/read-auth model as a bought number;
+ * "disposable" is the lifecycle. Receive-only (send/call/transfer/share hard-
+ * 403). Returns to the pool at expiry. Pool numbers are OPS-seeded (never bought
+ * in the request path — cost control); when the pool is dry we 503 pre-charge.
+ */
+router.post("/temp", preflightLeaseTempNumber, requireAuth(phoneService.TEMP_LEASE_PRICE_USDC, "phone", {
+  description:
+    "Lease a cheap, instant, receive-only US phone number from a pool to receive one SMS verification code — the phone analogue of a disposable temp email inbox. $0.20 for 30 min (ttl_seconds, clamp 300–1800). Receive-only; call wait-otp to catch the code. " +
+    phoneService.TEMP_PHONE_NOTE,
+  category: "communications",
+  tags: ["phone", "sms", "temp", "disposable", "otp", "verification", "receive-only"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const rawTtl = Number(req.body?.ttl_seconds);
+    const ttlSeconds = Number.isFinite(rawTtl) && rawTtl > 0 ? rawTtl : phoneService.TEMP_LEASE_DEFAULT_TTL_S;
+    const owner = tempOwner(req);
+
+    // Re-check caps with the VERIFIED owner (the free pre-check couldn't see a
+    // Base payer or a token caller's registered wallet). A charged cap-breach
+    // must refund, never keep the charge.
+    const lim = phoneService.checkTempLeaseLimits(owner);
+    if (!lim.ok) {
+      await refundAndRespond(req, res, {
+        reason: `Temp lease cap reached for ${owner}`,
+        userMessage: `${tempLimitBody(lim.code).message} Your payment is being refunded.`,
+        errorLabel: "Temp-number limit reached",
+        httpStatus: 429,
+      });
+      return;
+    }
+
+    const lease = phoneService.leaseTempNumber(owner, ttlSeconds);
+    if (!lease) {
+      // Residual race: the pool emptied between the free preflight and here.
+      await refundAndRespond(req, res, {
+        reason: "Temp pool raced empty post-payment",
+        userMessage: `${TEMP_EXHAUSTED_BODY.message} Your payment is being refunded.`,
+        errorLabel: TEMP_EXHAUSTED_BODY.error,
+        httpStatus: 503,
+      });
+      return;
+    }
+
+    res.status(201).json({
+      id: lease.id,
+      phone_number: lease.phoneNumber,
+      expires_at: lease.expiresAt,
+      note: phoneService.TEMP_PHONE_NOTE,
+    });
+  } catch (err: any) {
+    console.error("[phone] Temp lease error:", err);
+    // An unexpected throw after the $0.20 settled (e.g. SQLITE_BUSY) must refund,
+    // never keep a charge for a lease we couldn't deliver.
+    await refundAndRespond(req, res, {
+      reason: `Temp lease failed unexpectedly: ${err?.message || String(err)}`,
+      userMessage: "Could not lease a temp number — your payment is being refunded.",
+      errorLabel: "Temp Lease Failed",
+      httpStatus: 500,
+    });
+  }
+});
+
+/**
+ * Validate a temp-extend target BEFORE the paywall (mirrors email's
+ * validateExtendTarget). Unknown/expired → 404, non-temp (a bought number) →
+ * 400, wrong-owner → 403 — all FREE. The Base-payer / TOCTOU cases can't be
+ * seen here (claimed payer is Solana-only; the lease can expire mid-settle), so
+ * the handler refunds those post-charge. Skipped without a payment header so
+ * x402 answers discovery probes.
+ */
+function validatePhoneExtendTarget(req: Request, res: Response, next: NextFunction): void {
+  const paymentHeader = (req.headers["payment-signature"] || req.headers["x-payment"]) as string | undefined;
+  if (!paymentHeader) { next(); return; }
+
+  const number = phoneService.getNumber(String(req.params.id));
+  if (!number || !number.active || phoneService.isNumberExpired(number)) {
+    res.status(404).json({
+      error: "Phone Number Not Found",
+      message: "No live temp number with this id. Expired temp leases cannot be revived — lease a fresh one via POST /phone/temp.",
+      hint: "Your wallet has NOT been charged — this check ran before payment.",
+    });
+    return;
+  }
+  if (!phoneService.isTempLease(number)) {
+    res.status(400).json({
+      error: "Not a temp number",
+      message: "This is a permanent number — permanent numbers never expire, so there is nothing to extend. Only disposable temp numbers (POST /phone/temp) have a TTL.",
+      hint: "Your wallet has NOT been charged — this check ran before payment.",
+    });
+    return;
+  }
+  if (Date.parse(number.expiresAt!) - Date.parse(number.leaseStart || number.provisionedAt) + phoneService.TEMP_LEASE_EXTEND_S * 1000 > phoneService.TEMP_LEASE_MAX_TOTAL_S * 1000) {
+    res.status(400).json({
+      error: "Temp lease cap reached",
+      message: "Temp numbers can be extended up to 24h total; this lease has reached the cap. Lease a fresh one or use POST /phone/numbers for a permanent number.",
+      hint: "Your wallet has NOT been charged — this check ran before payment.",
+    });
+    return;
+  }
+
+  // Registered-agent (token) callers legitimately pay from a wallet that isn't
+  // the lease owner — skip the claimed-payer pre-check for them (the handler
+  // re-checks ownership with verified identities and refunds a mismatch).
+  const tokenHeader = String(
+    req.headers["authorization"] || req.headers["x-api-key"] || req.headers["x-agent-token"] || ""
+  ).replace(/^Bearer\s+/i, "");
+  if (/^(aos_|agt_)/.test(tokenHeader)) { next(); return; }
+
+  const claimedPayer = extractClaimedSvmPayer(String(paymentHeader));
+  if (claimedPayer && !phoneService.hasNumberAccess(number, claimedPayer) && claimedPayer !== number.owner) {
+    res.status(403).json({
+      error: "Wallet mismatch",
+      message: "Only the wallet that leased this number can use it.",
+      hint: "Your wallet has NOT been charged — this check ran before payment.",
+    });
+    return;
+  }
+  next();
+}
+
+/**
+ * POST /phone/temp/:id/extend — rent another 30 min on a live temp lease.
+ *
+ * $0.20 per call, stacks on the CURRENT expiry, hard cap 24h total lease
+ * duration (expires_at − lease_start). Owner-only, live-only. Free rejections
+ * via validatePhoneExtendTarget; the Base-payer / TOCTOU cases refund post-charge.
+ */
+router.post("/temp/:id/extend", validatePhoneExtendTarget, requireAuth(phoneService.TEMP_LEASE_PRICE_USDC, "phone", {
+  description:
+    "Rent another 30 minutes on a live disposable temp number — each $0.20 call pushes expires_at 30 min further. Stackable up to 24h total; owner-only; expired temp leases cannot be revived (lease a fresh one).",
+  category: "communications",
+  tags: ["phone", "sms", "temp", "disposable", "extend"],
+}), async (req: AuthenticatedRequest, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const number = phoneService.getNumber(id);
+    // Re-run the guard's checks with verified auth (the guard is skipped without
+    // a payment header, and the lease can expire during settlement). Every
+    // charged rejection refunds — a charged failure without a refund is never OK.
+    if (!number || !number.active || phoneService.isNumberExpired(number)) {
+      await refundAndRespond(req, res, {
+        reason: `Temp extend target gone/expired post-payment: ${id}`,
+        userMessage: "No live temp number with this id — it may have expired while the payment settled. Expired temp leases cannot be revived; your payment is being refunded. Lease a fresh one via POST /phone/temp.",
+        errorLabel: "Phone Number Not Found",
+        httpStatus: 404,
+      });
+      return;
+    }
+    if (!phoneService.isTempLease(number)) {
+      await refundAndRespond(req, res, {
+        reason: `Temp extend on permanent number: ${id}`,
+        userMessage: "This is a permanent number — it has no TTL to extend. Your payment is being refunded.",
+        errorLabel: "Not a temp number",
+        httpStatus: 400,
+      });
+      return;
+    }
+
+    const identities = [req.payment?.payer, req.agentId].filter(Boolean) as string[];
+    const isOwner = identities.some(w => phoneService.hasNumberAccess(number, w) || w === number.owner);
+    if (!isOwner) {
+      await refundAndRespond(req, res, {
+        reason: `Temp extend wallet mismatch: ${id}`,
+        userMessage: "Only the wallet that leased this number can use it. Your payment is being refunded.",
+        errorLabel: "Wallet mismatch",
+        httpStatus: 403,
+      });
+      return;
+    }
+
+    const newExpiresAt = new Date(Date.parse(number.expiresAt!) + phoneService.TEMP_LEASE_EXTEND_S * 1000).toISOString();
+    const totalLeaseMs = Date.parse(newExpiresAt) - Date.parse(number.leaseStart || number.provisionedAt);
+    if (totalLeaseMs > phoneService.TEMP_LEASE_MAX_TOTAL_S * 1000) {
+      await refundAndRespond(req, res, {
+        reason: `Temp extend past 24h cap: ${id}`,
+        userMessage: "Temp numbers can be extended up to 24h total; this lease has reached the cap. Your payment is being refunded — lease a fresh one or use POST /phone/numbers for a permanent number.",
+        errorLabel: "Temp lease cap reached",
+        httpStatus: 400,
+      });
+      return;
+    }
+
+    if (!phoneService.updatePhoneNumberExpiry(id, newExpiresAt)) {
+      await refundAndRespond(req, res, {
+        reason: `Temp extend UPDATE no-op (row changed during request): ${id}`,
+        userMessage: "Could not extend — the lease changed state while the payment settled. Your payment is being refunded.",
+        errorLabel: "Extension Failed",
+        httpStatus: 409,
+      });
+      return;
+    }
+
+    res.json({ id: number.id, phone_number: number.phoneNumber, expires_at: newExpiresAt, note: phoneService.TEMP_PHONE_NOTE });
+  } catch (err: any) {
+    console.error("[phone] Temp extend error:", err);
+    // Unexpected throw after the $0.20 settled → refund, never keep the charge.
+    await refundAndRespond(req, res, {
+      reason: `Temp extend failed unexpectedly: ${err?.message || String(err)}`,
+      userMessage: "Could not extend the lease — your payment is being refunded.",
+      errorLabel: "Temp Extend Failed",
+      httpStatus: 500,
+    });
+  }
+});
+
+/**
+ * Reject send / call / transfer-ownership / share / unshare on a disposable
+ * temp lease BEFORE the paywall — a $0.20 receive-only number must never
+ * originate SMS/voice or change hands (mirrors email's blockTempSend). Running
+ * before x402 means the caller is never charged only to be blocked. Permanent
+ * numbers (and unknown ids, which fall through to the handler's own 404) pass.
+ */
+function blockTempPhoneActions(req: Request, res: Response, next: NextFunction): void {
+  const number = phoneService.getNumber(String(req.params.id));
+  if (number && phoneService.isTempLease(number)) {
+    res.status(403).json({
+      error: "Temp numbers are receive-only",
+      message: "Temp numbers are receive-only. Use POST /phone/numbers for a number that can send SMS or make calls.",
+      hint: "Your wallet has NOT been charged.",
+    });
+    return;
+  }
+  next();
+}
+
 /**
  * GET /phone/numbers/:id/messages — Get all messages for a number
  * Priced via x402 — see /pricing for the live amount.
@@ -371,6 +663,15 @@ router.get("/numbers/:id/messages", requireAuth(0.02, "general", {
     const caller = req.payment?.payer || req.agentId;
     if (!caller) {
       return res.status(401).json({ error: "No caller identity — cannot verify ownership" });
+    }
+    // An expired temp lease reads as gone (410), never a stale message dump —
+    // consistent with wait-otp and with the message-window isolation.
+    const number = phoneService.getNumber(phoneNumberId);
+    if (number && phoneService.isTempLease(number) && phoneService.isNumberExpired(number)) {
+      return res.status(410).json({
+        error: "Temp lease expired",
+        message: "This temp number's lease has expired. Lease a fresh one via POST /phone/temp.",
+      });
     }
     const msgs = phoneService.getMessages(phoneNumberId, caller);
     res.json({ messages: msgs });
@@ -478,6 +779,15 @@ function preflightWaitOtp(req: Request, res: Response, next: NextFunction): void
     });
     return;
   }
+  // Expired temp lease → 410 (no new SMS route to a dead lease). Free — pre-paywall.
+  if (phoneService.isTempLease(number) && phoneService.isNumberExpired(number)) {
+    res.status(410).json({
+      error: "Temp lease expired",
+      message: "This temp number's lease has expired. Lease a fresh one via POST /phone/temp.",
+      hint: "You have NOT been charged.",
+    });
+    return;
+  }
   next();
 }
 
@@ -513,6 +823,14 @@ router.post("/numbers/:id/wait-otp", preflightWaitOtp, requireAuth(0.02, "genera
     const number = phoneService.getNumber(phoneNumberId);
     if (!number) {
       return res.status(404).json({ error: "Phone Number Not Found", message: `No phone number with ID ${phoneNumberId}` });
+    }
+    // Defense-in-depth for a direct token-auth hit that skipped the preflight:
+    // an expired temp lease 410s (no new SMS routes to a dead lease).
+    if (phoneService.isTempLease(number) && phoneService.isNumberExpired(number)) {
+      return res.status(410).json({
+        error: "Temp lease expired",
+        message: "This temp number's lease has expired. Lease a fresh one via POST /phone/temp.",
+      });
     }
     if (denyIfNotNumberAccess(req, res, phoneNumberId)) return;
 
@@ -677,7 +995,7 @@ async function preflightSendSms(req: Request, res: Response, next: NextFunction)
  * POST /phone/numbers/:id/send — Send an SMS
  * Priced via x402 — see /pricing for the live amount.
  */
-router.post("/numbers/:id/send", preflightSendSms, requireAuth(0.05, "general", {
+router.post("/numbers/:id/send", blockTempPhoneActions, preflightSendSms, requireAuth(0.05, "general", {
   description: "Send an SMS message from a phone number you own or have shared access to. Body: { to: E.164, body: string }",
   category: "communications",
   tags: ["phone", "sms", "send", "outbound"],
@@ -719,8 +1037,15 @@ router.delete("/numbers/:id", requireAuth(0.01, "general"), async (req: Authenti
       res.status(403).json({ error: "Forbidden", message: "You do not own this phone number" });
       return;
     }
+    // A temp lease early-releases back to the POOL (no Telnyx release call);
+    // a bought number is released at Telnyx. deleteNumber branches internally.
+    const wasTemp = phoneService.isTempLease(number);
     await phoneService.deleteNumber(String(req.params.id));
-    res.json({ success: true, message: "Phone number released" });
+    res.json({
+      success: true,
+      message: wasTemp ? "Temp number released back to the pool" : "Phone number released",
+      ...(wasTemp ? { returned_to_pool: true } : {}),
+    });
   } catch (err: any) {
     res.status(404).json({
       error: "Delete Failed",
@@ -753,7 +1078,7 @@ function getNumberAsOwner(req: AuthenticatedRequest, res: Response): PhoneNumber
  * POST /phone/numbers/:id/transfer-ownership — hand the number to another wallet.
  * Body: { new_owner: "<wallet>" }
  */
-router.post("/numbers/:id/transfer-ownership", requireAuth(OWNERSHIP_PROOF_USDC, "general", {
+router.post("/numbers/:id/transfer-ownership", blockTempPhoneActions, requireAuth(OWNERSHIP_PROOF_USDC, "general", {
   description: "Transfer a phone number you own to another wallet. Clears shared access. Body: { new_owner: wallet }",
   category: "communications",
   tags: ["phone", "transfer", "ownership"],
@@ -791,7 +1116,7 @@ router.post("/numbers/:id/transfer-ownership", requireAuth(OWNERSHIP_PROOF_USDC,
  * (send SMS, place calls, read messages and call history). Owner-only.
  * Body: { with: "<wallet>" }
  */
-router.post("/numbers/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, "general", {
+router.post("/numbers/:id/share", blockTempPhoneActions, requireAuth(OWNERSHIP_PROOF_USDC, "general", {
   description: "Grant another wallet shared use of a phone number you own (send/read SMS, place calls). Owner-only. Body: { with: wallet }",
   category: "communications",
   tags: ["phone", "share"],
@@ -825,7 +1150,7 @@ router.post("/numbers/:id/share", requireAuth(OWNERSHIP_PROOF_USDC, "general", {
  * POST /phone/numbers/:id/unshare — revoke a wallet's shared use. Owner-only.
  * Body: { wallet: "<wallet>" }
  */
-router.post("/numbers/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, "general", {
+router.post("/numbers/:id/unshare", blockTempPhoneActions, requireAuth(OWNERSHIP_PROOF_USDC, "general", {
   description: "Revoke a wallet's shared use of a phone number you own. Owner-only. Body: { wallet }",
   category: "communications",
   tags: ["phone", "unshare"],
@@ -858,7 +1183,7 @@ router.post("/numbers/:id/unshare", requireAuth(OWNERSHIP_PROOF_USDC, "general",
  * POST /phone/numbers/:id/call — Place an outbound call
  * Cost: 0.10 USDC
  */
-router.post("/numbers/:id/call", preflightOutboundDestination, requireAuth(0.10, "general", {
+router.post("/numbers/:id/call", blockTempPhoneActions, preflightOutboundDestination, requireAuth(0.10, "general", {
   description: "Place an outbound phone call from a number you own or have shared access to, with optional TTS or audio playback.",
   category: "communications",
   tags: ["phone", "voice", "call", "dial", "outbound"],
