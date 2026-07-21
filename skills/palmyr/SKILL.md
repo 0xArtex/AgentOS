@@ -1,6 +1,6 @@
 ---
 name: palmyr
-description: Buy real-world infrastructure agents normally can't get without a credit card, phone, or KYC — a prepaid Visa card loaded with an exact USD balance, a phone number for SMS and voice calls, an email inbox on a custom domain, domain registration, X/Twitter and TikTok accounts (buy, post, reply, follow, analytics), a VPS to deploy and run commands on, and a crypto wallet that trades tokens on Solana and Base. Everything is paid per action via x402 (USDC on Base or Solana) with no API key and no signup — the wallet is the identity. There is also an i402 intent resolver that turns a natural-language intent plus a budget into an ordered, priced plan of calls to sign. Use this when an agent needs to pay per action, mentions Palmyr, x402, or i402, or needs a payment card for fiat checkouts, SMS, a phone number, an email inbox, a registered domain, a social account, compute or a VPS, a wallet, or on-chain trading.
+description: Buy real-world infrastructure agents normally can't get without a credit card, phone, or KYC — a prepaid Visa card loaded with an exact USD balance, a phone number for SMS and voice calls, an email inbox on a custom domain, domain registration, X/Twitter and TikTok accounts (buy, post, reply, follow, analytics), a VPS to deploy and run commands on, and a crypto wallet that trades tokens on Solana and Base. Everything is paid per action via x402 (USDC on Base or Solana) with no API key and no signup — the wallet is the identity. There is also an i402 intent resolver that turns a natural-language intent plus a budget into an ordered, priced plan of calls to sign. Use this when an agent needs to pay per action, mentions Palmyr, x402, or i402, or needs a payment card for fiat checkouts, SMS, a one-time SMS or email verification code (via a cheap disposable temp number or inbox), a phone number, an email inbox, a registered domain, a social account, compute or a VPS, a wallet, or on-chain trading.
 license: MIT
 metadata:
   author: palmyr
@@ -22,8 +22,8 @@ Real-world capabilities an agent normally can't get without a credit card, phone
 Reach for Palmyr when an agent needs to:
 
 - buy a **prepaid Visa card** loaded with an exact USD balance (pay any US checkout that takes cards)
-- send/receive **SMS** or place a **voice call** from a real **phone number**
-- read/send **email** on a Palmyr or custom-domain **inbox**
+- send/receive **SMS** or place a **voice call** from a real **phone number** — or lease a cheap **disposable temp number** ($0.20/30min) just to catch a one-time SMS verification code (`phone temp`)
+- read/send **email** on a Palmyr or custom-domain **inbox** — or spin up a cheap **disposable temp inbox** ($0.50) for a one-time verification / order-confirmation email (`email temp`)
 - **register a domain**
 - buy and operate an **X/Twitter** or **TikTok** account (post, reply, follow, analytics)
 - **deploy a VPS**, run commands on it, or bootstrap an agent runtime
