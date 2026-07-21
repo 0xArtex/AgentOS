@@ -436,7 +436,7 @@ router.post("/temp", preflightLeaseTempNumber, requireAuth(phoneService.TEMP_LEA
   // (TEMP_PHONE_NOTE) reaches agents via the lease response body, the MCP tool
   // description, and the skill doc.
   description:
-    "Lease a cheap, instant, receive-only US phone number from a pool to receive one SMS verification code — the phone analogue of a disposable temp email inbox. $0.20 for 30 min (ttl_seconds, clamp 300–1800). Receive-only; call wait-otp to catch the code. Works with most services (Google/X/Discord); some block VoIP. Recycled pool — one-time codes only.",
+    "Lease a cheap, instant, receive-only US phone number from a pool to receive one SMS verification code — the phone analogue of a disposable temp email inbox. $0.20 for 30 min (ttl_seconds, clamp 300–1800). Receive-only; call wait-otp to catch the code. Good for one-time verification on sites like Google/X/Discord; some (Telegram/WhatsApp/OpenAI) block VoIP numbers. Recycled — one-time codes only.",
   category: "communications",
   tags: ["phone", "sms", "temp", "disposable", "otp", "verification", "receive-only"],
 }), async (req: AuthenticatedRequest, res: Response) => {

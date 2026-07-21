@@ -138,11 +138,10 @@ export const TEMP_INBOUND_HOURLY_CAP = 100;
 
 /** The VoIP-reality caveat surfaced on every temp-number surface (lease note, docs, MCP, skill). */
 export const TEMP_PHONE_NOTE =
-  "Receive-only US number for verification codes. Works with most major services (confirmed: Google, X/Twitter, Discord). " +
-  "Some services block VoIP numbers as anti-fraud (e.g. Telegram, WhatsApp, OpenAI) — if a service rejects this number, " +
-  "release it and lease another, or use a dedicated number (POST /phone/numbers). Codes usually arrive within seconds; call wait-otp to receive. " +
-  "IMPORTANT: this is a RECYCLED pool number — use it only for one-time codes. Do NOT permanently bind it to an account you want to keep (2FA, recovery): " +
-  "after your lease ends it returns to the pool and a later user could receive that account's codes. For a number nobody else will hold, buy a dedicated one via POST /phone/numbers.";
+  "Good for one-time SMS verification and phone-gated signups. Works with major sites like Google, X, and Discord; " +
+  "some (Telegram, WhatsApp, OpenAI) may reject it as a VoIP number — it depends how strict the site is, so use a " +
+  "dedicated number (POST /phone/numbers) for those. Pool numbers are recycled after your lease, so use them for " +
+  "one-time codes only, not long-term 2FA.";
 
 /**
  * A temp lease is functionally gone once `expiresAt` passes: reads/wait 410 and
