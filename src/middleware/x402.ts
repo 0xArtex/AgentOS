@@ -324,7 +324,11 @@ export function bazaarInfo(method: string, isBodyMethod: boolean) {
 
 function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Metadata) {
   const resource = "https://" + (req.get("host") || "palmyr.ai") + req.originalUrl;
-  const description = metadata?.description || "Palmyr: " + req.method + " " + req.originalUrl;
+  // CDP's x402 facilitator schema caps resource.description at 500 chars, and
+  // v2 clients echo the challenge's resource back into their payment payload —
+  // so an over-long description poisons the payload and the CDP verify 400s
+  // ("requires 'scheme'"). Clamp defensively so no route can regress into that.
+  const description = (metadata?.description || "Palmyr: " + req.method + " " + req.originalUrl).slice(0, 500);
   const amount = String(Math.round(minUsdc * 1e6));
 
   // The SETTLEMENT channel registers the CONCRETE resource URL
@@ -708,14 +712,14 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
       console.log("[x402] Result:", safeStringify(result));
 
       if (!result.verified) {
-        send402Response(res, req, minUsdc, "Payment verification failed: " + (result.reason || "unknown"));
+        send402Response(res, req, minUsdc, "Payment verification failed: " + (result.reason || "unknown"), metadata);
         return;
       }
 
       // Settlement must succeed — don't hand out resources for unpaid-on-chain requests
       if (!result.settled) {
         console.warn("[x402] Settlement failed:", result.reason);
-        send402Response(res, req, minUsdc, "Payment settlement failed: " + (result.reason || "unknown"));
+        send402Response(res, req, minUsdc, "Payment settlement failed: " + (result.reason || "unknown"), metadata);
         return;
       }
 
