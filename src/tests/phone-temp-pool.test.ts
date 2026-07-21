@@ -164,7 +164,7 @@ describe("POST /phone/temp — lease", () => {
     assert.ok(res.json.id, "must return a lease id");
     assert.equal(res.json.phone_number, num, "must return the pooled number");
     assert.ok(res.json.expires_at, "must return expires_at");
-    assert.match(String(res.json.note || ""), /receive-only/i, "note must state the receive-only VoIP caveat");
+    assert.match(String(res.json.note || ""), /recycled|one-time/i, "note must surface the recycled / one-time-codes-only caveat");
     assert.match(String(res.json.note || ""), /VoIP|Telegram|WhatsApp/i, "note must surface the VoIP-blocking reality");
     assert.ok(Math.abs(ttlOf(res.json.expires_at) - 1800) < 30, `default ttl ~30min, got ${ttlOf(res.json.expires_at)}s`);
 

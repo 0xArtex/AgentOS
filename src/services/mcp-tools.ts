@@ -566,7 +566,7 @@ export function registerPalmyrTools(server: McpServer): void {
       title: "Lease disposable temp phone number",
       description:
         "Lease a cheap, instant, receive-only US phone number from a pool to receive one SMS verification code — the phone analogue of a disposable temp email inbox. $0.20 for 30 min (ttl_seconds, clamped 300–1800), returned to the pool at expiry; call wait_for_otp to catch the code. " +
-        "Receive-only US number for verification codes. Works with most major services (confirmed: Google, X/Twitter, Discord). Some services block VoIP numbers as anti-fraud (e.g. Telegram, WhatsApp, OpenAI) — if a service rejects this number, release it and lease another, or buy a dedicated number with phone_buy_number. Costs 0.20 USDC, paid per-action via x402.",
+        "Good for one-time SMS verification and phone-gated signups. Works with major sites like Google, X, and Discord; some (Telegram, WhatsApp, OpenAI) may reject it as a VoIP number — for strict sites, buy a dedicated number with phone_buy_number. Pool numbers are recycled after the lease, so use them for one-time codes only, not long-term 2FA. Costs 0.20 USDC, paid per-action via x402.",
       inputSchema: {
         ttl_seconds: z.number().optional().describe("Lease lifetime in seconds before auto-expiry (default 1800 = 30min, min 300, max 1800)"),
         payment: PAYMENT_PARAM,
