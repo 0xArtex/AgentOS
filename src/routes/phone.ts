@@ -430,9 +430,13 @@ function preflightLeaseTempNumber(req: Request, res: Response, next: NextFunctio
  * in the request path — cost control); when the pool is dry we 503 pre-charge.
  */
 router.post("/temp", preflightLeaseTempNumber, requireAuth(phoneService.TEMP_LEASE_PRICE_USDC, "phone", {
+  // Keep this UNDER 500 chars — CDP's x402 facilitator schema caps
+  // resource.description at 500, and v2 clients echo it back into their payment
+  // payload, so a longer one fails verification. The full VoIP/recycling caveat
+  // (TEMP_PHONE_NOTE) reaches agents via the lease response body, the MCP tool
+  // description, and the skill doc.
   description:
-    "Lease a cheap, instant, receive-only US phone number from a pool to receive one SMS verification code — the phone analogue of a disposable temp email inbox. $0.20 for 30 min (ttl_seconds, clamp 300–1800). Receive-only; call wait-otp to catch the code. " +
-    phoneService.TEMP_PHONE_NOTE,
+    "Lease a cheap, instant, receive-only US phone number from a pool to receive one SMS verification code — the phone analogue of a disposable temp email inbox. $0.20 for 30 min (ttl_seconds, clamp 300–1800). Receive-only; call wait-otp to catch the code. Works with most services (Google/X/Discord); some block VoIP. Recycled pool — one-time codes only.",
   category: "communications",
   tags: ["phone", "sms", "temp", "disposable", "otp", "verification", "receive-only"],
 }), async (req: AuthenticatedRequest, res: Response) => {
