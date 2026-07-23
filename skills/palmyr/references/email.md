@@ -34,7 +34,7 @@ palmyr email threads --id INBOX_ID                     # List threads ($0.02)
 
 A cheap, auto-expiring, **receive-only** inbox for one-off checkout / signup flows — receive an order confirmation or a verification email, then let it evaporate. Owned by the paying wallet under the same read-auth model as a normal inbox, but:
 
-- The server generates a random `tmp-XXXX@palmyr.ai` address (you don't pick the name; there's no `domain` param).
+- The server generates a natural-looking address (e.g. `maria.holt73@…`) on a dedicated disposable-inbox domain — kept off `palmyr.ai` so throwaway traffic never risks the reputation of owned inboxes, and human-plausible so signup forms accept it. You don't pick the name or domain (no `domain` param); read `address` from the response.
 - **Never E2E** — always server-side AES, so a paid read from the owning wallet returns **plaintext** (no key to manage). Response: `{ id, address, expires_at }`.
 - **Receive-only** — `POST /email/inboxes/:id/send` hard-403s a temp inbox.
 - **Auto-expires** — pass optional `ttl_seconds` (default 86400 = 24h, clamped to [300, 604800]). After expiry, reads 404 and inbound mail is dropped; the row is hard-deleted 48h later.

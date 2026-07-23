@@ -32,6 +32,19 @@ function requiredInProd(key: string, devFallback: string): string {
   return devFallback;
 }
 
+const EMAIL_DOMAIN = optional("EMAIL_DOMAIN", "palmyr.ai");
+
+// Disposable temp inboxes are minted on THESE domains (comma-separated), never
+// on EMAIL_DOMAIN. Keeping "disposable" traffic off the apex protects it (and
+// the owned $2 inboxes) from disposable-email blocklists — the apex getting
+// listed would reject every {name}@palmyr.ai address at signup. Treat pool
+// domains as rotatable, sacrificial inventory. Falls back to [EMAIL_DOMAIN] so
+// dev / test / self-hosted keep working with no extra env.
+const TEMP_EMAIL_DOMAINS = (process.env.TEMP_EMAIL_DOMAINS ?? "")
+  .split(",")
+  .map((d) => d.trim().toLowerCase())
+  .filter(Boolean);
+
 export const config = {
   // Server
   port: parseInt(optional("PORT", "3000"), 10),
@@ -50,7 +63,9 @@ export const config = {
   telnyxVoiceAppId: optional("TELNYX_VOICE_APP_ID", ""),
 
   // Email
-  emailDomain: optional("EMAIL_DOMAIN", "palmyr.ai"),
+  emailDomain: EMAIL_DOMAIN,
+  // Disposable temp-inbox pool domains (see TEMP_EMAIL_DOMAINS above).
+  tempEmailDomains: TEMP_EMAIL_DOMAINS.length ? TEMP_EMAIL_DOMAINS : [EMAIL_DOMAIN],
 
   // Domain registrar
   domainRegistrar: optional("DOMAIN_REGISTRAR", "namecheap"),
@@ -77,3 +92,16 @@ export const config = {
   // LASO_AGENT_DAILY_MAX_USD.
   lasoAgentDailyMaxCards: parseInt(optional("LASO_AGENT_DAILY_MAX_CARDS", "6"), 10),
 } as const;
+
+/**
+ * True if `domain` is a Palmyr-operated email domain — the default apex or any
+ * temp-inbox pool domain. Used to protect SHARED pool domains from teardown:
+ * the inbox-delete route deregisters a Mailgun domain once its last inbox is
+ * gone, which must never fire for a pool domain (it would kill inbound for
+ * every other agent still leasing a temp inbox on it).
+ */
+export function isSystemEmailDomain(domain: string): boolean {
+  const d = domain.trim().toLowerCase();
+  return d === config.emailDomain.toLowerCase()
+    || config.tempEmailDomains.some((p) => p.toLowerCase() === d);
+}

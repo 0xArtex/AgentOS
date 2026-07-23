@@ -620,6 +620,9 @@ app.listen(config.port, () => {
   console.log(`   Treasury: ${config.treasuryWallet}`);
   console.log(`   Network:  Solana (${config.solanaRpcUrl})`);
   console.log(`   Email:    *@${config.emailDomain}`);
+  if (config.tempEmailDomains.length && !(config.tempEmailDomains.length === 1 && config.tempEmailDomains[0] === config.emailDomain)) {
+    console.log(`   Temp:     disposable inboxes on ${config.tempEmailDomains.join(", ")}`);
+  }
   console.log(`   i402:     reference implementation wired at /chat`);
   warnIfSelfHosted();
 });
