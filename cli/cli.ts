@@ -655,7 +655,7 @@ const EMAIL_HELP: Record<string, Array<{ flag: string; desc: string; hint?: stri
   ],
   temp: [
     { flag: '--ttl <seconds>', desc: 'Lifetime before the inbox auto-expires (optional; default 86400 = 24h, min 300, max 604800)' },
-    { flag: '(note)', desc: 'Disposable, receive-only inbox at tmp-XXXX@palmyr.ai — the name is server-generated; reads return plaintext' },
+    { flag: '(note)', desc: 'Disposable, receive-only inbox on a dedicated inbox domain (natural handle, server-generated) — reads return plaintext' },
     { flag: '(price)', desc: '$0.50 per disposable inbox' },
     { flag: '(example)', desc: 'palmyr email temp --ttl 3600' },
   ],
@@ -2316,8 +2316,8 @@ async function main() {
           }
           case 'temp': {
             // Disposable, receive-only inbox. No --name/--wallet: the server
-            // generates a random tmp-XXXX@palmyr.ai and owns it to the paying
-            // wallet (no E2E — plaintext reads). Only the TTL is tunable.
+            // generates a natural handle on a dedicated inbox domain and owns it
+            // to the paying wallet (no E2E — plaintext reads). Only TTL is tunable.
             const ttlRaw = (flags.ttl as string) ?? undefined
             let ttl: number | undefined
             if (ttlRaw != null) {

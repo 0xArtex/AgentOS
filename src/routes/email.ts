@@ -1,13 +1,14 @@
 import { Router, Request, Response, NextFunction, urlencoded } from "express";
-import { randomBytes } from "crypto";
+import { randomBytes, randomInt } from "crypto";
 import { requireAuth } from "../middleware/auth";
 import { x402 } from "../middleware/x402";
 import { AuthenticatedRequest, EmailInbox } from "../types";
 import * as emailService from "../services/email";
+import { generateTempLocalPart } from "../services/temp-email-identity";
 import { storage } from "../services/storage";
 import { db } from "../db";
 import { setDomainDnsRecords, type DnsHostRecord } from "../services/namecheap";
-import { config } from "../config";
+import { config, isSystemEmailDomain } from "../config";
 import { extractClaimedSvmPayer } from "../middleware/x402-svm-verify";
 import { refundAndRespond } from "../services/refund";
 
@@ -354,14 +355,17 @@ router.post("/inboxes", validateInboxInputs, requireAuth(2.0, "email", {
  *  - No E2E: we NEVER pass a wallet key to createInbox, so the inbox always uses
  *    the server-side AES-256-GCM path (plaintext to the owner on a paid read).
  *    A Solana payer must not silently receive ciphertext they'd have to decrypt.
- *  - Server-generated random local-part (tmp-<8 hex>) on the default domain —
- *    the caller does not choose the name and there is no `domain` param.
+ *  - Server-generated, human-plausible local-part (e.g. maria.holt73) on a
+ *    dedicated pool domain (config.tempEmailDomains), NOT the apex — the caller
+ *    chooses neither the name nor the domain, and there is no `domain` param.
+ *    Keeping "disposable" traffic off palmyr.ai protects the owned inboxes from
+ *    disposable-email blocklists; the natural local-part clears fraud scorers.
  *  - Receive-only: the send route hard-403s a temp inbox (see below).
  *  - TTL: expires_at = now + ttl (default 24h, clamp [5m, 7d]); functionally
  *    gone at expiry, hard-deleted by the hourly sweep 48h later.
  */
 router.post("/temp", requireAuth(0.5, "email", {
-  description: "Provision a cheap, disposable, receive-only email inbox at tmp-XXXX@palmyr.ai for receiving a verification or order-confirmation email. Auto-expires (default 24h). Reads return plaintext after an x402 ownership proof from the owning wallet.",
+  description: "Provision a cheap, disposable, receive-only email inbox for receiving a one-time verification or order-confirmation email. Auto-expires (default 24h). Reads return plaintext after an x402 ownership proof from the owning wallet.",
   category: "communications",
   tags: ["email", "inbox", "temp", "disposable", "ephemeral"],
 }), async (req: AuthenticatedRequest, res: Response) => {
@@ -374,21 +378,26 @@ router.post("/temp", requireAuth(0.5, "email", {
 
     const owner = req.agentId || req.payment?.payer || "unknown";
 
-    // Server-generated random local-part. 32 bits of entropy; retry a few times
-    // on the astronomically-unlikely collision so we never 500 on UNIQUE(address)
-    // (only the hard-delete sweep frees an address, so collisions are possible in
-    // principle within the 48h grace window).
+    // Mint on a randomly-picked pool domain (never the apex — see config), with
+    // a human-plausible local-part. Retry a few times on the (very unlikely)
+    // collision so we never 500 on UNIQUE(address) — only the hard-delete sweep
+    // frees an address, so collisions are possible within the 48h grace window.
+    const pool = config.tempEmailDomains;
+    const domain = pool[randomInt(pool.length)];
     let name = "";
     for (let i = 0; i < 5; i++) {
-      const candidate = `tmp-${randomBytes(4).toString("hex")}`;
-      if (!storage.hasEmailAddress(`${candidate}@${config.emailDomain}`)) { name = candidate; break; }
+      const candidate = generateTempLocalPart();
+      if (!storage.hasEmailAddress(`${candidate}@${domain}`)) { name = candidate; break; }
     }
-    if (!name) name = `tmp-${randomBytes(6).toString("hex")}`;
+    // Last-resort disambiguator on a fully saturated pool (extra digits keep it
+    // human-plausible and address-unique); the refund backstop below still
+    // covers the astronomically-unlikely residual collision.
+    if (!name) name = `${generateTempLocalPart()}${randomInt(1000, 10000)}`;
 
     // CRITICAL: always pass `undefined` for the wallet key so createInbox uses
     // the server-side (non-E2E) path — never copy the provision handler's
-    // candidateKey/solanaPublicKey block here.
-    const result = emailService.createInbox(name, owner, undefined, undefined, ttlSeconds);
+    // candidateKey/solanaPublicKey block here. Pass the pool `domain` explicitly.
+    const result = emailService.createInbox(name, owner, undefined, domain, ttlSeconds);
 
     res.status(201).json({
       id: result.id,
@@ -918,7 +927,12 @@ router.delete("/inboxes/:id", requireAuth(0.01, "general", {
     // Mailgun hiccup can never leave the endpoint half-failing.
     let mailgunCleanup = true;
     const inboxDomain = inbox.address.split("@")[1];
-    if (inboxDomain && inboxDomain !== config.emailDomain) {
+    // Only tear down Mailgun for a per-inbox custom domain. NEVER for a
+    // Palmyr-operated domain — the apex OR a shared temp-inbox pool domain —
+    // even when this is the last inbox on it: deleting a pool domain's Mailgun
+    // registration would kill inbound for every other agent leasing a temp
+    // inbox on the same domain.
+    if (inboxDomain && !isSystemEmailDomain(inboxDomain)) {
       try {
         const { isMailgunConfigured, deleteMailgunDomain } = await import("../services/mailgun");
         if (isMailgunConfigured() && storage.countActiveEmailInboxesOnDomain(inboxDomain) === 0) {

@@ -2,8 +2,9 @@
  * Tests for POST /email/temp — disposable, receive-only, auto-expiring inboxes.
  *
  * Covers:
- *  - temp create returns a random `tmp-XXXXXXXX@<default-domain>` address plus
- *    an `expires_at`, with `ttl_seconds` clamped to [300, 604800] (default 24h)
+ *  - temp create returns a human-plausible local-part (e.g. maria.holt73, never
+ *    `tmp-*`) on a temp-pool domain (here the default, since TEMP_EMAIL_DOMAINS
+ *    is unset) plus an `expires_at`, ttl clamped to [300, 604800] (default 24h)
  *  - the inbox is NOT E2E: even when a Solana wallet key is offered (in the body
  *    or as the owner), the route/service use server-side AES, so the owner reads
  *    PLAINTEXT — never `w:` ciphertext. This is the key regression guard: a
@@ -47,7 +48,10 @@ const WALLET_B = "WALLETbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 const SOL_OWNER = "4R67MWivvc52g9BSzQRvQyD8GshttW1QLbnj46usBrcQ";
 
 const DEFAULT_DOMAIN = "palmyr.ai";
-const TMP_ADDRESS_RE = /^tmp-[0-9a-f]{8}@palmyr\.ai$/;
+// Natural handle: starts with a letter, ends with a digit, only [a-z0-9._-] in
+// between (the createInbox sanitizer's charset). The regression this guards is
+// that we no longer emit `tmp-<hex>` — asserted explicitly alongside.
+const NATURAL_ADDRESS_RE = /^[a-z][a-z0-9._-]*[0-9]@palmyr\.ai$/;
 
 let server: http.Server;
 let port = 0;
@@ -134,11 +138,12 @@ beforeEach(() => {
 });
 
 describe("POST /email/temp — create", () => {
-  it("returns a random tmp-XXXXXXXX@palmyr.ai address and an expires_at (default 24h)", async () => {
+  it("returns a natural-looking local-part @palmyr.ai (never tmp-*) and an expires_at (default 24h)", async () => {
     const res = await request("POST", "/email/temp", { "x-test-payer": WALLET_A });
     assert.equal(res.status, 201, JSON.stringify(res.json));
     assert.ok(res.json.id, "must return an id");
-    assert.match(String(res.json.address), TMP_ADDRESS_RE, `address ${res.json.address} must be tmp-<8 hex>@${DEFAULT_DOMAIN}`);
+    assert.match(String(res.json.address), NATURAL_ADDRESS_RE, `address ${res.json.address} must be a natural handle @${DEFAULT_DOMAIN}`);
+    assert.ok(!String(res.json.address).startsWith("tmp-"), `address ${res.json.address} must NOT use the old tmp- prefix`);
     assert.ok(res.json.expires_at, "must return expires_at");
     // Default TTL is 24h (86400s).
     assert.ok(Math.abs(ttlOf(res.json.expires_at) - 86400) < 60, `default ttl ~24h, got ${ttlOf(res.json.expires_at)}s`);

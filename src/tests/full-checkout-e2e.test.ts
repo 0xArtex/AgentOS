@@ -286,13 +286,16 @@ describe("full agent-checkout chain (hermetic, self-hosted)", () => {
   const ORDER_BODY =
     "Hello,\n\nYour order #A1B2 is confirmed and will ship soon.\nOrder number: A1B2\nTotal: $42.00\n\nThanks for shopping with Palmyr Goods.";
 
-  it("STEP 1 — provisions a disposable temp inbox (tmp-<hex>@domain + expires_at)", async () => {
+  it("STEP 1 — provisions a disposable temp inbox (natural handle@domain + expires_at)", async () => {
     banner("1", "provision disposable temp inbox");
     const res = await send("POST", "/email/temp");
     assert.equal(res.status, 201, res.text);
     assert.ok(res.json.id, "temp inbox id");
-    assert.match(String(res.json.address), new RegExp(`^tmp-[0-9a-f]{8}@${EMAIL_DOMAIN.replace(".", "\\.")}$`),
-      `address ${res.json.address} must be tmp-<8 hex>@${EMAIL_DOMAIN}`);
+    // Natural, human-plausible handle (never tmp-*) on the temp domain — here the
+    // default, since TEMP_EMAIL_DOMAINS is unset in this e2e harness.
+    assert.match(String(res.json.address), new RegExp(`^[a-z][a-z0-9._-]*[0-9]@${EMAIL_DOMAIN.replace(".", "\\.")}$`),
+      `address ${res.json.address} must be a natural handle @${EMAIL_DOMAIN}`);
+    assert.ok(!String(res.json.address).startsWith("tmp-"), "must not use the old tmp- prefix");
     assert.ok(res.json.expires_at, "expires_at present (disposable)");
     // Owned by the self-hosted operator identity — the SAME identity the paid
     // read below authenticates as, which is exactly what makes the read pass.
