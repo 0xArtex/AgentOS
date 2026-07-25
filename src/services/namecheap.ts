@@ -34,6 +34,57 @@ export interface NamecheapRequestOptions {
   timeoutMs?: number;
 }
 
+/**
+ * Throw unless the response is a Namecheap envelope reporting success.
+ *
+ * Namecheap reports failure as an ATTRIBUTE on the envelope —
+ * `<ApiResponse Status="ERROR">` with the reason in `<Errors><Error Number=…>` —
+ * and never emits the `<Status>ERROR</Status>` ELEMENT this used to look for.
+ * That check could not fire, so every registrar error resolved as a success
+ * with no parsed fields, and each caller quietly read its own meaning into the
+ * empty object:
+ *
+ *   • `isOwnedAtRegistrar` returns `true` on resolve ⇒ EVERY domain looked like
+ *     ours. A registration that threw was reconciled as "we own it": job marked
+ *     active, registry row written, no refund — for a domain that does not
+ *     exist. That is exactly how joingrange.xyz cost a payer 2.23 USDC.
+ *   • `dns.getHosts` ⇒ `hosts` undefined ⇒ an empty record set, indistinguishable
+ *     from a zone with no records.
+ *   • `dns.setHosts` ⇒ nothing to inspect ⇒ "DNS records updated successfully"
+ *     while the registrar rejected the write.
+ *
+ * So: succeed only on an explicit `Status="OK"` with no `<Error>` entries.
+ * Anything else — an error envelope, an HTML error page, a truncated body —
+ * throws, and callers' existing try/catch paths handle it correctly.
+ */
+export function assertNamecheapOk(command: string, xmlText: string): void {
+  const status = (xmlText.match(/<ApiResponse[^>]*\bStatus="([^"]*)"/i) || [])[1];
+  // `<Errors />` (the empty element on a success response) deliberately does not
+  // match `<Error\b` — the boundary stops it.
+  const errors = [...xmlText.matchAll(/<Error\b([^>]*)>([^<]*)<\/Error>/g)]
+    .map(m => {
+      const number = (m[1].match(/Number="(\d+)"/) || [])[1];
+      const message = m[2].trim();
+      return number ? `${message} (Namecheap error ${number})` : message;
+    })
+    .filter(s => s.trim().length > 0);
+
+  if (errors.length > 0) {
+    throw new Error(`Namecheap ${command} failed: ${errors.join('; ')}`);
+  }
+  if ((status || '').toUpperCase() === 'OK') return;
+  if (status) {
+    throw new Error(`Namecheap ${command} failed: response status ${status}`);
+  }
+  // Legacy element form, kept so a hypothetical alternate shape still fails closed.
+  if (xmlText.includes('<Status>ERROR</Status>')) {
+    throw new Error(`Namecheap ${command} failed: error status`);
+  }
+  throw new Error(
+    `Namecheap ${command} failed: unrecognized response (no ApiResponse status) — first 200 chars: ${xmlText.slice(0, 200)}`,
+  );
+}
+
 export async function namecheapRequest(
   command: string,
   params: Record<string, string> = {},
@@ -76,10 +127,7 @@ export async function namecheapRequest(
   const xmlText = await response.text();
   const result: NamecheapResponse = { raw: xmlText };
 
-  if (xmlText.includes('<Status>ERROR</Status>')) {
-    const errorMatch = xmlText.match(/<Error Number="(\d+)">(.*?)<\/Error>/);
-    throw new Error(errorMatch ? errorMatch[2] : 'Namecheap API error');
-  }
+  assertNamecheapOk(command, xmlText);
 
   // Command-specific parsing kept inline — same shapes that domains.ts has
   // depended on historically.
@@ -156,6 +204,30 @@ export async function namecheapRequest(
   if (command === 'namecheap.domains.getInfo') {
     const expiresMatch = xmlText.match(/<DomainDetails.*?<DomainNameservers>.*?<\/DomainNameservers>.*?<\/DomainDetails>.*?<DnsDetails>.*?<\/DnsDetails>.*?<Whoisguard.*?ExpiredDate="([^"]*)".*?\/>/);
     if (expiresMatch) result.expiresAt = expiresMatch[1];
+    // Positive ownership evidence for the reconciliation oracle, so it can
+    // assert on a named domain instead of on "the call didn't throw".
+    const info = xmlText.match(/<DomainGetInfoResult\b([^>]*)>/i);
+    if (info) {
+      const attr = (name: string): string | undefined =>
+        (info[1].match(new RegExp(`\\b${name}="([^"]*)"`, 'i')) || [])[1];
+      result.domainName = attr('DomainName');
+      result.infoStatus = attr('Status');
+      const owner = attr('IsOwner');
+      if (owner !== undefined) result.isOwner = owner.toLowerCase() === 'true';
+    }
+  }
+
+  if (command === 'namecheap.domains.dns.setHosts') {
+    // A zone write can come back Status="OK" with IsSuccess="false" — the call
+    // was well-formed, the update didn't happen. Surface that as a failure, or
+    // the route reports "DNS records updated successfully" for a no-op.
+    const ok = xmlText.match(/<DomainDNSSetHostsResult[^>]*\bIsSuccess="([^"]*)"/i);
+    if (ok) {
+      result.isSuccess = ok[1].toLowerCase() === 'true';
+      if (!result.isSuccess) {
+        throw new Error(`Namecheap ${command} failed: registrar reported IsSuccess=false`);
+      }
+    }
   }
 
   return result;
