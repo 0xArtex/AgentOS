@@ -250,10 +250,20 @@ function defaultDeps(): DomainRegistrationDeps {
       };
     },
     isOwnedAtRegistrar: async (domain) => {
-      // getInfo throws (Namecheap ERROR status) when the domain isn't in our
-      // account, and resolves when it is. Resolution ⇒ owned.
-      await namecheapRequest("namecheap.domains.getInfo", { DomainName: domain });
-      return true;
+      // The oracle that decides whether a payer keeps their money or gets it
+      // back, so it demands POSITIVE evidence: an OK envelope (getInfo throws
+      // otherwise) AND a result naming this domain AND, when the registrar says
+      // so, IsOwner. It used to infer ownership from "the call resolved" alone —
+      // and because the client mis-detected Namecheap's error envelope, every
+      // call resolved, so every domain looked like ours. A registration that
+      // failed at the registrar was finalised as active with no refund.
+      const r = await namecheapRequest("namecheap.domains.getInfo", { DomainName: domain });
+      if (r.isOwner === false) return false;
+      const named = typeof r.domainName === "string" ? r.domainName.toLowerCase() : null;
+      if (named && named !== domain.toLowerCase()) return false;
+      // No parsed result at all ⇒ can't confirm. Returning false routes the job
+      // to reconciliation (never a blind refund), which is the safe direction.
+      return named !== null || r.isOwner === true;
     },
     isAvailable: async (domain) => {
       const r = await namecheapRequest("namecheap.domains.check", { DomainList: domain });
