@@ -220,10 +220,19 @@ describe("buildChatPlanPayload — plan-level spend cap", () => {
 
   it("emits executable x402 specs for a within-budget plan", () => {
     const { status, body } = buildChatPlanPayload(makePlan(true));
-    assert.equal(status, 402);
+    assert.equal(status, 200);
     const steps = body.steps as any[];
     assert.ok(steps[0].x402?.endpoint, "within-budget step should carry an x402 spec");
-    assert.notEqual(body.executable, false);
+    assert.equal(body.executable, true);
+  });
+
+  // Regression: a settled plan must NEVER come back as 402. Clients read 402 as
+  // "unpaid" and re-sign — an agent paid the orchestration fee twice on Base
+  // before abandoning a plan that was already in the body.
+  it("answers 200 for both executable and budget-blocked plans", () => {
+    assert.equal(buildChatPlanPayload(makePlan(true)).status, 200);
+    assert.equal(buildChatPlanPayload(makePlan(false)).status, 200);
+    assert.equal(buildChatPlanPayload(makePlan(false), { allowBudgetExceeded: true }).status, 200);
   });
 
   it("withholds x402 specs for a budget_exceeded plan with no opt-in", () => {

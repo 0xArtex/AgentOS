@@ -113,3 +113,90 @@ export function insufficientBalanceMessage(args: {
     `or pass --skip-balance-check to proceed anyway (plan totals are estimates — dynamically-priced steps can settle for less).`
   )
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// `domain dns set` / `domain dns add` record parsing
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** A DNS row as the registrar accepts it — `name` is the host, `@` for the apex. */
+export interface DnsRecordDraft {
+  type: string
+  name: string
+  value: string
+  ttl?: number
+}
+
+export const DNS_RECORD_TYPES: readonly string[] = ['A', 'AAAA', 'CNAME', 'MX', 'TXT', 'URL', 'URL301']
+
+/**
+ * Build the DNS rows for `domain dns set|add` from either `--records '<json>'`
+ * or a single `--type/--host/--value[/--ttl]`.
+ *
+ * Validation lives here so it runs BEFORE the x402 payment: a typo'd record
+ * type should cost nothing, rather than $0.01 and a 400 from the registrar.
+ * Pure (no I/O, no exit) so the CLI maps a failure to its own error renderer.
+ */
+export function parseDnsRecords(flags: {
+  records?: unknown
+  type?: unknown
+  host?: unknown
+  value?: unknown
+  ttl?: unknown
+}): { ok: true; records: DnsRecordDraft[] } | { ok: false; error: string } {
+  const fail = (error: string) => ({ ok: false as const, error })
+  let rows: unknown[]
+
+  if (flags.records !== undefined) {
+    let parsed: unknown
+    if (typeof flags.records === 'string') {
+      try {
+        parsed = JSON.parse(flags.records)
+      } catch {
+        return fail(`--records must be valid JSON, e.g. --records '[{"type":"A","name":"@","value":"1.2.3.4"}]'`)
+      }
+    } else {
+      parsed = flags.records
+    }
+    rows = Array.isArray(parsed) ? parsed : [parsed]
+    if (rows.length === 0) return fail('--records is empty — pass at least one {type,name,value} record')
+  } else {
+    if (!flags.type || !flags.value) {
+      return fail(
+        `Nothing to write. Pass --type A --host @ --value 1.2.3.4 for one record, ` +
+        `or --records '[{"type":"A","name":"@","value":"1.2.3.4"}]' for several.`,
+      )
+    }
+    const single: Record<string, unknown> = {
+      type: flags.type,
+      name: flags.host || '@',
+      value: flags.value,
+    }
+    if (flags.ttl !== undefined) single.ttl = flags.ttl
+    rows = [single]
+  }
+
+  const out: DnsRecordDraft[] = []
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i] as Record<string, unknown>
+    const where = rows.length > 1 ? ` (record ${i + 1})` : ''
+    if (!r || typeof r !== 'object' || Array.isArray(r)) {
+      return fail(`Each record must be an object {type,name,value}${where}`)
+    }
+    const type = String(r.type ?? '').toUpperCase()
+    if (!DNS_RECORD_TYPES.includes(type)) {
+      return fail(`Invalid record type '${String(r.type ?? '')}'${where}. Use one of: ${DNS_RECORD_TYPES.join(', ')}`)
+    }
+    const value = r.value ?? r.address
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return fail(`Record ${type}${where} needs a value (the address or target it points at)`)
+    }
+    let ttl: number | undefined
+    if (r.ttl !== undefined) {
+      ttl = Number(r.ttl)
+      if (!Number.isFinite(ttl) || ttl <= 0) return fail(`Invalid ttl '${String(r.ttl)}'${where} — pass seconds, e.g. 1800`)
+    }
+    const name = String(r.name ?? r.host ?? '@').trim() || '@'
+    out.push({ type, name, value: String(value).trim(), ...(ttl !== undefined ? { ttl } : {}) })
+  }
+  return { ok: true, records: out }
+}

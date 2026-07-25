@@ -63,7 +63,7 @@ Any MCP client can connect to **`https://palmyr.ai/mcp`** (Streamable HTTP, stat
 
 ## i402 intent resolver
 
-`POST /chat` (0.10 USDC flat) turns a natural-language **intent + budget** into an ordered, priced plan the agent executes itself. Send `{ intent, budget_usdc, params?, constraints?, deadline_seconds? }`; get back a `402` body with:
+`POST /chat` (0.10 USDC flat) turns a natural-language **intent + budget** into an ordered, priced plan the agent executes itself. Send `{ intent, budget_usdc, params?, constraints?, deadline_seconds? }`; pay the 402 challenge, and the paid call returns `200` with:
 
 - `steps[]` — each has `capability`, `provider`, `input`, `cost_usdc`, `depends_on`, and an `x402` block (`endpoint`, `method`, `payment_rail: x402-solana | x402-base`).
 - `totals` — `step_cost_usdc`, `orchestration_fee_usdc`, `total_cost_usdc`, `within_budget`, `eta_seconds`.

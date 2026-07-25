@@ -71,6 +71,9 @@ function planToApiResponse(plan: Plan): Record<string, unknown> {
     session_id: plan.sessionId,
     plan_id: plan.planId,
     status: plan.status,
+    // Explicit counterpart to blockedPlanResponse's `executable: false`, so a
+    // caller branches on one field instead of inferring from the HTTP status.
+    executable: true,
     intent: plan.intent,
     steps: plan.steps.map(s => ({
       step_id: s.stepId,
@@ -132,8 +135,18 @@ function blockedPlanResponse(plan: Plan, reason: string): Record<string, unknown
 /**
  * Build the HTTP response for a generated plan, ENFORCING the plan-level spend
  * cap: a budget_exceeded plan is returned as a non-executable cost preview (no
- * x402 specs) unless the caller explicitly opts in to overspend. Both branches
- * use HTTP 402 (the route's "here is the x402 plan / what to do" channel).
+ * x402 specs) unless the caller explicitly opts in to overspend.
+ *
+ * Both branches answer 200. This route USED to reply 402 with the plan as a
+ * "here is what to do" data channel — but by the time a plan exists the
+ * orchestration fee has ALREADY settled on-chain, and 402 is the one status
+ * every x402 client reads as "you have not paid". Real cost of that: an agent
+ * paid the fee, got its plan back under a 402 with no `accepts` array, decided
+ * the server had rejected its signature, re-signed, and paid again — twice on
+ * Base — before giving up on a plan that was sitting in the body the whole
+ * time. 402 now means exactly one thing on this route: the unpaid challenge
+ * emitted by the x402 middleware. Payment outcome lives in the status; plan
+ * outcome lives in `status`/`executable` in the body.
  */
 export function buildChatPlanPayload(
   plan: Plan,
@@ -141,9 +154,9 @@ export function buildChatPlanPayload(
 ): { status: number; body: Record<string, unknown> } {
   const gate = planExecutionGate(plan, opts);
   if (!gate.executable) {
-    return { status: 402, body: blockedPlanResponse(plan, gate.reason ?? "Plan exceeds budget.") };
+    return { status: 200, body: blockedPlanResponse(plan, gate.reason ?? "Plan exceeds budget.") };
   }
-  return { status: 402, body: planToApiResponse(plan) };
+  return { status: 200, body: planToApiResponse(plan) };
 }
 
 // -------------------- Discovery (free) --------------------
@@ -350,9 +363,13 @@ router.post(
 
       res.setHeader("X-i402-Version", PROTOCOL_VERSION);
       if (!isPlan(result)) {
-        res.status(402).json({
+        // 200, not 402 — the fee settled, this IS the answer (see
+        // buildChatPlanPayload). `executable: false` marks that there's nothing
+        // to run yet: answer the questions and call again.
+        res.status(200).json({
           session_id: result.sessionId,
           status: result.status,
+          executable: false,
           questions: result.questions,
         });
         return;

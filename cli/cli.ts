@@ -21,11 +21,11 @@ console.warn = (...args: any[]) => {
 import React from 'react'
 import { render as inkRender } from 'ink'
 import { ComputeDeployScreen, ComputeListScreen, ComputePlansScreen, ConfigScreen, Dashboard, DoctorScreen, DomainCheckScreen, DomainPricingScreen, ErrorScreen, HealthScreen, MenuScreen, PricingScreen, RecordsScreen, SetupScreen, StatusScreen, SuccessScreen, WalletCreateScreen, WalletStatusScreen, WalletListScreen } from './app.js'
-import { Palmyr } from './sdk.js'
+import { Palmyr, dnsRecordsOf, type DnsRecordInput } from './sdk.js'
 import { loadConfig, saveConfig, ensureDirs, getKeyfile, log, addPhone, addInbox, addServer, addDomain, addNote } from './config.js'
 import { getState as getTelemetryState, setEnabled as setTelemetryEnabled, queuedCount as telemetryQueuedCount, appendEventSync as telemetryAppendEvent, flushQueue as telemetryFlushQueue } from './telemetry.js'
 import { theme as t, icon, Spinner, header, row, ok, fail, warn, info, subtle, divider, blank, table, box, initReport, banner, kv, section, listItem, statusLine, welcomeScreen, statusBar, panel, setAgentMode as setUiAgentMode } from './ui.js'
-import { GLOBAL_FLAGS as GLOBAL_FLAG_NAMES, findUnknownFlags, flagNamesFromTable, insufficientBalanceMessage, usdcShortfall } from './cli-guards.js'
+import { GLOBAL_FLAGS as GLOBAL_FLAG_NAMES, findUnknownFlags, flagNamesFromTable, insufficientBalanceMessage, parseDnsRecords, usdcShortfall } from './cli-guards.js'
 import { existsSync, readFileSync } from 'fs'
 import { randomBytes } from 'crypto'
 import { homedir } from 'os'
@@ -819,29 +819,39 @@ const DOMAIN_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
   ],
   list: [
     { flag: '(no args)', desc: 'List domains owned or shared with your wallet' },
-    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+    { flag: '(price)', desc: '$0.01 ownership-proof micro-payment' },
   ],
   dns: [
-    { flag: '--name <domain>', desc: 'Domain to read DNS for (positional also accepted)' },
-    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+    { flag: '--name <domain>', desc: 'Domain to read or write DNS for (positional also accepted)' },
+    { flag: 'set', desc: 'REPLACE every record: palmyr domain dns set --name X --records \'[{"type":"A","name":"@","value":"1.2.3.4"}]\'' },
+    { flag: 'add', desc: 'Upsert ONE record, keeping the rest (read + write, so 2 payments)' },
+    { flag: '--records <json>', desc: 'JSON array of {type,name,value,ttl?} — for set (whole zone) or add (several rows at once)' },
+    { flag: '--type <T>', desc: 'A | AAAA | CNAME | MX | TXT | URL | URL301 — single-record form, with --value' },
+    { flag: '--host <name>', desc: 'Record host for the single-record form: @ for the apex, www, mail, … (default @)' },
+    { flag: '--value <v>', desc: 'Record target: an IP for A/AAAA, a hostname for CNAME/MX, text for TXT' },
+    { flag: '--ttl <secs>', desc: 'Time to live, default 1800' },
+    { flag: '(destructive)', desc: '`set` sends the complete zone — records you omit are DELETED, including MX rows your email depends on. `add` merges.' },
+    { flag: '(price)', desc: '$0.01 ownership-proof micro-payment per call' },
+    { flag: '(example)', desc: 'palmyr domain dns add --name example.dev --type A --host www --value 1.2.3.4' },
   ],
   'transfer-ownership': [
     { flag: '--name <domain>', desc: 'Domain to transfer (required)' },
     { flag: '--to <wallet>', desc: 'Recipient wallet address (required)' },
     { flag: '--confirm', desc: 'Required — you lose ownership irreversibly' },
-    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+    { flag: '(price)', desc: '$0.01 ownership-proof micro-payment' },
   ],
   share: [
     { flag: '--name <domain>', desc: 'Domain to share (required)' },
     { flag: '--with <wallet>', desc: 'Wallet to grant shared access (required)' },
-    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+    { flag: '(price)', desc: '$0.01 ownership-proof micro-payment' },
   ],
   unshare: [
     { flag: '--name <domain>', desc: 'Domain to revoke from (required)' },
     { flag: '--from <wallet>', desc: 'Wallet to revoke (required)' },
-    { flag: '(price)', desc: '$0.0001 ownership-proof micro-payment' },
+    { flag: '(price)', desc: '$0.01 ownership-proof micro-payment' },
   ],
 }
+
 
 const CARD_HELP: Record<string, Array<{ flag: string; desc: string; hint?: string }>> = {
   buy: [
@@ -3294,7 +3304,9 @@ async function main() {
               { name: 'pricing', description: 'Get TLD pricing', hint: '--name example' },
               { name: 'buy', description: 'Register a domain', hint: '--name example.dev' },
               { name: 'list', description: 'List domains owned or shared with your wallet', hint: '' },
-              { name: 'dns', description: 'Get DNS records', hint: '--name example.dev' },
+              { name: 'dns', description: 'Read DNS records', hint: '--name example.dev' },
+              { name: 'dns set', description: 'Replace all DNS records', hint: '--name example.dev --records \'[...]\'' },
+              { name: 'dns add', description: 'Add or update one record, keep the rest', hint: '--name example.dev --type A --host www --value 1.2.3.4' },
               { name: 'transfer-ownership', description: 'Transfer domain to another wallet', hint: '--name example.dev --to <wallet>' },
               { name: 'share', description: 'Grant another wallet shared access', hint: '--name example.dev --with <wallet>' },
               { name: 'unshare', description: 'Revoke a wallet’s shared access', hint: '--name example.dev --from <wallet>' },
@@ -3596,16 +3608,55 @@ async function main() {
             return print(data)
           }
           case 'dns': {
-            const name = flags.name as string || positional[0]
-            if (!name) err('--name domain.dev required')
-            const data = await ao.domainDns(name)
+            // `dns` reads; `dns set` replaces the zone; `dns add` upserts one
+            // row. The action, when present, takes the first positional slot,
+            // so the domain shifts one along.
+            const action = String(positional[0] || '').toLowerCase()
+            const isWrite = action === 'set' || action === 'add'
+            const name = (flags.name as string) || (isWrite ? positional[1] : positional[0])
+            if (!name) err(`--name domain.dev required`)
+
+            if (!isWrite) {
+              if (action) {
+                err(`Unknown dns action: ${action}. Use \`palmyr domain dns --name ${name}\` to read, or \`dns set\` / \`dns add\` to write.`)
+              }
+              const data = await ao.domainDns(name)
+              if (AGENT_MODE) return print(data)
+              // The read endpoint answers with the array at the top level; the
+              // write endpoint wraps it in { records }. Normalise both.
+              const records = dnsRecordsOf(data)
+              render(React.createElement(RecordsScreen, {
+                version: VERSION,
+                title: 'domain dns',
+                subtitle: name,
+                footerLeft: `${records.length} record(s)`,
+                records: records.map((r: any) => ({
+                  primary: String(r.type || 'record'),
+                  secondary: `${r.name || '@'} → ${r.value || ''}`,
+                })),
+              }))
+              break
+            }
+
+            const parsed = parseDnsRecords(flags as any)
+            if (!parsed.ok) err(parsed.error)
+            const rows = parsed.records as DnsRecordInput[]
+            let data: any
+            if (action === 'add') {
+              // Upsert each row in turn so several --records entries merge into
+              // the zone instead of the last one winning.
+              for (const r of rows) data = await ao.domainDnsAdd(name, r)
+            } else {
+              data = await ao.domainDnsSet(name, rows)
+            }
             if (AGENT_MODE) return print(data)
+            const written = dnsRecordsOf(data)
             render(React.createElement(RecordsScreen, {
               version: VERSION,
-              title: 'domain dns',
+              title: `domain dns ${action}`,
               subtitle: name,
-              footerLeft: `${(data.records || []).length} record(s)`,
-              records: (data.records || []).map((r: any) => ({
+              footerLeft: `${written.length} record(s) now live`,
+              records: written.map((r: any) => ({
                 primary: String(r.type || 'record'),
                 secondary: `${r.name || '@'} → ${r.value || ''}`,
               })),
