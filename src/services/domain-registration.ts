@@ -166,12 +166,26 @@ export interface DomainRegistrationDeps {
 //   NAMECHEAP_REGISTRANT_STATE_PROVINCE  NAMECHEAP_REGISTRANT_POSTAL_CODE
 //   NAMECHEAP_REGISTRANT_COUNTRY (2-letter)  NAMECHEAP_REGISTRANT_PHONE (+NNN.NNNNNNNNN)
 //   NAMECHEAP_REGISTRANT_EMAIL
+//
+// Optional:
+//   NAMECHEAP_REGISTRANT_ORGANIZATION — the operator ORGANISATION behind the
+//   contact. One registrant backs every domain this instance registers on behalf
+//   of its callers, so naming the org and using a role contact ("Domain
+//   Administrator") keeps a named individual out of the record while staying
+//   accurate: it really is the organisation's role contact. That is the correct
+//   shape for a reseller — unlike a placeholder personal name, which is
+//   verifiably false and invites the very verification challenge this block
+//   exists to avoid. Omitted from the request entirely when unset.
 interface RegistrantContact {
   First: string; Last: string; Address1: string; City: string;
   State: string; Postal: string; Country: string; Phone: string; Email: string;
+  /** Optional — absent unless NAMECHEAP_REGISTRANT_ORGANIZATION is configured. */
+  Organization?: string;
 }
 
-const REGISTRANT_ENV: Record<keyof RegistrantContact, string> = {
+// The REQUIRED fields only — `Organization` is deliberately excluded so it can
+// never join the fail-closed missing-config check.
+const REGISTRANT_ENV: Record<Exclude<keyof RegistrantContact, "Organization">, string> = {
   First: "NAMECHEAP_REGISTRANT_FIRST_NAME",
   Last: "NAMECHEAP_REGISTRANT_LAST_NAME",
   Address1: "NAMECHEAP_REGISTRANT_ADDRESS1",
@@ -198,12 +212,15 @@ export class RegistrantNotConfiguredError extends Error {
 export function getRegistrant(): RegistrantContact {
   const out = {} as RegistrantContact;
   const missing: string[] = [];
-  for (const field of Object.keys(REGISTRANT_ENV) as Array<keyof RegistrantContact>) {
+  for (const field of Object.keys(REGISTRANT_ENV) as Array<keyof typeof REGISTRANT_ENV>) {
     const v = (process.env[REGISTRANT_ENV[field]] || "").trim();
     if (!v) missing.push(REGISTRANT_ENV[field]);
     else out[field] = v;
   }
   if (missing.length) throw new RegistrantNotConfiguredError(missing);
+  // Optional, so it is never part of the missing-field check.
+  const org = (process.env.NAMECHEAP_REGISTRANT_ORGANIZATION || "").trim();
+  if (org) out.Organization = org;
   return out;
 }
 
@@ -232,6 +249,9 @@ export function namecheapCreateParams(domain: string): Record<string, string> {
     p[`${role}Country`] = c.Country;
     p[`${role}Phone`] = c.Phone;
     p[`${role}EmailAddress`] = c.Email;
+    // Only sent when configured — an empty OrganizationName is worse than none
+    // (some registries reject a blank org field outright).
+    if (c.Organization) p[`${role}OrganizationName`] = c.Organization;
   }
   return p;
 }

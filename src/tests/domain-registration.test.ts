@@ -36,6 +36,9 @@ const REGISTRANT_ENV_KEYS = [
   "NAMECHEAP_REGISTRANT_COUNTRY",
   "NAMECHEAP_REGISTRANT_PHONE",
   "NAMECHEAP_REGISTRANT_EMAIL",
+  // Optional, but listed so every test controls it rather than inheriting the
+  // host's value.
+  "NAMECHEAP_REGISTRANT_ORGANIZATION",
 ];
 
 // Run `fn` with the registrant env set to `vals` (missing keys are cleared),
@@ -530,6 +533,50 @@ test("registrant: env contact fans out to all 5 roles, with WHOIS privacy and no
       const blob = JSON.stringify(p);
       assert.ok(!blob.includes("123 Agent Street"), "no placeholder address");
       assert.ok(!blob.includes("4155551234"), "no placeholder phone");
+      // Optional org: absent from the request entirely when unconfigured. A
+      // blank OrganizationName is worse than none — some registries reject it.
+      for (const role of ["Registrant", "Tech", "Admin", "Billing", "AuxBilling"]) {
+        assert.ok(!(`${role}OrganizationName` in p), `${role}OrganizationName should be absent`);
+      }
     }
   );
+});
+
+const FULL_REGISTRANT = {
+  NAMECHEAP_REGISTRANT_FIRST_NAME: "Domain",
+  NAMECHEAP_REGISTRANT_LAST_NAME: "Administrator",
+  NAMECHEAP_REGISTRANT_ADDRESS1: "10 Operator Way",
+  NAMECHEAP_REGISTRANT_CITY: "London",
+  NAMECHEAP_REGISTRANT_STATE_PROVINCE: "London",
+  NAMECHEAP_REGISTRANT_POSTAL_CODE: "EC1A 1BB",
+  NAMECHEAP_REGISTRANT_COUNTRY: "GB",
+  NAMECHEAP_REGISTRANT_PHONE: "+44.2071234567",
+  NAMECHEAP_REGISTRANT_EMAIL: "ops@example.com",
+};
+
+test("registrant: the optional organisation fans out to all 5 roles when set", () => {
+  // One registrant backs every domain the instance registers for its callers,
+  // so the operator can name the ORG and use a role contact instead of putting
+  // an individual's name on every registration.
+  withRegistrantEnv(
+    { ...FULL_REGISTRANT, NAMECHEAP_REGISTRANT_ORGANIZATION: "Palmyr" },
+    () => {
+      const p = namecheapCreateParams("example.com");
+      for (const role of ["Registrant", "Tech", "Admin", "Billing", "AuxBilling"]) {
+        assert.equal(p[`${role}OrganizationName`], "Palmyr");
+        assert.equal(p[`${role}FirstName`], "Domain");
+        assert.equal(p[`${role}LastName`], "Administrator");
+      }
+    }
+  );
+});
+
+test("registrant: a missing organisation is not a missing-config failure", () => {
+  // Optional means optional — it must never join the fail-closed check and
+  // block registration.
+  withRegistrantEnv(FULL_REGISTRANT, () => {
+    const c = getRegistrant();
+    assert.equal(c.Organization, undefined);
+    assert.equal(c.First, "Domain");
+  });
 });
