@@ -174,6 +174,48 @@ describe("CLI guards", () => {
     });
   });
 
+  describe("parseDnsRecords", () => {
+    it("builds one record from --type/--host/--value and defaults the host to @", () => {
+      const r = guards.parseDnsRecords({ type: "a", value: "5.223.48.197" });
+      assert.equal(r.ok, true);
+      assert.deepEqual(r.records, [{ type: "A", name: "@", value: "5.223.48.197" }]);
+    });
+
+    it("parses a --records JSON array and carries ttl through", () => {
+      const r = guards.parseDnsRecords({
+        records: '[{"type":"A","name":"@","value":"1.2.3.4"},{"type":"A","name":"www","value":"1.2.3.4","ttl":300}]',
+      });
+      assert.equal(r.ok, true);
+      assert.equal(r.records.length, 2);
+      assert.equal(r.records[1].name, "www");
+      assert.equal(r.records[1].ttl, 300);
+    });
+
+    // Every rejection below must happen BEFORE the x402 payment — a typo
+    // should cost nothing, not $0.01 and a registrar 400.
+    it("rejects an unknown record type, naming the valid ones", () => {
+      const r = guards.parseDnsRecords({ type: "AAA", value: "1.2.3.4" });
+      assert.equal(r.ok, false);
+      assert.match(r.error, /Invalid record type 'AAA'/);
+      assert.match(r.error, /CNAME/);
+    });
+
+    it("rejects a missing value, malformed JSON, an empty list, and a bad ttl", () => {
+      assert.equal(guards.parseDnsRecords({ type: "A" }).ok, false);
+      assert.match(guards.parseDnsRecords({ records: "{not json" }).error, /valid JSON/);
+      assert.match(guards.parseDnsRecords({ records: "[]" }).error, /empty/);
+      assert.match(guards.parseDnsRecords({ type: "A", value: "1.2.3.4", ttl: "soon" }).error, /ttl/);
+    });
+
+    it("points at the offending row when several records are given", () => {
+      const r = guards.parseDnsRecords({
+        records: '[{"type":"A","name":"@","value":"1.2.3.4"},{"type":"A","name":"www"}]',
+      });
+      assert.equal(r.ok, false);
+      assert.match(r.error, /record 2/);
+    });
+  });
+
   // -------------------- binary: unknown-flag guard --------------------
 
   describe("unknown-flag guard (spawned binary)", () => {

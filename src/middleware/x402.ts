@@ -645,6 +645,11 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
       return;
     }
 
+    // Every payment log line is tagged with the route it was for. Without this
+    // a failed payment is untraceable: the logs said "verification failed" with
+    // no way to tell WHICH endpoint the payer was trying to reach.
+    const route = req.method + " " + req.originalUrl.split("?")[0];
+
     // Replay guard (defence in depth): reject any payment header we've
     // already consumed for this method+path before hitting the chain.
     pruneOldPayments();
@@ -662,9 +667,11 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
       //      could induce a second payment for an already-paid request.
       const replay = getStoredReplay(fingerprint);
       if (replay) {
+        console.log("[x402]", route, "— replaying stored response for an already-consumed payment");
         sendReplay(res, replay);
         return;
       }
+      console.warn("[x402]", route, "— payment already consumed, no stored response to replay");
       res.status(402).json({
         error: "Payment Required",
         code: "payment_replay",
@@ -685,7 +692,7 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
         }
       }
 
-      console.log("[x402] Payment received, keys:", Object.keys(paymentPayload));
+      console.log("[x402]", route, "— payment received, keys:", Object.keys(paymentPayload));
 
       const paymentRequired = buildPaymentRequired(req, minUsdc);
 
@@ -697,7 +704,7 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
         if (match) matchedRequirement = match;
       }
 
-      console.log("[x402] Matched network:", matchedRequirement.network);
+      console.log("[x402]", route, "— matched network:", matchedRequirement.network, "amount:", matchedRequirement.amount);
 
       let result: { verified: boolean; settled: boolean; reason?: string; signature?: string; payer?: string; amountPaid?: bigint };
 
@@ -709,7 +716,7 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
         result = await handleEvmPayment(paymentPayload, matchedRequirement);
       }
 
-      console.log("[x402] Result:", safeStringify(result));
+      console.log("[x402]", route, "— result:", safeStringify(result));
 
       if (!result.verified) {
         send402Response(res, req, minUsdc, "Payment verification failed: " + (result.reason || "unknown"), metadata);
@@ -718,7 +725,7 @@ export function x402(minUsdc: number = 0.01, metadata?: X402Metadata) {
 
       // Settlement must succeed — don't hand out resources for unpaid-on-chain requests
       if (!result.settled) {
-        console.warn("[x402] Settlement failed:", result.reason);
+        console.warn("[x402]", route, "— settlement failed:", result.reason);
         send402Response(res, req, minUsdc, "Payment settlement failed: " + (result.reason || "unknown"), metadata);
         return;
       }

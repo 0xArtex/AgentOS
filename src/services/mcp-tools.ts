@@ -112,12 +112,18 @@ function decodePaymentResponseHeader(headers: Record<string, string>): any | nul
  * discrimination, extracted as a pure function so it's unit-testable.
  *
  * CRITICAL (double-charge guard): a 402 that carries a settlement RECEIPT is a
- * SETTLED response, NOT a fresh "pay me" challenge. Palmyr's i402 resolver
- * (`/chat`) returns HTTP 402 as its "here is the plan" data channel *after* the
- * orchestration fee has already settled on-chain. If we re-issued a payment
- * challenge there, the agent would pay AGAIN — an unbounded double-charge loop.
+ * SETTLED response, NOT a fresh "pay me" challenge — if we re-issued a payment
+ * challenge there, the agent would pay AGAIN, an unbounded double-charge loop.
  * So: whenever a PAYMENT-RESPONSE receipt is present, pass the body through and
  * attach the receipt; only a receipt-LESS 402 is a genuine payment challenge.
+ *
+ * This guard is what kept MCP callers safe while the i402 resolver (`/chat`)
+ * still returned HTTP 402 as its "here is the plan" data channel *after* the
+ * orchestration fee settled. That route now answers 200 (see
+ * routes/agent-chat.ts) — plain HTTP clients had no receipt-check and were
+ * double-charging — but the receipt rule stays: it is the only correct way to
+ * read a 402 in general, and it keeps this proxy compatible with any
+ * still-deployed build that answers the old way.
  *
  *  • receipt present → settled: pass body through + `_meta["x402/payment-response"]`.
  *    (402/2xx = non-error data — incl. an i402 plan; non-402 ≥400 = the handler

@@ -886,8 +886,12 @@ export function seedPalmyrPrimitives(): void {
       costUsdc: 10.0, p50: 20000, p99: 90000,
       description: "Register a domain via Namecheap (dynamic per-TLD pricing; $10 is a typical .io/.co).",
     }),
+    // Every /domains ownership-proof route charges OWNERSHIP_PROOF_USDC = 0.01
+    // (routes/domains.ts). It was 0.0001 until that fell under Coinbase CDP's
+    // enforced minimum and 400'd every Base payer; these quotes were left
+    // behind at the old value, so plans under-quoted the domain steps 100×.
     p("palmyr.list_domains", "list_domains", "/domains", {
-      method: "GET", costUsdc: 0.0001, p50: 300,
+      method: "GET", costUsdc: 0.01, p50: 300,
       description: "List domains owned by the calling wallet (wallet-keyed).",
     }),
 
@@ -902,22 +906,25 @@ export function seedPalmyrPrimitives(): void {
       description: "Full card number / CVV / expiry + balance for an owned card.",
     }),
     p("palmyr.get_domain", "get_domain", "/domains/{domain}", {
-      method: "GET", costUsdc: 0.0001, p50: 300,
+      method: "GET", costUsdc: 0.01, p50: 300,
     }),
     p("palmyr.dns_read", "dns_manage", "/domains/{domain}/dns", {
-      method: "GET", costUsdc: 0.0001, p50: 500,
+      method: "GET", costUsdc: 0.01, p50: 500,
       name: "Palmyr DNS read",
+      description: "Read the live DNS records for an owned domain. Returns the records array at the top level.",
     }),
     p("palmyr.dns_write", "dns_manage", "/domains/{domain}/dns", {
-      method: "POST", costUsdc: 0.0001, p50: 1500,
+      method: "POST", costUsdc: 0.01, p50: 1500,
       name: "Palmyr DNS write",
+      description:
+        "Replace an owned domain's DNS records with the `records` array sent in the body ({type,name,value,ttl?}; name '@' is the apex). This is a whole-zone write — omitted records are deleted, so read first and merge if the domain already serves mail.",
     }),
     p("palmyr.transfer_domain_ownership", "transfer_domain_ownership", "/domains/{domain}/transfer-ownership", {
-      costUsdc: 0.0001, p50: 500,
+      costUsdc: 0.01, p50: 500,
       description: "Transfer a domain's ownership to a new wallet (Solana or EVM).",
     }),
     p("palmyr.transfer_domain_out", "transfer_domain_out", "/domains/{domain}/transfer", {
-      costUsdc: 0.0001, p50: 2000,
+      costUsdc: 0.01, p50: 2000,
     }),
 
     // ── Compute / VPS ──

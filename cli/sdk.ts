@@ -4,6 +4,27 @@
 
 const DEFAULT_API = 'https://palmyr.ai'
 
+// -------------------- DNS --------------------
+
+/** One DNS row as the registrar accepts it. `name` is the host — `@` for the apex. */
+export interface DnsRecordInput {
+  type: 'A' | 'AAAA' | 'CNAME' | 'MX' | 'TXT' | 'URL' | 'URL301'
+  name: string
+  value: string
+  ttl?: number
+}
+
+/**
+ * Normalise a DNS response to a records array. The read endpoint returns the
+ * array at the top level while the write endpoint wraps it in `{ records }`;
+ * callers shouldn't have to remember which is which.
+ */
+export function dnsRecordsOf(data: any): DnsRecordInput[] {
+  if (Array.isArray(data)) return data
+  if (Array.isArray(data?.records)) return data.records
+  return []
+}
+
 // -------------------- Client-side executor helpers --------------------
 
 /** Topological order of plan steps using their `depends_on` arrays. */
@@ -800,8 +821,47 @@ export class Palmyr {
     return this.request('GET', `/domains/operations/${encodeURIComponent(operationId)}`)
   }
 
+  /**
+   * Read the live DNS records for an owned (or shared) domain. The endpoint
+   * answers with the records ARRAY at the top level (not `{ records }`) — use
+   * {@link dnsRecordsOf} to normalise either shape. 0.01 USDC ownership proof.
+   */
   async domainDns(domain: string): Promise<any> {
-    return this.request('GET', `/domains/${domain}/dns`)
+    return this.request('GET', `/domains/${encodeURIComponent(domain)}/dns`)
+  }
+
+  /**
+   * REPLACE the domain's DNS records with `records`, and return
+   * `{ message, records }`. 0.01 USDC ownership proof; wallets the domain is
+   * shared with may write too.
+   *
+   * This is a full replacement, not a merge — the registrar's setHosts call
+   * takes the complete host list, so any record you omit is DELETED. That
+   * matters most for MX/TXT rows: dropping them silently breaks mail on a
+   * domain with a Palmyr inbox. Use {@link domainDnsAdd} to upsert a single
+   * record while keeping the rest.
+   *
+   * Each record is `{ type, name, value, ttl? }` where `type` is one of
+   * A | AAAA | CNAME | MX | TXT | URL | URL301, `name` is the host (`@` for the
+   * apex), and `ttl` defaults to 1800 seconds.
+   */
+  async domainDnsSet(domain: string, records: DnsRecordInput[]): Promise<any> {
+    return this.request('POST', `/domains/${encodeURIComponent(domain)}/dns`, { records })
+  }
+
+  /**
+   * Upsert one record while preserving every other record on the domain: reads
+   * the current set, replaces any row with the same `type` + `name`, and writes
+   * the merged list back. Costs two calls (0.01 read + 0.01 write).
+   *
+   * Returns the same `{ message, records }` as {@link domainDnsSet}.
+   */
+  async domainDnsAdd(domain: string, record: DnsRecordInput): Promise<any> {
+    const current = dnsRecordsOf(await this.domainDns(domain))
+    const host = record.name || '@'
+    const merged = current.filter(r => !(r.type === record.type && (r.name || '@') === host))
+    merged.push({ ...record, name: host })
+    return this.domainDnsSet(domain, merged)
   }
 
   async domainTransferOwnership(domain: string, newOwner: string): Promise<any> {
