@@ -31,7 +31,15 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # previous `node` user: drop the blast radius of a process-level escape,
 # including the Chromium spawned for social-account automation.
 COPY --chown=pwuser:pwuser package.json package-lock.json* ./
-RUN npm ci --omit=dev \
+# `npm ci --omit=dev` fails on this lockfile — it reports bufferutil,
+# utf-8-validate and node-gyp-build (optional native accelerators pulled in via
+# `ws`) as missing, while a plain `npm ci` installs fine. So do the reproducible
+# install the lockfile does support, then drop dev dependencies. Same end state,
+# and it does not require regenerating the lockfile, which would churn versions
+# far outside this change.
+RUN npm ci \
+    && npm prune --omit=dev \
+    && npm cache clean --force \
     && mkdir -p /app/data /app/public /app/docs /app/dist \
     && chown -R pwuser:pwuser /app
 
