@@ -892,7 +892,7 @@ export async function followUser(req: TikTokFollowRequest): Promise<TikTokOpResu
     // Gate on the row being genuinely rendered first; without this the op
     // reported "already following / selector rotated" on a perfectly healthy
     // session, which is what it did on every attempt in production.
-    const actionsReady = await waitForHydrated(page, HYDRATION_PROBES.profileActions, { timeoutMs: 25000 });
+    const actionsReady = await waitForHydrated(page, HYDRATION_PROBES.profileActions, { timeoutMs: 60000 });
     if (!actionsReady) {
       const diag = await captureUiState(page, "follow-actions-not-hydrated");
       return {
@@ -1012,7 +1012,7 @@ export async function likeVideo(req: TikTokLikeRequest): Promise<TikTokOpResult<
     // two elements, the recommend container and the video section, with no
     // action rail at all. Resolving against that reports a rotated selector for
     // a page that had simply not finished rendering.
-    const railReady = await waitForHydrated(page, HYDRATION_PROBES.videoActions, { timeoutMs: 20000 });
+    const railReady = await waitForHydrated(page, HYDRATION_PROBES.videoActions, { timeoutMs: 60000 });
     if (!railReady) {
       const diag = await captureUiState(page, "like-rail-not-hydrated");
       return {
