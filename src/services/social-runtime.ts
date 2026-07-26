@@ -86,7 +86,14 @@ export async function launchStealthBrowser(launchOpts: any, pool: string = "op")
   await acquireBrowserSlot(pool);
   let browser: any;
   try {
-    browser = await chromium.launch(launchOpts);
+    // `headless: true` alone resolves to `chromium-headless-shell` — a stripped
+    // separate binary, and the most detectable thing Playwright ships. The
+    // stealth evasions in this file were written against full Chromium, and
+    // this file's own comment already concedes TikTok refuses headless at the
+    // authorize step. Naming the channel pins us to the complete browser (still
+    // headless), which is strictly closer to a real client. Both builds are
+    // installed by `playwright install chromium`, so this costs nothing.
+    browser = await chromium.launch({ channel: "chromium", ...launchOpts });
   } catch (e) {
     releaseBrowserSlot(pool);
     throw e;
