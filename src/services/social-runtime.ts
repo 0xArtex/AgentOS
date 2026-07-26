@@ -476,12 +476,30 @@ export function isSessionExpiredUrl(url: string): boolean {
 // `loadMedia: true`.
 const BLOCKED_RESOURCE_TYPES = new Set(["image", "media", "font"]);
 
+/**
+ * Resource type is not sufficient on its own. Video bodies are served over
+ * `fetch` (mime_type=video_mp4 from the webapp-prime CDN) and telemetry over
+ * `xhr`, so both slip past a type-only filter and keep competing for the
+ * proxy's connections — a single autoplaying video is orders of magnitude more
+ * bytes than every script on the page combined.
+ */
+const BLOCKED_URL_PATTERNS: RegExp[] = [
+  /\/video\/tos\//i,                 // video bodies (served as fetch)
+  /webapp-prime\.tiktok\.com\/video/i,
+  /mime_type=video_/i,
+  /mon\.tiktokv\.com/i,              // slardar monitoring/telemetry beacons
+  /\/monitor_(web|browser)\//i,
+  /log\.?(tiktokv|byteoversea)\.com/i,
+];
+
 async function blockHeavyResources(page: any, loadMedia: boolean): Promise<void> {
-  if (loadMedia) return;
   try {
     await page.route("**/*", (route: any) => {
-      const type = route.request().resourceType();
-      if (BLOCKED_RESOURCE_TYPES.has(type)) return route.abort().catch(() => {});
+      const req = route.request();
+      const url = String(req.url());
+      // Telemetry is never wanted, even when a caller needs pixels.
+      if (BLOCKED_URL_PATTERNS.some(re => re.test(url))) return route.abort().catch(() => {});
+      if (!loadMedia && BLOCKED_RESOURCE_TYPES.has(req.resourceType())) return route.abort().catch(() => {});
       return route.continue().catch(() => {});
     });
   } catch {
