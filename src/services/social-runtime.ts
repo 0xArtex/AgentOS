@@ -291,6 +291,11 @@ export interface OpenSessionOptions {
    *  so TikTok will AUTHORIZE the login (it refuses headless at the authorize
    *  step) — that requires a real/virtual display (Xvfb) on the host. */
   headless?: boolean;
+  /** Load images/media/fonts (default false). They are blocked by default: they
+   *  are pure bandwidth on a metered residential proxy and, worse, they starve
+   *  the JS bundles that render the interactive UI. Set true only where pixels
+   *  genuinely matter, e.g. the avatar crop dialog. */
+  loadMedia?: boolean;
 }
 
 export interface OpenedSession {
@@ -425,6 +430,8 @@ export async function openAuthenticatedSession(
     }
 
     page = await ctx.newPage();
+    trackPendingRequests(page);
+    await blockHeavyResources(page, opts.loadMedia === true);
   } catch (e) {
     // Setup failed after launch — close the browser so its concurrency slot is
     // released (launchStealthBrowser ties slot release to close()).
@@ -448,4 +455,108 @@ export async function openAuthenticatedSession(
 
 export function isSessionExpiredUrl(url: string): boolean {
   return /\/login|\/flow\/login|\/i\/flow/.test(url);
+}
+
+// ─── Resource blocking ───────────────────────────────────────────────────────
+//
+// Nothing intercepted requests before this, so every image, font and autoplaying
+// video traversed the metered residential proxy — unbounded bandwidth on a
+// $0.001 operation, and no per-op cost accounting anywhere.
+//
+// It also broke operations outright. A profile page issues dozens of parallel
+// requests; a residential proxy session has far fewer usable connections than
+// that, so the decorative bulk starved the JS bundles that render the
+// interactive UI. Traced directly: TikTok's webapp scripts sat pending for 39
+// seconds and never arrived, while the same URL through the same proxy fetched
+// in 1.4 seconds by curl. The action buttons stayed empty skeletons, and follow
+// and like failed for months blaming a rotated selector.
+//
+// Scripts, stylesheets, XHR and fetch are never blocked — they are what builds
+// the page we act on. Callers that genuinely need pixels (avatar crop) pass
+// `loadMedia: true`.
+const BLOCKED_RESOURCE_TYPES = new Set(["image", "media", "font"]);
+
+/**
+ * Resource type is not sufficient on its own. Video bodies are served over
+ * `fetch` (mime_type=video_mp4 from the webapp-prime CDN) and telemetry over
+ * `xhr`, so both slip past a type-only filter and keep competing for the
+ * proxy's connections — a single autoplaying video is orders of magnitude more
+ * bytes than every script on the page combined.
+ */
+const BLOCKED_URL_PATTERNS: RegExp[] = [
+  /\/video\/tos\//i,                 // video bodies (served as fetch)
+  /webapp-prime\.tiktok\.com\/video/i,
+  /mime_type=video_/i,
+  /mon\.tiktokv\.com/i,              // slardar monitoring/telemetry beacons
+  /\/monitor_(web|browser)\//i,
+  /log\.?(tiktokv|byteoversea)\.com/i,
+];
+
+async function blockHeavyResources(page: any, loadMedia: boolean): Promise<void> {
+  try {
+    await page.route("**/*", (route: any) => {
+      const req = route.request();
+      const url = String(req.url());
+      // Telemetry is never wanted, even when a caller needs pixels.
+      if (BLOCKED_URL_PATTERNS.some(re => re.test(url))) return route.abort().catch(() => {});
+      if (!loadMedia && BLOCKED_RESOURCE_TYPES.has(req.resourceType())) return route.abort().catch(() => {});
+      return route.continue().catch(() => {});
+    });
+  } catch {
+    /* best-effort — never fail an op because interception could not be installed */
+  }
+}
+
+// ─── Pending-request tracking ────────────────────────────────────────────────
+//
+// When a readiness probe fails, the useful question is not "which selector did
+// we try" but "what was the page still waiting for". Follow and like fail with
+// their action controls mounted but empty while every piece of public content
+// renders — the signature of a client-side fetch that never returns. Without
+// this, identifying WHICH fetch is guesswork, and guessing is what produced
+// three wrong diagnoses of this bug already.
+//
+// Bounded so a long-lived page can't grow it without limit; oldest entries are
+// dropped first since the freshest stalls are the informative ones.
+const MAX_TRACKED_REQUESTS = 300;
+
+interface PendingRequest { url: string; method: string; resourceType: string; startedAt: number; }
+
+function trackPendingRequests(page: any): void {
+  const pending = new Map<any, PendingRequest>();
+  (page as any).__palmyrPending = pending;
+  try {
+    page.on("request", (req: any) => {
+      if (pending.size >= MAX_TRACKED_REQUESTS) {
+        const oldest = pending.keys().next().value;
+        if (oldest !== undefined) pending.delete(oldest);
+      }
+      pending.set(req, {
+        url: String(req.url()).slice(0, 300),
+        method: req.method?.() || "GET",
+        resourceType: req.resourceType?.() || "other",
+        startedAt: Date.now(),
+      });
+    });
+    const done = (req: any) => pending.delete(req);
+    page.on("requestfinished", done);
+    page.on("requestfailed", done);
+  } catch {
+    /* listener attach is best-effort — never fail an op over diagnostics */
+  }
+}
+
+/**
+ * Requests still in flight, oldest (longest-stalled) first. XHR/fetch are what
+ * matter for a hydration stall, so they sort ahead of media and images.
+ */
+export function pendingRequests(page: any, limit = 12): Array<{ url: string; method: string; resourceType: string; ageMs: number }> {
+  const pending: Map<any, PendingRequest> | undefined = (page as any)?.__palmyrPending;
+  if (!pending || pending.size === 0) return [];
+  const now = Date.now();
+  const rank = (t: string) => (t === "xhr" || t === "fetch" ? 0 : t === "document" || t === "script" ? 1 : 2);
+  return [...pending.values()]
+    .map(r => ({ url: r.url, method: r.method, resourceType: r.resourceType, ageMs: now - r.startedAt }))
+    .sort((a, b) => rank(a.resourceType) - rank(b.resourceType) || b.ageMs - a.ageMs)
+    .slice(0, limit);
 }

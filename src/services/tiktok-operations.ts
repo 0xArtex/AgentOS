@@ -11,7 +11,7 @@
  * TikTok mirrors Twitter's shape but with a tighter rate-limit stance:
  * every op goes through `checkRateLimit()` before the browser even boots.
  */
-import { openAuthenticatedSession, profileForCountry } from "./social-runtime";
+import { openAuthenticatedSession, profileForCountry, pendingRequests } from "./social-runtime";
 import { fetchSsrfSafe } from "./email";
 import { randomUUID } from "crypto";
 import { checkRateLimit, recordAction } from "./social-rate-limit";
@@ -153,7 +153,12 @@ async function debugShot(page: any, tag: string): Promise<string | undefined> {
 async function captureUiState(
   page: any,
   tag: string,
-): Promise<{ diag_screenshot?: string; interactive_elements?: Array<{ role: string; name: string }>; controls?: string }> {
+): Promise<{
+  diag_screenshot?: string;
+  interactive_elements?: Array<{ role: string; name: string }>;
+  controls?: string;
+  pending?: Array<{ url: string; method: string; resourceType: string; ageMs: number }>;
+}> {
   const [diag_screenshot, interactive_elements] = await Promise.all([
     debugShot(page, tag),
     axSnapshot(page),
@@ -167,7 +172,17 @@ async function captureUiState(
     return out.join('  ||  ');
   })()`).catch(() => "");
   if (controls) console.log("[tiktok] " + tag + " controls: " + controls);
-  return { diag_screenshot, interactive_elements, controls };
+  // What the page was still waiting on. For a readiness failure this is the
+  // signal that actually identifies the cause — a mounted-but-empty control
+  // means a fetch never returned, and this names it.
+  const stalled = pendingRequests(page);
+  if (stalled.length > 0) {
+    console.log(
+      "[tiktok] " + tag + " pending: " +
+      stalled.map(r => `${r.resourceType} ${r.method} ${r.url} (${Math.round(r.ageMs / 1000)}s)`).join("  ||  "),
+    );
+  }
+  return { diag_screenshot, interactive_elements, controls, pending: stalled };
 }
 
 /**
@@ -877,7 +892,7 @@ export async function followUser(req: TikTokFollowRequest): Promise<TikTokOpResu
     // Gate on the row being genuinely rendered first; without this the op
     // reported "already following / selector rotated" on a perfectly healthy
     // session, which is what it did on every attempt in production.
-    const actionsReady = await waitForHydrated(page, HYDRATION_PROBES.profileActions, { timeoutMs: 25000 });
+    const actionsReady = await waitForHydrated(page, HYDRATION_PROBES.profileActions, { timeoutMs: 30000 });
     if (!actionsReady) {
       const diag = await captureUiState(page, "follow-actions-not-hydrated");
       return {
@@ -997,7 +1012,7 @@ export async function likeVideo(req: TikTokLikeRequest): Promise<TikTokOpResult<
     // two elements, the recommend container and the video section, with no
     // action rail at all. Resolving against that reports a rotated selector for
     // a page that had simply not finished rendering.
-    const railReady = await waitForHydrated(page, HYDRATION_PROBES.videoActions, { timeoutMs: 20000 });
+    const railReady = await waitForHydrated(page, HYDRATION_PROBES.videoActions, { timeoutMs: 30000 });
     if (!railReady) {
       const diag = await captureUiState(page, "like-rail-not-hydrated");
       return {
@@ -1343,6 +1358,9 @@ export async function updateAvatar(req: TikTokAvatarRequest): Promise<TikTokOpRe
       proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
       country: req.country,
+      // The crop dialog renders the uploaded image and success is verified by
+      // the avatar actually changing — this is the one op where pixels matter.
+      loadMedia: true,
     });
   } catch (e: any) {
     image.cleanup();
