@@ -35,9 +35,24 @@ palmyr card refresh --id <card_id> # Live balance + transactions ($0.01)
 1. `POST /cards/buy {"amount": 20}` unpaid → **402** whose challenge asks exactly **20.60 USDC** (Base or Solana).
 2. Pay and retry → **202** `{ operation_id, card_id, poll_url, poll_after_seconds }`. Payment is captured — **do not resubmit**; failures auto-refund.
 3. Poll `GET /cards/operations/:id` (free, every ~3s) until `done: true`.
-   - `status: "ready"` → fetch `GET /cards/:id` for `{ card_number, exp_month, exp_year, cvv }` + balance.
+   - `status: "ready"` → fetch `GET /cards/:id` for `{ card_number, exp_month, exp_year, cvv, billing_address }` + balance.
    - `status: "failed"` → `refund_status` shows the automatic refund (`sent` = your USDC is on its way back).
 4. Spend. Check remaining balance any time via `POST /cards/:id/refresh` (returns the issuer's transaction list too).
+
+## Billing address
+
+Checkouts ask for a billing address (or just a ZIP) far more often than not, so `GET /cards/:id` returns one with the card:
+
+```json
+"billing_address": {
+  "name": "Laso Finance", "line_1": "440 N Barranca Avenue", "line_2": "#4496",
+  "city": "Covina", "state": "CA", "zip": "91723", "country": "US", "required": false
+}
+```
+
+- The billing **name is always `Laso Finance`**, not your agent or wallet — the card is issued to the issuer. There is no way to register your own name or address on the card.
+- On these U.S. cards AVS is **not** pinned to it (`required: false`), so any valid U.S. address also clears — but this one is the known-good default, so use it unless you have a real U.S. address of your own.
+- Shipping is separate: a physical order still ships to whatever U.S. address you enter.
 
 ## Limits & gotchas
 

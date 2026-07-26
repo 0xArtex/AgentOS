@@ -32,6 +32,7 @@ import {
   getCardPurchase,
   listCardPurchases,
   decryptCardDetails,
+  ensureBillingAddress,
   CardLimitError,
 } from "../services/card-purchases";
 import { extractClaimedSvmPayer } from "../middleware/x402-svm-verify";
@@ -328,7 +329,7 @@ router.get(
     // detail_url instead of the catalog.
     discoverable: false,
   }),
-  (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     const job = getCardPurchase(String(req.params.id || ""));
     if (!job || !caller || job.owner !== caller) {
@@ -363,17 +364,23 @@ router.get(
       });
       return;
     }
+    // Cards issued before we persisted it self-heal on first read.
+    const billing = details ? await ensureBillingAddress(job, details) : null;
+
     res.json({
       card_id: job.id,
       status: "ready",
       network: "visa_prepaid_us",
-      card: details, // { card_number, exp_month, exp_year, cvv }
+      // { card_number, exp_month, exp_year, cvv, billing_address }
+      card: details ? { ...details, billing_address: billing ?? undefined } : null,
       last4: job.last4,
       card_usd: job.card_usd,
       available_balance: job.available_balance,
       usage:
         "USA merchants only (USD). Non-reloadable: spend across any number of transactions until the balance is depleted. " +
-        "Works at online checkouts accepting Visa prepaid; physical goods must ship to a U.S. address.",
+        "Works at online checkouts accepting Visa prepaid; physical goods must ship to a U.S. address. " +
+        "When a checkout asks for a billing address or ZIP, use card.billing_address — the card is issued to the " +
+        "issuer's address (name is always 'Laso Finance'), and there is no way to register your own.",
       created_at: job.created_at,
       ready_at: job.ready_at,
       refresh_url: `/cards/${job.id}/refresh`,
@@ -425,6 +432,7 @@ router.post(
       res.json({
         card_id: job.id,
         available_balance: balance,
+        billing_address: data.card_details?.billing_address,
         transactions: data.transactions || [],
         refresh_accepted: refresh.status >= 200 && refresh.status < 300,
         refresh_status: refresh.status,

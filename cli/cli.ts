@@ -1565,6 +1565,16 @@ function humanEta(sec?: number): string {
   return sec < 90 ? `~${Math.round(sec)}s` : `~${Math.round(sec / 60)} min`
 }
 
+// A card's billing address on one line, for the checkouts that ask for one.
+// The billing name is always the issuer's, never the buyer's.
+function billingLine(b: any): string {
+  if (!b) return ''
+  const street = [b.line_1, b.line_2].filter(Boolean).join(' ')
+  return [b.name, street, [b.city, b.state, b.zip].filter(Boolean).join(', '), b.country]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 // "18s" / "2m 14s" from a duration in ms.
 function humanDuration(ms: number): string {
   const s = Math.max(0, Math.round(ms / 1000))
@@ -3225,6 +3235,7 @@ async function main() {
                 { label: 'Number', value: String(c.card_number || '') },
                 { label: 'Expiry', value: `${c.exp_month || '??'}/${c.exp_year || '????'}` },
                 { label: 'CVV', value: String(c.cvv || '') },
+                ...(c.billing_address ? [{ label: 'Billing', value: billingLine(c.billing_address) }] : []),
                 { label: 'Balance', value: `$${details.available_balance ?? amount}` },
                 { label: 'Card id', value: String(opId) },
               ],
@@ -3268,6 +3279,7 @@ async function main() {
                 { label: 'Number', value: String(c.card_number || '') },
                 { label: 'Expiry', value: `${c.exp_month || '??'}/${c.exp_year || '????'}` },
                 { label: 'CVV', value: String(c.cvv || '') },
+                ...(c.billing_address ? [{ label: 'Billing', value: billingLine(c.billing_address) }] : []),
                 { label: 'Balance', value: `$${data.available_balance ?? '—'}` },
               ],
             }))

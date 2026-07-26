@@ -51,6 +51,19 @@ palmyr card refresh --id <card_id>
 
 The buy is asynchronous: the `202` response carries `operation_id`, `poll_url`, and `poll_after_seconds`. Poll until `done: true` — `ready` means fetch details via `GET /cards/:id`; `failed` means the payment was **refunded automatically** (`refund_status: sent`). Never re-send the paid request.
 
+## Billing address
+
+`GET /cards/:id` returns a `billing_address` alongside the number, for the checkouts that ask for one (or just a ZIP):
+
+```json
+"billing_address": {
+  "name": "Laso Finance", "line_1": "440 N Barranca Avenue", "line_2": "#4496",
+  "city": "Covina", "state": "CA", "zip": "91723", "country": "US", "required": false
+}
+```
+
+The billing **name is always `Laso Finance`** — the card is issued to the issuer, and no other cardholder name or address can be registered. On these U.S. cards AVS is not pinned to that address (`required: false`), so any valid U.S. address also clears; this one is the known-good default. Shipping is separate — physical goods still go to whatever U.S. address you enter.
+
 ## Limits
 
 - Per card: **$5 min, $1000 max**, whole cents.
