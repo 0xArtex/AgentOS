@@ -228,8 +228,22 @@ export async function recoverStuckXOps(deps: XOpDeps = defaultDeps()): Promise<v
   }
 }
 
+// Identical shape to the TikTok ops runner — the startup pass alone cannot
+// terminalize a job that wedges in-process, so without this the row stays
+// non-terminal forever and the payer is never refunded. Fixed in both places at
+// once so the bug does not survive in whichever file was not being read.
+const RECOVERY_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+
+let recoverySweepTimer: ReturnType<typeof setInterval> | null = null;
+
 export function startXOpsRecovery(): void {
   setImmediate(() => {
     recoverStuckXOps().catch((e) => console.error("[x-op] startup recovery error:", e?.message || String(e)));
   });
+  if (!recoverySweepTimer) {
+    recoverySweepTimer = setInterval(() => {
+      recoverStuckXOps().catch((e) => console.error("[x-op] recovery sweep error:", e?.message || String(e)));
+    }, RECOVERY_SWEEP_INTERVAL_MS);
+    recoverySweepTimer.unref?.();
+  }
 }

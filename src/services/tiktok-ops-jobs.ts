@@ -229,8 +229,29 @@ export async function recoverStuckTikTokOps(deps: TikTokOpDeps = defaultDeps()):
   }
 }
 
+// How often to re-sweep while the process runs. The startup pass only catches
+// jobs orphaned by a RESTART; on its own it cannot terminalize a job that wedges
+// in-process — a worker exception outside runOpJob leaves status='running', and
+// a job waiting on the browser semaphore can outlive its own cutoff. Either way
+// the row sits non-terminal forever: the poll endpoint returns done=false
+// indefinitely, the CLI gives up after six minutes saying the work "continues
+// server-side" about work that is permanently dead, and the payer is never
+// refunded. Posts already had this sweep (audit #72); the five paid ops that
+// share this runner never got it.
+const RECOVERY_SWEEP_INTERVAL_MS = 5 * 60 * 1000;
+
+let recoverySweepTimer: ReturnType<typeof setInterval> | null = null;
+
 export function startTikTokOpsRecovery(): void {
   setImmediate(() => {
     recoverStuckTikTokOps().catch((e) => console.error("[tiktok-op] startup recovery error:", e?.message || String(e)));
   });
+  // Arm the recurring sweep once. unref() so the timer never keeps the process
+  // (or a test runner) alive on its own.
+  if (!recoverySweepTimer) {
+    recoverySweepTimer = setInterval(() => {
+      recoverStuckTikTokOps().catch((e) => console.error("[tiktok-op] recovery sweep error:", e?.message || String(e)));
+    }, RECOVERY_SWEEP_INTERVAL_MS);
+    recoverySweepTimer.unref?.();
+  }
 }
