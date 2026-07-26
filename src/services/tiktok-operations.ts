@@ -1084,7 +1084,7 @@ export async function deleteVideo(req: TikTokDeleteRequest): Promise<TikTokOpRes
     // manager (analytics listed it a minute earlier) failed with "already
     // deleted", and its diagnostics contained only the Studio nav buttons and
     // zero rows. Gate on rows actually being present.
-    const listState = await waitForHydrated(page, HYDRATION_PROBES.studioContent, { timeoutMs: 25000 });
+    const listState = await waitForHydrated(page, HYDRATION_PROBES.studioContent, { timeoutMs: 30000 });
     if (!listState) {
       const diag = await captureUiState(page, "delete-list-not-hydrated");
       return {
@@ -1457,7 +1457,7 @@ export async function analyzePosts(req: TikTokAnalyticsRequest): Promise<TikTokO
     // video with 96 views; the same account returned 2 posts minutes later.
     // That is silent data corruption — an agent polling on a schedule records
     // fabricated "engagement collapsed" history and pays for every sample.
-    const listState = await waitForHydrated(page, HYDRATION_PROBES.studioContent, { timeoutMs: 25000 });
+    const listState = await waitForHydrated(page, HYDRATION_PROBES.studioContent, { timeoutMs: 30000 });
     if (!listState) {
       const diag = await captureUiState(page, "analytics-list-not-hydrated");
       return {

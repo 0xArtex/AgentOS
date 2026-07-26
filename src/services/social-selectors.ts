@@ -142,9 +142,15 @@ export const HYDRATION_PROBES = {
 
   /**
    * The Studio content manager. Resolves to 'rows' once real posts are present,
-   * or 'empty' only when the list shell has been up for a while with none — the
-   * distinction that stops an unrendered list being reported as an account with
-   * no videos. Callers must treat a null return as NOT-READY, never as zero.
+   * or 'empty' only after the list shell has been up for a long dwell with none
+   * — the distinction that stops an unrendered list being reported as an account
+   * with no videos. Callers must treat a null return as NOT-READY, never as zero.
+   *
+   * The dwell is deliberately generous. Concluding "empty" too eagerly recreates
+   * the exact defect this probe exists to prevent, only in a narrower window: an
+   * account whose rows are merely slow would be recorded as having none, and
+   * that wrong answer is written to history and acted on. Erring the other way
+   * costs a retry, so rows get most of the budget before "empty" is entertained.
    */
   studioContent: {
     label: "studio-content",
@@ -154,7 +160,7 @@ export const HYDRATION_PROBES = {
       if (!shell) return false;
       const w = window;
       if (!w.__palmyrEmptySince) { w.__palmyrEmptySince = Date.now(); return false; }
-      return (Date.now() - w.__palmyrEmptySince) > 6000 ? 'empty' : false;
+      return (Date.now() - w.__palmyrEmptySince) > 15000 ? 'empty' : false;
     })()`,
   },
 } as const;
