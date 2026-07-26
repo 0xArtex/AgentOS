@@ -37,6 +37,13 @@ jobs:
 
       - run: npm ci
 
+      - name: Install and build the CLI
+        # Several server tests spawn or import the BUILT CLI (cli/dist), and
+        # build it on demand if it is missing — which needs the CLI's own
+        # dependencies. Doing it up front is also faster than letting several
+        # tests race to run the same build.
+        run: cd cli && npm ci && npm run build
+
       - name: Typecheck
         run: npx tsc --noEmit
 
