@@ -15,7 +15,7 @@ import { openAuthenticatedSession, profileForCountry } from "./social-runtime";
 import { fetchSsrfSafe } from "./email";
 import { randomUUID } from "crypto";
 import { checkRateLimit, recordAction } from "./social-rate-limit";
-import { resolveElement, axSnapshot } from "./social-selectors";
+import { resolveElement, axSnapshot, waitForHydrated, HYDRATION_PROBES } from "./social-selectors";
 import { wallClockInTz, pad2, type WallClock } from "./schedule-time";
 
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;   // 100 MB — covers up to ~90s @ typical bitrate
@@ -36,6 +36,14 @@ export interface TikTokOpResult<T = any> {
     | "LAUNCH_FAILED"
     | "CAPTCHA_CHALLENGE"
     | "SCHEDULE_FAILED"
+    /**
+     * The page loaded but the content the op needed never rendered, so NOTHING
+     * about the target's state was actually observed. Distinct from NOT_FOUND,
+     * which asserts we looked at rendered content and the thing was absent —
+     * conflating the two is what let "already following" and "already deleted"
+     * be reported about accounts and posts nobody had checked.
+     */
+    | "NOT_READY"
     | "UNKNOWN";
   retry_after_ms?: number;
 }
@@ -819,6 +827,24 @@ export async function followUser(req: TikTokFollowRequest): Promise<TikTokOpResu
   try {
     await page.goto(`https://www.tiktok.com/@${handle}`, { waitUntil: "domcontentloaded", timeout: 45000 });
 
+    // The action buttons are auth-gated and hydrate LAST — long after the
+    // profile's name, counts, bio and video grid have painted. Every strategy
+    // below matches on the literal text "Follow", so running them against an
+    // unlabelled skeleton button cannot succeed no matter how long they wait.
+    // Gate on the row being genuinely rendered first; without this the op
+    // reported "already following / selector rotated" on a perfectly healthy
+    // session, which is what it did on every attempt in production.
+    const actionsReady = await waitForHydrated(page, HYDRATION_PROBES.profileActions, { timeoutMs: 25000 });
+    if (!actionsReady) {
+      const diag = await captureUiState(page, "follow-actions-not-hydrated");
+      return {
+        success: false,
+        error: `@${handle}'s profile loaded but its action buttons never rendered, so the follow control could not be read. This is a page-readiness failure, not a confirmed state of the account.`,
+        error_code: "NOT_READY",
+        data: diag as any,
+      };
+    }
+
     // Resolve the Follow button resiliently. Every strategy excludes the
     // "Following" state so we never accidentally click-to-unfollow.
     const follow = await resolveElement(page, [
@@ -828,10 +854,29 @@ export async function followUser(req: TikTokFollowRequest): Promise<TikTokOpResu
       { name: "text", build: (p) => p.locator('button:has-text("Follow"):not(:has-text("Following")), [role="button"]:has-text("Follow"):not(:has-text("Following"))') },
     ], { perStrategyMs: 8000 });
     if (!follow) {
+      // The row IS rendered (probe passed) and no actionable Follow control is
+      // in it — so an existing relationship is now a supported conclusion
+      // rather than a guess. Report it as success: the caller's intent, that we
+      // follow this account, already holds.
+      // Text-based, matching the probe: the live page carried no
+      // data-e2e="follow-button" at all, so anchoring this on that attribute
+      // would make the check silently unreachable.
+      const already = await page.evaluate(`(() => {
+        const els = document.querySelectorAll('button, [role="button"]');
+        for (const el of els) {
+          if (el.querySelector('button, [role="button"]')) continue;
+          if (/^(following|friends|requested)$/i.test((el.textContent || '').trim())) return true;
+        }
+        return false;
+      })()`).catch(() => false);
+      if (already) {
+        console.log(`[tiktok] already following @${handle} — treating as satisfied`);
+        return { success: true, data: { followed: true } };
+      }
       const diag = await captureUiState(page, "follow-btn-missing");
       return {
         success: false,
-        error: `Follow button not found on @${handle}'s profile. Already following, profile is private / nonexistent, or the selector rotated.`,
+        error: `No follow control on @${handle}'s profile after it rendered. The profile may be private, restricted or nonexistent, or the selector rotated.`,
         error_code: "NOT_FOUND",
         data: diag as any,
       };
@@ -904,6 +949,22 @@ export async function likeVideo(req: TikTokLikeRequest): Promise<TikTokOpResult<
   try {
     await page.goto(req.video_url, { waitUntil: "domcontentloaded", timeout: 45000 });
 
+    // Same readiness trap as follow: the engagement rail hydrates after the
+    // video shell. Observed live — a failed like's diagnostics contained just
+    // two elements, the recommend container and the video section, with no
+    // action rail at all. Resolving against that reports a rotated selector for
+    // a page that had simply not finished rendering.
+    const railReady = await waitForHydrated(page, HYDRATION_PROBES.videoActions, { timeoutMs: 20000 });
+    if (!railReady) {
+      const diag = await captureUiState(page, "like-rail-not-hydrated");
+      return {
+        success: false,
+        error: "The video page loaded but its engagement controls never rendered, so the like state could not be read.",
+        error_code: "NOT_READY",
+        data: diag as any,
+      };
+    }
+
     const like = await resolveElement(page, [
       { name: "data-e2e", build: (p) => p.locator('[data-e2e="like-icon"]') },
       { name: "aria-label", build: (p) => p.locator('button[aria-label*="ike" i]') },
@@ -911,7 +972,7 @@ export async function likeVideo(req: TikTokLikeRequest): Promise<TikTokOpResult<
     ], { perStrategyMs: 6000 });
     if (!like) {
       const diag = await captureUiState(page, "like-btn-missing");
-      return { success: false, error: "Like button not found (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
+      return { success: false, error: "No like control on the video page after it rendered (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
     }
     console.log(`[tiktok] like button resolved via ${like.strategy}`);
 
@@ -972,13 +1033,32 @@ export async function deleteVideo(req: TikTokDeleteRequest): Promise<TikTokOpRes
     // Deletion lives in the TikTok Studio post manager — NOT the public
     // /video/ watch page, whose "..." menu only has player options + Report.
     await page.goto("https://www.tiktok.com/tiktokstudio/content", { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.locator('input[placeholder*="Search for post" i], a[href*="/video/"]').first().waitFor({ timeout: 20000 }).catch(() => {});
 
-    // Match the post's row by the video id carried in its title link.
+    // This wait used to accept the search box OR a post link — and the search
+    // box is part of the navigation shell, so it was satisfied before a single
+    // row existed. The `.catch(() => {})` then swallowed even a real timeout.
+    // Live proof: a delete of a video that demonstrably WAS in the content
+    // manager (analytics listed it a minute earlier) failed with "already
+    // deleted", and its diagnostics contained only the Studio nav buttons and
+    // zero rows. Gate on rows actually being present.
+    const listState = await waitForHydrated(page, HYDRATION_PROBES.studioContent, { timeoutMs: 25000 });
+    if (!listState) {
+      const diag = await captureUiState(page, "delete-list-not-hydrated");
+      return {
+        success: false,
+        error: "The content manager never finished rendering, so the post list could not be read. The post's existence was not determined.",
+        error_code: "NOT_READY",
+        data: diag as any,
+      };
+    }
+
+    // Match the post's row by the video id carried in its title link. Presence
+    // in the DOM is the test, not Playwright visibility: the list is rendered
+    // and we only need the anchor to exist to walk to its row.
     const titleLink = page.locator(`a[href*="/video/${videoId}"]`).first();
-    if (!(await titleLink.isVisible({ timeout: 8000 }).catch(() => false))) {
+    if ((await titleLink.count().catch(() => 0)) === 0) {
       const diag = await captureUiState(page, "delete-row-missing");
-      return { success: false, error: `Post ${videoId} not found in the content manager (already deleted, or on a later page).`, error_code: "NOT_FOUND", data: diag as any };
+      return { success: false, error: `Post ${videoId} is not in the content manager listing (already deleted, or on a later page).`, error_code: "NOT_FOUND", data: diag as any };
     }
 
     // Row = nearest ancestor that also holds the privacy (TUXButton) control;
@@ -1326,8 +1406,27 @@ export async function analyzePosts(req: TikTokAnalyticsRequest): Promise<TikTokO
   const { page, close } = session;
   try {
     await page.goto("https://www.tiktok.com/tiktokstudio/content", { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.locator('a[href*="/video/"]').first().waitFor({ timeout: 20000 }).catch(() => {});
-    await page.waitForTimeout(1500);
+
+    // The old wait here swallowed its own timeout with `.catch(() => {})` and
+    // scraped regardless, so an unrendered list produced `posts: []` and was
+    // reported as a SUCCESSFUL read of an account with no videos. Observed
+    // live: a first call returned 0 posts for an account that already had a
+    // video with 96 views; the same account returned 2 posts minutes later.
+    // That is silent data corruption — an agent polling on a schedule records
+    // fabricated "engagement collapsed" history and pays for every sample.
+    const listState = await waitForHydrated(page, HYDRATION_PROBES.studioContent, { timeoutMs: 25000 });
+    if (!listState) {
+      const diag = await captureUiState(page, "analytics-list-not-hydrated");
+      return {
+        success: false,
+        error: "The content manager never finished rendering, so no post data was read. Reporting this as an empty account would corrupt the account's history.",
+        error_code: "NOT_READY",
+        data: diag as any,
+      };
+    }
+    // Rows are up (or the list is confirmed genuinely empty); let the last of
+    // them settle before reading.
+    if (listState === "rows") await page.waitForTimeout(1500);
 
     const scraped: any = await page.evaluate(`(()=>{
       const parseNum = (t) => {
