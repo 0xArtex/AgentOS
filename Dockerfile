@@ -11,10 +11,19 @@
 # This base ships Chromium and its system dependencies already matched to the
 # Playwright version, so the two can never drift apart. Keep the tag in step
 # with the `playwright` dependency in package.json.
-FROM node:22-bookworm-slim AS builder
+#
+# Builder and runtime share that base deliberately: dependencies are installed
+# once and carried across, so the compiled native modules (better-sqlite3) are
+# guaranteed to match the runtime's glibc rather than merely resembling it.
+FROM mcr.microsoft.com/playwright:v1.59.1-noble AS builder
 WORKDIR /app
 COPY package.json package-lock.json* ./
-RUN npm ci
+# `npm ci` is rejected here: this lockfile omits bufferutil, utf-8-validate and
+# node-gyp-build (optional native accelerators reached through `ws`), which
+# newer npm treats as out-of-sync while older npm installs happily. `npm install`
+# resolves them instead of refusing. Worth tidying the lockfile separately —
+# it is a latent problem for any reproducible install, not just this image.
+RUN npm install --no-audit --no-fund
 COPY tsconfig.json ./
 COPY src/ ./src/
 RUN npm run build
@@ -31,14 +40,8 @@ ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # previous `node` user: drop the blast radius of a process-level escape,
 # including the Chromium spawned for social-account automation.
 COPY --chown=pwuser:pwuser package.json package-lock.json* ./
-# `npm ci --omit=dev` fails on this lockfile — it reports bufferutil,
-# utf-8-validate and node-gyp-build (optional native accelerators pulled in via
-# `ws`) as missing, while a plain `npm ci` installs fine. So do the reproducible
-# install the lockfile does support, then drop dev dependencies. Same end state,
-# and it does not require regenerating the lockfile, which would churn versions
-# far outside this change.
-RUN npm ci \
-    && npm prune --omit=dev \
+COPY --from=builder --chown=pwuser:pwuser /app/node_modules ./node_modules
+RUN npm prune --omit=dev \
     && npm cache clean --force \
     && mkdir -p /app/data /app/public /app/docs /app/dist \
     && chown -R pwuser:pwuser /app
