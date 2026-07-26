@@ -282,9 +282,9 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   get_card_details: {
     name: "get_card_details",
     description:
-      "Retrieve an owned prepaid card's full number, CVV, expiry and live balance ($0.01 ownership proof; the paying wallet must be the card's buyer). Call after buy_prepaid_card's poll reports status 'ready'.",
+      "Retrieve an owned prepaid card's full number, CVV, expiry, billing address and live balance ($0.01 ownership proof; the paying wallet must be the card's buyer). Call after buy_prepaid_card's poll reports status 'ready'. Use card.billing_address whenever a checkout asks for a billing address or ZIP — the card carries the issuer's address and no other address can be registered.",
     inputSchema: { card_id: "string (path — from buy_prepaid_card)" },
-    outputSchema: { card_id: "string", status: "string", card: "object ({ card_number, exp_month, exp_year, cvv })", available_balance: "number", usage: "string" },
+    outputSchema: { card_id: "string", status: "string", card: "object ({ card_number, exp_month, exp_year, cvv, billing_address: { name, line_1, line_2, city, state, zip, country } })", available_balance: "number", usage: "string" },
   },
   get_domain: {
     name: "get_domain",

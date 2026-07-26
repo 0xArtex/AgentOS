@@ -35,6 +35,7 @@ import {
   recoverStuckCardPurchases,
   getCardPurchase,
   decryptCardDetails,
+  ensureBillingAddress,
   CardPurchaseDeps,
   CardPurchaseRow,
 } from "../services/card-purchases";
@@ -91,12 +92,26 @@ interface Calls {
   lastWithdraw?: number;
 }
 
+// Mirrors the live issuer shape (verified against Laso on 2026-07-26): the
+// billing address rides inside card_details next to the PAN.
+const BILLING = {
+  name: "Laso Finance",
+  line_1: "440 N Barranca Avenue",
+  line_2: "#4496",
+  city: "Covina",
+  state: "CA",
+  zip: "91723",
+  country: "US",
+  required: false,
+};
+
 const READY_DETAILS = {
   card_number: "4111222233334444",
   exp_month: "12",
   exp_year: "2028",
   cvv: "123",
   available_balance: 20,
+  billing_address: BILLING,
 };
 
 function makeDeps(over: Partial<CardPurchaseDeps> = {}): { deps: CardPurchaseDeps; calls: Calls } {
@@ -236,9 +251,74 @@ test("happy path: pending → purchasing → provisioning → ready, details enc
     exp_month: "12",
     exp_year: "2028",
     cvv: "123",
+    // A checkout that asks for a billing address is unfillable without this.
+    billing_address: BILLING,
   });
   assert.strictEqual(calls.refund, 0);
   assert.strictEqual(calls.buy, 1);
+});
+
+// ─── Billing address ───
+
+test("legacy card sealed without a billing address self-heals on read and re-seals", async () => {
+  const id = insertJob();
+  const { deps } = makeDeps({
+    // The blob this card was originally sealed with predates billing_address.
+    getCardData: async (_o, cid) => ({
+      card_id: cid,
+      status: "ready",
+      usd_amount: 20,
+      card_details: { card_number: "4111222233334444", exp_month: "12", exp_year: "2028", cvv: "123" },
+    }),
+  });
+  await runCardPurchase(id, deps);
+  const legacy = getCardPurchase(id)!;
+  assert.strictEqual(decryptCardDetails(legacy)!.billing_address, undefined);
+
+  // Now the issuer answers with one — the read fills it in and persists.
+  let upstreamReads = 0;
+  const healing = makeDeps({
+    getCardData: async (_o, cid) => {
+      upstreamReads++;
+      return { card_id: cid, status: "ready", usd_amount: 20, card_details: READY_DETAILS };
+    },
+  }).deps;
+
+  const filled = await ensureBillingAddress(legacy, decryptCardDetails(legacy)!, healing);
+  assert.deepStrictEqual(filled, BILLING);
+  assert.strictEqual(upstreamReads, 1);
+
+  // Re-sealed, so the next read costs no upstream call and the PAN survives.
+  const healed = getCardPurchase(id)!;
+  const details = decryptCardDetails(healed)!;
+  assert.deepStrictEqual(details.billing_address, BILLING);
+  assert.strictEqual(details.card_number, "4111222233334444");
+  assert.ok(!healed.card_ciphertext!.includes("Barranca")); // still encrypted at rest
+
+  await ensureBillingAddress(healed, details, healing);
+  assert.strictEqual(upstreamReads, 1); // cached — no second issuer hit
+});
+
+test("billing-address backfill never fails a card read when the issuer is down", async () => {
+  const id = insertJob();
+  await runCardPurchase(id, makeDeps({
+    getCardData: async (_o, cid) => ({
+      card_id: cid,
+      status: "ready",
+      usd_amount: 20,
+      card_details: { card_number: "4111222233334444", exp_month: "12", exp_year: "2028", cvv: "123" },
+    }),
+  }).deps);
+
+  const job = getCardPurchase(id)!;
+  const dead = makeDeps({
+    getCardData: async () => {
+      throw new Error("issuer 503");
+    },
+  }).deps;
+  assert.strictEqual(await ensureBillingAddress(job, decryptCardDetails(job)!, dead), null);
+  // The card itself is untouched — a dead issuer must not corrupt the blob.
+  assert.strictEqual(decryptCardDetails(getCardPurchase(id)!)!.card_number, "4111222233334444");
 });
 
 test("worker is idempotent: a non-pending job never re-buys", async () => {

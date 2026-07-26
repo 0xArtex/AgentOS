@@ -56,6 +56,7 @@ import {
   lasoWithdraw,
   getLasoIdToken,
   LasoBuyResult,
+  LasoBillingAddress,
   LasoCardData,
   LasoDeclinedError,
 } from "./laso";
@@ -495,6 +496,10 @@ export async function pollUntilReady(jobId: string, deps: CardPurchaseDeps = def
           exp_month: d.exp_month,
           exp_year: d.exp_year,
           cvv: d.cvv,
+          // The issuer's own billing address — a checkout that asks for one
+          // (or just a ZIP) is unfillable without it, so it is part of the
+          // card, not metadata.
+          billing_address: d.billing_address,
         })
       );
       db.prepare(
@@ -787,11 +792,40 @@ export interface DecryptedCardDetails {
   exp_month: string;
   exp_year: string;
   cvv: string;
+  billing_address?: LasoBillingAddress;
 }
 
 export function decryptCardDetails(row: CardPurchaseRow): DecryptedCardDetails | null {
   if (!row.card_ciphertext) return null;
   return JSON.parse(openSecret(row.card_ciphertext)) as DecryptedCardDetails;
+}
+
+/**
+ * Cards sealed before the billing address was persisted have everything but
+ * that field. Fetch it from the issuer once and re-seal, so every later read
+ * stays a pure DB hit. Best-effort by design: a slow or dead issuer must
+ * never fail a card read that would otherwise succeed.
+ */
+export async function ensureBillingAddress(
+  row: CardPurchaseRow,
+  details: DecryptedCardDetails,
+  deps: CardPurchaseDeps = defaultCardDeps()
+): Promise<LasoBillingAddress | null> {
+  if (details.billing_address) return details.billing_address;
+  if (!row.laso_card_id) return null;
+  try {
+    const data = await deps.getCardData(row.owner, row.laso_card_id);
+    const billing = data.card_details?.billing_address;
+    if (!billing) return null;
+    db.prepare("UPDATE card_purchases SET card_ciphertext = ? WHERE id = ?").run(
+      sealSecret(JSON.stringify({ ...details, billing_address: billing })),
+      row.id
+    );
+    return billing;
+  } catch (e: any) {
+    console.warn("[card-purchases] billing-address backfill failed:", e?.message || String(e));
+    return null;
+  }
 }
 
 export function listCardPurchases(owner: string, limit = 100): CardPurchaseRow[] {

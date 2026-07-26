@@ -219,12 +219,33 @@ async function bearerFetch(
   }
 }
 
+/**
+ * The address a merchant's billing/AVS form wants. Laso issues cards against
+ * its OWN address (name is always "Laso Finance") — there is no endpoint to
+ * register a cardholder address, so this is the only correct answer at a
+ * checkout. `required: false` on U.S. cards means AVS is not pinned to it and
+ * any valid U.S. address also works; international cards pin AVS to exactly
+ * this address.
+ */
+export interface LasoBillingAddress {
+  name: string;
+  line_1: string;
+  line_2?: string;
+  city: string;
+  state: string;
+  zip: string;
+  country: string;
+  required?: boolean;
+  note?: string;
+}
+
 export interface LasoCardDetails {
   card_number: string;
   exp_month: string;
   exp_year: string;
   cvv: string;
   available_balance?: number;
+  billing_address?: LasoBillingAddress;
 }
 
 export interface LasoCardData {
