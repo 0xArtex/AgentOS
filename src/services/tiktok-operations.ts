@@ -480,19 +480,31 @@ export interface TikTokPostRequest extends TikTokOpRequest, VideoInput {
 }
 
 /**
- * After an instant post, resolve the just-published video's URL + id from the
- * Studio content manager (the post redirect lands there but carries no id).
- * Matches the row by caption (polled, since the new row can take a moment to
- * appear), falling back to the newest post. Best-effort — returns {} if it
- * can't resolve one; the caller must never fail the post over this.
+ * Resolve a published video's URL + id from the Studio content manager (the
+ * post redirect lands there but carries no id). Matches the row by caption
+ * (polled, since a new row can take a moment to appear), falling back to the
+ * newest post.
+ *
+ * `matched` reports HOW the result was obtained, and callers must respect it.
+ * The newest-post fallback is sound when we already know a post published and
+ * only need its URL — it is catastrophic as evidence that a *specific* post
+ * landed. Returning it unlabelled meant the reconciliation oracle could never
+ * answer "not posted" for any account with prior content: an ambiguous post
+ * that never published was marked `posted`, handed the previous video's URL,
+ * and never refunded. The documented safety property — "we never blind-refund a
+ * post that landed" — was inverted into "we never refund a post that didn't".
  */
-async function findPostedVideo(page: any, caption: string): Promise<{ video_id?: string; video_url?: string }> {
+export async function findPostedVideo(
+  page: any,
+  caption: string,
+): Promise<{ video_id?: string; video_url?: string; matched: "caption" | "newest" | "none" }> {
   if (!/tiktokstudio\/(content|posts)/i.test(String(page.url()))) {
     await page.goto("https://www.tiktok.com/tiktokstudio/content", { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
   }
   await page.locator('a[href*="/video/"]').first().waitFor({ timeout: 15000 }).catch(() => {});
   const key = (caption || "").trim().slice(0, 24).toLowerCase();
   let href: string | null = null;
+  let matched: "caption" | "newest" | "none" = "caption";
   if (key) {
     for (let i = 0; i < 4 && !href; i++) {
       href = await page.evaluate(`(()=>{
@@ -518,11 +530,12 @@ async function findPostedVideo(page: any, caption: string): Promise<{ video_id?:
       }
       return best ? best.getAttribute('href') : null;
     })()`).catch(() => null);
+    matched = href ? "newest" : "none";
   }
-  if (!href) return {};
+  if (!href) return { matched: "none" };
   const full = href.startsWith("http") ? href : `https://www.tiktok.com${href}`;
   const idm = /\/video\/(\d+)/.exec(full);
-  return { video_url: full, video_id: idm ? idm[1] : undefined };
+  return { video_url: full, video_id: idm ? idm[1] : undefined, matched };
 }
 
 /**
@@ -557,8 +570,23 @@ export async function checkPostedByCaption(
       timeout: 30000,
     }).catch(() => {});
     const found = await findPostedVideo(page, req.caption);
-    const posted = !!found.video_url;
-    return { success: true, data: { determined: true, posted, ...found } };
+    // ONLY a caption match is proof that THIS post landed. The newest-post
+    // fallback returns whatever the account most recently published, which for
+    // any account with prior content is someone else's evidence — accepting it
+    // here is what made this oracle unable to ever answer "not posted".
+    const posted = found.matched === "caption";
+    if (found.matched === "newest") {
+      console.warn(
+        `[tiktok] reconcile: no row matched the caption for ${req.account_id}; ` +
+        `ignoring the newest-post fallback and reporting NOT posted`,
+      );
+    }
+    return {
+      success: true,
+      data: posted
+        ? { determined: true, posted: true, video_url: found.video_url, video_id: found.video_id }
+        : { determined: true, posted: false },
+    };
   } catch {
     return { success: true, data: { determined: false, posted: false } };
   } finally {
@@ -745,9 +773,24 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
         recordAction(req.account_id, "tiktok", "post");
         console.log(`[tiktok] post confirmed via redirect/toast (url=${url})`);
         // The redirect doesn't carry the new video's id, so (for instant posts)
-        // look it up in the content manager we just landed on — match the row by
-        // caption, newest as fallback. Best-effort: never fail the post over it.
-        const found = req.schedule_at ? undefined : await findPostedVideo(page, req.caption).catch(() => undefined);
+        // look it up in the content manager we just landed on. Best-effort:
+        // never fail the post over it.
+        //
+        // Only a CAPTION match may be published as this post's URL. The newest
+        // -post fallback is a guess, and when the new row simply hasn't rendered
+        // yet that guess is the account's PREVIOUS video — which then gets
+        // written to the caller's post log as the URL of the video they just
+        // made. A successful post with no URL is recoverable; a successful post
+        // carrying a link to unrelated content is not.
+        const resolved = req.schedule_at ? undefined : await findPostedVideo(page, req.caption).catch(() => undefined);
+        if (resolved && resolved.matched === "newest") {
+          console.warn(
+            `[tiktok] post confirmed but its row had not rendered; omitting video_url rather than returning the previous video's`,
+          );
+        }
+        const found = resolved?.matched === "caption"
+          ? { video_url: resolved.video_url, video_id: resolved.video_id }
+          : undefined;
         return {
           success: true,
           data: {

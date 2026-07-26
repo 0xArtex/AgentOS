@@ -205,6 +205,26 @@ function scheduleWorker(id: string, request: TikTokPostRequest, deps: TikTokPost
 
 const nowIso = () => new Date().toISOString();
 
+/**
+ * Job ids with a LIVE worker in this process. `status='publishing'` alone can
+ * not distinguish "actively uploading" from "queued behind the browser
+ * semaphore" from "orphaned by a restart" — and the row is flipped to
+ * 'publishing' BEFORE postVideo blocks on a slot, against a default pool of 3.
+ * At a few minutes per post, roughly the tenth concurrent post therefore aged
+ * past the stuck cutoff before it had started, and the sweep failed it with
+ * refund_status='manual_needed' while the worker went on to publish it: the
+ * payer was told it failed with no money back, retried, and posted twice.
+ *
+ * Membership here is the honest signal — a worker still holding the job cannot
+ * be stuck, however long it has been queued.
+ */
+const inFlight = new Set<string>();
+
+/** True while a worker in THIS process still owns the job. */
+export function isPostJobInFlight(jobId: string): boolean {
+  return inFlight.has(jobId);
+}
+
 export async function runTikTokPost(
   jobId: string,
   request: TikTokPostRequest,
@@ -217,7 +237,20 @@ export async function runTikTokPost(
 
   db.prepare("UPDATE tiktok_post_jobs SET status='publishing', started_at=? WHERE id=? AND status='pending'")
     .run(nowIso(), jobId);
+  inFlight.add(jobId);
 
+  try {
+    await runTikTokPostInner(jobId, request, deps);
+  } finally {
+    inFlight.delete(jobId);
+  }
+}
+
+async function runTikTokPostInner(
+  jobId: string,
+  request: TikTokPostRequest,
+  deps: TikTokPostDeps
+): Promise<void> {
   let result: TikTokOpResult<{ video_url?: string; video_id?: string; scheduled_at?: string }>;
   try {
     result = await deps.postVideo(request);
@@ -255,6 +288,22 @@ export async function runTikTokPost(
 }
 
 function markPosted(jobId: string, data: { video_url?: string; video_id?: string; scheduled_at?: string }): void {
+  // A job the sweep already terminalized needs care rather than a blind
+  // overwrite. If it was refunded, converting it to a success would hand out a
+  // free post AND leave the caller believing it failed — record it for
+  // reconciliation and leave the terminal state alone. If it was failed without
+  // a refund, correcting it to posted is the accurate outcome.
+  const existing = getPostJob(jobId);
+  if (existing && existing.status === "failed") {
+    if (existing.refund_status === "sent") {
+      console.error(
+        "[tiktok-post] [MANUAL REVIEW] job was failed AND refunded, then the post landed — money returned but content published",
+        { jobId, account_id: existing.account_id, video_url: data.video_url },
+      );
+      return;
+    }
+    console.warn("[tiktok-post] correcting a prematurely-failed job to posted", { jobId, account_id: existing.account_id });
+  }
   db.prepare(
     "UPDATE tiktok_post_jobs SET status='posted', video_url=COALESCE(?, video_url), video_id=COALESCE(?, video_id), completed_at=? WHERE id=?"
   ).run(data.video_url ?? null, data.video_id ?? null, nowIso(), jobId);
@@ -366,6 +415,12 @@ async function reconcile(
 //                    the ~2-5 min publish window).
 const STUCK_AGE_MS = 10 * 60 * 1000; // > the ~2-5 min publish window + margin
 
+// Backstop for a job whose worker is alive but hung (a wedged Chromium that
+// never returns). Generous enough that a legitimately queued post is never
+// caught by it, short enough that a hung job still reaches a terminal state the
+// same day rather than at the next deploy.
+const HARD_CEILING_MS = 60 * 60 * 1000;
+
 export async function recoverStuckTikTokPosts(deps: TikTokPostDeps = defaultDeps()): Promise<void> {
   const cutoff = new Date(Date.now() - STUCK_AGE_MS).toISOString();
   const stuck = db
@@ -376,6 +431,19 @@ export async function recoverStuckTikTokPosts(deps: TikTokPostDeps = defaultDeps
   console.log(`[tiktok-post] reconciling ${stuck.length} stuck post job(s) on startup`);
   for (const job of stuck) {
     try {
+      // Still owned by a live worker — queued behind the browser semaphore, or
+      // simply a slow upload. Age alone says nothing about whether it is stuck,
+      // and terminalizing it here is what produced a false 'failed' the caller
+      // retried into a double post. A hard ceiling still applies below so a
+      // genuinely hung worker cannot hold a job non-terminal forever.
+      if (isPostJobInFlight(job.id)) {
+        const ageMs = Date.now() - Date.parse(job.created_at);
+        if (ageMs < HARD_CEILING_MS) {
+          console.log(`[tiktok-post] skipping in-flight job ${job.id} (age ${Math.round(ageMs / 60000)}m)`);
+          continue;
+        }
+        console.error("[tiktok-post] in-flight job exceeded the hard ceiling — terminalizing", { jobId: job.id });
+      }
       if (job.status === "pending") {
         markFailed(job.id, "server_restarted_before_publish", "server restarted before the post began — never published");
         await issueRefund(getPostJob(job.id)!, deps, "server restarted before publish");
