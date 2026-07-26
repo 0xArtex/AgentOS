@@ -1358,6 +1358,9 @@ export async function updateAvatar(req: TikTokAvatarRequest): Promise<TikTokOpRe
       proxySessionId: req.proxy_session_id,
       cookies: req.cookies,
       country: req.country,
+      // The crop dialog renders the uploaded image and success is verified by
+      // the avatar actually changing — this is the one op where pixels matter.
+      loadMedia: true,
     });
   } catch (e: any) {
     image.cleanup();

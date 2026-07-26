@@ -291,6 +291,11 @@ export interface OpenSessionOptions {
    *  so TikTok will AUTHORIZE the login (it refuses headless at the authorize
    *  step) — that requires a real/virtual display (Xvfb) on the host. */
   headless?: boolean;
+  /** Load images/media/fonts (default false). They are blocked by default: they
+   *  are pure bandwidth on a metered residential proxy and, worse, they starve
+   *  the JS bundles that render the interactive UI. Set true only where pixels
+   *  genuinely matter, e.g. the avatar crop dialog. */
+  loadMedia?: boolean;
 }
 
 export interface OpenedSession {
@@ -426,6 +431,7 @@ export async function openAuthenticatedSession(
 
     page = await ctx.newPage();
     trackPendingRequests(page);
+    await blockHeavyResources(page, opts.loadMedia === true);
   } catch (e) {
     // Setup failed after launch — close the browser so its concurrency slot is
     // released (launchStealthBrowser ties slot release to close()).
@@ -449,6 +455,38 @@ export async function openAuthenticatedSession(
 
 export function isSessionExpiredUrl(url: string): boolean {
   return /\/login|\/flow\/login|\/i\/flow/.test(url);
+}
+
+// ─── Resource blocking ───────────────────────────────────────────────────────
+//
+// Nothing intercepted requests before this, so every image, font and autoplaying
+// video traversed the metered residential proxy — unbounded bandwidth on a
+// $0.001 operation, and no per-op cost accounting anywhere.
+//
+// It also broke operations outright. A profile page issues dozens of parallel
+// requests; a residential proxy session has far fewer usable connections than
+// that, so the decorative bulk starved the JS bundles that render the
+// interactive UI. Traced directly: TikTok's webapp scripts sat pending for 39
+// seconds and never arrived, while the same URL through the same proxy fetched
+// in 1.4 seconds by curl. The action buttons stayed empty skeletons, and follow
+// and like failed for months blaming a rotated selector.
+//
+// Scripts, stylesheets, XHR and fetch are never blocked — they are what builds
+// the page we act on. Callers that genuinely need pixels (avatar crop) pass
+// `loadMedia: true`.
+const BLOCKED_RESOURCE_TYPES = new Set(["image", "media", "font"]);
+
+async function blockHeavyResources(page: any, loadMedia: boolean): Promise<void> {
+  if (loadMedia) return;
+  try {
+    await page.route("**/*", (route: any) => {
+      const type = route.request().resourceType();
+      if (BLOCKED_RESOURCE_TYPES.has(type)) return route.abort().catch(() => {});
+      return route.continue().catch(() => {});
+    });
+  } catch {
+    /* best-effort — never fail an op because interception could not be installed */
+  }
 }
 
 // ─── Pending-request tracking ────────────────────────────────────────────────
