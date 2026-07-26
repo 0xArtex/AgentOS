@@ -431,7 +431,7 @@ export async function openAuthenticatedSession(
 
     page = await ctx.newPage();
     trackPendingRequests(page);
-    await blockHeavyResources(page, opts.loadMedia === true);
+    // await blockHeavyResources(page, opts.loadMedia === true);  // TEMP: isolating a nav timeout
   } catch (e) {
     // Setup failed after launch — close the browser so its concurrency slot is
     // released (launchStealthBrowser ties slot release to close()).
