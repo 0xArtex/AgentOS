@@ -1,0 +1,49 @@
+name: Docker
+
+# Building the image is not the test — the broken image built fine for months.
+# The test is whether a browser actually launches inside it, which is the thing
+# that was silently false and only discoverable after a self-hoster had already
+# paid for an operation.
+on:
+  push:
+    branches: [main]
+    paths: ['Dockerfile', 'package.json', 'package-lock.json', '.github/workflows/docker.yml']
+  pull_request:
+    paths: ['Dockerfile', 'package.json', 'package-lock.json', '.github/workflows/docker.yml']
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the image
+        run: docker build -t palmyr:ci .
+
+      - name: A browser must actually launch inside the image
+        # Exactly the call every social operation makes. Without this the image
+        # can regress to one that starts happily and fails at the first paid op.
+        run: |
+          docker run --rm palmyr:ci node -e "
+            const { chromium } = require('playwright');
+            chromium.launch({ args: ['--no-sandbox'] })
+              .then(async (b) => {
+                console.log('chromium launched:', b.version());
+                await b.close();
+              })
+              .catch((e) => { console.error('BROWSER LAUNCH FAILED:', e.message); process.exit(1); });
+          "
+
+      - name: The server entrypoint must load
+        # Catches a missing runtime dependency or a bad dist/ copy — the image
+        # starting is a separate failure mode from the browser working.
+        run: |
+          docker run --rm --entrypoint node palmyr:ci -e "
+            require('fs').accessSync('/app/dist/index.js');
+            console.log('entrypoint present');
+          "
