@@ -330,6 +330,13 @@ export async function openAuthenticatedSession(
     proxy,
     args: [
       "--disable-blink-features=AutomationControlled",
+      // HTTP/2 multiplexes every asset over one connection to the proxy, and
+      // TikTok's static CDN stalls indefinitely under it — script requests sat
+      // pending for 60s while curl through the SAME proxy session and the SAME
+      // exit IP fetched the identical URL in 1.4s. Forcing HTTP/1.1 gives each
+      // asset its own connection, which is also what the proxy vendor's stack
+      // is built around.
+      "--disable-http2",
       "--disable-features=IsolateOrigins,site-per-process",
       "--disable-dev-shm-usage",
       "--no-sandbox",
