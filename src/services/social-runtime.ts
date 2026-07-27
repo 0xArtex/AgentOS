@@ -7,6 +7,8 @@
  */
 
 import { isSelfHosted } from "./self-hosted";
+import { mkdirSync, existsSync } from "fs";
+import { join } from "path";
 
 type Browser = any;
 type BrowserContext = any;
@@ -73,6 +75,109 @@ function releaseBrowserSlot(pool: string): void {
   const next = p.waiters.shift();
   if (next) { next(); return; }   // hand the permit directly to the next waiter
   p.inUse = Math.max(0, p.inUse - 1);
+}
+
+// ─── Persistent per-account device identity ──────────────────────────────────
+//
+// Without this, every operation launches a throwaway browser: new cookies jar,
+// empty IndexedDB, no service workers, cold HTTP cache. The account's own
+// session cookie is injected on top, so the platform sees the same account
+// arriving from a BRAND NEW DEVICE on every single action. A real account lives
+// on one device for years. That mismatch is a louder automation signal than the
+// IP, and it damns each account on its own rather than merely linking them.
+//
+// A persistent Chrome profile directory fixes it properly, where `storageState`
+// does not: storageState restores cookies and localStorage and leaves the cache
+// cold, IndexedDB thin and service workers unregistered — a new device wearing
+// an old cookie, which is arguably worse than a clean one.
+//
+// Off by default behind SOCIAL_PERSISTENT_DEVICE so it can be A/B'd against the
+// current behaviour before it becomes the norm for X operations too.
+export function persistentDeviceEnabled(): boolean {
+  return process.env.SOCIAL_PERSISTENT_DEVICE === "1";
+}
+
+/**
+ * Real Chrome rather than bundled Chromium when configured. Chromium is one
+ * line of JS to spot — `navigator.userAgentData.brands` reports "Chromium", not
+ * "Google Chrome" — and it ships without the proprietary codecs TikTok's upload
+ * editor needs to render a preview.
+ */
+function browserChannel(): string | undefined {
+  const explicit = process.env.SOCIAL_BROWSER_CHANNEL;
+  if (explicit) return explicit;
+  return persistentDeviceEnabled() ? "chrome" : undefined;
+}
+
+/** Where an account's Chrome profile lives. Contains live session cookies in
+ *  plaintext, so it is created 0700 and belongs under the same protection as
+ *  any other credential store. */
+export function profileDirFor(accountId: string): string {
+  const base = process.env.PALMYR_DATA_DIR || join(process.cwd(), "data");
+  const dir = join(base, "social-profiles", accountId.replace(/[^A-Za-z0-9_-]/g, "_"));
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
+  return dir;
+}
+
+/**
+ * Serialise operations per account. A Chrome profile directory may only be open
+ * by one process at a time — two concurrent ops on the same account would fail
+ * or corrupt it. It is also the more realistic behaviour: one device doing two
+ * things at the same instant is itself a tell.
+ *
+ * Cross-account parallelism is untouched; only same-account work queues.
+ */
+const accountLocks = new Map<string, Promise<void>>();
+
+async function acquireAccountLock(key: string): Promise<() => void> {
+  let release!: () => void;
+  const held = new Promise<void>((r) => { release = r; });
+  const prev = accountLocks.get(key) ?? Promise.resolve();
+  const chained = prev.then(() => held);
+  accountLocks.set(key, chained);
+  await prev;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    release();
+    if (accountLocks.get(key) === chained) accountLocks.delete(key);
+  };
+}
+
+/** Test hook — the lock is internal, but its fairness is worth pinning. */
+export const __testAcquireAccountLock = acquireAccountLock;
+
+/**
+ * Launch a stealth browser against a PERSISTENT profile directory. Mirrors
+ * launchStealthBrowser's slot accounting, but a persistent context has no
+ * separate browser object to close — closing the context closes the browser, so
+ * the slot is released there instead.
+ */
+export async function launchPersistentStealthContext(
+  profileDir: string,
+  contextOpts: any,
+  pool: string = "op",
+): Promise<any> {
+  const chromium = await getStealthChromium();
+  await acquireBrowserSlot(pool);
+  let ctx: any;
+  try {
+    ctx = await chromium.launchPersistentContext(profileDir, contextOpts);
+  } catch (e) {
+    releaseBrowserSlot(pool);
+    throw e;
+  }
+  let released = false;
+  const origClose = ctx.close.bind(ctx);
+  ctx.close = async (...args: any[]) => {
+    try {
+      return await origClose(...args);
+    } finally {
+      if (!released) { released = true; releaseBrowserSlot(pool); }
+    }
+  };
+  return ctx;
 }
 
 /**
@@ -351,6 +456,11 @@ export async function openAuthenticatedSession(
   opts: OpenSessionOptions
 ): Promise<OpenedSession> {
   const sessionKey = opts.proxySessionId || opts.accountId;
+  const persistent = persistentDeviceEnabled();
+  // Held for the LIFETIME of the session, not just the launch: the profile
+  // directory stays open until close().
+  const releaseLock = persistent ? await acquireAccountLock(opts.accountId) : undefined;
+
   // Proxy is required in prod (the server runs on a VPS whose IP differs from
   // where the session was minted). Self-hosted on the operator's own machine,
   // the session was minted on this same IP — so launch direct when no proxy is
@@ -363,16 +473,12 @@ export async function openAuthenticatedSession(
     else throw e;
   }
 
-  const browser = await launchStealthBrowser({
-    headless: opts.headless ?? true,
-    proxy,
-    args: [
-      "--disable-blink-features=AutomationControlled",
-      "--disable-features=IsolateOrigins,site-per-process",
-      "--disable-dev-shm-usage",
-      "--no-sandbox",
-    ],
-  }, opts.pool || "op");
+  const launchArgs = [
+    "--disable-blink-features=AutomationControlled",
+    "--disable-features=IsolateOrigins,site-per-process",
+    "--disable-dev-shm-usage",
+    "--no-sandbox",
+  ];
 
   // Derive locale + timezone from the account's country if the caller didn't
   // pin them explicitly. Keeps exit-IP geography aligned with the browser
@@ -393,18 +499,46 @@ export async function openAuthenticatedSession(
   for (let i = 0; i < viewportKey.length; i++) vpHash = ((vpHash << 5) - vpHash + viewportKey.charCodeAt(i)) | 0;
   const viewport = viewports[Math.abs(vpHash) % viewports.length];
 
-  const ua = opts.userAgent || uaForKey(sessionKey);
-  let ctx, page;
+  // In persistent-device mode we do NOT override the user agent. Real Chrome
+  // then sends its own UA together with the matching Sec-CH-UA client hints and
+  // navigator.platform, and nothing can contradict anything.
+  //
+  // The pool it replaces was actively harmful: it advertised Chrome 129-131
+  // against a binary that is 147, and three of its six entries claimed macOS on
+  // a Linux host, while client hints and navigator.platform went unspoofed. An
+  // unusual-but-coherent device is merely unusual; an inconsistent one is a
+  // positive detection.
+  const ua = opts.userAgent || (persistentDeviceEnabled() ? undefined : uaForKey(sessionKey));
+  const contextOpts: any = {
+    ...(ua ? { userAgent: ua } : {}),
+    viewport,
+    locale: opts.locale || profile.locale,
+    timezoneId: opts.timezoneId || profile.timezoneId,
+    extraHTTPHeaders: {
+      "accept-language": (opts.locale || profile.locale) + "," + (opts.locale || profile.locale).split("-")[0] + ";q=0.9",
+    },
+  };
+  const channel = browserChannel();
+  const pool = opts.pool || "op";
+
+  let browser: any, ctx: any, page: any;
   try {
-    ctx = await browser.newContext({
-      userAgent: ua,
-      viewport,
-      locale: opts.locale || profile.locale,
-      timezoneId: opts.timezoneId || profile.timezoneId,
-      extraHTTPHeaders: {
-        "accept-language": (opts.locale || profile.locale) + "," + (opts.locale || profile.locale).split("-")[0] + ";q=0.9",
-      },
-    });
+    if (persistent) {
+      // A persistent context IS the browser — launch options and context
+      // options are supplied together, and closing the context closes both.
+      ctx = await launchPersistentStealthContext(
+        profileDirFor(opts.accountId),
+        { headless: opts.headless ?? true, proxy, args: launchArgs, ...(channel ? { channel } : {}), ...contextOpts },
+        pool,
+      );
+      browser = ctx.browser();
+    } else {
+      browser = await launchStealthBrowser(
+        { headless: opts.headless ?? true, proxy, args: launchArgs, ...(channel ? { channel } : {}) },
+        pool,
+      );
+      ctx = await browser.newContext(contextOpts);
+    }
 
     // Spoof a per-account, UA-OS-consistent WebGL GPU before any page script
     // runs. On a GPU-less VPS the real UNMASKED_RENDERER is "Google SwiftShader"
@@ -414,7 +548,10 @@ export async function openAuthenticatedSession(
     // so neither the value nor the override is detectable. Passed as a string
     // body because tsconfig has no DOM lib (same convention as the evaluate()
     // helpers elsewhere).
-    const webgl = webglForKey(sessionKey, ua);
+    // With no UA override the real browser is Linux Chrome, so pick a
+    // Linux-consistent GPU. The spoof itself stays: a GPU-less VPS reports
+    // "Google SwiftShader", which is an instant server tell.
+    const webgl = webglForKey(sessionKey, ua || "X11; Linux x86_64");
     await ctx.addInitScript(
       `(() => {
         const V = ${JSON.stringify(webgl.vendor)}, R = ${JSON.stringify(webgl.renderer)};
@@ -467,13 +604,18 @@ export async function openAuthenticatedSession(
       await ctx.addCookies(cookies);
     }
 
-    page = await ctx.newPage();
+    // A persistent context opens with a blank page already; reuse it rather
+    // than leaving an orphan tab behind on every operation.
+    const existing = typeof ctx.pages === "function" ? ctx.pages() : [];
+    page = existing.length > 0 ? existing[0] : await ctx.newPage();
     trackPendingRequests(page);
     await blockHeavyResources(page, opts.loadMedia === true);
   } catch (e) {
-    // Setup failed after launch — close the browser so its concurrency slot is
-    // released (launchStealthBrowser ties slot release to close()).
-    await browser.close().catch(() => {});
+    // Setup failed after launch — close so the concurrency slot is released
+    // (both launch helpers tie slot release to close()), and drop the account
+    // lock or every later op on this account would queue behind a dead session.
+    await teardown(ctx, browser, persistent);
+    releaseLock?.();
     throw e;
   }
 
@@ -483,12 +625,33 @@ export async function openAuthenticatedSession(
     page,
     close: async () => {
       try {
-        await browser.close();
-      } catch {
-        /* noop */
+        await teardown(ctx, browser, persistent);
+      } finally {
+        releaseLock?.();
       }
     },
   };
+}
+
+/**
+ * Close a session, releasing its concurrency slot exactly once.
+ *
+ * Which object to close is not interchangeable. The slot-release wrapper is
+ * installed on `ctx.close()` for a persistent context and on `browser.close()`
+ * for a normal one — and `ctx.browser()` returns a real Browser in BOTH cases,
+ * so closing the browser of a persistent context would skip the wrapper and
+ * leak a permit. Three of those and the whole social subsystem queues forever.
+ */
+async function teardown(ctx: any, browser: any, persistent: boolean): Promise<void> {
+  if (persistent) {
+    await ctx?.close?.().catch(() => {});
+    return;
+  }
+  if (browser) {
+    await browser.close().catch(() => {});
+    return;
+  }
+  await ctx?.close?.().catch(() => {});
 }
 
 export function isSessionExpiredUrl(url: string): boolean {
