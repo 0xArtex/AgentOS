@@ -13,6 +13,7 @@ import { refundAndRespond } from "../services/refund";
 import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
 import { isSelfHosted } from "../services/self-hosted";
+import { tiktokHealthSnapshot } from "../services/tiktok-health";
 import {
   poolAdd,
   poolBuy,
@@ -567,6 +568,19 @@ router.get(
 // of blindly retrying browser ops. Derived passively from recent op outcomes.
 router.get("/proxy/health", (_req: Request, res: Response) => {
   res.json(getProxyHealth());
+});
+
+// GET /social/tiktok/health — free, unauthenticated. Aggregate outcome counts
+// per operation over a rolling window, read straight from the job tables.
+//
+// Nothing queried those tables before, anywhere. That is why five failed
+// operations in June read as a mystery for five weeks, why nobody could say
+// whether the feature had ever worked in production, and why every judgement
+// about which failure mattered most was a guess. Counts and error codes only —
+// no captions, no video ids, no account handles — so it is safe to serve
+// unauthenticated, like the proxy signal above.
+router.get("/tiktok/health", (req: Request, res: Response) => {
+  res.json(tiktokHealthSnapshot(parseInt(String(req.query.hours ?? "24"), 10)));
 });
 
 /* ─── Pool: admin seeding + status ──────────────────────────────────── */
