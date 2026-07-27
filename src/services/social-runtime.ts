@@ -110,6 +110,40 @@ export async function launchStealthBrowser(launchOpts: any, pool: string = "op")
  * residential IP stays identical. For local-only accounts the caller can
  * just pass the account_id.
  */
+/**
+ * Per-account exit generation. Bumping it changes the proxy session id, which
+ * makes the vendor hand out a DIFFERENT residential exit for that account.
+ *
+ * Stickiness exists for a good reason — an account whose IP hops between
+ * countries mid-session is a flag — so the exit is pinned by default and only
+ * rotated when it has demonstrably stopped working.
+ *
+ * That failure is real and was the cause of TikTok's follow and like operations
+ * failing for months. Measured directly: with identical cookies, browser and
+ * stealth configuration, the account's pinned exit could not deliver TikTok's
+ * JS bundles, so the page's interactive controls never rendered; a fresh
+ * session key rendered them and logged in correctly, and switching back to the
+ * pinned key failed again. The exit had been pinned for a week
+ * (`lifetime-168h`) and heavily used, and a burned exit stays burned.
+ *
+ * In-memory only: a process restart returns to the base exit, which is the
+ * right default because most exits are fine and stickiness is worth keeping.
+ */
+const proxyGeneration = new Map<string, number>();
+
+/** Move an account onto a different residential exit. Returns the new generation. */
+export function rotateProxyExit(sessionKey: string): number {
+  const next = (proxyGeneration.get(sessionKey) ?? 0) + 1;
+  proxyGeneration.set(sessionKey, next);
+  console.warn(`[social-runtime] rotating proxy exit for ${sessionKey} → generation ${next}`);
+  return next;
+}
+
+/** Current generation for an account (0 = its original pinned exit). */
+export function proxyExitGeneration(sessionKey: string): number {
+  return proxyGeneration.get(sessionKey) ?? 0;
+}
+
 export function buildProxyConfig(
   sessionKey: string,
   opts?: { country?: string }
@@ -127,7 +161,11 @@ export function buildProxyConfig(
   }
 
   const baseSecret = basePassword.split("_")[0];
-  const perAccountPassword = `${baseSecret}_country-${country}_session-${sessionKey}_lifetime-168h`;
+  // The generation suffix is what actually moves the account to a new exit —
+  // the vendor keys stickiness on this session string.
+  const generation = proxyGeneration.get(sessionKey) ?? 0;
+  const session = generation > 0 ? `${sessionKey}-g${generation}` : sessionKey;
+  const perAccountPassword = `${baseSecret}_country-${country}_session-${session}_lifetime-168h`;
 
   return {
     server: `http://${host}:${port}`,

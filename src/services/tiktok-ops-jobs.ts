@@ -26,6 +26,7 @@ import { randomUUID } from "crypto";
 import { db } from "../db";
 import { refundUsdcToPayer, RefundOpts, RefundResult } from "./refund";
 import type { TikTokOpResult } from "./tiktok-operations";
+import { rotateProxyExit } from "./social-runtime";
 
 export type TikTokOpName = "follow" | "like" | "delete" | "profile" | "avatar";
 export type TikTokOpJobStatus = "pending" | "running" | "done" | "failed";
@@ -156,6 +157,22 @@ export async function runOpJob(
   let result: TikTokOpResult<any>;
   try {
     result = await run();
+
+    // A readiness failure means the page never delivered the controls we needed.
+    // The dominant cause is a burned residential exit: measured directly, an
+    // account's pinned exit could not deliver TikTok's JS bundles while a fresh
+    // session key rendered the same page, logged in, with identical cookies and
+    // browser configuration — and switching back failed again.
+    //
+    // So move the account to a different exit and run once more, rather than
+    // charging for a diagnosis the caller can do nothing with. These ops are
+    // idempotent by design (a re-follow or re-like is a no-op), which is what
+    // makes retrying safe here and not for posts.
+    if (!result.success && result.error_code === "NOT_READY") {
+      rotateProxyExit(job.account_id);
+      console.warn(`[tiktok-op] ${job.op} hit NOT_READY on job ${jobId} — retrying on a fresh exit`);
+      result = await run();
+    }
   } catch (e: any) {
     // The op threw. These ops are safe to retry, so fail + refund (no
     // reconcile) — the caller re-runs; a re-follow/re-like/etc. is a no-op.
