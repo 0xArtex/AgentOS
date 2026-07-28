@@ -23,7 +23,7 @@ const CONNECT_WINDOW_MS = 10 * 60 * 1000;
 /** How often we re-read the QR (TikTok rotates it) and check for a session. */
 const POLL_MS = 4000;
 
-export type ConnectState = "starting" | "awaiting_scan" | "completed" | "failed";
+export type ConnectState = "awaiting_viewer" | "starting" | "awaiting_scan" | "completed" | "failed";
 
 interface ConnectRun {
   token: string;
@@ -33,11 +33,20 @@ interface ConnectRun {
   error?: string;
   startedAt: number;
   completedAt?: number;
+  /** Where the login browser is/was exiting from. */
+  country?: string;
+  /** Set once a viewer opens the hand-off link, so the browser starts once. */
+  launched?: boolean;
+  proxySessionId?: string;
 }
 
 // Keyed by the PUBLIC read token, matching the /connect/<token> link the human
 // is given. Bounded by the QR store's own entry cap and pruned on completion.
 const runs = new Map<string, ConnectRun>();
+
+// The writer credential is held server-side, keyed by read token, so the
+// deferred launch can still publish to the hand-off session.
+const writers = new Map<string, string>();
 
 export function getServerConnect(token: string): ConnectRun | undefined {
   return runs.get(token);
@@ -188,6 +197,8 @@ export interface StartConnectResult {
   token: string;
   connect_url: string;
   expires_in_sec: number;
+  /** Internal — retained server-side so the deferred launch can publish. */
+  writer?: string;
 }
 
 /**
@@ -208,27 +219,72 @@ export function startServerConnect(opts: {
     token: created.token,
     accountId: opts.accountId,
     owner: opts.owner,
-    state: "starting",
+    state: "awaiting_viewer",
     startedAt: Date.now(),
+    country: opts.country,
+    proxySessionId: opts.proxySessionId,
   };
   runs.set(created.token, run);
+  writers.set(created.token, created.writer);
 
-  // Detached on purpose: the caller needs its link now, not in ten minutes.
-  void driveConnect(run, created.writer, { country: opts.country, proxySessionId: opts.proxySessionId })
-    .catch((e) => {
-      run.state = "failed";
-      run.error = e?.message || String(e);
-    })
-    .finally(() => {
-      // Keep the record briefly so a poll after completion still gets an
-      // answer, then let it go.
-      setTimeout(() => runs.delete(created.token), 5 * 60 * 1000).unref?.();
-    });
-
+  // NO browser yet. It starts when the human opens the hand-off link, for two
+  // reasons.
+  //
+  // The exit country must match the person scanning: TikTok weighs the distance
+  // between the scanning phone and the browser being authorised, because that
+  // is exactly the shape of a QR phishing attack. Waiting until the human
+  // arrives means we can read their country off the request and match it,
+  // rather than requiring the caller to know it in advance and refusing the
+  // login when they guess wrong.
+  //
+  // It also stops a login holding one of only two long-idling browser slots for
+  // ten minutes while nobody is even looking at the link.
+  //
+  // An explicit country from the caller still wins — see launchFor().
   const base = (opts.baseUrl || "https://palmyr.ai").replace(/\/+$/, "");
   return {
     token: created.token,
     connect_url: `${base}/connect/${created.token}`,
     expires_in_sec: created.expiresInSec,
+    writer: created.writer,
   };
+}
+
+/**
+ * A human opened the hand-off link. Start their login browser, exiting from
+ * THEIR country, unless the caller pinned one explicitly.
+ *
+ * Idempotent: the page polls every few seconds, and only the first view starts
+ * anything.
+ */
+export function noteConnectViewer(token: string, viewerCountry: string | null): void {
+  const run = runs.get(token);
+  if (!run || run.launched) return;
+  const writer = writers.get(token);
+  if (!writer) return;
+  run.launched = true;
+
+  // Caller's explicit country wins: an agent onboarding an account that belongs
+  // to a particular market may deliberately want that market's exit, even when
+  // the person holding the phone is elsewhere.
+  const country = run.country || viewerCountry || undefined;
+  run.country = country;
+  run.state = "starting";
+  console.log(
+    `[tiktok-connect] viewer arrived for ${run.accountId}` +
+    (viewerCountry ? ` from ${viewerCountry}` : " (country unknown)") +
+    ` — launching login browser on ${country || process.env.IPROYAL_DEFAULT_COUNTRY || "us"}`,
+  );
+
+  void driveConnect(run, writer, { country, proxySessionId: run.proxySessionId })
+    .catch((e) => {
+      run.state = "failed";
+      run.error = e?.message || String(e);
+    })
+    .finally(() => {
+      writers.delete(token);
+      // Keep the record briefly so a poll after completion still gets an
+      // answer, then let it go.
+      setTimeout(() => runs.delete(token), 5 * 60 * 1000).unref?.();
+    });
 }

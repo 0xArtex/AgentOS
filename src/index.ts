@@ -208,11 +208,21 @@ app.get("/version", (_req, res) => {
 // separate writer credential on POST /social/tiktok/qr (see qr-handoff.ts) — the
 // forwarded link is never a write capability, which blocks QR-swap takeover.
 import { getQrSession, renderQrPage, renderExpiredPage } from "./services/qr-handoff";
+import { noteConnectViewer } from "./services/tiktok-server-connect";
+import { clientCountry } from "./middleware/client-ip";
 import { warnIfSelfHosted } from "./services/self-hosted";
 app.get("/connect/:token", (req, res) => {
   const sess = getQrSession(req.params.token);
   res.set("Content-Type", "text/html; charset=utf-8");
   res.set("Cache-Control", "no-store");
+  // A server-side login waits for this moment before starting its browser, so
+  // the exit country can be matched to whoever is about to scan. TikTok weighs
+  // the distance between the scanning phone and the browser being authorised —
+  // that gap is the signature of a QR phishing attack — so a login on the wrong
+  // continent is refused outright. Reading the country here means nobody has to
+  // know it in advance. Harmless for a locally-driven QR relay: no run exists
+  // under that token, and this returns immediately.
+  if (sess) noteConnectViewer(req.params.token, clientCountry(req));
   // Render the page for any live session (even before the QR renders — it polls
   // and fills in); only an unknown/expired token gets the expired page.
   res.status(sess ? 200 : 404).send(sess ? renderQrPage(req.params.token) : renderExpiredPage());

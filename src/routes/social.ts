@@ -2063,11 +2063,15 @@ router.post(
         proxySessionId: typeof proxy_session_id === "string" ? proxy_session_id : undefined,
         baseUrl: "https://" + (req.get("host") || "palmyr.ai"),
       });
+      // Never hand the writer credential to the caller — it is a WRITE
+      // capability over the hand-off session, and the deferred launch uses it
+      // server-side.
+      const { writer: _writer, ...safe } = started;
       res.status(202).json({
-        ...started,
+        ...safe,
         account_id,
-        status: "starting",
-        message: "Send connect_url to the human. They scan the QR with the TikTok app; the session lands in this account's own browser profile on the server.",
+        status: "awaiting_viewer",
+        message: "Send connect_url to the human. The login browser starts when they open it — exiting from their own country, so TikTok does not read the scan as a phishing attempt — and the session lands in this account's own browser profile on the server.",
         poll_url: `/social/tiktok/connect/${started.token}`,
       });
     } catch (err: any) {
