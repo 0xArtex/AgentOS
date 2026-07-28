@@ -20,6 +20,23 @@ function isLoopbackPeer(addr: string | undefined): boolean {
   return addr === "::1" || addr === "::ffff:127.0.0.1" || addr.startsWith("127.");
 }
 
+/**
+ * Best-effort ISO-3166 country of the real client, or null.
+ *
+ * Cloudflare resolves this at the edge and injects `CF-IPCountry`, under the
+ * same trust model as CF-Connecting-IP above: only believed when the request
+ * actually arrived through the local tunnel. "XX"/"T1" are Cloudflare's own
+ * placeholders for unknown and Tor, and are treated as no answer.
+ */
+export function clientCountry(req: Request): string | null {
+  const peer = req.socket.remoteAddress;
+  const cc = req.headers["cf-ipcountry"];
+  if (typeof cc !== "string" || !isLoopbackPeer(peer)) return null;
+  const v = cc.trim().toLowerCase();
+  if (!/^[a-z]{2}$/.test(v) || v === "xx" || v === "t1") return null;
+  return v;
+}
+
 export function clientIp(req: Request): string {
   const peer = req.socket.remoteAddress;
   const cf = req.headers["cf-connecting-ip"];
