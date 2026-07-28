@@ -1321,6 +1321,12 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<username>', desc: 'Performance review — best/worst, tier mix, engagement, trend vs last snapshot' },
     { flag: '(price)', desc: 'Free — reads the local snapshot store' },
   ],
+  series: [
+    { flag: '<username>', desc: "Per-post engagement history the SERVER stored — survives this machine" },
+    { flag: '--video <id>', desc: 'Full time-series for one video instead of the latest per video' },
+    { flag: '--hours <n>', desc: 'Per-video growth over the last n hours' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
   monitor: [
     { flag: 'tick | start | stop | status', desc: 'Unattended analytics loop (self-learning)' },
     { flag: '--every <6h|30m>', desc: 'Interval for `start` (default 6h)' },
@@ -8309,6 +8315,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               { name: 'logs',    description: 'Audit log of posts that went out (approved drafts + direct posts)', hint: '[<username>] [--tag <folder>] [--limit N]' },
               { name: 'analytics', description: 'Scrape per-post views/likes/comments, categorize into tiers vs the account’s own posts, and snapshot the time-series', hint: '<username>' },
               { name: 'review',  description: 'Performance review: best/worst posts, tier mix, engagement, and trend vs the last snapshot — the self-learning surface', hint: '<username>' },
+              { name: 'series',  description: 'Server-stored per-post engagement history: full time-series for a video, or per-video growth over a window', hint: '<username> [--video <id>] [--hours 24]' },
               { name: 'monitor', description: 'Unattended loop that periodically runs analytics so review stays fresh (mirrors the wallet daemon)', hint: 'tick | start --every 6h | stop | status' },
             ],
             fromHome,
@@ -8968,19 +8975,110 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             } catch (e: any) {
               err(`analytics failed: ${e.message}`, EXIT.GENERAL)
             }
+
+            // Analytics became async server-side once it started scrolling the
+            // whole post list — that runs past the edge proxy's timeout on any
+            // account with real history. Poll to a terminal state. A server
+            // still answering synchronously (no operation_id) falls through to
+            // the old shape, so an older deployment keeps working.
+            if (data?.operation_id) {
+              const opId = data.operation_id
+              const intervalMs = Math.max(1, Number(data.poll_after_seconds) || 15) * 1000
+              const deadline = Date.now() + 360_000
+              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+              if (!AGENT_MODE) process.stderr.write('tiktok analytics: working… (up to a few min)\n')
+              let final: any = null
+              let attempt = 0
+              while (Date.now() < deadline) {
+                await sleep(intervalMs)
+                attempt++
+                let op: any
+                try {
+                  op = await ao.socialTiktokOperation(opId)
+                } catch (e: any) {
+                  if (AGENT_MODE) process.stderr.write(JSON.stringify({ event: 'poll', status: 'error', attempt, message: e?.message ?? String(e) }) + '\n')
+                  continue
+                }
+                if (AGENT_MODE) process.stderr.write(JSON.stringify({ event: 'poll', status: op?.status || 'running', attempt }) + '\n')
+                if (op?.done === true || op?.status === 'failed') { final = op; break }
+              }
+              if (!final) {
+                return print({ operation_id: opId, status: 'running', done: false, poll_url: data.poll_url || `/social/tiktok/operations/${opId}`, message: 'Still running server-side — re-check with the poll_url.' })
+              }
+              if (final.status === 'failed') {
+                err(`analytics failed: ${final.error || 'unknown'}${final.error_code ? ` [${final.error_code}]` : ''} (refund: ${final.refund_status || 'unknown'})`, EXIT.GENERAL)
+              }
+              // Normalise onto the sync shape the rest of this branch expects.
+              data = { success: true, data: final.result || {} }
+            }
+
             if (!data?.success) {
               err(`analytics failed: ${data?.error || 'unknown'}${data?.error_code ? ` [${data.error_code}]` : ''}`, EXIT.GENERAL)
             }
             // Categorize (relative tiers) + snapshot to the local time-series so
             // `review` can show trends. `tiktok monitor` calls this same op.
             const snap = sa.appendSnapshot(username, data?.data?.posts || [])
-            return print({ platform, username, scraped_at: data?.data?.scraped_at, summary: snap.summary, posts: snap.posts })
+            return print({
+              platform,
+              username,
+              scraped_at: data?.data?.scraped_at,
+              // How the server's own history moved. `unchanged` is why a run
+              // can record nothing and still be a healthy read — the numbers
+              // simply had not moved since the last sample.
+              ...(data?.data?.recorded !== undefined ? { recorded: data.data.recorded, unchanged: data.data.unchanged } : {}),
+              ...(data?.data?.truncated ? { truncated: true } : {}),
+              summary: snap.summary,
+              posts: snap.posts,
+            })
           }
 
           case 'review': {
             const username = positional[0] || (flags.username as string)
             if (!username) err('<username> required')
             return print(sa.review(username))
+          }
+
+          case 'series': {
+            // The SERVER's history, not the local JSONL — it survives the
+            // machine that collected it, and an agent that never runs this CLI
+            // still accumulates one by calling analytics.
+            const username = positional[0] || (flags.username as string)
+            if (!username) err('<username> required')
+            const acc = sv.getAccount(platform, username)
+            const acctId = acc ? acc.id : username!
+            const hours = flags.hours !== undefined ? Number(flags.hours) : undefined
+            if (hours !== undefined && (!Number.isFinite(hours) || hours <= 0)) err('--hours must be a positive number', EXIT.BAD_INPUT)
+            let data: any
+            try {
+              data = await ao.socialTiktokSeries(acctId, { videoId: flags.video as string | undefined, hours })
+            } catch (e: any) {
+              err(`series failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (AGENT_MODE) return print(data)
+
+            if (data?.samples) {
+              console.log(`\n  ${t.accent}${username}${t.reset} — ${t.muted}video ${data.video_id}${t.reset}\n`)
+              if (!data.samples.length) { console.log(`  ${t.muted}No samples yet. Run: palmyr tiktok analytics ${username}${t.reset}\n`); return }
+              for (const s of data.samples) {
+                console.log(`  ${String(s.sampled_at).replace('T', ' ').slice(0, 16)}  views ${String(s.views ?? '-').padStart(8)}  likes ${String(s.likes ?? '-').padStart(7)}  comments ${String(s.comments ?? '-').padStart(6)}`)
+              }
+              console.log(`\n  ${t.muted}${data.count} sample(s)${t.reset}\n`)
+              return
+            }
+
+            const rows = data?.videos || []
+            const header = data?.window_hours ? `growth over ${data.window_hours}h` : 'latest sample per video'
+            console.log(`\n  ${t.accent}${username}${t.reset} — ${t.muted}${header}${t.reset}\n`)
+            if (!rows.length) { console.log(`  ${t.muted}No history yet. Run: palmyr tiktok analytics ${username}${t.reset}\n`); return }
+            for (const v of rows) {
+              const when = v.posted_at ? String(v.posted_at).slice(0, 10) : '-'
+              const cap = String(v.caption || '').replace(/\s+/g, ' ').slice(0, 38).padEnd(38)
+              // "not measured twice yet" must not print as a gain of zero.
+              const gain = v.comparable === false ? `${t.muted}(1 sample)${t.reset}` : v.views_gained != null ? `+${v.views_gained}` : ''
+              console.log(`  ${when}  ${cap} ${String(v.views ?? '-').padStart(8)} views  ${gain}`)
+            }
+            console.log(`\n  ${t.muted}${rows.length} video(s)${t.reset}\n`)
+            return
           }
 
           case 'monitor': {

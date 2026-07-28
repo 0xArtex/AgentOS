@@ -1100,6 +1100,32 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_tiktok_accounts_tag ON tiktok_accounts(owner, tag);
   `);
 
+  // Per-post engagement over time. Analytics used to be a one-shot scrape: the
+  // caller paid, got a snapshot, and unless they stored it themselves the
+  // history was gone. "Is this video still growing?" — the actual question —
+  // was unanswerable from the server, and an agent hitting the API directly had
+  // nowhere to accumulate anything.
+  //
+  // One row per (video, sample). Deliberately flat: the series IS the rows, so
+  // reading it is an ORDER BY rather than a decode.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tiktok_post_metrics (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      caption TEXT,
+      video_url TEXT,
+      posted_at TEXT,
+      views INTEGER,
+      likes INTEGER,
+      comments INTEGER,
+      privacy TEXT,
+      sampled_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tpm_series ON tiktok_post_metrics(account_id, video_id, sampled_at);
+    CREATE INDEX IF NOT EXISTS idx_tpm_account ON tiktok_post_metrics(account_id, sampled_at);
+  `);
+
   // Server-side scheduled posts. Agents call POST /social/scheduled, pay
   // upfront via x402 (the payment covers the eventual fire — worker calls
   // the internal post function with no further charge). Worker polls
