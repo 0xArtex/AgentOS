@@ -54,7 +54,13 @@ Every op sends `account_id` + `cookies` + optional `proxy_session_id`; the serve
 DIRECT browser automation (no paid upstream). Sessions come from a real browser login.
 
 ```bash
-palmyr tiktok connect <username> [--tag <folder>]   # DEFAULT: prints a clean /connect link (in qr_link) the human opens + scans with the TikTok app on their phone. Zero install, auto-refreshes (~15 min), captured on confirm.
+palmyr tiktok connect <username> --server           # RECOMMENDED. Logs in ON THE SERVER, inside the account's own persistent browser profile ($0.01).
+                                                    # Prints a /connect link for a human to scan. The browser that authenticates is the one that later posts,
+                                                    # so no cookies are transferred and no device/IP mismatch is baked in at login. Ops then need NO cookies.
+                                                    # The login browser starts when the human opens the link and exits from THEIR country — TikTok refuses a
+                                                    # scan whose phone and browser are in different countries, because that is the shape of a QR phishing attack.
+palmyr tiktok connect <username> [--tag <folder>]   # Local QR: prints a /connect link the human scans, but the browser runs on THIS machine and needs a local
+                                                    # Chrome/Edge/Brave. The session is then shipped to the server and replayed from a different browser + IP.
 palmyr tiktok connect <username> --local            # Open the browser on THIS machine and log in here (a desktop with a human present).
 palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>   # BYO cookies (free)
 palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country us # Marketplace line (free; local vault only)

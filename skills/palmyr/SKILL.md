@@ -1,6 +1,6 @@
 ---
 name: palmyr
-description: Buy real-world infrastructure agents normally can't get without a credit card, phone, or KYC — a prepaid Visa card loaded with an exact USD balance, a phone number for SMS and voice calls, an email inbox on a custom domain, domain registration, X/Twitter and TikTok accounts (buy, post, reply, follow, analytics), a VPS to deploy and run commands on, and a crypto wallet that trades tokens on Solana and Base. Everything is paid per action via x402 (USDC on Base or Solana) with no API key and no signup — the wallet is the identity. There is also an i402 intent resolver that turns a natural-language intent plus a budget into an ordered, priced plan of calls to sign. Use this when an agent needs to pay per action, mentions Palmyr, x402, or i402, or needs a payment card for fiat checkouts, SMS, a one-time SMS or email verification code (via a cheap disposable temp number or inbox), a phone number, an email inbox, a registered domain, a social account, compute or a VPS, a wallet, or on-chain trading.
+description: Buy real-world infrastructure agents normally can't get without a credit card, phone, or KYC — a prepaid Visa card loaded with an exact USD balance, a phone number for SMS and voice calls, an email inbox on a custom domain, domain registration, X/Twitter accounts (buy, post, reply, follow) and TikTok accounts (connect, post, schedule, follow, like, delete, profile, analytics), a VPS to deploy and run commands on, and a crypto wallet that trades tokens on Solana and Base. Everything is paid per action via x402 (USDC on Base or Solana) with no API key and no signup — the wallet is the identity. There is also an i402 intent resolver that turns a natural-language intent plus a budget into an ordered, priced plan of calls to sign. Use this when an agent needs to pay per action, mentions Palmyr, x402, or i402, or needs a payment card for fiat checkouts, SMS, a one-time SMS or email verification code (via a cheap disposable temp number or inbox), a phone number, an email inbox, a registered domain, a social account, compute or a VPS, a wallet, or on-chain trading.
 license: MIT
 metadata:
   author: palmyr
@@ -25,7 +25,7 @@ Reach for Palmyr when an agent needs to:
 - send/receive **SMS** or place a **voice call** from a real **phone number** — or lease a cheap **disposable temp number** ($0.20/30min) just to catch a one-time SMS verification code (`phone temp`)
 - read/send **email** on a Palmyr or custom-domain **inbox** — or spin up a cheap **disposable temp inbox** ($0.50) for a one-time verification / order-confirmation email (`email temp`)
 - **register a domain**
-- buy and operate an **X/Twitter** or **TikTok** account (post, reply, follow, analytics)
+- buy and operate an **X/Twitter** account (post, reply, follow), or connect and operate a **TikTok** account (post, schedule, follow, like, delete, profile, analytics) — TikTok accounts are connected, not bought
 - **deploy a VPS**, run commands on it, or bootstrap an agent runtime
 - create a **crypto wallet** and **trade** tokens on Solana + Base
 - **pay per action** (x402 / USDC) for infra that is otherwise credit-card, SMS, or KYC gated
@@ -90,7 +90,7 @@ Full price list: `palmyr pricing` or `GET /pricing`. Machine-readable spec: `GET
 ## Gotchas
 
 - **Async ops return `202` + `poll_url`** (TikTok posts, account transfers, VPS provision). **Poll the `poll_url`; do NOT re-send the paid request** — retrying pays again. Poll routes are free or ~$0.0001.
-- **Sessions go stale after ~12h.** Re-run `palmyr tiktok session <user>` / `palmyr twitter login <user>` before posting if the last login is old.
+- **Sessions go stale.** `palmyr tiktok session <user>` only reports the age of a cached session — it performs no login and refreshes nothing. To re-establish a TikTok session use `palmyr tiktok connect <user> --server`; for X use `palmyr twitter login <user>`. An account connected with `--server` keeps its session in its own browser profile on the server, so there is no local jar to go stale.
 - **Handler failure after payment auto-refunds** to the payer wallet (idempotent, retried hourly) — don't manually re-pay a failed call; check for the refund first.
 - **Spend ceiling:** set `PALMYR_MAX_USDC` (or `--max-usdc`) to cap what any single call will sign — the CLI refuses to pay above it.
 - **Exit code 7 = vault tamper / security check failed — do NOT retry.** (Full exit-code table in references/payment.md.)
