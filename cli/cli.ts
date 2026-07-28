@@ -8999,14 +8999,29 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           case 'pfp': {
             const username = positional[0] || (flags.username as string)
             if (!username) err(`<username> required`)
+            // An account logged in with `connect --server` has no local record
+            // and no cookie jar — its session lives in its own browser profile
+            // on the server and never left the box. Send no cookies and let the
+            // server authorise on the profile. Only demand a local session when
+            // there is a local account that simply has not logged in yet.
             const acc = sv.getAccount(platform, username)
-            if (!acc) err(`tiktok account "${username}" not found locally`, EXIT.NOT_FOUND)
-            const sess = sv.loadSession(acc!.id)
-            if (!sess || !sess.cookies || sess.cookies.length === 0) {
-              err(`No cached session for ${username}. Run 'tiktok login ${username}' first.`, EXIT.NOT_FOUND)
+            const sess = acc ? sv.loadSession(acc.id) : undefined
+            const serverSide = !acc || !sess || !sess.cookies || sess.cookies.length === 0
+            if (acc && serverSide && !flags.server) {
+              // A known local account with no session is a genuine "log in
+              // first", not a server-side one — unless told otherwise.
+              err(
+                `No cached session for ${username}. Run 'palmyr tiktok connect ${username} --server' ` +
+                `(logs in on the server, recommended) or 'tiktok login ${username}'.`,
+                EXIT.NOT_FOUND,
+              )
             }
-            const psid = sv.getProxySessionId(platform, username)
-            const country = sv.getCountry(platform, username)
+            const psid = acc ? sv.getProxySessionId(platform, username) : undefined
+            const country = (flags.country as string)?.toLowerCase() || (acc ? sv.getCountry(platform, username) : undefined)
+            // For a server-side account the handle IS the id the profile is
+            // keyed on — that is what `connect --server` created it under.
+            const acctId = acc ? acc.id : username!
+            const jar: any[] = serverSide ? [] : sess!.cookies
 
             let data: any
             // Set by the post/schedule branch so the shared async tail can write
@@ -9051,27 +9066,27 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 // the op confirms, then hand the envelope to the shared poller.
                 postCaption = caption
                 postScheduleAt = schedule_at
-                data = await ao.socialTiktokPost(acc!.id, sess!.cookies, caption, media, { privacy, schedule_at }, psid, country)
+                data = await ao.socialTiktokPost(acctId, jar, caption, media, { privacy, schedule_at }, psid, country)
               } else if (subcommand === 'follow') {
                 const target = (flags.user as string) || (flags.target as string)
                 if (!target) err('--user <@handle> required')
-                data = await ao.socialTiktokFollow(acc!.id, sess!.cookies, target, psid, country)
+                data = await ao.socialTiktokFollow(acctId, jar, target, psid, country)
               } else if (subcommand === 'like') {
                 const videoUrl = (flags.video as string) || (flags.url as string)
                 if (!videoUrl) err('--video <tiktok-url> required')
-                data = await ao.socialTiktokLike(acc!.id, sess!.cookies, videoUrl, psid, country)
+                data = await ao.socialTiktokLike(acctId, jar, videoUrl, psid, country)
               } else if (subcommand === 'delete') {
                 const videoUrl = (flags.video as string) || (flags.url as string)
                 if (!videoUrl) err('--video <tiktok-url> required')
-                data = await ao.socialTiktokDelete(acc!.id, sess!.cookies, videoUrl, psid, country)
+                data = await ao.socialTiktokDelete(acctId, jar, videoUrl, psid, country)
               } else if (subcommand === 'bio') {
                 const text = (flags.text as string) || (flags.body as string)
                 if (text === undefined) err('--text "..." required (pass "" to clear)')
-                data = await ao.socialTiktokProfile(acc!.id, sess!.cookies, { bio: text }, psid, country)
+                data = await ao.socialTiktokProfile(acctId, jar, { bio: text }, psid, country)
               } else if (subcommand === 'name') {
                 const text = (flags.display as string) || (flags.text as string) || (flags.name as string)
                 if (!text) err('--display "Display Name" required')
-                data = await ao.socialTiktokProfile(acc!.id, sess!.cookies, { display_name: text }, psid, country)
+                data = await ao.socialTiktokProfile(acctId, jar, { display_name: text }, psid, country)
               } else {
                 // pfp
                 const filePath = (flags.file as string) || (flags.path as string)
@@ -9087,7 +9102,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
                 } else {
                   image.image_url = imageUrl
                 }
-                data = await ao.socialTiktokAvatar(acc!.id, sess!.cookies, image, psid, country)
+                data = await ao.socialTiktokAvatar(acctId, jar, image, psid, country)
               }
             } catch (e: any) {
               err(`${subcommand} failed: ${e.message}`, EXIT.GENERAL)
@@ -9142,7 +9157,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               }
               // Success (status 'posted' for a post, 'done' for a simple op).
               if ((subcommand === 'post' || subcommand === 'schedule') && postCaption) {
-                sd.appendPostLog({ platform, account: username, caption: postCaption, source: 'direct', status: postScheduleAt ? 'scheduled' : 'posted', url: final.video_url, tag: acc.tag, result: final })
+                sd.appendPostLog({ platform, account: username, caption: postCaption, source: 'direct', status: postScheduleAt ? 'scheduled' : 'posted', url: final.video_url, tag: acc?.tag, result: final })
               }
               sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
               return print({ success: true, platform, username, op: subcommand, operation_id: opId, ...(final.video_url ? { video_url: final.video_url, video_id: final.video_id } : {}), ...(final.scheduled_at ? { scheduled_at: final.scheduled_at } : {}), ...(final.result || {}) })
