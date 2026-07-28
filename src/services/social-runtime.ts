@@ -109,14 +109,34 @@ function browserChannel(): string | undefined {
   return persistentDeviceEnabled() ? "chrome" : undefined;
 }
 
-/** Where an account's Chrome profile lives. Contains live session cookies in
- *  plaintext, so it is created 0700 and belongs under the same protection as
- *  any other credential store. */
-export function profileDirFor(accountId: string): string {
+/** Path an account's Chrome profile would live at. Does not create it. */
+function profilePathFor(accountId: string): string {
   const base = process.env.PALMYR_DATA_DIR || join(process.cwd(), "data");
-  const dir = join(base, "social-profiles", accountId.replace(/[^A-Za-z0-9_-]/g, "_"));
+  return join(base, "social-profiles", accountId.replace(/[^A-Za-z0-9_-]/g, "_"));
+}
+
+/** Where an account's Chrome profile lives, creating it if needed. Contains
+ *  live session cookies in plaintext, so it is created 0700 and belongs under
+ *  the same protection as any other credential store. */
+export function profileDirFor(accountId: string): string {
+  const dir = profilePathFor(accountId);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 });
   return dir;
+}
+
+/**
+ * True when this account was logged in on the server and its session lives in
+ * its own profile. Such an account has no cookie jar to present, so the profile
+ * itself stands in for one — callers use this to decide whether a request
+ * without cookies is authorised or merely incomplete.
+ *
+ * Checks for a Chrome-written file rather than the bare directory: profileDirFor
+ * creates the directory on any launch attempt, so directory existence alone
+ * would also be true for an account whose login never completed.
+ */
+export function hasServerProfile(accountId: string): boolean {
+  const dir = profilePathFor(accountId);
+  return existsSync(join(dir, "Default", "Cookies")) || existsSync(join(dir, "Default", "Preferences"));
 }
 
 /**

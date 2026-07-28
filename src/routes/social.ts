@@ -76,6 +76,7 @@ import {
 import { loginTikTok } from "../services/tiktok-login";
 import { putQr } from "../services/qr-handoff";
 import { startServerConnect, getServerConnect } from "../services/tiktok-server-connect";
+import { hasServerProfile } from "../services/social-runtime";
 import {
   followUser as tiktokFollow,
   likeVideo as tiktokLike,
@@ -1752,8 +1753,14 @@ function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | 
     country?: string;
     cookies?: any[];
   };
-  if (!account_id || !Array.isArray(cookies) || cookies.length === 0) {
-    return respondMissingSessionFields(req, res);
+  if (!account_id) return respondMissingSessionFields(req, res);
+  // An account logged in on the server has NO cookies to send — its session
+  // lives in its own browser profile and never left the box. Requiring a jar
+  // here would make server-side connect produce accounts that cannot be used.
+  // The profile is the credential, so its presence is the authorisation.
+  if (!Array.isArray(cookies) || cookies.length === 0) {
+    if (!hasServerProfile(account_id)) return respondMissingSessionFields(req, res);
+    return { account_id, proxy_session_id, country, cookies: [] };
   }
   return { account_id, proxy_session_id, country, cookies };
 }
