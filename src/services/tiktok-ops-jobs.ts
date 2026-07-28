@@ -29,7 +29,7 @@ import type { TikTokOpResult } from "./tiktok-operations";
 import { rotateProxyExit } from "./social-runtime";
 import { noteSuccess, noteFailure } from "./tiktok-accounts";
 
-export type TikTokOpName = "follow" | "like" | "delete" | "profile" | "avatar";
+export type TikTokOpName = "follow" | "like" | "delete" | "profile" | "avatar" | "analytics";
 export type TikTokOpJobStatus = "pending" | "running" | "done" | "failed";
 
 export interface TikTokOpJobRow {
@@ -54,7 +54,7 @@ export interface TikTokOpJobRow {
 db.exec(`
   CREATE TABLE IF NOT EXISTS tiktok_op_jobs (
     id TEXT PRIMARY KEY,
-    op TEXT NOT NULL CHECK(op IN ('follow','like','delete','profile','avatar')),
+    op TEXT NOT NULL CHECK(op IN ('follow','like','delete','profile','avatar','analytics')),
     account_id TEXT NOT NULL,
     owner TEXT NOT NULL,
     payment_signature TEXT,
@@ -74,6 +74,62 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tiktok_op_owner ON tiktok_op_jobs(owner);
   CREATE INDEX IF NOT EXISTS idx_tiktok_op_status ON tiktok_op_jobs(status);
 `);
+
+// Idempotent migration: admit 'analytics' to the op CHECK.
+//
+// CREATE TABLE IF NOT EXISTS above is a no-op against a database that already
+// has this table, so a deployed server would keep the old five-op constraint
+// and reject every analytics job at INSERT — passing locally on a fresh DB and
+// failing only in production. SQLite cannot alter a CHECK in place, so the
+// table is rebuilt when the old constraint is detected (same approach as the
+// email_inboxes UNIQUE rebuild in db.ts).
+{
+  const ddl = (db.prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='tiktok_op_jobs'").get() as
+    | { sql: string }
+    | undefined)?.sql;
+  if (ddl && ddl.includes("CHECK(op IN") && !ddl.includes("'analytics'")) {
+    db.exec("BEGIN");
+    try {
+      db.exec(`
+        CREATE TABLE tiktok_op_jobs_new (
+          id TEXT PRIMARY KEY,
+          op TEXT NOT NULL CHECK(op IN ('follow','like','delete','profile','avatar','analytics')),
+          account_id TEXT NOT NULL,
+          owner TEXT NOT NULL,
+          payment_signature TEXT,
+          payment_chain TEXT,
+          charged_usdc REAL,
+          status TEXT NOT NULL DEFAULT 'pending'
+            CHECK(status IN ('pending','running','done','failed')),
+          result_json TEXT,
+          error TEXT,
+          error_code TEXT,
+          refund_id TEXT,
+          refund_status TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now','utc')),
+          started_at TEXT,
+          completed_at TEXT
+        );
+        INSERT INTO tiktok_op_jobs_new
+          (id, op, account_id, owner, payment_signature, payment_chain, charged_usdc, status,
+           result_json, error, error_code, refund_id, refund_status, created_at, started_at, completed_at)
+        SELECT
+           id, op, account_id, owner, payment_signature, payment_chain, charged_usdc, status,
+           result_json, error, error_code, refund_id, refund_status, created_at, started_at, completed_at
+          FROM tiktok_op_jobs;
+        DROP TABLE tiktok_op_jobs;
+        ALTER TABLE tiktok_op_jobs_new RENAME TO tiktok_op_jobs;
+        CREATE INDEX IF NOT EXISTS idx_tiktok_op_owner ON tiktok_op_jobs(owner);
+        CREATE INDEX IF NOT EXISTS idx_tiktok_op_status ON tiktok_op_jobs(status);
+      `);
+      db.exec("COMMIT");
+      console.log("[tiktok] migrated tiktok_op_jobs to allow the analytics op");
+    } catch (e) {
+      db.exec("ROLLBACK");
+      throw e;
+    }
+  }
+}
 
 export interface TikTokOpDeps {
   refund: (opts: RefundOpts) => Promise<RefundResult>;

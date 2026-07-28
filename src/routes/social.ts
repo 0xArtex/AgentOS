@@ -83,6 +83,7 @@ import {
   registerAccount as registerTikTokAccount,
   listByOwner as listTikTokAccountsByOwner,
 } from "../services/tiktok-accounts";
+import { seriesFor, latestForAccount, growthSince } from "../services/tiktok-metrics";
 import {
   followUser as tiktokFollow,
   likeVideo as tiktokLike,
@@ -2314,11 +2315,68 @@ router.post(
     const common = await validateTikTokOpBody(req, res);
     if (!common) return;
     try {
-      const result = await tiktokAnalyzePosts({ ...common });
-      res.status(result.success ? 200 : 400).json(result);
+      // Analytics was the last synchronous TikTok op. It scrapes a browser
+      // page, and now scrolls the whole list to load it, so it runs well past
+      // the edge proxy's timeout on an account with any real history — the
+      // same 524 that forced every other op async. Going through the job
+      // lifecycle also brings it under auto-refund on failure.
+      const job = createOpJob(
+        { op: "analytics", account_id: common.account_id, ...paymentCtx(req) },
+        () => tiktokAnalyzePosts({ ...common }),
+      );
+      respondOpAccepted(res, job, "analytics scrape");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "TikTok analytics failed" });
     }
+  }
+);
+
+/**
+ * GET /social/tiktok/series
+ *
+ * The stored history for an account: either the full series for one video, or
+ * the latest sample per video, or per-video growth over a window. This is what
+ * makes analytics answer "is it still growing" instead of only "what is it now".
+ */
+router.get(
+  "/tiktok/series",
+  requireAuth(0.001, "general", {
+    description: "Read stored per-post engagement history for a TikTok account you own (time series, latest, or growth).",
+    category: "social",
+    tags: ["tiktok", "analytics", "history", "series"],
+  }),
+  (req: AuthenticatedRequest, res: Response) => {
+    const caller = req.payment?.payer || req.agentId;
+    const account_id = typeof req.query.account_id === "string" ? req.query.account_id : "";
+    if (!account_id) {
+      res.status(400).json({ error: "account_id is required" });
+      return;
+    }
+    // Same binding the write ops enforce: history is account data, so reading
+    // it must not be a way around ownership.
+    const verdict = checkOwnership(account_id, typeof caller === "string" ? caller : undefined);
+    if (!verdict.allowed) {
+      res.status(403).json({ error: "Forbidden", error_code: "NOT_YOUR_ACCOUNT", message: verdict.reason });
+      return;
+    }
+
+    const video_id = typeof req.query.video_id === "string" ? req.query.video_id : undefined;
+    if (video_id) {
+      const samples = seriesFor(account_id, video_id);
+      res.json({ account_id, video_id, samples, count: samples.length });
+      return;
+    }
+
+    const hoursRaw = Number(req.query.hours);
+    if (Number.isFinite(hoursRaw) && hoursRaw > 0) {
+      const since = new Date(Date.now() - hoursRaw * 3_600_000).toISOString();
+      const growth = growthSince(account_id, since);
+      res.json({ account_id, window_hours: hoursRaw, since, videos: growth, count: growth.length });
+      return;
+    }
+
+    const latest = latestForAccount(account_id);
+    res.json({ account_id, videos: latest, count: latest.length });
   }
 );
 

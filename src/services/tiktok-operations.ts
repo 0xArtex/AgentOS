@@ -17,6 +17,7 @@ import { randomUUID } from "crypto";
 import { checkRateLimit, recordAction } from "./social-rate-limit";
 import { resolveElement, axSnapshot, waitForHydrated, HYDRATION_PROBES } from "./social-selectors";
 import { wallClockInTz, pad2, type WallClock } from "./schedule-time";
+import { recordSample, postedAtFromVideoId } from "./tiktok-metrics";
 
 const MAX_VIDEO_BYTES = 100 * 1024 * 1024;   // 100 MB — covers up to ~90s @ typical bitrate
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;    // 10 MB
@@ -1499,6 +1500,36 @@ export async function analyzePosts(req: TikTokAnalyticsRequest): Promise<TikTokO
     // them settle before reading.
     if (listState === "rows") await page.waitForTimeout(1500);
 
+    // The content manager lazy-loads: only the first screen of rows is in the
+    // DOM until you scroll. Reading straight away truncates the account to its
+    // newest handful of posts and reports that as the whole history — which,
+    // for a time series, silently deletes every older video from the record.
+    //
+    // Scroll until the row count holds steady twice (one flat round can just be
+    // a slow fetch), capped so a pathological list cannot spin forever.
+    const MAX_SCROLLS = 40;
+    let scrolls = 0;
+    let truncated = false;
+    if (listState === "rows") {
+      let lastCount = -1;
+      let stable = 0;
+      while (scrolls < MAX_SCROLLS && stable < 2) {
+        const count: number = Number(
+          await page.evaluate(`document.querySelectorAll('a[href*="/video/"]').length`).catch(() => 0),
+        );
+        if (count === lastCount) stable++;
+        else { stable = 0; lastCount = count; }
+        if (stable >= 2) break;
+        await page.evaluate(`window.scrollTo(0, document.body.scrollHeight)`).catch(() => {});
+        await page.waitForTimeout(1200);
+        scrolls++;
+      }
+      // Hitting the cap means there was still more to load. Say so — a caller
+      // reading a partial history as complete would compute wrong totals.
+      truncated = scrolls >= MAX_SCROLLS && stable < 2;
+      if (truncated) console.log("[tiktok] analytics hit the scroll cap; post list may be incomplete");
+    }
+
     const scraped: any = await page.evaluate(`(()=>{
       const parseNum = (t) => {
         if (t == null) return null;
@@ -1540,7 +1571,34 @@ export async function analyzePosts(req: TikTokAnalyticsRequest): Promise<TikTokO
       const diag = await captureUiState(page, "analytics-scrape-failed");
       return { success: false, error: "Could not scrape the content manager (selector may have rotated).", error_code: "UI_TIMEOUT", data: diag as any };
     }
-    return { success: true, data: { posts: scraped.posts, scraped_at: new Date().toISOString() } };
+    // Recover each post's date from its id (Snowflake-style: high 32 bits are
+    // the creation time). Arithmetic beats scraping the date out of the row —
+    // no selector to rotate, no locale-specific format to misparse, and it
+    // works for posts made long before Palmyr ever saw the account.
+    const scraped_at = new Date().toISOString();
+    const posts = (scraped.posts as any[]).map((p) => ({ ...p, posted_at: postedAtFromVideoId(String(p.id)) }));
+
+    // Persist the sample so the account accrues a history. Without this the
+    // caller pays for a snapshot and, unless they store it themselves, the
+    // question they actually have — "is this still growing?" — stays
+    // unanswerable. Never let a bookkeeping failure lose a scrape the caller
+    // already paid for.
+    let series: { recorded: number; unchanged: number } | undefined;
+    try {
+      series = recordSample(req.account_id, posts, scraped_at);
+    } catch (e: any) {
+      console.error("[tiktok] analytics scraped but failed to persist:", e?.message || e);
+    }
+
+    return {
+      success: true,
+      data: {
+        posts,
+        scraped_at,
+        ...(series ? { recorded: series.recorded, unchanged: series.unchanged } : {}),
+        ...(truncated ? { truncated: true } : {}),
+      },
+    };
   } catch (e: any) {
     const diag = await captureUiState(page, "analytics-error").catch(() => ({}));
     return { success: false, error: e.message || String(e), error_code: "UNKNOWN", data: diag as any };

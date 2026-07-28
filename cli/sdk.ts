@@ -1441,6 +1441,18 @@ export class Palmyr {
     return this.request('POST', '/social/tiktok/analytics', { account_id: accountId, proxy_session_id: proxySessionId, country, cookies })
   }
 
+  /**
+   * Stored per-post engagement history the server accumulated from past
+   * analytics runs. Pass videoId for one video's full series, hours for
+   * per-video growth over a window, or neither for the latest sample of each.
+   */
+  async socialTiktokSeries(accountId: string, opts: { videoId?: string; hours?: number } = {}): Promise<any> {
+    const q = new URLSearchParams({ account_id: accountId })
+    if (opts.videoId) q.set('video_id', opts.videoId)
+    if (opts.hours) q.set('hours', String(opts.hours))
+    return this.request('GET', `/social/tiktok/series?${q.toString()}`)
+  }
+
   // ── Info ──
   async pricing(): Promise<any> {
     return this.request('GET', '/pricing')
