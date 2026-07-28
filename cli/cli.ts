@@ -2072,31 +2072,6 @@ async function main() {
             break
           }
           case 'list': {
-            // --server lists what the SERVER knows this wallet owns. The local
-            // vault only ever knew about locally-connected accounts, so an
-            // account logged in with `connect --server` was invisible to it.
-            if (flags.server) {
-              const data = await ao.tiktokAccounts(flags.tag as string | undefined)
-              if (AGENT_MODE) return print(data)
-              const rows = data.accounts || []
-              console.log(`
-  ${t.accent}server-side tiktok accounts${t.reset} — ${t.muted}${data.owner}${t.reset}
-`)
-              if (rows.length === 0) {
-                console.log(`  ${t.muted}None yet. Connect one: palmyr tiktok connect <handle> --server${t.reset}
-`)
-                return
-              }
-              for (const a of rows) {
-                const live = a.profile_present ? '' : `  ${t.error}(profile missing on host)${t.reset}`
-                const seen = a.hours_since_success == null ? 'never' : `${a.hours_since_success}h ago`
-                console.log(`  ${a.account_id.padEnd(24)} ${String(a.status).padEnd(11)} ${String(a.country || '-').padEnd(4)} last ok: ${seen}${live}`)
-              }
-              console.log(`
-  ${t.muted}${rows.length} account(s)${t.reset}
-`)
-              return
-            }
             const data = await ao.phoneListNumbers()
             return print(data)
           }
@@ -8457,6 +8432,31 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           case 'list': {
+            // --server lists what the SERVER knows this wallet owns. The local
+            // vault only ever knew about locally-connected accounts, so an
+            // account logged in with `connect --server` was invisible to it.
+            if (flags.server) {
+              const data = await ao.tiktokAccounts(flags.tag as string | undefined)
+              if (AGENT_MODE) return print(data)
+              const rows = data.accounts || []
+              console.log(`
+  ${t.accent}server-side tiktok accounts${t.reset} — ${t.muted}${data.owner}${t.reset}
+`)
+              if (rows.length === 0) {
+                console.log(`  ${t.muted}None yet. Connect one: palmyr tiktok connect <handle> --server${t.reset}
+`)
+                return
+              }
+              for (const a of rows) {
+                const live = a.profile_present ? '' : `  ${t.error}(profile missing on host)${t.reset}`
+                const seen = a.hours_since_success == null ? 'never' : `${a.hours_since_success}h ago`
+                console.log(`  ${a.account_id.padEnd(24)} ${String(a.status).padEnd(11)} ${String(a.country || '-').padEnd(4)} last ok: ${seen}${live}`)
+              }
+              console.log(`
+  ${t.muted}${rows.length} account(s)${t.reset}
+`)
+              return
+            }
             const tagFilter = flags.tag as string | undefined
             const accounts = sv.listAccounts(platform, tagFilter)
             return print({ accounts, count: accounts.length, ...(tagFilter ? { tag: tagFilter } : {}) })
