@@ -108,10 +108,15 @@ async function driveConnect(run: ConnectRun, writer: string, opts: { country?: s
 
   const { ctx, page, close } = session;
   const deadline = Date.now() + CONNECT_WINDOW_MS;
+  console.log(
+    `[tiktok-connect] login browser up for ${run.accountId} ` +
+    `(exit country ${opts.country || process.env.IPROYAL_DEFAULT_COUNTRY || "us"})`,
+  );
   try {
     await page.goto("https://www.tiktok.com/login/qrcode", { waitUntil: "domcontentloaded", timeout: 45000 });
 
     let lastQr: string | null = null;
+    let publishedAt = 0;
     while (Date.now() < deadline) {
       // Check for the session FIRST: if the human has already scanned there is
       // no QR left to publish and we would otherwise wait a whole extra poll.
@@ -123,6 +128,29 @@ async function driveConnect(run: ConnectRun, writer: string, opts: { country?: s
         return;
       }
 
+      // TikTok answers a REFUSED scan on the browser side too, and that message
+      // is the only server-visible account of why. Without capturing it the
+      // only evidence is whatever the human reports from their phone, which is
+      // how a refusal previously told us nothing at all.
+      const refusal: string = await page.evaluate(
+        `(() => {
+          const t = (document.body && document.body.innerText) || '';
+          const m = t.match(/[^\\n]*(couldn'?t log ?in|could not log ?in|try another login method|too many attempts|something went wrong)[^\\n]*/i);
+          return m ? m[0].trim().slice(0, 200) : '';
+        })()`,
+      ).catch(() => "");
+      if (refusal) {
+        run.state = "failed";
+        run.error = `TikTok refused the login: ${refusal}`;
+        console.error(
+          `[tiktok-connect] REFUSED for ${run.accountId} after ${Math.round((Date.now() - publishedAt) / 1000)}s — "${refusal}". ` +
+          `QR login is phishing-sensitive: TikTok weighs the distance between the scanning phone and the browser being authorised, ` +
+          `so an exit country that does not match the human's is the first thing to check ` +
+          `(this run used ${opts.country || process.env.IPROYAL_DEFAULT_COUNTRY || "us"}).`,
+        );
+        return;
+      }
+
       const qr = await extractQr(page);
       // Republish only on change — TikTok rotates the code, and an unchanged
       // image would just reset the hand-off TTL for no reason.
@@ -130,10 +158,15 @@ async function driveConnect(run: ConnectRun, writer: string, opts: { country?: s
         lastQr = qr;
         try {
           putQr({ token: writer, dataUrl: qr });
-          if (run.state === "starting") run.state = "awaiting_scan";
+          if (run.state === "starting") {
+            run.state = "awaiting_scan";
+            publishedAt = Date.now();
+            console.log(`[tiktok-connect] QR published for ${run.accountId}; waiting for a human to scan`);
+          }
         } catch (e: any) {
           run.state = "failed";
           run.error = `hand-off link rejected the QR: ${e?.message || e}`;
+          console.error(`[tiktok-connect] hand-off rejected the QR for ${run.accountId}: ${run.error}`);
           return;
         }
       }
@@ -141,9 +174,11 @@ async function driveConnect(run: ConnectRun, writer: string, opts: { country?: s
     }
     run.state = "failed";
     run.error = "nobody scanned the code before the login window closed";
+    console.warn(`[tiktok-connect] window closed unscanned for ${run.accountId}`);
   } catch (e: any) {
     run.state = "failed";
     run.error = e?.message || String(e);
+    console.error(`[tiktok-connect] login failed for ${run.accountId}: ${run.error}`);
   } finally {
     await close().catch(() => {});
   }
