@@ -1070,6 +1070,36 @@ export function initDatabase(): void {
     db.exec("ALTER TABLE social_registered_accounts ADD COLUMN shared_with TEXT DEFAULT '[]'");
   }
 
+  // TikTok accounts that live entirely on the server: logged in inside their
+  // own persistent browser profile, acting from it, with no credentials ever
+  // exported. Deliberately NOT social_registered_accounts — that table requires
+  // credentials_encrypted NOT NULL, and the whole point here is that there are
+  // no credentials to store. The profile IS the credential.
+  //
+  // Before this, `account_id` was a caller-supplied string with no binding to
+  // anyone: any wallet could name any account and act on it, and the protective
+  // velocity caps keyed on that string reset the moment you changed it. A row
+  // here makes ownership a fact the server can check.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tiktok_accounts (
+      id TEXT PRIMARY KEY,
+      owner TEXT NOT NULL,
+      handle TEXT,
+      country TEXT,
+      proxy_session_id TEXT,
+      tag TEXT,
+      status TEXT NOT NULL DEFAULT 'connecting'
+        CHECK(status IN ('connecting','active','logged_out','restricted','dead')),
+      connected_at TEXT,
+      last_seen_at TEXT,
+      last_error_code TEXT,
+      last_error_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_tiktok_accounts_owner ON tiktok_accounts(owner);
+    CREATE INDEX IF NOT EXISTS idx_tiktok_accounts_tag ON tiktok_accounts(owner, tag);
+  `);
+
   // Server-side scheduled posts. Agents call POST /social/scheduled, pay
   // upfront via x402 (the payment covers the eventual fire — worker calls
   // the internal post function with no further charge). Worker polls

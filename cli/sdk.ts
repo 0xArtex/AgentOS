@@ -843,6 +843,16 @@ export class Palmyr {
     })
   }
 
+  /**
+   * Every TikTok account this wallet owns on the server, with session health:
+   * `status`, `profile_present`, `last_seen_at`, `hours_since_success`. Costs
+   * 0.001 USDC — the payment is what identifies the caller, and a wallet only
+   * ever sees its own accounts.
+   */
+  async tiktokAccounts(tag?: string): Promise<any> {
+    return this.request('GET', `/social/tiktok/accounts${tag ? `?tag=${encodeURIComponent(tag)}` : ''}`)
+  }
+
   /** Poll a server-side login. Free. `done` is true on completed or failed. */
   async tiktokConnectStatus(token: string): Promise<any> {
     return this.request('GET', `/social/tiktok/connect/${encodeURIComponent(token)}`)

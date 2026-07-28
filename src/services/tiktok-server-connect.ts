@@ -17,6 +17,7 @@
  */
 import { putQr } from "./qr-handoff";
 import { openAuthenticatedSession } from "./social-runtime";
+import { markConnected } from "./tiktok-accounts";
 
 /** How long we keep a login browser open waiting for a human to scan. */
 const CONNECT_WINDOW_MS = 10 * 60 * 1000;
@@ -133,6 +134,9 @@ async function driveConnect(run: ConnectRun, writer: string, opts: { country?: s
         try { putQr({ token: writer, done: true }); } catch { /* link may have expired; the profile is what matters */ }
         run.state = "completed";
         run.completedAt = Date.now();
+        // The registry is what makes the account listable and attributable;
+        // a login that never reaches it leaves an orphan directory on disk.
+        try { markConnected(run.accountId); } catch { /* never fail a good login on bookkeeping */ }
         console.log(`[tiktok-connect] captured a session for ${run.accountId} into its own profile`);
         return;
       }

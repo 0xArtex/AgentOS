@@ -27,6 +27,7 @@ import { db } from "../db";
 import { refundUsdcToPayer, RefundOpts, RefundResult } from "./refund";
 import type { TikTokOpResult } from "./tiktok-operations";
 import { rotateProxyExit } from "./social-runtime";
+import { noteSuccess, noteFailure } from "./tiktok-accounts";
 
 export type TikTokOpName = "follow" | "like" | "delete" | "profile" | "avatar";
 export type TikTokOpJobStatus = "pending" | "running" | "done" | "failed";
@@ -183,6 +184,10 @@ export async function runOpJob(
   }
 
   if (result.success) {
+    // A successful op is the strongest evidence the session still works, and
+    // it is what makes "which of my accounts are alive" answerable without
+    // spending a probe on each one.
+    try { noteSuccess(job.account_id); } catch { /* health is not worth failing an op over */ }
     db.prepare("UPDATE tiktok_op_jobs SET status='done', result_json=?, completed_at=? WHERE id=?")
       .run(result.data != null ? JSON.stringify(result.data) : null, nowIso(), jobId);
     return;
@@ -190,6 +195,7 @@ export async function runOpJob(
 
   const code = result.error_code || "UNKNOWN";
   const reason = `${result.error || "op failed"} [${code}]`;
+  try { noteFailure(job.account_id, code); } catch { /* as above */ }
   markFailed(jobId, code, reason);
   await issueRefund(getOpJob(jobId)!, deps, reason);
 }

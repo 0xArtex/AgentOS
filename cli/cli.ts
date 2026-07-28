@@ -1214,9 +1214,10 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '(price)', desc: 'Free — local, no server call' },
   ],
   list: [
-    { flag: '(no args)', desc: 'List all local TikTok accounts' },
-    { flag: '--tag <name>', desc: 'Filter to accounts in this folder/tag' },
-    { flag: '(price)', desc: 'Free' },
+    { flag: '(no args)', desc: 'List all local TikTok accounts (free, reads the local vault only)' },
+    { flag: '--server', desc: 'List what your wallet owns SERVER-SIDE, with session health (status, whether the browser profile is still present, hours since the last successful op). $0.001 — the payment is what identifies you. Accounts connected with `connect --server` exist only here, never in the local vault.' },
+    { flag: '--tag <name>', desc: 'Filter to accounts in this folder/tag (works for both)' },
+    { flag: '(price)', desc: 'Free locally; $0.001 with --server' },
   ],
   info: [{ flag: '<username>', desc: 'Show one account' }, { flag: '(price)', desc: 'Free' }],
   rename: [
@@ -2071,6 +2072,31 @@ async function main() {
             break
           }
           case 'list': {
+            // --server lists what the SERVER knows this wallet owns. The local
+            // vault only ever knew about locally-connected accounts, so an
+            // account logged in with `connect --server` was invisible to it.
+            if (flags.server) {
+              const data = await ao.tiktokAccounts(flags.tag as string | undefined)
+              if (AGENT_MODE) return print(data)
+              const rows = data.accounts || []
+              console.log(`
+  ${t.accent}server-side tiktok accounts${t.reset} — ${t.muted}${data.owner}${t.reset}
+`)
+              if (rows.length === 0) {
+                console.log(`  ${t.muted}None yet. Connect one: palmyr tiktok connect <handle> --server${t.reset}
+`)
+                return
+              }
+              for (const a of rows) {
+                const live = a.profile_present ? '' : `  ${t.error}(profile missing on host)${t.reset}`
+                const seen = a.hours_since_success == null ? 'never' : `${a.hours_since_success}h ago`
+                console.log(`  ${a.account_id.padEnd(24)} ${String(a.status).padEnd(11)} ${String(a.country || '-').padEnd(4)} last ok: ${seen}${live}`)
+              }
+              console.log(`
+  ${t.muted}${rows.length} account(s)${t.reset}
+`)
+              return
+            }
             const data = await ao.phoneListNumbers()
             return print(data)
           }
@@ -8285,7 +8311,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             commands: [
               { name: 'connect', description: 'Log in once via your own browser — opens TikTok, you sign in (incl. captcha/2FA), and Palmyr auto-captures the session into the local vault. Auto-creates the account and infers the country from your browser. This is the easy path.', hint: '<username> [--tag <folder>]' },
               { name: 'import',  description: 'Manual fallback to `connect`: save a BYO account from a marketplace --credentials-line "login:pw:email:email_pw", or paste cookies from DevTools → Application → Cookies → .tiktok.com via --sessionid.', hint: '--credentials-line "..." OR <username> --sessionid ... --csrf ... --webid ...' },
-              { name: 'list',    description: 'List local TikTok accounts; --tag filters to one folder', hint: '[--tag <folder>]' },
+              { name: 'list',    description: 'List TikTok accounts; --server lists what the wallet owns server-side (with session health), --tag filters to one folder', hint: '[--server] [--tag <folder>]' },
               { name: 'info',    description: 'Show one account', hint: '<username>' },
               { name: 'rename',  description: 'Update the local handle', hint: '<old> --to <new>' },
               { name: 'tag',     description: 'Group an account under a folder-like tag so one agent can organize 30+ accounts; --clear removes it', hint: '<username> <folder> | <username> --clear' },
