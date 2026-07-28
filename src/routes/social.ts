@@ -78,6 +78,12 @@ import { putQr } from "../services/qr-handoff";
 import { startServerConnect, getServerConnect } from "../services/tiktok-server-connect";
 import { hasServerProfile } from "../services/social-runtime";
 import {
+  checkOwnership,
+  getAccount as getTikTokAccount,
+  registerAccount as registerTikTokAccount,
+  listByOwner as listTikTokAccountsByOwner,
+} from "../services/tiktok-accounts";
+import {
   followUser as tiktokFollow,
   likeVideo as tiktokLike,
   deleteVideo as tiktokDelete,
@@ -1754,13 +1760,28 @@ function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | 
     cookies?: any[];
   };
   if (!account_id) return respondMissingSessionFields(req, res);
+
+  // Ownership first. `account_id` used to be a string the caller made up, with
+  // no binding to anyone — so any wallet could name any registered account and
+  // act on it, and the protective velocity caps keyed on that string reset the
+  // moment you changed it. A registered account is now owner-only.
+  const caller = req.payment?.payer || req.agentId;
+  const verdict = checkOwnership(account_id, typeof caller === "string" ? caller : undefined);
+  if (!verdict.allowed) {
+    res.status(403).json({ error: "Forbidden", error_code: "NOT_YOUR_ACCOUNT", message: verdict.reason });
+    return null;
+  }
+
   // An account logged in on the server has NO cookies to send — its session
   // lives in its own browser profile and never left the box. Requiring a jar
   // here would make server-side connect produce accounts that cannot be used.
   // The profile is the credential, so its presence is the authorisation.
   if (!Array.isArray(cookies) || cookies.length === 0) {
     if (!hasServerProfile(account_id)) return respondMissingSessionFields(req, res);
-    return { account_id, proxy_session_id, country, cookies: [] };
+    // Fall back to the account's recorded country so a caller need not repeat
+    // it on every call — the country is a property of the account.
+    const known = getTikTokAccount(account_id);
+    return { account_id, proxy_session_id: proxy_session_id || known?.proxy_session_id || undefined, country: country || known?.country || undefined, cookies: [] };
   }
   return { account_id, proxy_session_id, country, cookies };
 }
@@ -2056,9 +2077,28 @@ router.post(
         res.status(400).json({ error: "account_id is required (1-64 chars, A-Z a-z 0-9 . _ -)", error_code: "INVALID_INPUT" });
         return;
       }
+      // Bind the account to the payer BEFORE any browser starts, so a login is
+      // owned from the first moment rather than producing an orphan directory
+      // on disk that nothing can list or attribute.
+      const owner = req.payment?.payer || req.agentId;
+      if (!owner) {
+        res.status(401).json({ error: "Unauthenticated", message: "A wallet identity is required to own an account." });
+        return;
+      }
+      const registered = registerTikTokAccount({
+        id: account_id,
+        owner: String(owner),
+        country: typeof country === "string" ? country : undefined,
+        proxySessionId: typeof proxy_session_id === "string" ? proxy_session_id : undefined,
+        tag: typeof (req.body || {}).tag === "string" ? (req.body as any).tag : undefined,
+      });
+      if (!registered.ok) {
+        res.status(403).json({ error: "Forbidden", error_code: "NOT_YOUR_ACCOUNT", message: registered.error });
+        return;
+      }
       const started = startServerConnect({
         accountId: account_id,
-        owner: req.payment?.payer || req.agentId,
+        owner: String(owner),
         country: typeof country === "string" ? country : undefined,
         proxySessionId: typeof proxy_session_id === "string" ? proxy_session_id : undefined,
         baseUrl: "https://" + (req.get("host") || "palmyr.ai"),
@@ -2077,6 +2117,46 @@ router.post(
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "could not start a server-side login" });
     }
+  },
+);
+
+// GET /social/tiktok/accounts — every TikTok account this wallet owns, with
+// enough health to answer "which of mine are still logged in". Priced like the
+// other ownership-proof reads: the payment identifies the caller, and the
+// caller only ever sees their own accounts.
+//
+// This is what made a fleet legible at all. Before it, a server-side login left
+// a directory on disk and no record, so an agent could not enumerate what it
+// owned, let alone tell a live account from a dead one.
+router.get(
+  "/tiktok/accounts",
+  requireAuth(0.001, "general", {
+    description: "List the TikTok accounts your wallet owns, with session health.",
+    category: "social",
+    tags: ["tiktok", "accounts", "fleet"],
+  }),
+  (req: AuthenticatedRequest, res: Response) => {
+    const owner = req.payment?.payer || req.agentId;
+    if (!owner) {
+      res.status(401).json({ error: "Unauthenticated", message: "A wallet identity is required." });
+      return;
+    }
+    const tag = typeof req.query.tag === "string" ? req.query.tag : undefined;
+    const accounts = listTikTokAccountsByOwner(String(owner), tag).map((a) => ({
+      account_id: a.id,
+      handle: a.handle,
+      country: a.country,
+      tag: a.tag,
+      status: a.status,
+      // A row saying 'active' whose profile is gone from this host is not
+      // usable, and saying so is more honest than the status alone.
+      profile_present: a.profile_present,
+      connected_at: a.connected_at,
+      last_seen_at: a.last_seen_at,
+      hours_since_success: a.hours_since_success,
+      last_error_code: a.last_error_code,
+    }));
+    res.json({ owner, count: accounts.length, ...(tag ? { tag } : {}), accounts });
   },
 );
 
