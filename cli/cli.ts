@@ -9387,7 +9387,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, push, pull, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, review, monitor, follow, like, delete, bio, name, pfp`)
+            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, push, pull, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, series, review, monitor, follow, like, delete, bio, name, pfp`)
         }
         break
       }
