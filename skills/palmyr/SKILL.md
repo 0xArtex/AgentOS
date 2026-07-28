@@ -90,6 +90,7 @@ Full price list: `palmyr pricing` or `GET /pricing`. Machine-readable spec: `GET
 ## Gotchas
 
 - **Async ops return `202` + `poll_url`** (TikTok posts, account transfers, VPS provision). **Poll the `poll_url`; do NOT re-send the paid request** — retrying pays again. Poll routes are free or ~$0.0001.
+- **TikTok scheduling is TikTok's own, and caps at ~10 days.** `schedule_at` drives TikTok Studio's native scheduler, which accepts only ~15 minutes to ~10 days ahead — anything outside that is rejected and refunded, and there is no way to schedule further out. A scheduled post returns `scheduled_at` and **no `video_url`** (TikTok holds the video until it publishes), so never chain a step on `video_url` after scheduling one.
 - **Sessions go stale.** `palmyr tiktok session <user>` only reports the age of a cached session — it performs no login and refreshes nothing. To re-establish a TikTok session use `palmyr tiktok connect <user> --server`; for X use `palmyr twitter login <user>`. An account connected with `--server` keeps its session in its own browser profile on the server, so there is no local jar to go stale.
 - **Handler failure after payment auto-refunds** to the payer wallet (idempotent, retried hourly) — don't manually re-pay a failed call; check for the refund first.
 - **Spend ceiling:** set `PALMYR_MAX_USDC` (or `--max-usdc`) to cap what any single call will sign — the CLI refuses to pay above it.

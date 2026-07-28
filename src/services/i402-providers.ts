@@ -523,9 +523,13 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
   // planner step; cookies/login/password never appear in step inputs.
   tiktok_post: {
     name: "tiktok_post",
-    description: "Post a video to TikTok.",
-    inputSchema: { handle: "string (no @)", caption: "string", video_base64: "string?", video_url: "string?", privacy: "number?", allow_comments: "boolean?", allow_duet: "boolean?", allow_stitch: "boolean?" },
-    outputSchema: { success: "boolean", data: "object ({ video_id: string, video_url: string })" },
+    description:
+      "Post a video to TikTok, immediately or scheduled. Optional schedule_at drives TikTok's OWN scheduler, " +
+      "which accepts only ~15 minutes to ~10 days ahead — anything outside that is rejected and refunded, and " +
+      "there is no way to schedule further out. A scheduled post yields scheduled_at and NO video_url, since " +
+      "TikTok holds the video until it publishes; do not chain a step on video_url after a scheduled post.",
+    inputSchema: { handle: "string (no @)", caption: "string", video_base64: "string?", video_url: "string?", privacy: "number?", allow_comments: "boolean?", allow_duet: "boolean?", allow_stitch: "boolean?", schedule_at: "string? (ISO-8601; ~15min to ~10 days ahead only)" },
+    outputSchema: { success: "boolean", data: "object ({ video_id: string, video_url: string }) — for a SCHEDULED post instead ({ scheduled_at: string }) with no video_id/video_url" },
   },
   tiktok_follow: {
     name: "tiktok_follow",
@@ -1031,8 +1035,12 @@ export function seedPalmyrPrimitives(): void {
     // ── Social: TikTok ──
     // Same model as Twitter: no tiktok_login provider — sessions are
     // managed client-side by the CLI executor.
+    // p99 was 120s, which is under what the work takes — a post is 2-5 minutes
+    // of browser automation. Planners budget latency from these numbers, so an
+    // understated p99 makes a plan look feasible in a window it cannot finish
+    // in. Matches the executor's ~6 min poll ceiling.
     p("palmyr.tiktok_post", "tiktok_post", "/social/tiktok/post", {
-      costUsdc: 0.01, p50: 30000, p99: 120000, reputation: 0.7,
+      costUsdc: 0.01, p50: 90000, p99: 300000, reputation: 0.7,
     }),
     p("palmyr.tiktok_follow", "tiktok_follow", "/social/tiktok/follow", {
       costUsdc: 0.001, p50: 5000, reputation: 0.75,

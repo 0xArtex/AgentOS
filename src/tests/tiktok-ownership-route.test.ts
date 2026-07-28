@@ -116,6 +116,42 @@ describe("TikTok op routes enforce account ownership", () => {
     assert.notEqual(r.status, 403, "an unregistered account id must not be owner-gated");
   });
 
+  it("rejects a schedule outside TikTok's window before spending a job on it", async () => {
+    // postVideo checks the same bounds, but only once a job exists and the
+    // caller has paid — so asking for a post three weeks out cost a full round
+    // trip to learn a limit that is knowable instantly.
+    const far = new Date(Date.now() + 30 * 24 * 3_600_000).toISOString();
+    const r = await post("/social/tiktok/post", ALICE, {
+      account_id: ACCT, caption: "too far out", video_url: "https://example.invalid/v.mp4", schedule_at: far, cookies: [],
+    });
+    assert.equal(r.status, 400);
+    assert.equal(r.json.error_code, "INVALID_INPUT");
+    assert.match(JSON.stringify(r.json), /10 days/, "the actual limit must be stated, not just 'invalid'");
+    assert.match(JSON.stringify(r.json), /refund/i, "payment settled before the handler, so a refusal must refund");
+    // The window is machine-readable, so an agent can plan against it rather
+    // than discovering it by failing.
+    assert.deepEqual(r.json.schedule_window, { min_minutes: 15, max_days: 10 });
+  });
+
+  it("rejects a schedule that is too soon, for the same reason", async () => {
+    const soon = new Date(Date.now() + 60_000).toISOString();
+    const r = await post("/social/tiktok/post", ALICE, {
+      account_id: ACCT, caption: "too soon", video_url: "https://example.invalid/v.mp4", schedule_at: soon, cookies: [],
+    });
+    assert.equal(r.status, 400);
+    assert.match(JSON.stringify(r.json), /15 minutes/);
+  });
+
+  it("lets a schedule inside the window through to the normal path", async () => {
+    // Must NOT be caught by the window check — a valid schedule proceeds to the
+    // usual session/ownership handling like any other post.
+    const ok = new Date(Date.now() + 2 * 3_600_000).toISOString();
+    const r = await post("/social/tiktok/post", ALICE, {
+      account_id: ACCT, caption: "fine", video_url: "https://example.invalid/v.mp4", schedule_at: ok, cookies: [],
+    });
+    assert.notEqual(r.json.error_code, "INVALID_INPUT", "a valid window must not be rejected");
+  });
+
   it("gates the stored history too, so reading is not a way around the binding", async () => {
     // The series is account data. If reads were ungated, anyone could pull a
     // competitor's per-video engagement by guessing an account id — the write

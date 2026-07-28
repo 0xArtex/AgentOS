@@ -630,7 +630,8 @@ export function registerPalmyrTools(server: McpServer): void {
     {
       title: "Post to TikTok",
       description:
-        "Post a video to a TikTok account you control (from video_base64 or video_url). Async: returns an operation to poll. Costs 0.01 USDC, paid per-action via x402.",
+        "Post a video to a TikTok account you control (from video_base64 or video_url), immediately or scheduled. " +
+        "Async: returns an operation to poll. Costs 0.01 USDC, paid per-action via x402.",
       inputSchema: {
         account_id: z.string().describe("Your identifier for the TikTok account"),
         cookies: z.array(z.any()).describe("Non-empty array of session cookies for the TikTok account"),
@@ -640,6 +641,13 @@ export function registerPalmyrTools(server: McpServer): void {
         proxy_session_id: z.string().optional(),
         country: z.string().optional(),
         privacy: z.string().optional(),
+        // Was missing entirely, so an MCP agent could not schedule at all — the
+        // capability existed on the route and was invisible here.
+        schedule_at: z.string().optional().describe(
+          "ISO-8601 datetime to publish at. Uses TikTok's OWN scheduler, which accepts only ~15 minutes to ~10 days ahead — " +
+          "a time outside that window is rejected and refunded, and there is no way to schedule further out. " +
+          "Omit to post immediately. A scheduled post returns scheduled_at and NO video_url, because TikTok holds it until then.",
+        ),
         payment: PAYMENT_PARAM,
       } as Shape,
     },
