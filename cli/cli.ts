@@ -7538,7 +7538,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               )
             }
 
-            sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+            if (acc) sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
             return print({ success: true, platform, username, op: subcommand, ...(data?.data || {}) })
           }
 
@@ -8919,17 +8919,26 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           case 'analytics': {
             const username = positional[0] || (flags.username as string)
             if (!username) err('<username> required')
+            // Same rule as the write ops: an account logged in with
+            // `connect --server` has no local record and no jar, and the server
+            // authorises it on its own browser profile instead.
             const acc = sv.getAccount(platform, username)
-            if (!acc) err(`tiktok account "${username}" not found locally`, EXIT.NOT_FOUND)
-            const sess = sv.loadSession(acc!.id)
-            if (!sess || !sess.cookies || sess.cookies.length === 0) {
-              err(`No cached session for ${username}. Run 'tiktok connect ${username}' first.`, EXIT.NOT_FOUND)
+            const sess = acc ? sv.loadSession(acc.id) : undefined
+            const serverSide = !acc || !sess || !sess.cookies || sess.cookies.length === 0
+            if (acc && serverSide) {
+              err(
+                `No cached session for ${username}. Run 'palmyr tiktok connect ${username} --server' (recommended) ` +
+                `or 'tiktok connect ${username}'.`,
+                EXIT.NOT_FOUND,
+              )
             }
-            const psid = sv.getProxySessionId(platform, username)
-            const country = sv.getCountry(platform, username)
+            const psid = acc ? sv.getProxySessionId(platform, username) : undefined
+            const country = (flags.country as string)?.toLowerCase() || (acc ? sv.getCountry(platform, username) : undefined)
+            const acctId = acc ? acc.id : username!
+            const jar: any[] = serverSide ? [] : sess!.cookies
             let data: any
             try {
-              data = await ao.socialTiktokAnalytics(acc!.id, sess!.cookies, psid, country)
+              data = await ao.socialTiktokAnalytics(acctId, jar, psid, country)
             } catch (e: any) {
               err(`analytics failed: ${e.message}`, EXIT.GENERAL)
             }
@@ -9159,7 +9168,10 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               if ((subcommand === 'post' || subcommand === 'schedule') && postCaption) {
                 sd.appendPostLog({ platform, account: username, caption: postCaption, source: 'direct', status: postScheduleAt ? 'scheduled' : 'posted', url: final.video_url, tag: acc?.tag, result: final })
               }
-              sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
+              // A server-side account has no local record to stamp — the op
+              // already succeeded, so a bookkeeping miss must not turn it into
+              // a reported failure.
+              if (acc) sv.updateMeta(platform, username, { last_action_at: new Date().toISOString() })
               return print({ success: true, platform, username, op: subcommand, operation_id: opId, ...(final.video_url ? { video_url: final.video_url, video_id: final.video_id } : {}), ...(final.scheduled_at ? { scheduled_at: final.scheduled_at } : {}), ...(final.result || {}) })
             }
 
