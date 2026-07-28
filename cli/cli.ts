@@ -1745,6 +1745,48 @@ async function chatUsdcPreflight(passphrase?: string): Promise<{ balanceUsdc: nu
   return { balanceUsdc: balance, chain: report.payChain, walletAddress: report.walletAddress }
 }
 
+/**
+ * Poll a TikTok operation to a terminal state.
+ *
+ * Every TikTok browser op is async server-side: the POST returns 202 with an
+ * operation_id and NO `success` field. A caller that tests `data.success` on
+ * that envelope concludes the op failed — every single time — while the work
+ * goes on to succeed in the background. `approve` did exactly that, which is
+ * why it always reported failure after the payment had been taken.
+ *
+ * Returns the terminal op, or null if it was still running when we gave up
+ * (the work continues server-side either way).
+ */
+async function pollTikTokOperation(
+  ao: any,
+  opId: string,
+  opts: { label: string; pollAfterSeconds?: number; timeoutMs?: number; agentMode: boolean },
+): Promise<any | null> {
+  const intervalMs = Math.max(1, Number(opts.pollAfterSeconds) || 15) * 1000
+  // PALMYR_TIKTOK_POLL_TIMEOUT_MS lets a caller choose how long to wait before
+  // handing back the operation_id. The work continues server-side regardless,
+  // so this is patience, not a deadline on the op.
+  const envTimeout = Number(process.env.PALMYR_TIKTOK_POLL_TIMEOUT_MS)
+  const deadline = Date.now() + (opts.timeoutMs ?? (Number.isFinite(envTimeout) && envTimeout > 0 ? envTimeout : 360_000))
+  const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
+  if (!opts.agentMode) process.stderr.write(`tiktok ${opts.label}: working… (up to a few min)\n`)
+  let attempt = 0
+  while (Date.now() < deadline) {
+    await sleep(intervalMs)
+    attempt++
+    let op: any
+    try {
+      op = await ao.socialTiktokOperation(opId)
+    } catch (e: any) {
+      if (opts.agentMode) process.stderr.write(JSON.stringify({ event: 'poll', status: 'error', attempt, message: e?.message ?? String(e) }) + '\n')
+      continue
+    }
+    if (opts.agentMode) process.stderr.write(JSON.stringify({ event: 'poll', status: op?.status || 'running', attempt }) + '\n')
+    if (op?.done === true || op?.status === 'failed') return op
+  }
+  return null
+}
+
 async function main() {
   const { command, subcommand, positional, flags, flagKeys } = parse(process.argv)
   const fromHome = process.env.PALMYR_FROM_HOME === '1'
@@ -8915,14 +8957,24 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             if (!id) err('<draft-id> required')
             const draft = sd.getDraft(id)
             if (!draft) err(`draft "${id}" not found`, EXIT.NOT_FOUND)
+            // An account logged in with `connect --server` has no local record
+            // and no cookie jar — its session lives in its own browser profile
+            // on the server. The write ops learned this; approve had not, so a
+            // server-side account could never publish a draft at all.
             const acc = sv.getAccount(platform, draft!.account)
-            if (!acc) err(`account "${draft!.account}" for draft ${id} not found locally`, EXIT.NOT_FOUND)
-            const sess = sv.loadSession(acc!.id)
-            if (!sess || !sess.cookies || sess.cookies.length === 0) {
-              err(`No cached session for ${draft!.account}. Run 'tiktok connect ${draft!.account}' first.`, EXIT.NOT_FOUND)
+            const sess = acc ? sv.loadSession(acc.id) : undefined
+            const serverSide = !acc || !sess || !sess.cookies || sess.cookies.length === 0
+            if (acc && serverSide) {
+              err(
+                `No cached session for ${draft!.account}. Run 'palmyr tiktok connect ${draft!.account} --server' (recommended) ` +
+                `or 'tiktok connect ${draft!.account}'.`,
+                EXIT.NOT_FOUND,
+              )
             }
-            const psid = sv.getProxySessionId(platform, draft!.account)
-            const country = sv.getCountry(platform, draft!.account)
+            const acctId = acc ? acc.id : draft!.account
+            const jar: any[] = serverSide ? [] : sess!.cookies
+            const psid = acc ? sv.getProxySessionId(platform, draft!.account) : undefined
+            const country = (flags.country as string)?.toLowerCase() || (acc ? sv.getCountry(platform, draft!.account) : undefined)
             const media: { video_base64?: string; video_url?: string } = {}
             if (draft!.file) {
               const { readFileSync, existsSync, statSync } = await import('fs')
@@ -8934,19 +8986,56 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             }
             let data: any
             try {
-              data = await ao.socialTiktokPost(acc!.id, sess!.cookies, draft!.caption, media, { privacy: draft!.privacy, schedule_at: draft!.schedule_at }, psid, country)
+              data = await ao.socialTiktokPost(acctId, jar, draft!.caption, media, { privacy: draft!.privacy, schedule_at: draft!.schedule_at }, psid, country)
             } catch (e: any) {
               err(`approve failed: ${e.message}`, EXIT.GENERAL)
             }
-            if (!data?.success) {
-              // Keep the draft so it can be retried (e.g. after re-connecting a stale session).
+
+            // Posting is async server-side: a 202 carries an operation_id and
+            // no `success` field. Testing `data.success` on that envelope
+            // reported failure on EVERY approve — after the charge — while the
+            // video published anyway, and kept the draft so a retry would post
+            // it a second time. Poll for the real outcome instead.
+            let result: any = data?.data
+            if (data?.operation_id) {
+              const final = await pollTikTokOperation(ao, data.operation_id, {
+                label: 'approve',
+                pollAfterSeconds: Number(data.poll_after_seconds),
+                agentMode: AGENT_MODE,
+              })
+              if (!final) {
+                // Still running. The draft stays — but say plainly that it may
+                // yet publish, so nobody re-approves it into a duplicate post.
+                return print({
+                  approved: false, draft_id: id, account: draft!.account,
+                  operation_id: data.operation_id, status: 'running', done: false,
+                  poll_url: data.poll_url || `/social/tiktok/operations/${data.operation_id}`,
+                  message: 'Still running server-side. The draft was kept, but do NOT re-approve until you have checked the poll_url — it may still publish.',
+                })
+              }
+              if (final.status === 'failed') {
+                // A real failure: keep the draft so it can be retried once the
+                // cause is fixed (e.g. after re-connecting a stale session).
+                err(
+                  `approve failed: ${final.error || 'unknown'}${final.error_code ? ` [${final.error_code}]` : ''}` +
+                  ` (refund: ${final.refund_status || 'unknown'}) — draft ${id} kept for retry`,
+                  EXIT.GENERAL,
+                )
+              }
+              result = { ...(final.result || {}), ...(final.video_url ? { video_url: final.video_url, video_id: final.video_id } : {}), ...(final.scheduled_at ? { scheduled_at: final.scheduled_at } : {}) }
+            } else if (!data?.success) {
+              // Legacy synchronous server — back-compat.
               err(`approve failed: ${data?.error || 'unknown'}${data?.error_code ? ` [${data.error_code}]` : ''}`, EXIT.GENERAL)
             }
-            sv.updateMeta(platform, draft!.account, { last_action_at: new Date().toISOString() })
-            const entry = sd.appendPostLog({ platform, account: draft!.account, caption: draft!.caption, source: 'draft', status: draft!.schedule_at ? 'scheduled' : 'posted', url: data?.data?.video_url, tag: draft!.tag, draft_id: id, result: data?.data })
+
+            // A server-side account has no local record to stamp; the post
+            // already succeeded, so a bookkeeping miss must not be reported as
+            // a failure.
+            if (acc) sv.updateMeta(platform, draft!.account, { last_action_at: new Date().toISOString() })
+            const entry = sd.appendPostLog({ platform, account: draft!.account, caption: draft!.caption, source: 'draft', status: draft!.schedule_at ? 'scheduled' : 'posted', url: result?.video_url, tag: draft!.tag, draft_id: id, result })
             sd.deleteDraft(id)
             log(`tiktok approve ${id} → ${entry.status} for ${draft!.account}`)
-            return print({ approved: true, draft_id: id, account: draft!.account, status: entry.status, ...(data?.data || {}) })
+            return print({ approved: true, draft_id: id, account: draft!.account, status: entry.status, ...(result || {}) })
           }
 
           case 'analytics': {
@@ -8983,25 +9072,11 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // the old shape, so an older deployment keeps working.
             if (data?.operation_id) {
               const opId = data.operation_id
-              const intervalMs = Math.max(1, Number(data.poll_after_seconds) || 15) * 1000
-              const deadline = Date.now() + 360_000
-              const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
-              if (!AGENT_MODE) process.stderr.write('tiktok analytics: working… (up to a few min)\n')
-              let final: any = null
-              let attempt = 0
-              while (Date.now() < deadline) {
-                await sleep(intervalMs)
-                attempt++
-                let op: any
-                try {
-                  op = await ao.socialTiktokOperation(opId)
-                } catch (e: any) {
-                  if (AGENT_MODE) process.stderr.write(JSON.stringify({ event: 'poll', status: 'error', attempt, message: e?.message ?? String(e) }) + '\n')
-                  continue
-                }
-                if (AGENT_MODE) process.stderr.write(JSON.stringify({ event: 'poll', status: op?.status || 'running', attempt }) + '\n')
-                if (op?.done === true || op?.status === 'failed') { final = op; break }
-              }
+              const final = await pollTikTokOperation(ao, opId, {
+                label: 'analytics',
+                pollAfterSeconds: Number(data.poll_after_seconds),
+                agentMode: AGENT_MODE,
+              })
               if (!final) {
                 return print({ operation_id: opId, status: 'running', done: false, poll_url: data.poll_url || `/social/tiktok/operations/${opId}`, message: 'Still running server-side — re-check with the poll_url.' })
               }
