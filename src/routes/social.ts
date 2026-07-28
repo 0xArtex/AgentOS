@@ -1747,12 +1747,12 @@ router.post(
    and the response carries the captured cookies or the operation result.
    ═══════════════════════════════════════════════════════════════════════ */
 
-function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | {
+async function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): Promise<null | {
   account_id: string;
   proxy_session_id?: string;
   country?: string;
   cookies: any[];
-} {
+}> {
   const { account_id, cookies, proxy_session_id, country } = (req.body || {}) as {
     account_id?: string;
     proxy_session_id?: string;
@@ -1768,7 +1768,18 @@ function validateTikTokOpBody(req: AuthenticatedRequest, res: Response): null | 
   const caller = req.payment?.payer || req.agentId;
   const verdict = checkOwnership(account_id, typeof caller === "string" ? caller : undefined);
   if (!verdict.allowed) {
-    res.status(403).json({ error: "Forbidden", error_code: "NOT_YOUR_ACCOUNT", message: verdict.reason });
+    // The payment already settled — requireAuth runs before this. Rejecting
+    // without refunding would charge a caller for an operation we then refuse
+    // to perform, which is the exact failure mode the refund path exists to
+    // prevent. Naming someone else's account is a mistake worth blocking, not
+    // one worth billing for.
+    await refundAndRespond(req, res, {
+      reason: `ownership rejected: ${verdict.reason}`,
+      userMessage: `${verdict.reason} — your payment is being refunded.`,
+      httpStatus: 403,
+      errorLabel: "Forbidden",
+      extra: { error_code: "NOT_YOUR_ACCOUNT" },
+    });
     return null;
   }
 
@@ -1866,7 +1877,7 @@ router.post(
   requireTikTokEnabled,
   requireAuth(0.01, "general", { description: "Post a video to a TikTok account you control (from video_base64 or video_url). Async: returns an operation to poll.", category: "social", tags: ["tiktok","post","video"] }),
   async (req: AuthenticatedRequest, res: Response) => {
-    const common = validateTikTokOpBody(req, res);
+    const common = await validateTikTokOpBody(req, res);
     if (!common) return;
     const { caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch, schedule_at } = req.body as any;
     if (!caption) { res.status(400).json({ error: "caption is required" }); return; }
@@ -2211,7 +2222,7 @@ router.post(
   requireTikTokEnabled,
   requireAuth(0.001, "general", { description: "Follow a TikTok user from an account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","follow"] }),
   async (req: AuthenticatedRequest, res: Response) => {
-    const common = validateTikTokOpBody(req, res);
+    const common = await validateTikTokOpBody(req, res);
     if (!common) return;
     const { target_user } = req.body as { target_user?: string };
     if (!target_user) { res.status(400).json({ error: "target_user required" }); return; }
@@ -2229,7 +2240,7 @@ router.post(
   requireTikTokEnabled,
   requireAuth(0.001, "general", { description: "Like a TikTok video from an account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","like"] }),
   async (req: AuthenticatedRequest, res: Response) => {
-    const common = validateTikTokOpBody(req, res);
+    const common = await validateTikTokOpBody(req, res);
     if (!common) return;
     const { video_url } = req.body as { video_url?: string };
     if (!video_url) { res.status(400).json({ error: "video_url required" }); return; }
@@ -2247,7 +2258,7 @@ router.post(
   requireTikTokEnabled,
   requireAuth(0.001, "general", { description: "Delete a video from a TikTok account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","delete"] }),
   async (req: AuthenticatedRequest, res: Response) => {
-    const common = validateTikTokOpBody(req, res);
+    const common = await validateTikTokOpBody(req, res);
     if (!common) return;
     const { video_url } = req.body as { video_url?: string };
     if (!video_url) { res.status(400).json({ error: "video_url required" }); return; }
@@ -2265,7 +2276,7 @@ router.post(
   requireTikTokEnabled,
   requireAuth(0.001, "general", { description: "Update the bio/display name of a TikTok account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","profile"] }),
   async (req: AuthenticatedRequest, res: Response) => {
-    const common = validateTikTokOpBody(req, res);
+    const common = await validateTikTokOpBody(req, res);
     if (!common) return;
     const { bio, display_name } = req.body as { bio?: string; display_name?: string };
     try {
@@ -2282,7 +2293,7 @@ router.post(
   requireTikTokEnabled,
   requireAuth(0.005, "general", { description: "Update the avatar of a TikTok account you control. Async: returns an operation to poll.", category: "social", tags: ["tiktok","avatar"] }),
   async (req: AuthenticatedRequest, res: Response) => {
-    const common = validateTikTokOpBody(req, res);
+    const common = await validateTikTokOpBody(req, res);
     if (!common) return;
     const { image_base64, image_url } = req.body as { image_base64?: string; image_url?: string };
     if (!image_base64 && !image_url) { res.status(400).json({ error: "image_base64 or image_url required" }); return; }
@@ -2300,7 +2311,7 @@ router.post(
   requireTikTokEnabled,
   requireAuth(0.005, "general", { description: "Fetch post analytics for a TikTok account you control.", category: "social", tags: ["tiktok","analytics"] }),
   async (req: AuthenticatedRequest, res: Response) => {
-    const common = validateTikTokOpBody(req, res);
+    const common = await validateTikTokOpBody(req, res);
     if (!common) return;
     try {
       const result = await tiktokAnalyzePosts({ ...common });
