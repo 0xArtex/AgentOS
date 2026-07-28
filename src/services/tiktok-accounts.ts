@@ -83,10 +83,32 @@ export function markConnected(id: string): void {
   ).run(at, at, id);
 }
 
-/** An operation succeeded, so the session demonstrably still works. */
+/**
+ * An operation succeeded, so the session demonstrably still works.
+ *
+ * This clears the last error too. A row here answers "what is true about this
+ * account NOW", and an account that just succeeded still wearing an old error
+ * code reads as broken — `hours_since_success: 0` next to
+ * `last_error_code: UNKNOWN` is a contradiction a reader has to resolve by
+ * comparing timestamps. The operation history is kept by the health endpoint,
+ * which is where a diagnostic question belongs.
+ *
+ * A success also revives a `logged_out` account: a working session is direct
+ * proof it is not logged out. It deliberately does NOT clear `restricted` —
+ * restrictions are feature-scoped (TikTok and X both restrict one capability
+ * while leaving the rest alone), so a follow succeeding is no evidence that a
+ * block on some other action has lifted. Same rule as `noteFailure`, pointed
+ * the other way: only move status on evidence that speaks to it.
+ */
 export function noteSuccess(id: string): void {
-  db.prepare("UPDATE tiktok_accounts SET last_seen_at=?, status=CASE WHEN status='connecting' THEN 'active' ELSE status END WHERE id=?")
-    .run(nowIso(), id);
+  db.prepare(
+    `UPDATE tiktok_accounts
+        SET last_seen_at=?,
+            last_error_code=NULL,
+            last_error_at=NULL,
+            status=CASE WHEN status IN ('connecting','logged_out') THEN 'active' ELSE status END
+      WHERE id=?`,
+  ).run(nowIso(), id);
 }
 
 /**
