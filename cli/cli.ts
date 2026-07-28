@@ -1202,7 +1202,8 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '(price)', desc: 'Free — local vault only' },
   ],
   connect: [
-    { flag: '<username>', desc: 'Default: prints a /connect link (qr_link) the human opens and scans with the TikTok app on their phone — zero install, not sus, captured instantly.' },
+    { flag: '<username>', desc: 'Default: prints a /connect link (qr_link) the human opens and scans with the TikTok app on their phone. Needs a local Chrome/Edge/Brave on this machine to host the login.' },
+    { flag: '--server', desc: 'RECOMMENDED. Log in on the server, inside the account\'s own persistent browser profile, so the browser that authenticates is the one that later posts. No cookies are transferred and no device/IP mismatch is baked in at login. Costs $0.01; needs no local browser.' },
     { flag: '--local', desc: 'Open the browser on THIS machine and log in here yourself (a desktop with a human present).' },
     { flag: '--country <iso-2>', desc: 'Optional — auto-detected from your browser; override e.g. --country de' },
     { flag: '--timeout <sec>', desc: 'How long to wait for login (default 300)' },
@@ -8502,6 +8503,43 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // (no keystroke), and always terminates with structured JSON.
             const username = positional[0] || (flags.username as string)
             if (!username) err('<username> required')
+
+            // --server logs in ON THE SERVER, inside the account's own
+            // persistent profile, so the browser that authenticates is the one
+            // that will act. The local path below mints the session on THIS
+            // machine at your home IP while every later operation replays it
+            // from a server browser behind a residential proxy — a mismatch
+            // baked in at login that nothing afterwards can repair.
+            if (flags.server) {
+              const started = await ao.tiktokConnectServer(username, {
+                country: (flags.country as string)?.toLowerCase(),
+              })
+              if (!AGENT_MODE) {
+                console.log(`\n  ${t.accent}Send this to your human to scan:${t.reset}\n  ${t.info}${started.connect_url}${t.reset}\n`)
+                console.log(`  ${t.muted}They open it and scan the QR with the TikTok app.`)
+                console.log(`  The session lands in this account's own browser profile on the server.${t.reset}\n`)
+              }
+              // Poll until the human scans or the login window closes.
+              const deadline = Date.now() + 11 * 60_000
+              let last = ''
+              while (Date.now() < deadline) {
+                const s = await ao.tiktokConnectStatus(started.token).catch(() => null)
+                if (s && s.state !== last) {
+                  last = s.state
+                  if (AGENT_MODE) print({ event: 'connect', state: s.state, connect_url: started.connect_url })
+                  else console.log(`  ${t.muted}${s.state}${t.reset}`)
+                }
+                if (s && s.done) {
+                  if (s.state === 'completed') {
+                    return print({ success: true, platform, username, connected: true, mode: 'server',
+                      message: "Logged in. The session lives in this account's server-side profile — no cookies were transferred." })
+                  }
+                  err(`server connect failed: ${s.error || 'unknown'}`, EXIT.GENERAL)
+                }
+                await new Promise(r => setTimeout(r, 4000))
+              }
+              err('server connect timed out waiting for the scan', EXIT.GENERAL)
+            }
             // --country is optional: if omitted we infer it from the real
             // browser during login (locale/timezone). Explicit flag overrides.
             const explicitCountry = (flags.country as string)?.toLowerCase()

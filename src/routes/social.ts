@@ -75,6 +75,7 @@ import {
 } from "../services/social-operations";
 import { loginTikTok } from "../services/tiktok-login";
 import { putQr } from "../services/qr-handoff";
+import { startServerConnect, getServerConnect } from "../services/tiktok-server-connect";
 import {
   followUser as tiktokFollow,
   likeVideo as tiktokLike,
@@ -2022,6 +2023,70 @@ router.post(
     }
   }
 );
+
+// POST /social/tiktok/connect — log in on the SERVER, into the account's own
+// persistent profile, so the browser that authenticates is the browser that
+// will act. The local `tiktok connect` mints the session on the operator's
+// machine at their home IP and every later operation replays it from a
+// different browser behind a proxy; that mismatch is baked in at login and
+// cannot be repaired afterwards.
+//
+// Paid, unlike the free QR relay below, for two reasons: it holds one of only
+// two long-idling login browser slots for up to ten minutes, which is a cheap
+// availability attack if left open, and the payer becomes the account's owner.
+router.post(
+  "/tiktok/connect",
+  requireSocialReady,
+  requireAuth(0.01, "general", {
+    description: "Log in to TikTok on the server, into the account's own persistent browser profile. Returns a link to hand a human, who scans the QR with the TikTok app.",
+    category: "social",
+    tags: ["tiktok", "connect", "login"],
+  }),
+  (req: AuthenticatedRequest, res: Response) => {
+    try {
+      const { account_id, country, proxy_session_id } = (req.body || {}) as Record<string, string>;
+      if (!account_id || typeof account_id !== "string" || !/^[A-Za-z0-9._-]{1,64}$/.test(account_id)) {
+        res.status(400).json({ error: "account_id is required (1-64 chars, A-Z a-z 0-9 . _ -)", error_code: "INVALID_INPUT" });
+        return;
+      }
+      const started = startServerConnect({
+        accountId: account_id,
+        owner: req.payment?.payer || req.agentId,
+        country: typeof country === "string" ? country : undefined,
+        proxySessionId: typeof proxy_session_id === "string" ? proxy_session_id : undefined,
+        baseUrl: "https://" + (req.get("host") || "palmyr.ai"),
+      });
+      res.status(202).json({
+        ...started,
+        account_id,
+        status: "starting",
+        message: "Send connect_url to the human. They scan the QR with the TikTok app; the session lands in this account's own browser profile on the server.",
+        poll_url: `/social/tiktok/connect/${started.token}`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "could not start a server-side login" });
+    }
+  },
+);
+
+// Free status poll for a server-side login. Counts and state only — the QR
+// itself is served by the human-facing /connect/<token> page.
+router.get("/tiktok/connect/:token", (req: Request, res: Response) => {
+  const run = getServerConnect(String(req.params.token));
+  if (!run) {
+    res.status(404).json({ error: "unknown or expired connect session" });
+    return;
+  }
+  res.json({
+    token: run.token,
+    account_id: run.accountId,
+    state: run.state,
+    done: run.state === "completed" || run.state === "failed",
+    error: run.error,
+    started_at: new Date(run.startedAt).toISOString(),
+    completed_at: run.completedAt ? new Date(run.completedAt).toISOString() : undefined,
+  });
+});
 
 // follow / like / delete / profile / avatar are ASYNC for the same reason as
 // post: each drives a headless browser that can brush Cloudflare's ~100s tunnel
