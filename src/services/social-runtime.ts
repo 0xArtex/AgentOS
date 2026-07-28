@@ -439,6 +439,11 @@ export interface OpenSessionOptions {
    *  the JS bundles that render the interactive UI. Set true only where pixels
    *  genuinely matter, e.g. the avatar crop dialog. */
   loadMedia?: boolean;
+  /** Force the account's persistent profile regardless of the global flag.
+   *  Server-side login sets this: a login captured into a throwaway profile is
+   *  discarded the moment the browser closes, so there would be nothing to log
+   *  into. */
+  persistentProfile?: boolean;
 }
 
 export interface OpenedSession {
@@ -456,7 +461,7 @@ export async function openAuthenticatedSession(
   opts: OpenSessionOptions
 ): Promise<OpenedSession> {
   const sessionKey = opts.proxySessionId || opts.accountId;
-  const persistent = persistentDeviceEnabled();
+  const persistent = opts.persistentProfile === true || persistentDeviceEnabled();
   // Held for the LIFETIME of the session, not just the launch: the profile
   // directory stays open until close().
   const releaseLock = persistent ? await acquireAccountLock(opts.accountId) : undefined;

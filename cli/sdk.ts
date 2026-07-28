@@ -826,6 +826,28 @@ export class Palmyr {
    * answers with the records ARRAY at the top level (not `{ records }`) — use
    * {@link dnsRecordsOf} to normalise either shape. 0.01 USDC ownership proof.
    */
+  /**
+   * Start a SERVER-SIDE TikTok login. The browser that authenticates is the one
+   * that will later act — same persistent profile, same proxy exit, same
+   * fingerprint — so the session is never a cookie jar in transit and no
+   * device/IP mismatch is baked in at login. Returns `{ connect_url, token,
+   * poll_url }`: hand `connect_url` to a human to scan with the TikTok app,
+   * then poll {@link tiktokConnectStatus}. Costs 0.01 USDC (it holds one of two
+   * long-idling login browsers for up to ten minutes).
+   */
+  async tiktokConnectServer(accountId: string, opts: { country?: string; proxySessionId?: string } = {}): Promise<any> {
+    return this.request('POST', '/social/tiktok/connect', {
+      account_id: accountId,
+      ...(opts.country ? { country: opts.country } : {}),
+      ...(opts.proxySessionId ? { proxy_session_id: opts.proxySessionId } : {}),
+    })
+  }
+
+  /** Poll a server-side login. Free. `done` is true on completed or failed. */
+  async tiktokConnectStatus(token: string): Promise<any> {
+    return this.request('GET', `/social/tiktok/connect/${encodeURIComponent(token)}`)
+  }
+
   async domainDns(domain: string): Promise<any> {
     return this.request('GET', `/domains/${encodeURIComponent(domain)}/dns`)
   }
