@@ -903,6 +903,14 @@ export async function followUser(req: TikTokFollowRequest): Promise<TikTokOpResu
       };
     }
 
+    // TikTok pops intro/promo modals over the profile — "especially on a fresh
+    // profile", as dismissBlockingModal's own header notes — and a TUXModal
+    // overlay swallows the click on a button that is otherwise visible,
+    // enabled and stable. Playwright then retries for ten seconds and fails
+    // with a click timeout that looks nothing like "a modal was in the way".
+    // The post flow already dismisses these; the public-site ops never did.
+    if (await dismissBlockingModal(page, 6000)) console.log("[tiktok] dismissed a modal covering the follow control");
+
     // Resolve the Follow button resiliently. Every strategy excludes the
     // "Following" state so we never accidentally click-to-unfollow.
     const follow = await resolveElement(page, [
@@ -1022,6 +1030,8 @@ export async function likeVideo(req: TikTokLikeRequest): Promise<TikTokOpResult<
         data: diag as any,
       };
     }
+
+    if (await dismissBlockingModal(page, 6000)) console.log("[tiktok] dismissed a modal covering the like control");
 
     const like = await resolveElement(page, [
       { name: "data-e2e", build: (p) => p.locator('[data-e2e="like-icon"]') },
