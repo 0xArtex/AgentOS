@@ -798,7 +798,20 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
         // written to the caller's post log as the URL of the video they just
         // made. A successful post with no URL is recoverable; a successful post
         // carrying a link to unrelated content is not.
-        const resolved = req.schedule_at ? undefined : await findPostedVideo(page, req.caption).catch(() => undefined);
+        // Resolve the video for a SCHEDULED create too.
+        //
+        // This used to skip scheduling on the assumption that a held post has
+        // no URL yet. Observed directly against a live scheduled post: the row
+        // appears in the content manager immediately, carrying a real video id
+        // (`/@acct/video/7667710265768545557`) minutes before its publish time.
+        // Throwing it away left a scheduled post with no handle at all — it
+        // could not be cancelled, looked up, or reconciled afterwards, and
+        // TikTok offers no other way to find it (Studio's list marks held posts
+        // no differently from published ones — no badge, no status, no filter).
+        //
+        // The URL is not publicly reachable until it publishes; the id is still
+        // the only thing that makes the post addressable in the meantime.
+        const resolved = await findPostedVideo(page, req.caption).catch(() => undefined);
         if (resolved && resolved.matched === "newest") {
           console.warn(
             `[tiktok] post confirmed but its row had not rendered; omitting video_url rather than returning the previous video's`,
@@ -811,7 +824,14 @@ export async function postVideo(req: TikTokPostRequest): Promise<TikTokOpResult<
           success: true,
           data: {
             ...(found || {}),
-            ...(req.schedule_at ? { scheduled_at: req.schedule_at } : {}),
+            ...(req.schedule_at
+              ? {
+                  scheduled_at: req.schedule_at,
+                  // Say plainly that the URL is not live yet, so nobody links
+                  // to it or treats its absence of views as a flop.
+                  pending_publish: true,
+                }
+              : {}),
           },
         };
       }

@@ -646,7 +646,7 @@ export function registerPalmyrTools(server: McpServer): void {
         schedule_at: z.string().optional().describe(
           "ISO-8601 datetime to publish at. Uses TikTok's OWN scheduler, which accepts only ~15 minutes to ~10 days ahead — " +
           "a time outside that window is rejected and refunded, and there is no way to schedule further out. " +
-          "Omit to post immediately. A scheduled post returns scheduled_at and NO video_url, because TikTok holds it until then.",
+          "Omit to post immediately. A scheduled post returns its video_id/video_url plus scheduled_at and pending_publish:true — the video exists immediately but its URL is NOT publicly reachable until it publishes.",
         ),
         payment: PAYMENT_PARAM,
       } as Shape,

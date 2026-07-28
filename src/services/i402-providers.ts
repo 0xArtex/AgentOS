@@ -526,10 +526,11 @@ export const CAPABILITY_CLASSES: Record<string, CapabilityClass> = {
     description:
       "Post a video to TikTok, immediately or scheduled. Optional schedule_at drives TikTok's OWN scheduler, " +
       "which accepts only ~15 minutes to ~10 days ahead — anything outside that is rejected and refunded, and " +
-      "there is no way to schedule further out. A scheduled post yields scheduled_at and NO video_url, since " +
-      "TikTok holds the video until it publishes; do not chain a step on video_url after a scheduled post.",
+      "there is no way to schedule further out. A scheduled post returns its video_id/video_url plus " +
+      "scheduled_at and pending_publish:true — the video exists but the URL is NOT publicly reachable until " +
+      "it publishes, so do not link to it or read its zero views as a flop before then.",
     inputSchema: { handle: "string (no @)", caption: "string", video_base64: "string?", video_url: "string?", privacy: "number?", allow_comments: "boolean?", allow_duet: "boolean?", allow_stitch: "boolean?", schedule_at: "string? (ISO-8601; ~15min to ~10 days ahead only)" },
-    outputSchema: { success: "boolean", data: "object ({ video_id: string, video_url: string }) — for a SCHEDULED post instead ({ scheduled_at: string }) with no video_id/video_url" },
+    outputSchema: { success: "boolean", data: "object ({ video_id: string, video_url: string }) — a SCHEDULED post adds { scheduled_at: string, pending_publish: true }; its URL only goes live at scheduled_at" },
   },
   tiktok_follow: {
     name: "tiktok_follow",
