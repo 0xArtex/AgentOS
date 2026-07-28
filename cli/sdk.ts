@@ -158,7 +158,7 @@ type AsyncState = 'pending' | 'ok' | 'failed'
 // Classify an async-operation envelope. Any response carrying `poll_url` is
 // in-progress until its `status` is terminal (per /.well-known guidance:
 // completed/failed; for servers, running).
-function operationState(op: any): AsyncState {
+export function operationState(op: any): AsyncState {
   if (!op || typeof op !== 'object') return 'pending'
   // A raw x402 payment-required CHALLENGE is not a failed operation — it means
   // the poll endpoint itself wants payment/auth (e.g. /domains/operations/:id is
@@ -167,6 +167,18 @@ function operationState(op: any): AsyncState {
   if (op.x402Version && op.accepts) return 'pending'
   const status = String(op.status ?? '').toLowerCase()
   if (op.error || op.ok === false || ASYNC_TERMINAL_FAIL.has(status)) return 'failed'
+  // An explicit `done: false` outranks the status word.
+  //
+  // 'running' sits in TERMINAL_OK because for a VPS that IS the finished state
+  // — the server is up. For a browser op it means the exact opposite: still
+  // working. TikTok ops report `status: 'running'` while in flight, so reading
+  // the word alone declared every post complete the moment it started, handed
+  // downstream steps an operation handle instead of a video_url, and never
+  // waited for the post that the caller had already paid for.
+  //
+  // Services that publish a boolean know their own lifecycle better than a
+  // shared word list does, so when they state it, believe them.
+  if (op.done === false) return 'pending'
   if (op.done === true || ASYNC_TERMINAL_OK.has(status)) return 'ok'
   return 'pending'
 }
@@ -1663,7 +1675,14 @@ export class Palmyr {
           let pollPath = String(output.poll_url)
           if (/^https?:/i.test(pollPath)) { const u = new URL(pollPath); pollPath = u.pathname + u.search }
           const intervalMs = Math.max(1, Number(output.poll_after_seconds) || 5) * 1000
-          const deadline = Date.now() + 120_000
+          // 120s was below what the work actually takes: a TikTok post runs 2-5
+          // minutes of browser automation, so the executor gave up on ops that
+          // were still going and aborted a plan the caller had already paid
+          // for. The standalone CLI poller settled on ~6 min from watching real
+          // runs; match it, and let a service ask for longer if it knows better.
+          const hintedTimeoutMs = Number(output.poll_timeout_seconds) * 1000
+          const timeoutMs = Number.isFinite(hintedTimeoutMs) && hintedTimeoutMs > 0 ? hintedTimeoutMs : 360_000
+          const deadline = Date.now() + timeoutMs
           const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
           yield { type: 'step_poll', stepId: step.step_id, provider: step.provider, operationId: output.operation_id, status: output.status ?? 'pending' }
           let finalOp: any = null
@@ -1681,7 +1700,7 @@ export class Palmyr {
             if (state === 'ok') { finalOp = op; break }
             if (state === 'failed') throw new Error(`async operation ${output.operation_id ?? ''} failed: ${op?.error || op?.message || op?.status || 'unknown'}`)
           }
-          if (!finalOp) throw new Error(`async operation ${output.operation_id ?? ''} did not finish within 120s — re-check ${output.poll_url}`)
+          if (!finalOp) throw new Error(`async operation ${output.operation_id ?? ''} did not finish within ${Math.round(timeoutMs / 1000)}s — it may still be running; re-check ${output.poll_url}`)
           output = mergeOperationResult(output, finalOp)
         }
 
