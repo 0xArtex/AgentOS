@@ -1876,11 +1876,42 @@ router.post(
 router.post(
   "/tiktok/post",
   requireTikTokEnabled,
-  requireAuth(0.01, "general", { description: "Post a video to a TikTok account you control (from video_base64 or video_url). Async: returns an operation to poll.", category: "social", tags: ["tiktok","post","video"] }),
+  requireAuth(0.01, "general", { description: "Post a video to a TikTok account you control (from video_base64 or video_url), now or scheduled. Optional schedule_at (ISO-8601) uses TikTok's OWN scheduler, which accepts only ~15 minutes to ~10 days ahead — there is no way to schedule further out. Async: returns an operation to poll.", category: "social", tags: ["tiktok","post","video","schedule"] }),
   async (req: AuthenticatedRequest, res: Response) => {
+    const { caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch, schedule_at } = req.body as any;
+
+    // Check the schedule window FIRST — before the session, before ownership,
+    // before a job exists.
+    //
+    // postVideo validates the same bounds, but only once the caller has paid
+    // and a job is running, so asking for a post three weeks out cost a full
+    // round trip to learn a limit that is knowable from the body alone. The
+    // window is TikTok's own, not ours: its scheduler will not accept anything
+    // outside it, so no amount of valid session material makes it possible.
+    if (schedule_at !== undefined && schedule_at !== null) {
+      const at = new Date(schedule_at);
+      const ms = at.getTime() - Date.now();
+      const problem = Number.isNaN(at.getTime())
+        ? "schedule_at must be a valid ISO-8601 datetime"
+        : ms < 14 * 60_000
+          ? "schedule_at must be at least ~15 minutes in the future — TikTok's own minimum"
+          : ms > 10 * 24 * 60 * 60_000
+            ? "schedule_at must be within ~10 days — TikTok's own maximum. There is no way to schedule further out; hold the request and post it once the target time is inside the window."
+            : null;
+      if (problem) {
+        await refundAndRespond(req, res, {
+          reason: `schedule_at outside TikTok's window: ${schedule_at}`,
+          userMessage: `${problem} — your payment is being refunded.`,
+          httpStatus: 400,
+          errorLabel: "Invalid schedule_at",
+          extra: { error_code: "INVALID_INPUT", schedule_window: { min_minutes: 15, max_days: 10 } },
+        });
+        return;
+      }
+    }
+
     const common = await validateTikTokOpBody(req, res);
     if (!common) return;
-    const { caption, video_base64, video_url, privacy, allow_comments, allow_duet, allow_stitch, schedule_at } = req.body as any;
     if (!caption) { res.status(400).json({ error: "caption is required" }); return; }
     if (!video_base64 && !video_url) { res.status(400).json({ error: "video_base64 or video_url is required" }); return; }
     try {
