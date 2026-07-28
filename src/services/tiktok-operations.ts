@@ -1476,6 +1476,54 @@ export async function updateAvatar(req: TikTokAvatarRequest): Promise<TikTokOpRe
 export interface TikTokAnalyticsRequest extends TikTokOpRequest {}
 
 /**
+ * Scroll the content manager until every post row is in the DOM.
+ *
+ * The list lazy-loads: only the first screen exists until you scroll. Reading
+ * straight away truncates the account to its newest handful of posts and
+ * reports that as the whole history — which, for a time series, silently
+ * deletes every older video from the record.
+ *
+ * Stops when the row count holds steady for TWO consecutive checks. One flat
+ * round is not enough: a slow fetch looks exactly like the end of the list, and
+ * stopping on it drops everything below. Capped so a list that keeps growing
+ * (or a page that never settles) cannot spin forever — and when the cap is hit
+ * that is reported rather than swallowed, because a partial history read as
+ * complete produces wrong totals with no sign anything is missing.
+ *
+ * Split out of analyzePosts so the loop can actually be exercised: it lives
+ * behind an authenticated browser session, and its failure mode is silent
+ * under-collection, which is the kind of bug that hides for months.
+ */
+export async function loadAllPostRows(
+  page: any,
+  opts: { maxScrolls?: number; settleMs?: number } = {},
+): Promise<{ rows: number; scrolls: number; truncated: boolean }> {
+  const maxScrolls = opts.maxScrolls ?? 40;
+  const settleMs = opts.settleMs ?? 1200;
+  let scrolls = 0;
+  let lastCount = -1;
+  let stable = 0;
+
+  while (scrolls < maxScrolls && stable < 2) {
+    const count = Number(
+      await page.evaluate(`document.querySelectorAll('a[href*="/video/"]').length`).catch(() => 0),
+    );
+    if (count === lastCount) stable++;
+    else { stable = 0; lastCount = count; }
+    if (stable >= 2) break;
+    await page.evaluate(`window.scrollTo(0, document.body.scrollHeight)`).catch(() => {});
+    await page.waitForTimeout(settleMs);
+    scrolls++;
+  }
+
+  return {
+    rows: Math.max(lastCount, 0),
+    scrolls,
+    truncated: scrolls >= maxScrolls && stable < 2,
+  };
+}
+
+/**
  * Scrape per-post engagement (views / likes / comments) from the Studio content
  * manager — a READ, so it's not subject to the protective post cap. Returns one
  * row per post with the public URL + id so the caller can join to the post-log
@@ -1520,33 +1568,12 @@ export async function analyzePosts(req: TikTokAnalyticsRequest): Promise<TikTokO
     // them settle before reading.
     if (listState === "rows") await page.waitForTimeout(1500);
 
-    // The content manager lazy-loads: only the first screen of rows is in the
-    // DOM until you scroll. Reading straight away truncates the account to its
-    // newest handful of posts and reports that as the whole history — which,
-    // for a time series, silently deletes every older video from the record.
-    //
-    // Scroll until the row count holds steady twice (one flat round can just be
-    // a slow fetch), capped so a pathological list cannot spin forever.
-    const MAX_SCROLLS = 40;
     let scrolls = 0;
     let truncated = false;
     if (listState === "rows") {
-      let lastCount = -1;
-      let stable = 0;
-      while (scrolls < MAX_SCROLLS && stable < 2) {
-        const count: number = Number(
-          await page.evaluate(`document.querySelectorAll('a[href*="/video/"]').length`).catch(() => 0),
-        );
-        if (count === lastCount) stable++;
-        else { stable = 0; lastCount = count; }
-        if (stable >= 2) break;
-        await page.evaluate(`window.scrollTo(0, document.body.scrollHeight)`).catch(() => {});
-        await page.waitForTimeout(1200);
-        scrolls++;
-      }
-      // Hitting the cap means there was still more to load. Say so — a caller
-      // reading a partial history as complete would compute wrong totals.
-      truncated = scrolls >= MAX_SCROLLS && stable < 2;
+      const loaded = await loadAllPostRows(page);
+      scrolls = loaded.scrolls;
+      truncated = loaded.truncated;
       if (truncated) console.log("[tiktok] analytics hit the scroll cap; post list may be incomplete");
     }
 
