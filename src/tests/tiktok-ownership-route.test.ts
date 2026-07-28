@@ -116,6 +116,19 @@ describe("TikTok op routes enforce account ownership", () => {
     assert.notEqual(r.status, 403, "an unregistered account id must not be owner-gated");
   });
 
+  it("gates the stored history too, so reading is not a way around the binding", async () => {
+    // The series is account data. If reads were ungated, anyone could pull a
+    // competitor's per-video engagement by guessing an account id — the write
+    // ops would be bound and the interesting data would be public anyway.
+    const res = await fetch(`http://127.0.0.1:${port}/social/tiktok/series?account_id=${ACCT}`, {
+      headers: { "x-test-payer": BOB },
+    });
+    const body = await res.text();
+    assert.equal(res.status, 403, "history must be owner-only");
+    assert.match(body, /NOT_YOUR_ACCOUNT/);
+    assert.match(body, /refund/i, "a paid read refused after settlement must refund, same as the ops");
+  });
+
   it("enforces ownership on every op, not just follow", async () => {
     // A gate on one route is not a gate. Each paid op resolves the account the
     // same way and must reach the same verdict.

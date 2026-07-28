@@ -2345,7 +2345,7 @@ router.get(
     category: "social",
     tags: ["tiktok", "analytics", "history", "series"],
   }),
-  (req: AuthenticatedRequest, res: Response) => {
+  async (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     const account_id = typeof req.query.account_id === "string" ? req.query.account_id : "";
     if (!account_id) {
@@ -2353,10 +2353,18 @@ router.get(
       return;
     }
     // Same binding the write ops enforce: history is account data, so reading
-    // it must not be a way around ownership.
+    // it must not be a way around ownership. And as there, payment has already
+    // settled by the time we get here — refusing without refunding would bill
+    // for a read we decline to serve.
     const verdict = checkOwnership(account_id, typeof caller === "string" ? caller : undefined);
     if (!verdict.allowed) {
-      res.status(403).json({ error: "Forbidden", error_code: "NOT_YOUR_ACCOUNT", message: verdict.reason });
+      await refundAndRespond(req, res, {
+        reason: `ownership rejected: ${verdict.reason}`,
+        userMessage: `${verdict.reason} — your payment is being refunded.`,
+        httpStatus: 403,
+        errorLabel: "Forbidden",
+        extra: { error_code: "NOT_YOUR_ACCOUNT" },
+      });
       return;
     }
 
