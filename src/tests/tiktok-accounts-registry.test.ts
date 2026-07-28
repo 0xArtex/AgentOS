@@ -115,6 +115,36 @@ test("status moves only on evidence that speaks to the account", () => {
   assert.equal(getAccount("acct-status")!.status, "restricted");
 });
 
+test("a success clears the stale error and revives a logged-out account, but not a restricted one", () => {
+  fresh("acct-revive");
+  registerAccount({ id: "acct-revive", owner: ALICE });
+  markConnected("acct-revive");
+
+  // A transient failure, then the very next operation works.
+  noteFailure("acct-revive", "UNKNOWN");
+  noteSuccess("acct-revive");
+  const row = getAccount("acct-revive")!;
+  assert.equal(row.last_error_code, null, "an account that just succeeded must not still advertise an old error");
+  assert.equal(row.last_error_at, null);
+
+  // A working session is direct proof the account is not logged out.
+  noteFailure("acct-revive", "SESSION_EXPIRED");
+  assert.equal(getAccount("acct-revive")!.status, "logged_out");
+  noteSuccess("acct-revive");
+  assert.equal(getAccount("acct-revive")!.status, "active", "a successful op disproves 'logged out'");
+
+  // But restrictions are feature-scoped: succeeding at a follow says nothing
+  // about a block on some other capability, so it must not clear itself.
+  noteFailure("acct-revive", "ACCOUNT_RESTRICTED");
+  assert.equal(getAccount("acct-revive")!.status, "restricted");
+  noteSuccess("acct-revive");
+  assert.equal(
+    getAccount("acct-revive")!.status,
+    "restricted",
+    "one op succeeding is not evidence that a restriction on a different capability lifted",
+  );
+});
+
 test("listing is owner-scoped and reports whether a profile really exists", () => {
   fresh("acct-mine-1");
   fresh("acct-mine-2");
