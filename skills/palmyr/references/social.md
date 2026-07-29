@@ -53,6 +53,15 @@ Every op sends `account_id` + `cookies` + optional `proxy_session_id`; the serve
 
 DIRECT browser automation (no paid upstream). Sessions come from a real browser login.
 
+**How an account stays itself.** Each account is pinned to its own residential exit in its own country and
+reuses it on every operation, so TikTok sees a consumer ISP (Bell, Comcast, Vodafone…) rather than a
+datacenter — Palmyr's server IP never appears. Two of your accounts in the same country get *different*
+exits, so they aren't linked by IP. The country is taken from whoever scans the QR at connect and stored on
+the account, so agents never pass it again (`--country` only overrides it for a deliberately different
+market). Each account also keeps its own persistent browser profile on the server — same cookies, cache and
+storage every time — so it returns as the same device instead of arriving from a brand-new machine on every
+action.
+
 ```bash
 palmyr tiktok connect <username> --server           # RECOMMENDED. Logs in ON THE SERVER, inside the account's own persistent browser profile ($0.01).
                                                     # Prints a /connect link for a human to scan. The browser that authenticates is the one that later posts,
@@ -84,6 +93,7 @@ palmyr tiktok logs [<username>] [--tag <folder>] [--limit N]   # Audit log — a
 
 ```bash
 palmyr tiktok analytics <username>       # Scrape per-post views/likes/comments, tier vs the account's OWN posts, snapshot time-series ($0.005; free self-hosted)
+palmyr tiktok series <username>          # SERVER-stored per-post history — survives this machine. --video <id> for one video's full series; --hours 24 for growth ($0.001)
 palmyr tiktok review <username>          # Performance review — best/worst, tier mix, avg engagement, trend (free, local store)
 palmyr tiktok monitor start --every 6h [--account a,b]   # Unattended periodic analytics. Also: tick | stop | status (free locally)
 palmyr tiktok follow <username> --user @handle   # Follow ($0.001)
@@ -93,6 +103,7 @@ palmyr tiktok bio <username> --text "..."         # Update bio, <=80 chars ($0.0
 palmyr tiktok name <username> --display "..."     # Update display name, <=30 chars ($0.001). TikTok rate-limits nickname changes to ~once/week.
 palmyr tiktok pfp <username> --file pic.png       # Update avatar ($0.005)
 palmyr tiktok list [--tag <folder>]               # All local TikTok accounts; --tag filters to one folder (free)
+palmyr tiktok list --server [--tag <folder>]      # Accounts the SERVER knows your wallet owns, with session health — the only view that sees `connect --server` accounts ($0.001)
 palmyr tiktok tag <username> <folder>             # File an account under a folder-like tag; --clear removes it (free)
 palmyr tiktok info|rename|remove|totp <username>  # Local account management (free)
 ```
@@ -122,5 +133,13 @@ palmyr tiktok info|rename|remove|totp <username>  # Local account management (fr
 | Follow / Like / Delete | `POST /social/tiktok/{follow,like,delete}` | 0.001 |
 | Update profile (bio / display name) | `POST /social/tiktok/profile` | 0.001 |
 | Update avatar | `POST /social/tiktok/avatar` | 0.005 |
+| Post analytics (scrape + record history) | `POST /social/tiktok/analytics` | 0.005 |
+| Stored per-post history (`?video_id=` one series · `?hours=` growth) | `GET /social/tiktok/series` | 0.001 |
+| Accounts your wallet owns, with session health | `GET /social/tiktok/accounts` | 0.001 |
+| Fleet success rates by op | `GET /social/tiktok/health` | Free |
+
+**Ownership:** an account registered by a `connect --server` login is bound to the wallet that registered it. Another wallet acting on it gets `403 NOT_YOUR_ACCOUNT` and is refunded. Accounts you never registered stay usable by anyone holding a valid cookie jar, so the older BYO-cookies flow is unaffected.
+
+**Scheduling:** `schedule_at` drives TikTok's own scheduler and accepts only ~15 min–10 days ahead; outside that it is rejected and refunded, with the window returned as `schedule_window`. A scheduled post returns `video_id`/`video_url` plus `scheduled_at` and `pending_publish: true` — the video exists immediately but its URL is not publicly reachable until it publishes.
 
 **Async:** TikTok post/login and some transfers return `202` + a `poll_url` (`/social/tiktok/operations/:id`, free, 122-bit unguessable id). Poll it — never re-send the paid request.
