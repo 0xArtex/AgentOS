@@ -14,7 +14,15 @@ TikTok in Palmyr is direct browser automation — no marketplace and no paid ups
 
 ## Connect an account
 
-`connect` is free and has two modes. The default is a QR hand-off — zero install, nothing to type, never blocked by TikTok.
+`connect` is a QR hand-off — zero install, nothing to type, never blocked by TikTok.
+
+<Note>
+  **Prefer `--server`.** The login happens inside the account's own persistent browser profile on the server, which is the same browser that later posts. Nothing is transferred afterwards, so no device or IP mismatch is baked in at login, and later ops need no cookies at all. The login browser starts when the person opens the link and exits from **their** country — TikTok rejects a scan whose phone and browser are in different countries, since that is the shape of a QR phishing attack.
+
+  ```bash
+  palmyr tiktok connect <username> --server
+  ```
+</Note>
 
 <Steps>
   <Step title="Run connect (QR default)">
@@ -57,11 +65,13 @@ Use `--url <https>` instead of `--file` to post from a URL. `--privacy` takes 0/
 
 | Command | Cost | What it does |
 |---------|------|--------------|
-| `palmyr tiktok connect <username>` | free | QR hand-off (default). Prints a `/connect/<token>` link; scan with the phone's TikTok app. `--tag <folder>` files it under a folder. |
+| `palmyr tiktok connect <username> --server` | $0.01 | **Recommended.** Logs in inside the account's own persistent browser profile on the server — the same browser that later posts, so ops afterwards need no cookies. |
+| `palmyr tiktok connect <username>` | free | QR hand-off. Prints a `/connect/<token>` link; scan with the phone's TikTok app. The browser runs on THIS machine, so the session is later replayed from a different browser and IP. `--tag <folder>` files it under a folder. |
 | `palmyr tiktok connect <username> --local` | free | Opens a browser on this machine; you log in here. Session auto-captured via CDP, no server call. |
 | `palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>` | free | Bring your own 3 cookies from a logged-in browser. |
 | `palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country <iso2>` | free | Marketplace colon format. Local vault only; `--country` drives proxy exit + locale. |
 | `palmyr tiktok list` | free | List local accounts. `--tag <folder>` filters to one folder. |
+| `palmyr tiktok list --server` | $0.001 | Accounts the server knows your wallet owns, with session health — the only view that sees `connect --server` accounts. |
 | `palmyr tiktok info <username>` | free | Show one account (id, source, country, last action). |
 | `palmyr tiktok session <username>` | free | Whether a session is cached, its age in hours, and staleness (>12h). |
 | `palmyr tiktok rename <old> --to <new>` | free | Rename the local alias (does not change the TikTok handle). |
@@ -75,7 +85,7 @@ Use `--url <https>` instead of `--file` to post from a URL. `--privacy` takes 0/
 | Command | Cost | What it does |
 |---------|------|--------------|
 | `palmyr tiktok post <username> --file video.mp4 --caption "..."` | $0.01 | Post a video (`--url <https>` instead of `--file`). `--privacy` 0/1/2 = public/friends/private, default public. |
-| `palmyr tiktok schedule <username> --at <iso8601> --file video.mp4 --caption "..."` | $0.01 | Schedule via TikTok's native scheduler — ~15 min to ~10 days out. Aborts before submit if the schedule can't be set, so it never posts "now" by mistake. |
+| `palmyr tiktok schedule <username> --at <iso8601> --file video.mp4 --caption "..."` | $0.01 | Schedule via TikTok's own scheduler — **~15 min to ~10 days out, with no way to go further**; outside that it is refused and refunded before anything runs. Aborts before submit if the schedule can't be set, so it never posts "now" by mistake. |
 | `palmyr tiktok follow <username> --user @handle` | $0.001 | Follow a handle. |
 | `palmyr tiktok like <username> --video <url>` | $0.001 | Like a video. |
 | `palmyr tiktok delete <username> --video <url>` | $0.001 | Delete via TikTok Studio's content manager. |
@@ -102,14 +112,17 @@ Use `--url <https>` instead of `--file` to post from a URL. `--privacy` takes 0/
 
 | Command | Cost | What it does |
 |---------|------|--------------|
-| `palmyr tiktok analytics <username>` | $0.005 | Scrape per-post views/likes/comments from Studio, tier each post against the account's own history, and append a snapshot to the local time-series. Free in self-hosted. |
+| `palmyr tiktok analytics <username>` | $0.005 | Scrape per-post views/likes/comments from Studio, tier each post against the account's own history, and record the sample **server-side** as well as locally. Free in self-hosted. |
+| `palmyr tiktok series <username>` | $0.001 | The server's stored per-post history, which survives this machine. `--video <id>` for one video's full time-series; `--hours 24` for per-video growth over a window. |
 | `palmyr tiktok review <username>` | free | Performance review off local snapshots — totals, tier mix, best/worst post, avg engagement rate, and the trend vs the previous snapshot. |
 | `palmyr tiktok monitor tick` (or `start` / `stop` / `status`) | free | Unattended monitor: periodically runs `analytics` so `review` stays fresh. `--every 6h`, `--account a,b`. |
 
 ## Safety
 
 - **No server-side password.** The session is captured from a real-browser login; TikTok credentials never sit on Palmyr's servers.
-- **Residential IP.** Action ops run server-side through the account's residential IP, set by `--country` at connect/import time.
+- **Its own residential IP.** Each account is pinned to a single residential exit in its own country — a consumer ISP, not a datacenter — and reuses it for every action, so Palmyr's server IP never appears to TikTok. Two of your accounts in the same country get *different* exits, so they can't be linked to each other by IP.
+- **Nothing to configure.** The country is taken from whoever scans the QR and stored on the account, so agents never pass it. (`--country` only overrides it when you deliberately want a different market's exit.)
+- **Its own browser profile.** With `connect --server`, the browser that logs in is the one that later posts, and it keeps its cookies, cache and storage between actions — so the account returns as the same device rather than arriving from a brand-new machine every time.
 - **Drafts are a human approval gate.** Stage with `draft`; nothing publishes until you `approve`, and a failed approve keeps the draft for retry.
 - **Audit logs.** `logs` records every post that actually went out — account, caption, timestamp, and source.
 
