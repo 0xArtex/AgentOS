@@ -546,6 +546,21 @@ export async function openAuthenticatedSession(
   const channel = browserChannel();
   const pool = opts.pool || "op";
 
+  // Headless Chrome announces itself. Measured on a real account profile:
+  // headless reports `HeadlessChrome/144.0.0.0` in navigator.userAgent while
+  // userAgentData.brands says "Google Chrome 144" — the two disagree, and an
+  // inconsistent device is a positive detection, which is the very thing the
+  // user-agent policy above exists to avoid. Headed reports `Chrome/144.0.0.0`
+  // and the pair agree; every other signal (webdriver, plugins, WebGL vendor,
+  // locale/timezone) was identical between the two runs.
+  //
+  // So run headed wherever there is a display to run in. The server keeps an
+  // Xvfb on :99 — the QR-login flow already depends on it, and TikTok refuses
+  // to authorise a scan from a headless browser at all, which is a strong hint
+  // that it discriminates on this. Fall back to headless where no display
+  // exists, so a self-hosted box without one still works.
+  const headless = opts.headless ?? !process.env.DISPLAY;
+
   let browser: any, ctx: any, page: any;
   try {
     if (persistent) {
@@ -553,13 +568,13 @@ export async function openAuthenticatedSession(
       // options are supplied together, and closing the context closes both.
       ctx = await launchPersistentStealthContext(
         profileDirFor(opts.accountId),
-        { headless: opts.headless ?? true, proxy, args: launchArgs, ...(channel ? { channel } : {}), ...contextOpts },
+        { headless, proxy, args: launchArgs, ...(channel ? { channel } : {}), ...contextOpts },
         pool,
       );
       browser = ctx.browser();
     } else {
       browser = await launchStealthBrowser(
-        { headless: opts.headless ?? true, proxy, args: launchArgs, ...(channel ? { channel } : {}) },
+        { headless, proxy, args: launchArgs, ...(channel ? { channel } : {}) },
         pool,
       );
       ctx = await browser.newContext(contextOpts);
