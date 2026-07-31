@@ -153,9 +153,11 @@ Direct browser automation — no password stored server-side. Full guide: [TikTo
 
 | Command | Cost | Description |
 |---|---|---|
-| `tiktok connect <username>` | free | QR hand-off by default; `--local` opens a browser here. |
+| `tiktok connect <username> --server` | $0.01 | **Recommended.** Logs in inside the account's own persistent browser profile on the server; later ops need no cookies. |
+| `tiktok connect <username>` | free | QR hand-off; `--local` opens a browser here instead. |
 | `tiktok import <username> ...` | free | Bring your own cookies or credentials. |
 | `tiktok list / info / session / rename / tag / remove / totp` | free | Local account management. |
+| `tiktok list --server` | $0.001 | Accounts the server knows your wallet owns, with session health — the only view that sees `--server` accounts. |
 | `tiktok login <username>` | $0.02 | Validate the session via a stealth browser. |
 | `tiktok post <username> --file video.mp4 --caption "..."` | $0.01 | Post a video. |
 | `tiktok schedule <username> --at <iso> --file video.mp4` | $0.01 | TikTok-native scheduled post. |
@@ -163,7 +165,8 @@ Direct browser automation — no password stored server-side. Full guide: [TikTo
 | `tiktok pfp <username> --file pic.png` | $0.005 | Set the avatar. |
 | `tiktok draft <username> ...` | free | Stage a post for human approval. |
 | `tiktok drafts / approve / reject / logs` | free / $0.01 | Approval queue (`approve` is $0.01) and audit log. |
-| `tiktok analytics <username>` | $0.005 | Scrape per-post metrics (free when self-hosted). |
+| `tiktok analytics <username>` | $0.005 | Scrape per-post metrics and record the sample server-side (free when self-hosted). |
+| `tiktok series <username>` | $0.001 | The server's stored per-post history. `--video <id>` for one series; `--hours 24` for growth. |
 | `tiktok review / monitor` | free | Performance review and the unattended monitor loop. |
 
 ## Utility
