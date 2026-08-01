@@ -1321,6 +1321,12 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<username>', desc: 'Performance review — best/worst, tier mix, engagement, trend vs last snapshot' },
     { flag: '(price)', desc: 'Free — reads the local snapshot store' },
   ],
+  hooks: [
+    { flag: '<username> | --tag <niche>', desc: "Which caption openings earn views, vs this account's OWN median" },
+    { flag: '--caption "..."', desc: 'Classify a draft opening before posting, with what your history says about it' },
+    { flag: '--maturity-days <n>', desc: 'Only judge posts older than n days (default 7 — younger ones are still distributing)' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
   series: [
     { flag: '<username>', desc: "Per-post engagement history the SERVER stored — survives this machine" },
     { flag: '--video <id>', desc: 'Full time-series for one video instead of the latest per video' },
@@ -8358,6 +8364,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               { name: 'analytics', description: 'Scrape per-post views/likes/comments, categorize into tiers vs the account’s own posts, and snapshot the time-series', hint: '<username>' },
               { name: 'review',  description: 'Performance review: best/worst posts, tier mix, engagement, and trend vs the last snapshot — the self-learning surface', hint: '<username>' },
               { name: 'series',  description: 'Server-stored per-post engagement history: full time-series for a video, or per-video growth over a window', hint: '<username> [--video <id>] [--hours 24]' },
+              { name: 'hooks',   description: "Which caption openings earn views, measured against the account's own median. --tag pools a niche; --caption classifies a draft before posting", hint: '<username> | --tag <niche> [--caption "..."]' },
               { name: 'monitor', description: 'Unattended loop that periodically runs analytics so review stays fresh (mirrors the wallet daemon)', hint: 'tick | start --every 6h | stop | status' },
             ],
             fromHome,
@@ -9156,6 +9163,69 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             return
           }
 
+          case 'hooks': {
+            // Which openings earn views, measured against the account's OWN
+            // median. `--tag` pools a niche across the accounts you own; a
+            // caption argument classifies a draft before you post it.
+            const username = positional[0] || (flags.username as string)
+            const tag = flags.tag as string | undefined
+            const caption = (flags.caption as string) || (flags.text as string)
+            if (!username && !tag) err('<username> or --tag <niche> required', EXIT.BAD_INPUT)
+            const acc = username ? sv.getAccount(platform, username) : undefined
+            const acctId = username ? (acc ? acc.id : username) : undefined
+
+            let data: any
+            try {
+              data = await ao.socialTiktokHooks({ accountId: acctId, tag, caption })
+            } catch (e: any) {
+              err(`hooks failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (AGENT_MODE) return print(data)
+
+            const label = username || `#${tag}`
+
+            // Draft check: what the caption IS, and what history says about it.
+            if (caption) {
+              console.log(`\n  ${t.accent}${label}${t.reset} — ${t.muted}draft hook${t.reset}\n`)
+              console.log(`  ${t.accent}${data.hook || '(no readable hook)'}${t.reset}\n`)
+              if (data.patterns?.length) {
+                console.log(`  ${t.muted}patterns:${t.reset} ${data.patterns.map((p: any) => p.label).join(' · ')}\n`)
+              }
+              for (const e of data.evidence || []) {
+                const lift = e.lift == null ? '—' : `${e.lift}x`
+                const mark = e.confident ? '' : `  ${t.muted}(only ${e.posts} post(s) — indicative)${t.reset}`
+                console.log(`  ${String(e.label).padEnd(28)} ${lift.padStart(6)} vs your median${mark}`)
+              }
+              for (const n of data.notes || []) console.log(`\n  ${t.muted}${n}${t.reset}`)
+              console.log()
+              return
+            }
+
+            console.log(`\n  ${t.accent}${label}${t.reset} — ${t.muted}hooks that earn views, vs this account's own median${t.reset}\n`)
+            const b = data.baseline || {}
+            console.log(`  ${t.muted}${b.mature_posts ?? 0} post(s) old enough to judge · median ${b.median_views ?? '—'} views${t.reset}\n`)
+
+            if (data.patterns?.length) {
+              for (const p of data.patterns) {
+                const lift = p.lift == null ? '—' : `${p.lift}x`
+                // An unconfident number must never read like a finding.
+                const mark = p.confident ? '' : `  ${t.muted}(${p.posts} post(s) — not enough to trust)${t.reset}`
+                console.log(`  ${String(p.label).padEnd(28)} ${lift.padStart(6)}  ${String(p.posts).padStart(3)} post(s)${mark}`)
+              }
+              console.log()
+            }
+            if (data.top_hooks?.length) {
+              console.log(`  ${t.accent}best performing openings${t.reset}\n`)
+              for (const h of data.top_hooks.slice(0, 5)) {
+                console.log(`  ${String(h.views).padStart(8)}  ${String(h.hook || '').slice(0, 62)}`)
+              }
+              console.log()
+            }
+            for (const n of data.notes || []) console.log(`  ${t.muted}${n}${t.reset}`)
+            console.log()
+            return
+          }
+
           case 'monitor': {
             // Unattended self-learning loop: periodically run `analytics` (scrape
             // + categorize + snapshot) for the monitored accounts. Mirrors the
@@ -9387,7 +9457,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, push, pull, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, series, review, monitor, follow, like, delete, bio, name, pfp`)
+            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, push, pull, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, series, hooks, review, monitor, follow, like, delete, bio, name, pfp`)
         }
         break
       }
