@@ -93,6 +93,7 @@ palmyr tiktok logs [<username>] [--tag <folder>] [--limit N]   # Audit log — a
 
 ```bash
 palmyr tiktok analytics <username>       # Scrape per-post views/likes/comments, tier vs the account's OWN posts, snapshot time-series ($0.005; free self-hosted)
+palmyr tiktok hooks <username>           # Which caption openings earn views, vs this account's OWN median. --tag <niche> pools accounts; --caption "..." checks a draft ($0.001)
 palmyr tiktok series <username>          # SERVER-stored per-post history — survives this machine. --video <id> for one video's full series; --hours 24 for growth ($0.001)
 palmyr tiktok review <username>          # Performance review — best/worst, tier mix, avg engagement, trend (free, local store)
 palmyr tiktok monitor start --every 6h [--account a,b]   # Unattended periodic analytics. Also: tick | stop | status (free locally)
@@ -135,8 +136,11 @@ palmyr tiktok info|rename|remove|totp <username>  # Local account management (fr
 | Update avatar | `POST /social/tiktok/avatar` | 0.005 |
 | Post analytics (scrape + record history) | `POST /social/tiktok/analytics` | 0.005 |
 | Stored per-post history (`?video_id=` one series · `?hours=` growth) | `GET /social/tiktok/series` | 0.001 |
+| Hook performance (`?tag=` a niche · `?caption=` check a draft) | `GET /social/tiktok/hooks` | 0.001 |
 | Accounts your wallet owns, with session health | `GET /social/tiktok/accounts` | 0.001 |
 | Fleet success rates by op | `GET /social/tiktok/health` | Free |
+
+**Hooks are measured, not asserted.** Lift is against the account's OWN median — never another account's. Posts younger than 7 days are excluded (still distributing), a pattern with fewer than 3 mature posts reports `confident: false`, and an unconfident 10x sorts BELOW a confident 1.5x. There is no cross-platform hook corpus behind this: `?tag=` pools YOUR accounts in a niche.
 
 **Ownership:** an account registered by a `connect --server` login is bound to the wallet that registered it. Another wallet acting on it gets `403 NOT_YOUR_ACCOUNT` and is refunded. Accounts you never registered stay usable by anyone holding a valid cookie jar, so the older BYO-cookies flow is unaffected.
 
