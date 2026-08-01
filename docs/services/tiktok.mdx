@@ -113,6 +113,7 @@ Use `--url <https>` instead of `--file` to post from a URL. `--privacy` takes 0/
 | Command | Cost | What it does |
 |---------|------|--------------|
 | `palmyr tiktok analytics <username>` | $0.005 | Scrape per-post views/likes/comments from Studio, tier each post against the account's own history, and record the sample **server-side** as well as locally. Free in self-hosted. |
+| `palmyr tiktok hooks <username>` | $0.001 | Which caption openings earn views, measured against this account's **own** median. `--tag <niche>` pools every account you own in that niche; `--caption "..."` classifies a draft before you post it. |
 | `palmyr tiktok series <username>` | $0.001 | The server's stored per-post history, which survives this machine. `--video <id>` for one video's full time-series; `--hours 24` for per-video growth over a window. |
 | `palmyr tiktok review <username>` | free | Performance review off local snapshots — totals, tier mix, best/worst post, avg engagement rate, and the trend vs the previous snapshot. |
 | `palmyr tiktok monitor tick` (or `start` / `stop` / `status`) | free | Unattended monitor: periodically runs `analytics` so `review` stays fresh. `--every 6h`, `--account a,b`. |
@@ -123,6 +124,7 @@ Use `--url <https>` instead of `--file` to post from a URL. `--privacy` takes 0/
 - **Its own residential IP.** Each account is pinned to a single residential exit in its own country — a consumer ISP, not a datacenter — and reuses it for every action, so Palmyr's server IP never appears to TikTok. Two of your accounts in the same country get *different* exits, so they can't be linked to each other by IP.
 - **Nothing to configure.** The country is taken from whoever scans the QR and stored on the account, so agents never pass it. (`--country` only overrides it when you deliberately want a different market's exit.)
 - **Its own browser profile.** With `connect --server`, the browser that logs in is the one that later posts, and it keeps its cookies, cache and storage between actions — so the account returns as the same device rather than arriving from a brand-new machine every time.
+- **Hook results are measured, not asserted.** Lift is always against the account's own median, posts younger than 7 days are excluded because they're still distributing, and any pattern with fewer than 3 mature posts is shown but flagged as not confident. Nothing here is a claim about TikTok at large — it is your accounts, measured.
 - **Drafts are a human approval gate.** Stage with `draft`; nothing publishes until you `approve`, and a failed approve keeps the draft for retry.
 - **Audit logs.** `logs` records every post that actually went out — account, caption, timestamp, and source.
 

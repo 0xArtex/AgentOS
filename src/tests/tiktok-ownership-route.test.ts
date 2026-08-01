@@ -165,6 +165,44 @@ describe("TikTok op routes enforce account ownership", () => {
     assert.match(body, /refund/i, "a paid read refused after settlement must refund, same as the ops");
   });
 
+  it("gates the hook report, and serves the owner a real one", async () => {
+    // Hook performance is derived from the same account data, so it inherits
+    // the same binding — otherwise the numbers we refuse to serve directly
+    // would leak through the analysis of them.
+    const denied = await fetch(`http://127.0.0.1:${port}/social/tiktok/hooks?account_id=${ACCT}`, {
+      headers: { "x-test-payer": BOB },
+    });
+    const deniedBody = await denied.text();
+    assert.equal(denied.status, 403);
+    assert.match(deniedBody, /NOT_YOUR_ACCOUNT/);
+    assert.match(deniedBody, /refund/i);
+
+    // The owner gets a real report, with an empty account stated as such
+    // rather than dressed up as a finding.
+    const ok = await fetch(`http://127.0.0.1:${port}/social/tiktok/hooks?account_id=${ACCT}`, {
+      headers: { "x-test-payer": ALICE },
+    });
+    assert.equal(ok.status, 200);
+    const report = await ok.json() as any;
+    assert.equal(report.baseline.mature_posts, 0);
+    assert.deepEqual(report.patterns, []);
+    assert.match(JSON.stringify(report.notes), /No posts old enough/);
+  });
+
+  it("classifies a draft caption through the route, with no history needed", async () => {
+    const q = new URLSearchParams({ account_id: ACCT, caption: "Stop doing crunches. Do this instead #gym" });
+    const res = await fetch(`http://127.0.0.1:${port}/social/tiktok/hooks?${q}`, {
+      headers: { "x-test-payer": ALICE },
+    });
+    assert.equal(res.status, 200);
+    const check = await res.json() as any;
+    assert.equal(check.hook, "Stop doing crunches.", "hashtags are not the hook");
+    assert.ok(check.patterns.some((p: any) => p.pattern === "contrarian"));
+    // No data yet, so it must say so rather than produce a verdict.
+    assert.deepEqual(check.evidence, []);
+    assert.match(JSON.stringify(check.notes), /no mature posts/i);
+  });
+
   it("enforces ownership on every op, not just follow", async () => {
     // A gate on one route is not a gate. Each paid op resolves the account the
     // same way and must reach the same verdict.
