@@ -84,6 +84,7 @@ import {
   listByOwner as listTikTokAccountsByOwner,
 } from "../services/tiktok-accounts";
 import { seriesFor, latestForAccount, growthSince } from "../services/tiktok-metrics";
+import { hookReport, checkCaption } from "../services/tiktok-hooks";
 import {
   followUser as tiktokFollow,
   likeVideo as tiktokLike,
@@ -2416,6 +2417,69 @@ router.get(
 
     const latest = latestForAccount(account_id);
     res.json({ account_id, videos: latest, count: latest.length });
+  }
+);
+
+/**
+ * GET /social/tiktok/hooks
+ *
+ * Which openings actually earn views on accounts you own. Scope to one account,
+ * or to a `tag` to pool a niche across every account the wallet owns with that
+ * tag — the closest honest reading of "best hook for this industry": YOUR
+ * accounts in it, measured, rather than a claim about the platform at large.
+ *
+ * Pass `caption` to classify a draft BEFORE posting and get back whatever this
+ * account's own history says about the patterns it uses.
+ */
+router.get(
+  "/tiktok/hooks",
+  requireAuth(0.001, "general", {
+    description:
+      "Which caption openings earn views on TikTok accounts you own, measured against each account's OWN median. " +
+      "Scope by account_id or by tag (a niche). Pass caption=... to classify a draft before posting.",
+    category: "social",
+    tags: ["tiktok", "analytics", "hooks", "captions"],
+  }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const caller = req.payment?.payer || req.agentId;
+    if (typeof caller !== "string" || !caller) {
+      res.status(401).json({ error: "Unauthenticated", message: "A wallet identity is required." });
+      return;
+    }
+    const account_id = typeof req.query.account_id === "string" ? req.query.account_id : undefined;
+    const tag = typeof req.query.tag === "string" ? req.query.tag : undefined;
+    const caption = typeof req.query.caption === "string" ? req.query.caption : undefined;
+
+    // A single account is owner-gated exactly like the series read. A tag scope
+    // needs no gate: it resolves through listByOwner, which only ever returns
+    // this caller's own accounts.
+    if (account_id) {
+      const verdict = checkOwnership(account_id, caller);
+      if (!verdict.allowed) {
+        await refundAndRespond(req, res, {
+          reason: `ownership rejected: ${verdict.reason}`,
+          userMessage: `${verdict.reason} — your payment is being refunded.`,
+          httpStatus: 403,
+          errorLabel: "Forbidden",
+          extra: { error_code: "NOT_YOUR_ACCOUNT" },
+        });
+        return;
+      }
+    }
+
+    if (caption) {
+      res.json(checkCaption({ owner: caller, caption, accountId: account_id, tag }));
+      return;
+    }
+    const maturityRaw = Number(req.query.maturity_days);
+    res.json(
+      hookReport({
+        owner: caller,
+        accountId: account_id,
+        tag,
+        maturityDays: Number.isFinite(maturityRaw) && maturityRaw >= 0 ? maturityRaw : undefined,
+      }),
+    );
   }
 );
 
