@@ -93,7 +93,9 @@ palmyr tiktok logs [<username>] [--tag <folder>] [--limit N]   # Audit log — a
 
 ```bash
 palmyr tiktok analytics <username>       # Scrape per-post views/likes/comments, tier vs the account's OWN posts, snapshot time-series ($0.005; free self-hosted)
-palmyr tiktok hooks <username>           # Which caption openings earn views, vs this account's OWN median. --tag <niche> pools accounts; --caption "..." checks a draft ($0.001)
+palmyr tiktok hooks --niche fitness      # What's working in a NICHE across TikTok — needs no account history, so this is the day-one answer ($0.05)
+palmyr tiktok hooks <username>           # Which caption openings earn views, vs this account's OWN median. --tag <folder> pools accounts; --caption "..." checks a draft ($0.001)
+palmyr tiktok corpus niches              # The niche list (free). `corpus refresh <niche>` collects it — OPERATOR only, pays upstream per query.
 palmyr tiktok series <username>          # SERVER-stored per-post history — survives this machine. --video <id> for one video's full series; --hours 24 for growth ($0.001)
 palmyr tiktok review <username>          # Performance review — best/worst, tier mix, avg engagement, trend (free, local store)
 palmyr tiktok monitor start --every 6h [--account a,b]   # Unattended periodic analytics. Also: tick | stop | status (free locally)
@@ -136,9 +138,13 @@ palmyr tiktok info|rename|remove|totp <username>  # Local account management (fr
 | Update avatar | `POST /social/tiktok/avatar` | 0.005 |
 | Post analytics (scrape + record history) | `POST /social/tiktok/analytics` | 0.005 |
 | Stored per-post history (`?video_id=` one series · `?hours=` growth) | `GET /social/tiktok/series` | 0.001 |
-| Hook performance (`?tag=` a niche · `?caption=` check a draft) | `GET /social/tiktok/hooks` | 0.001 |
+| Hook performance — YOUR accounts (`?tag=` · `?caption=` check a draft) | `GET /social/tiktok/hooks` | 0.001 |
+| What's working in a NICHE, no account history needed | `GET /social/tiktok/hooks?niche=fitness` | 0.05 |
+| The niche list, with corpus freshness | `GET /social/tiktok/niches` | Free |
 | Accounts your wallet owns, with session health | `GET /social/tiktok/accounts` | 0.001 |
 | Fleet success rates by op | `GET /social/tiktok/health` | Free |
+
+**Two hook surfaces, never blended.** `?niche=` reports what is working across TikTok in that niche — other people's posts, so it needs no history and is the answer for a new account; results are labelled *observed in this niche*, and each example carries the date it worked. `?account_id=` reports what YOUR account has done. They are never averaged: another creator's reach is not a prediction about yours. Any word resolves to the nearest niche and the response says which one.
 
 **Hooks are measured, not asserted.** Lift is against the account's OWN median — never another account's. Posts younger than 7 days are excluded (still distributing) and posts older than 90 days are excluded too (**hooks decay** — an opening that worked last year is not evidence about now); every report states the `window` it covers. A pattern with fewer than 3 mature posts reports `confident: false`, and an unconfident 10x sorts BELOW a confident 1.5x. There is no cross-platform hook corpus behind this: `?tag=` pools YOUR accounts in a niche.
 

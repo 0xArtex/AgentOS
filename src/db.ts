@@ -1126,6 +1126,54 @@ export function initDatabase(): void {
     CREATE INDEX IF NOT EXISTS idx_tpm_account ON tiktok_post_metrics(account_id, sampled_at);
   `);
 
+  // Observed hooks from the wider platform, per niche.
+  //
+  // Separate from tiktok_post_metrics on purpose: that table is what YOUR
+  // accounts did, this is what other people's posts did. They must never be
+  // averaged together — a hook that prints for a 5M-follower creator says
+  // nothing about a new account, and blending the two would launder someone
+  // else's reach into a claim about yours.
+  //
+  // `posted_at` is when the hook worked; `collected_at` is when we looked.
+  // Both matter, because hooks decay: without the first the corpus cannot
+  // answer "is this still working", and without the second it cannot show that
+  // the answer changed.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tiktok_niche_corpus (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      niche TEXT NOT NULL,
+      query TEXT NOT NULL,
+      video_id TEXT NOT NULL,
+      author TEXT,
+      caption TEXT,
+      hook TEXT,
+      views INTEGER,
+      likes INTEGER,
+      comments INTEGER,
+      shares INTEGER,
+      saves INTEGER,
+      posted_at TEXT,
+      collected_at TEXT NOT NULL,
+      UNIQUE(niche, video_id, collected_at)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tnc_niche ON tiktok_niche_corpus(niche, collected_at);
+    CREATE INDEX IF NOT EXISTS idx_tnc_posted ON tiktok_niche_corpus(niche, posted_at);
+
+    -- What we paid and when, per collection. Kept even when a collection
+    -- returns nothing, so a failing niche is visible rather than looking like
+    -- one nobody has asked for.
+    CREATE TABLE IF NOT EXISTS tiktok_niche_collections (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      niche TEXT NOT NULL,
+      collected_at TEXT NOT NULL,
+      queries INTEGER NOT NULL,
+      posts INTEGER NOT NULL,
+      cost_usdc REAL NOT NULL,
+      error TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_tncol_niche ON tiktok_niche_collections(niche, collected_at);
+  `);
+
   // Server-side scheduled posts. Agents call POST /social/scheduled, pay
   // upfront via x402 (the payment covers the eventual fire — worker calls
   // the internal post function with no further charge). Worker polls
