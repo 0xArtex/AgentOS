@@ -36,6 +36,7 @@ import { paidFetch } from "./x402-client";
 import { db } from "../db";
 
 const PAYER_KEY_ENV = "CORPUS_PAYER_EVM_PRIVATE_KEY";
+const TREASURY_KEY_ENV = "TREASURY_EVM_PRIVATE_KEY";
 const UPSTREAM = "https://stablesocial.dev/api/sc/tiktok/search/keyword";
 
 /** Observed price per query. maxUsdc sits just above it, never wide open. */
@@ -55,19 +56,35 @@ function getEthers(): any {
 let _payer: any;
 let _payerTried = false;
 
-/** The Base wallet that pays for collections. Deliberately NOT the card float:
- *  a corpus overspend must never be able to eat money earmarked for issuing
- *  someone's card. */
+/**
+ * The Base wallet that pays for collections.
+ *
+ * Defaults to the TREASURY, which is where agent payments already land — so
+ * revenue funds the upstream directly and there is nothing to create or top up.
+ * That is not a new class of exposure either: the treasury key already signs
+ * every auto-refund with no human in the loop, so it is an automated spender
+ * regardless. What bounds this is the daily cap and the per-call `maxUsdc`,
+ * not which wallet holds the money.
+ *
+ * CORPUS_PAYER_EVM_PRIVATE_KEY overrides it for anyone who wants collection
+ * spending isolated behind a hard balance ceiling instead of a software one.
+ * Deliberately NOT the Laso card float — money earmarked for issuing someone's
+ * card should never be reachable from here.
+ */
 export function loadCorpusPayer(): any {
   if (_payerTried) return _payer;
   _payerTried = true;
-  const raw = process.env[PAYER_KEY_ENV];
+  const dedicated = process.env[PAYER_KEY_ENV];
+  const raw = dedicated || process.env[TREASURY_KEY_ENV];
   if (!raw) return null;
   try {
     _payer = new (getEthers().Wallet)(raw);
-    console.log(`[tiktok-corpus] payer wallet loaded: ${_payer.address}`);
+    console.log(
+      `[tiktok-corpus] payer wallet loaded: ${_payer.address} ` +
+      `(${dedicated ? PAYER_KEY_ENV : TREASURY_KEY_ENV})`,
+    );
   } catch (e: any) {
-    console.error(`[tiktok-corpus] ${PAYER_KEY_ENV} failed to parse:`, e?.message || e);
+    console.error(`[tiktok-corpus] ${dedicated ? PAYER_KEY_ENV : TREASURY_KEY_ENV} failed to parse:`, e?.message || e);
     _payer = null;
   }
   return _payer;

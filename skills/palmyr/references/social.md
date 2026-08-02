@@ -144,7 +144,7 @@ palmyr tiktok info|rename|remove|totp <username>  # Local account management (fr
 | Accounts your wallet owns, with session health | `GET /social/tiktok/accounts` | 0.001 |
 | Fleet success rates by op | `GET /social/tiktok/health` | Free |
 
-**Niche data collects itself.** Ask for a niche and the server keeps it current: a stale corpus is served immediately and refreshed behind the response, and only a never-collected niche makes you wait — briefly, on a reduced parallel collection. `collection.refreshing` tells you a fresher answer is on its way.
+**Niche data collects itself.** Palmyr pays the upstream from its own treasury — the same wallet agent payments land in and auto-refunds are signed from — so nothing is passed through to you beyond the flat $0.05. Ask for a niche and the server keeps it current: a stale corpus is served immediately and refreshed behind the response, and only a never-collected niche makes you wait — briefly, on a reduced parallel collection. `collection.refreshing` tells you a fresher answer is on its way.
 
 **Two hook surfaces, never blended.** `?niche=` reports what is working across TikTok in that niche — other people's posts, so it needs no history and is the answer for a new account; results are labelled *observed in this niche*, and each example carries the date it worked. `?account_id=` reports what YOUR account has done. They are never averaged: another creator's reach is not a prediction about yours. Any word resolves to the nearest niche and the response says which one.
 

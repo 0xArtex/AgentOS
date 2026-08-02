@@ -2493,7 +2493,7 @@ router.get(
           ...(ensured?.skipped ? { skipped: ensured.skipped } : {}),
         },
         ...(ensured?.skipped === "not_configured"
-          ? { notes: [...report.notes, `Auto-collection is off (CORPUS_PAYER_EVM_PRIVATE_KEY unset), so this corpus will not refresh itself.`] }
+          ? { notes: [...report.notes, `Auto-collection is off (no TREASURY_EVM_PRIVATE_KEY or CORPUS_PAYER_EVM_PRIVATE_KEY), so this corpus will not refresh itself.`] }
           : {}),
         ...(ensured?.refreshing && report.window.posts > 0
           ? { notes: [...report.notes, "A fresher collection is running now — ask again shortly for updated numbers."] }
