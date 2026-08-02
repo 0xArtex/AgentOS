@@ -22,6 +22,10 @@
  *      entirely. A post from this morning has fewer views than one from last
  *      month for reasons that have nothing to do with its hook, and mixing
  *      the two makes every recent hook look bad.
+ *   3. Posts OLDER than the recency window are excluded too, because hooks
+ *      decay. An opening that printed views eighteen months ago can be dead
+ *      today, and averaging it in launders a stale pattern into a current
+ *      recommendation. Every report states the span it covers.
  */
 import { latestForAccount, type MetricSample } from "./tiktok-metrics";
 import { listByOwner } from "./tiktok-accounts";
@@ -62,6 +66,17 @@ export const HOOK_PATTERNS: { pattern: HookPattern; label: string; test: RegExp 
 export const MIN_CONFIDENT_POSTS = 3;
 /** Posts younger than this are still distributing and cannot be fairly judged. */
 export const DEFAULT_MATURITY_DAYS = 7;
+/**
+ * Posts older than this are dropped, because hooks decay.
+ *
+ * Opening formats trend and die — an angle that printed views eighteen months
+ * ago can be invisible today, and pooling it with recent posts launders a dead
+ * pattern into a current recommendation. The window is the answer to "when did
+ * this work", which is not optional information for something this
+ * time-sensitive: without it the report silently means "sometime in this
+ * account's whole history".
+ */
+export const DEFAULT_RECENCY_DAYS = 90;
 
 /**
  * The scroll-stopping opening of a caption.
@@ -134,7 +149,13 @@ export interface HookReport {
     median_views: number | null;
     excluded_immature: number;
     excluded_no_hook: number;
+    /** Dropped for being older than the window — hooks decay, so old wins
+     *  are not evidence about now. */
+    excluded_stale: number;
     maturity_days: number;
+    recency_days: number;
+    /** The span the finding actually covers, so "when did this work" is answered. */
+    window: { from: string | null; to: string | null };
   };
   patterns: PatternStat[];
   top_hooks: HookPost[];
@@ -146,11 +167,13 @@ function maturePosts(
   accountId: string,
   samples: MetricSample[],
   maturityDays: number,
+  recencyDays: number,
   now: number,
-): { posts: HookPost[]; immature: number; noHook: number } {
+): { posts: HookPost[]; immature: number; noHook: number; stale: number } {
   const posts: HookPost[] = [];
   let immature = 0;
   let noHook = 0;
+  let stale = 0;
 
   for (const s of samples) {
     const hook = extractHook(s.caption);
@@ -162,6 +185,9 @@ function maturePosts(
     // enough" inflates a post's apparent hook quality on nothing but a missing
     // field.
     if (ageDays === null || ageDays < maturityDays) { immature++; continue; }
+    // Too old to speak to what works NOW. Counted, not silently dropped —
+    // "we ignored half your history" is something the reader must be told.
+    if (ageDays > recencyDays) { stale++; continue; }
 
     posts.push({
       account_id: accountId,
@@ -174,7 +200,7 @@ function maturePosts(
       age_days: Math.round(ageDays * 10) / 10,
     });
   }
-  return { posts, immature, noHook };
+  return { posts, immature, noHook, stale };
 }
 
 /**
@@ -190,9 +216,11 @@ export function hookReport(opts: {
   accountId?: string;
   tag?: string;
   maturityDays?: number;
+  recencyDays?: number;
   now?: number;
 }): HookReport {
   const maturityDays = opts.maturityDays ?? DEFAULT_MATURITY_DAYS;
+  const recencyDays = opts.recencyDays ?? DEFAULT_RECENCY_DAYS;
   const now = opts.now ?? Date.now();
 
   const accountIds = opts.accountId
@@ -202,11 +230,13 @@ export function hookReport(opts: {
   const all: HookPost[] = [];
   let immature = 0;
   let noHook = 0;
+  let stale = 0;
   for (const id of accountIds) {
-    const r = maturePosts(id, latestForAccount(id), maturityDays, now);
+    const r = maturePosts(id, latestForAccount(id), maturityDays, recencyDays, now);
     all.push(...r.posts);
     immature += r.immature;
     noHook += r.noHook;
+    stale += r.stale;
   }
 
   const baselineMedian = median(all.map((p) => p.views));
@@ -238,6 +268,8 @@ export function hookReport(opts: {
 
   const top_hooks = [...all].sort((a, b) => b.views - a.views).slice(0, 10);
 
+  const dates = all.map((p) => (p.posted_at ? Date.parse(p.posted_at) : NaN)).filter((n) => !Number.isNaN(n));
+
   const notes: string[] = [];
   if (all.length === 0) {
     notes.push(
@@ -247,6 +279,12 @@ export function hookReport(opts: {
   }
   if (immature > 0) {
     notes.push(`${immature} post(s) younger than ${maturityDays} days were excluded — still distributing.`);
+  }
+  if (stale > 0) {
+    notes.push(
+      `${stale} post(s) older than ${recencyDays} days were excluded — hook formats decay, ` +
+      `so what worked then is not evidence about now.`,
+    );
   }
   if (noHook > 0) {
     notes.push(`${noHook} post(s) had no readable hook (empty caption, or hashtags only).`);
@@ -270,7 +308,13 @@ export function hookReport(opts: {
       median_views: baselineMedian,
       excluded_immature: immature,
       excluded_no_hook: noHook,
+      excluded_stale: stale,
       maturity_days: maturityDays,
+      recency_days: recencyDays,
+      window: {
+        from: dates.length ? new Date(Math.min(...dates)).toISOString() : null,
+        to: dates.length ? new Date(Math.max(...dates)).toISOString() : null,
+      },
     },
     patterns,
     top_hooks,

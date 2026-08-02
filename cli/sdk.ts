@@ -1470,12 +1470,13 @@ export class Palmyr {
    * median. Scope by accountId, or by tag to pool a niche across the accounts
    * the wallet owns. Pass `caption` to classify a draft before posting.
    */
-  async socialTiktokHooks(opts: { accountId?: string; tag?: string; caption?: string; maturityDays?: number } = {}): Promise<any> {
+  async socialTiktokHooks(opts: { accountId?: string; tag?: string; caption?: string; maturityDays?: number; recencyDays?: number } = {}): Promise<any> {
     const q = new URLSearchParams()
     if (opts.accountId) q.set('account_id', opts.accountId)
     if (opts.tag) q.set('tag', opts.tag)
     if (opts.caption) q.set('caption', opts.caption)
     if (opts.maturityDays !== undefined) q.set('maturity_days', String(opts.maturityDays))
+    if (opts.recencyDays !== undefined) q.set('recency_days', String(opts.recencyDays))
     return this.request('GET', `/social/tiktok/hooks?${q.toString()}`)
   }
 
