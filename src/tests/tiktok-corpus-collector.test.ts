@@ -35,11 +35,16 @@ function post(id: string, caption: string, views: number, daysAgo: number) {
 
 test("collection is off unless a payer wallet is configured", () => {
   // Failing closed matters more than failing loudly: an unconfigured server
-  // must serve what it has, never half-attempt a payment.
-  const had = process.env.CORPUS_PAYER_EVM_PRIVATE_KEY;
+  // must serve what it has, never half-attempt a payment. Both keys have to be
+  // absent — the treasury is the default payer, so checking only the dedicated
+  // override would pass on a server that can in fact spend.
+  const hadCorpus = process.env.CORPUS_PAYER_EVM_PRIVATE_KEY;
+  const hadTreasury = process.env.TREASURY_EVM_PRIVATE_KEY;
   delete process.env.CORPUS_PAYER_EVM_PRIVATE_KEY;
+  delete process.env.TREASURY_EVM_PRIVATE_KEY;
   assert.equal(collectorEnabled(), false);
-  if (had) process.env.CORPUS_PAYER_EVM_PRIVATE_KEY = had;
+  if (hadCorpus) process.env.CORPUS_PAYER_EVM_PRIVATE_KEY = hadCorpus;
+  if (hadTreasury) process.env.TREASURY_EVM_PRIVATE_KEY = hadTreasury;
 });
 
 test("an unconfigured server refuses to collect, and says why", async () => {
