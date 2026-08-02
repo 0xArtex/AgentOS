@@ -245,7 +245,11 @@ test("happy path: pending → purchasing → provisioning → ready, details enc
   assert.deepStrictEqual(calls.lastFunded, { owner: OWNER, amountUsd: 20 });
   assert.ok(job.payment_nonce!.startsWith("0x")); // persisted pre-send
   assert.ok(job.card_ciphertext!.startsWith("enc:v1:"));
-  assert.ok(!job.card_ciphertext!.includes("4111")); // PAN not in plaintext
+  // The FULL pan, not a 4-char prefix of it. The ciphertext is hex, and "4111"
+  // is itself valid hex, so a prefix check fails by chance roughly 1 run in 220
+  // — a flaky security assertion, which is worse than none because people learn
+  // to re-run it. Sixteen hex characters colliding is 1 in 16^16.
+  assert.ok(!job.card_ciphertext!.includes(READY_DETAILS.card_number)); // PAN not in plaintext
   assert.deepStrictEqual(decryptCardDetails(job), {
     card_number: READY_DETAILS.card_number,
     exp_month: "12",
