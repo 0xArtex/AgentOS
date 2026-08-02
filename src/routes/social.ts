@@ -2435,13 +2435,21 @@ router.get(
  */
 router.get(
   "/tiktok/hooks",
-  requireAuth(0.001, "general", {
-    description:
-      "Which caption openings earn views on TikTok accounts you own, measured against each account's OWN median. " +
-      "Scope by account_id or by tag (a niche). Pass caption=... to classify a draft before posting.",
-    category: "social",
-    tags: ["tiktok", "analytics", "hooks", "captions"],
-  }),
+  // Two prices on one route, because they cost us very differently. Reading
+  // your own stored history is nearly free; a niche answer is backed by a paid
+  // upstream collection amortised across everyone who asks for that niche.
+  requireAuth(
+    (req) => (typeof req.query.niche === "string" && req.query.niche ? 0.05 : 0.001),
+    "general",
+    {
+      description:
+        "Which caption openings earn views. ?account_id= or ?tag= measures YOUR accounts against their own median ($0.001). " +
+        "?niche= reports what is working in that niche across TikTok, needing no posting history — the answer for a new account ($0.05). " +
+        "The two are never blended. Pass caption=... to classify a draft before posting.",
+      category: "social",
+      tags: ["tiktok", "analytics", "hooks", "captions", "niche"],
+    },
+  ),
   async (req: AuthenticatedRequest, res: Response) => {
     const caller = req.payment?.payer || req.agentId;
     if (typeof caller !== "string" || !caller) {
