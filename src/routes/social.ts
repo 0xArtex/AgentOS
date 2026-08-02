@@ -86,6 +86,7 @@ import { seriesFor, latestForAccount, growthSince } from "../services/tiktok-met
 import { hookReport, checkCaption } from "../services/tiktok-hooks";
 import { corpusReport, storeCollection, recordCollectionRun, corpusFreshness, collectionHistory, parseUpstreamPost } from "../services/tiktok-corpus";
 import { NICHES, resolveNiche, getNiche } from "../services/tiktok-niches";
+import { ensureFresh, collectorEnabled, spentTodayUsdc, isCollecting } from "../services/tiktok-corpus-collector";
 import { requirePoolAdmin } from "../middleware/pool-admin";
 import {
   followUser as tiktokFollow,
@@ -2467,6 +2468,14 @@ router.get(
     // another creator's reach is not theirs, and one number containing both
     // would be a claim we cannot support.
     if (niche) {
+      const resolvedNiche = resolveNiche(niche);
+      if (resolvedNiche) {
+        // Collect on demand rather than making anyone run a command. A stale
+        // corpus is served immediately and refreshed behind the response; only
+        // a completely cold niche is waited on, and then only briefly.
+        const ensured = await ensureFresh(resolvedNiche.niche.id);
+        (req as any)._corpusEnsure = ensured;
+      }
       const report = corpusReport({ niche });
       if (!report) {
         res.status(400).json({
@@ -2475,7 +2484,21 @@ router.get(
         });
         return;
       }
-      res.json(report);
+      const ensured = (req as any)._corpusEnsure;
+      res.json({
+        ...report,
+        collection: {
+          auto: collectorEnabled(),
+          refreshing: !!ensured?.refreshing || isCollecting(report.niche),
+          ...(ensured?.skipped ? { skipped: ensured.skipped } : {}),
+        },
+        ...(ensured?.skipped === "not_configured"
+          ? { notes: [...report.notes, `Auto-collection is off (CORPUS_PAYER_EVM_PRIVATE_KEY unset), so this corpus will not refresh itself.`] }
+          : {}),
+        ...(ensured?.refreshing && report.window.posts > 0
+          ? { notes: [...report.notes, "A fresher collection is running now — ask again shortly for updated numbers."] }
+          : {}),
+      });
       return;
     }
 

@@ -9258,11 +9258,10 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           case 'corpus': {
-            // OPERATOR-ONLY ingestion. Deliberately not something an agent can
-            // trigger: each refresh pays a real upstream per query, so if a
-            // cache miss started one, anyone could spend the budget by asking
-            // about niches nobody wants. It also keeps the paying wallet off
-            // the server — this CLI pays, then uploads the result.
+            // Operator pre-warm. The SERVER refreshes a niche by itself when an
+            // agent asks for one that is stale or missing — this exists to fill
+            // niches ahead of demand (so nobody ever hits a cold start), and to
+            // collect at all on a deployment with no server payer wallet.
             const sub = positional[0] || 'status'
             const { NICHES, resolveNiche } = await import('./niches.js')
 
