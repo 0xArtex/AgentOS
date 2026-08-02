@@ -72,7 +72,8 @@ export interface TikTokPostJobRow {
   error: string | null;
   error_code: string | null;
   refund_id: string | null;
-  refund_status: string | null; // 'sent' | 'failed' | 'manual_needed' | null
+  refund_status: string | null;
+  cancelled_at?: string | null; // 'sent' | 'failed' | 'manual_needed' | null
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -105,6 +106,19 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_tiktok_post_owner ON tiktok_post_jobs(owner);
   CREATE INDEX IF NOT EXISTS idx_tiktok_post_status ON tiktok_post_jobs(status);
 `);
+
+// Idempotent migration: cancelled_at for scheduled posts.
+//
+// A plain ADD COLUMN rather than widening the status CHECK, which SQLite can
+// only do by rebuilding the table. It is also the more accurate record: the job
+// really did post successfully (TikTok accepted the schedule) and was cancelled
+// afterwards — collapsing both into one status field would lose that.
+{
+  const cols = db.prepare("PRAGMA table_info(tiktok_post_jobs)").all() as Array<{ name: string }>;
+  if (!cols.some((c) => c.name === "cancelled_at")) {
+    db.exec("ALTER TABLE tiktok_post_jobs ADD COLUMN cancelled_at TEXT");
+  }
+}
 
 // ─── Dependency injection (testability) ───
 // The state machine is pure DB + these side-effecting deps. Tests inject fakes

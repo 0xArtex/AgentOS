@@ -1321,6 +1321,16 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<username>', desc: 'Performance review — best/worst, tier mix, engagement, trend vs last snapshot' },
     { flag: '(price)', desc: 'Free — reads the local snapshot store' },
   ],
+  scheduled: [
+    { flag: '[<account>]', desc: "Posts you have queued — Palmyr's record; TikTok can't be asked what's pending" },
+    { flag: '--all', desc: 'Include cancelled and already-published ones' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
+  cancel: [
+    { flag: '<operation-id>', desc: 'Cancel a scheduled post by deleting the held video (TikTok has no unschedule)' },
+    { flag: '--account <user>', desc: 'Account the post belongs to' },
+    { flag: '(price)', desc: '$0.001 USDC' },
+  ],
   hooks: [
     { flag: '<username> | --tag <niche>', desc: "Which caption openings earn views, vs this account's OWN median" },
     { flag: '--caption "..."', desc: 'Classify a draft opening before posting, with what your history says about it' },
@@ -9322,6 +9332,65 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             return
           }
 
+          case 'scheduled': {
+            // Palmyr's record of what it queued. TikTok cannot be asked, so
+            // this is the only place the answer exists — and the response says
+            // so, because a post edited in Studio changes reality without
+            // changing this.
+            let data: any
+            try {
+              data = await ao.socialTiktokScheduled({
+                accountId: positional[0] || (flags.account as string),
+                includeDone: flags.all === true,
+              })
+            } catch (e: any) {
+              err(`scheduled failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (AGENT_MODE) return print(data)
+            const rows = data?.posts || []
+            console.log(`\n  ${t.accent}scheduled posts${t.reset}\n`)
+            if (!rows.length) { console.log(`  ${t.muted}Nothing queued.${t.reset}\n`); return }
+            for (const p of rows) {
+              const when = String(p.scheduled_at).replace('T', ' ').slice(0, 16)
+              const wait = p.minutes_until >= 0
+                ? `in ${p.minutes_until < 90 ? p.minutes_until + 'm' : Math.round(p.minutes_until / 60) + 'h'}`
+                : `${t.muted}overdue${t.reset}`
+              const views = p.observed_views != null ? `  ${p.observed_views} views` : ''
+              console.log(`  ${String(p.state).padEnd(10)} ${when}  ${wait.padEnd(16)} ${String(p.caption).slice(0, 34)}${views}`)
+              console.log(`  ${t.muted}${p.operation_id}${t.reset}`)
+            }
+            console.log(`\n  ${t.muted}${data.note}${t.reset}\n`)
+            return
+          }
+
+          case 'cancel': {
+            const id = positional[0] || (flags.id as string)
+            if (!id) err('<operation-id> required — see: palmyr tiktok scheduled', EXIT.BAD_INPUT)
+            const username = (flags.account as string) || (flags.username as string)
+            const acc = username ? sv.getAccount(platform, username) : undefined
+            const sess = acc ? sv.loadSession(acc.id) : undefined
+            const jar: any[] = sess?.cookies?.length ? sess.cookies : []
+            const acctId = acc ? acc.id : (username || '')
+            const psid = acc ? sv.getProxySessionId(platform, username!) : undefined
+            const country = (flags.country as string)?.toLowerCase() || (acc ? sv.getCountry(platform, username!) : undefined)
+
+            let data: any
+            try {
+              data = await ao.socialTiktokCancelScheduled(id, acctId, jar, psid, country)
+            } catch (e: any) {
+              err(`cancel failed: ${e.message}`, EXIT.GENERAL)
+            }
+            if (data?.already_cancelled) return print(data)
+            if (data?.operation_id) {
+              const final = await pollTikTokOperation(ao, data.operation_id, { label: 'cancel', pollAfterSeconds: Number(data.poll_after_seconds), agentMode: AGENT_MODE })
+              if (!final) return print({ operation_id: data.operation_id, status: 'running', done: false, message: 'Still running — re-check the poll_url.' })
+              if (final.status === 'failed') err(`cancel failed: ${final.error || 'unknown'} (refund: ${final.refund_status || 'unknown'})`, EXIT.GENERAL)
+              log(`tiktok cancel ${id} → deleted`)
+              return print({ cancelled: true, operation_id: id, ...(final.result || {}) })
+            }
+            return print(data)
+          }
+
           case 'monitor': {
             // Unattended self-learning loop: periodically run `analytics` (scrape
             // + categorize + snapshot) for the monitored accounts. Mirrors the
@@ -9553,7 +9622,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, push, pull, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, series, hooks, corpus, review, monitor, follow, like, delete, bio, name, pfp`)
+            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, push, pull, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, series, hooks, corpus, scheduled, cancel, review, monitor, follow, like, delete, bio, name, pfp`)
         }
         break
       }

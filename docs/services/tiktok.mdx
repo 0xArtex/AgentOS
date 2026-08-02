@@ -86,6 +86,8 @@ Use `--url <https>` instead of `--file` to post from a URL. `--privacy` takes 0/
 |---------|------|--------------|
 | `palmyr tiktok post <username> --file video.mp4 --caption "..."` | $0.01 | Post a video (`--url <https>` instead of `--file`). `--privacy` 0/1/2 = public/friends/private, default public. |
 | `palmyr tiktok schedule <username> --at <iso8601> --file video.mp4 --caption "..."` | $0.01 | Schedule via TikTok's own scheduler — **~15 min to ~10 days out, with no way to go further**; outside that it is refused and refunded before anything runs. Aborts before submit if the schedule can't be set, so it never posts "now" by mistake. |
+| `palmyr tiktok scheduled [<account>]` | $0.001 | What you have queued. **Palmyr's own record** — TikTok exposes no way to read pending posts back, so a post edited or deleted directly in TikTok Studio is invisible to it. `--all` includes cancelled and published. |
+| `palmyr tiktok cancel <operation-id> --account <user>` | $0.001 | Cancel a scheduled post by deleting the held video — TikTok has no "unschedule". Recorded only once the delete actually succeeds. |
 | `palmyr tiktok follow <username> --user @handle` | $0.001 | Follow a handle. |
 | `palmyr tiktok like <username> --video <url>` | $0.001 | Like a video. |
 | `palmyr tiktok delete <username> --video <url>` | $0.001 | Delete via TikTok Studio's content manager. |

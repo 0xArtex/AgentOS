@@ -1500,6 +1500,23 @@ export class Palmyr {
     return this.request('GET', '/social/tiktok/niches')
   }
 
+  /** Posts you have scheduled. Palmyr's own record — TikTok exposes no way to
+   *  read pending posts back, so edits made in TikTok Studio are invisible. */
+  async socialTiktokScheduled(opts: { accountId?: string; includeDone?: boolean } = {}): Promise<any> {
+    const q = new URLSearchParams()
+    if (opts.accountId) q.set('account_id', opts.accountId)
+    if (opts.includeDone) q.set('include_done', '1')
+    const qs = q.toString()
+    return this.request('GET', `/social/tiktok/scheduled${qs ? `?${qs}` : ''}`)
+  }
+
+  /** Cancel a scheduled post by deleting the held video (TikTok has no
+   *  "unschedule"). Async: returns an operation to poll. */
+  async socialTiktokCancelScheduled(operationId: string, accountId: string, cookies: any[], proxySessionId?: string, country?: string): Promise<any> {
+    return this.request('POST', `/social/tiktok/scheduled/${encodeURIComponent(operationId)}/cancel`,
+      { account_id: accountId, cookies, proxy_session_id: proxySessionId, country })
+  }
+
   // ── Info ──
   async pricing(): Promise<any> {
     return this.request('GET', '/pricing')

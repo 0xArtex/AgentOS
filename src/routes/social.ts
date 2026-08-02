@@ -87,6 +87,12 @@ import { hookReport, checkCaption } from "../services/tiktok-hooks";
 import { corpusReport, storeCollection, recordCollectionRun, corpusFreshness, collectionHistory, parseUpstreamPost } from "../services/tiktok-corpus";
 import { NICHES, resolveNiche, getNiche } from "../services/tiktok-niches";
 import { ensureFresh, collectorEnabled, spentTodayUsdc, isCollecting } from "../services/tiktok-corpus-collector";
+import {
+  listScheduled as listTikTokScheduled,
+  getScheduled as getTikTokScheduled,
+  markCancelled as markTikTokScheduleCancelled,
+  SCHEDULE_RECORD_CAVEAT,
+} from "../services/tiktok-schedule";
 import { requirePoolAdmin } from "../middleware/pool-admin";
 import {
   followUser as tiktokFollow,
@@ -1940,6 +1946,8 @@ router.post(
         status: job.status,
         poll_url: `/social/tiktok/operations/${job.id}`,
         poll_after_seconds: 20,
+        // Say it at the moment of scheduling, not only when they later list.
+        ...(schedule_at ? { scheduled_at: schedule_at, schedule_note: SCHEDULE_RECORD_CAVEAT } : {}),
         message:
           "TikTok post started. Browser automation typically lands in ~2-5 minutes. " +
           `Poll GET /social/tiktok/operations/${job.id} until status is 'posted' (carries video_url) or 'failed' (auto-refunded). ` +
@@ -2612,5 +2620,106 @@ router.get("/tiktok/corpus/history", requirePoolAdmin, (req: AuthenticatedReques
   if (!target) { res.status(400).json({ error: "Unknown niche", niches: NICHES.map((n) => n.id) }); return; }
   res.json({ niche: target.id, collections: collectionHistory(target.id) });
 });
+
+/**
+ * GET /social/tiktok/scheduled — what this wallet has queued.
+ *
+ * Palmyr's record, not TikTok's: TikTok exposes no way to read pending posts
+ * back, so every response carries that caveat rather than implying it is
+ * ground truth.
+ */
+router.get(
+  "/tiktok/scheduled",
+  requireAuth(0.001, "general", {
+    description:
+      "List TikTok posts you have scheduled, with whether each is still pending, due, or confirmed published. " +
+      "Palmyr's own record — TikTok does not expose pending posts, so edits made directly in TikTok Studio are invisible to it.",
+    category: "social",
+    tags: ["tiktok", "schedule", "list"],
+  }),
+  (req: AuthenticatedRequest, res: Response) => {
+    const owner = req.payment?.payer || req.agentId;
+    if (typeof owner !== "string" || !owner) {
+      res.status(401).json({ error: "Unauthenticated", message: "A wallet identity is required." });
+      return;
+    }
+    const accountId = typeof req.query.account_id === "string" ? req.query.account_id : undefined;
+    const includeDone = String(req.query.include_done || "") === "1" || req.query.include_done === "true";
+    const posts = listTikTokScheduled(owner, { accountId, includeDone });
+    res.json({ owner, count: posts.length, posts, note: SCHEDULE_RECORD_CAVEAT });
+  }
+);
+
+/**
+ * POST /social/tiktok/scheduled/:id/cancel
+ *
+ * Cancelling means deleting the held video — TikTok has no "unschedule". So
+ * this runs the normal delete op and only records the cancellation once that
+ * actually succeeded: marking it first would leave a post we believe is gone
+ * still scheduled to publish, which is the one outcome nobody can recover from.
+ */
+router.post(
+  "/tiktok/scheduled/:id/cancel",
+  requireTikTokEnabled,
+  requireAuth(0.001, "general", {
+    description: "Cancel a scheduled TikTok post by deleting the held video. Async: returns an operation to poll.",
+    category: "social",
+    tags: ["tiktok", "schedule", "cancel"],
+  }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const owner = req.payment?.payer || req.agentId;
+    if (typeof owner !== "string" || !owner) {
+      res.status(401).json({ error: "Unauthenticated", message: "A wallet identity is required." });
+      return;
+    }
+    const id = String(req.params.id || "");
+    const target = getTikTokScheduled(owner, id);
+    if (!target) {
+      await refundAndRespond(req, res, {
+        reason: `scheduled post ${id} not found for ${owner}`,
+        userMessage: "No scheduled post with that operation_id belongs to your wallet — your payment is being refunded.",
+        httpStatus: 404,
+        errorLabel: "Not found",
+        extra: { error_code: "NOT_FOUND" },
+      });
+      return;
+    }
+    if (target.state === "cancelled") {
+      res.status(200).json({ ...target, already_cancelled: true, note: SCHEDULE_RECORD_CAVEAT });
+      return;
+    }
+    if (!target.video_url) {
+      await refundAndRespond(req, res, {
+        reason: `scheduled post ${id} has no video handle`,
+        userMessage:
+          "This scheduled post has no video URL recorded, so it cannot be cancelled automatically — " +
+          "delete it in TikTok Studio. Your payment is being refunded.",
+        httpStatus: 409,
+        errorLabel: "Not cancellable",
+        extra: { error_code: "NO_VIDEO_HANDLE" },
+      });
+      return;
+    }
+
+    const common = await validateTikTokOpBody(req, res);
+    if (!common) return;
+    try {
+      const job = createOpJob(
+        { op: "delete", account_id: target.account_id, ...paymentCtx(req) },
+        async () => {
+          const r = await tiktokDelete({ ...common, account_id: target.account_id, video_url: target.video_url! });
+          // Only once the video is actually gone. Recording it earlier would
+          // report a cancellation that never happened, and the post would
+          // still publish.
+          if (r.success) markTikTokScheduleCancelled(id);
+          return r;
+        },
+      );
+      respondOpAccepted(res, job, `cancel of scheduled post ${id}`);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Cancel failed" });
+    }
+  }
+);
 
 export default router;

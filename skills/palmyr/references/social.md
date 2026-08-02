@@ -93,6 +93,8 @@ palmyr tiktok logs [<username>] [--tag <folder>] [--limit N]   # Audit log — a
 
 ```bash
 palmyr tiktok analytics <username>       # Scrape per-post views/likes/comments, tier vs the account's OWN posts, snapshot time-series ($0.005; free self-hosted)
+palmyr tiktok scheduled [<account>]      # What you have queued — Palmyr's OWN record; TikTok cannot be asked what is pending ($0.001)
+palmyr tiktok cancel <operation-id> --account <user>   # Cancel a scheduled post by deleting the held video ($0.001)
 palmyr tiktok hooks --niche fitness      # What's working in a NICHE across TikTok — needs no account history, so this is the day-one answer ($0.05)
 palmyr tiktok hooks <username>           # Which caption openings earn views, vs this account's OWN median. --tag <folder> pools accounts; --caption "..." checks a draft ($0.001)
 palmyr tiktok corpus niches              # The niche list (free). The server auto-collects a niche when it is asked for and stale; `corpus refresh <niche>` pre-warms one ahead of demand (operator only).
@@ -138,6 +140,8 @@ palmyr tiktok info|rename|remove|totp <username>  # Local account management (fr
 | Update avatar | `POST /social/tiktok/avatar` | 0.005 |
 | Post analytics (scrape + record history) | `POST /social/tiktok/analytics` | 0.005 |
 | Stored per-post history (`?video_id=` one series · `?hours=` growth) | `GET /social/tiktok/series` | 0.001 |
+| Scheduled posts you have queued | `GET /social/tiktok/scheduled` | 0.001 |
+| Cancel a scheduled post (deletes the held video) | `POST /social/tiktok/scheduled/:id/cancel` | 0.001 |
 | Hook performance — YOUR accounts (`?tag=` · `?caption=` check a draft) | `GET /social/tiktok/hooks` | 0.001 |
 | What's working in a NICHE, no account history needed | `GET /social/tiktok/hooks?niche=fitness` | 0.05 |
 | The niche list, with corpus freshness | `GET /social/tiktok/niches` | Free |
@@ -151,6 +155,8 @@ palmyr tiktok info|rename|remove|totp <username>  # Local account management (fr
 **Hooks are measured, not asserted.** Lift is against the account's OWN median — never another account's. Posts younger than 7 days are excluded (still distributing) and posts older than 90 days are excluded too (**hooks decay** — an opening that worked last year is not evidence about now); every report states the `window` it covers. A pattern with fewer than 3 mature posts reports `confident: false`, and an unconfident 10x sorts BELOW a confident 1.5x. There is no cross-platform hook corpus behind this: `?tag=` pools YOUR accounts in a niche.
 
 **Ownership:** an account registered by a `connect --server` login is bound to the wallet that registered it. Another wallet acting on it gets `403 NOT_YOUR_ACCOUNT` and is refunded. Accounts you never registered stay usable by anyone holding a valid cookie jar, so the older BYO-cookies flow is unaffected.
+
+**Scheduled posts are OUR record, not TikTok's.** TikTok exposes no way to read pending posts back — a held post is indistinguishable from a published one in Studio — so `GET /social/tiktok/scheduled` reports what Palmyr scheduled. **If you edit, reschedule or delete a post directly in TikTok Studio, that record will not know.** Cancel through Palmyr to keep them in step. States: `scheduled` (time not reached), `due` (time passed, publication unconfirmed — TikTok will not confirm it), `published` (views observed after the scheduled time, the only real evidence), `cancelled`.
 
 **Scheduling:** `schedule_at` drives TikTok's own scheduler and accepts only ~15 min–10 days ahead; outside that it is rejected and refunded, with the window returned as `schedule_window`. A scheduled post returns `video_id`/`video_url` plus `scheduled_at` and `pending_publish: true` — the video exists immediately but its URL is not publicly reachable until it publishes.
 
