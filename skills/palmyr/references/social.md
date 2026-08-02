@@ -95,7 +95,7 @@ palmyr tiktok logs [<username>] [--tag <folder>] [--limit N]   # Audit log — a
 palmyr tiktok analytics <username>       # Scrape per-post views/likes/comments, tier vs the account's OWN posts, snapshot time-series ($0.005; free self-hosted)
 palmyr tiktok hooks --niche fitness      # What's working in a NICHE across TikTok — needs no account history, so this is the day-one answer ($0.05)
 palmyr tiktok hooks <username>           # Which caption openings earn views, vs this account's OWN median. --tag <folder> pools accounts; --caption "..." checks a draft ($0.001)
-palmyr tiktok corpus niches              # The niche list (free). `corpus refresh <niche>` collects it — OPERATOR only, pays upstream per query.
+palmyr tiktok corpus niches              # The niche list (free). The server auto-collects a niche when it is asked for and stale; `corpus refresh <niche>` pre-warms one ahead of demand (operator only).
 palmyr tiktok series <username>          # SERVER-stored per-post history — survives this machine. --video <id> for one video's full series; --hours 24 for growth ($0.001)
 palmyr tiktok review <username>          # Performance review — best/worst, tier mix, avg engagement, trend (free, local store)
 palmyr tiktok monitor start --every 6h [--account a,b]   # Unattended periodic analytics. Also: tick | stop | status (free locally)
@@ -143,6 +143,8 @@ palmyr tiktok info|rename|remove|totp <username>  # Local account management (fr
 | The niche list, with corpus freshness | `GET /social/tiktok/niches` | Free |
 | Accounts your wallet owns, with session health | `GET /social/tiktok/accounts` | 0.001 |
 | Fleet success rates by op | `GET /social/tiktok/health` | Free |
+
+**Niche data collects itself.** Ask for a niche and the server keeps it current: a stale corpus is served immediately and refreshed behind the response, and only a never-collected niche makes you wait — briefly, on a reduced parallel collection. `collection.refreshing` tells you a fresher answer is on its way.
 
 **Two hook surfaces, never blended.** `?niche=` reports what is working across TikTok in that niche — other people's posts, so it needs no history and is the answer for a new account; results are labelled *observed in this niche*, and each example carries the date it worked. `?account_id=` reports what YOUR account has done. They are never averaged: another creator's reach is not a prediction about yours. Any word resolves to the nearest niche and the response says which one.
 
