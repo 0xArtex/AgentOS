@@ -263,3 +263,56 @@ test("a pattern that dominates an account cannot show lift, because it IS the ba
   assert.equal(contrarian.posts, 3);
   assert.equal(contrarian.lift, 1, "3 of 4 posts use it, so it defines the median it is compared to");
 });
+
+// ── hooks decay, so old wins are not evidence about now ──────────────────────
+
+test("posts older than the recency window are excluded, and counted", () => {
+  // An opening that printed views 18 months ago can be dead today. Averaging
+  // it in launders a stale pattern into a current recommendation.
+  seed("hk-stale", [
+    { caption: "Stop doing crunches", views: 9000, daysAgo: 500 },
+    { caption: "Stop skipping rest", views: 9000, daysAgo: 480 },
+    { caption: "Never train to failure", views: 9000, daysAgo: 460 },
+    { caption: "Leg day today", views: 100, daysAgo: 30 },
+  ]);
+  const r = hookReport({ owner: OWNER, accountId: "hk-stale", now: NOW });
+
+  assert.equal(r.baseline.mature_posts, 1, "only the recent post is judged");
+  assert.equal(r.baseline.excluded_stale, 3);
+  assert.equal(r.patterns.find((p) => p.pattern === "contrarian"), undefined,
+    "a pattern that only ever won outside the window must not be reported as current");
+  assert.match(r.notes.join(" "), /older than 90 days/);
+});
+
+test("the report states the span it actually covers", () => {
+  // Without this the finding silently means "sometime in this account's whole
+  // history", which for something this time-sensitive is not an answer.
+  seed("hk-window", [
+    { caption: "Stop doing crunches", views: 400, daysAgo: 60 },
+    { caption: "Leg day today", views: 100, daysAgo: 20 },
+  ]);
+  const r = hookReport({ owner: OWNER, accountId: "hk-window", now: NOW });
+
+  assert.equal(r.baseline.recency_days, 90);
+  assert.ok(r.baseline.window.from && r.baseline.window.to);
+  const spanDays = (Date.parse(r.baseline.window.to!) - Date.parse(r.baseline.window.from!)) / 86_400_000;
+  assert.ok(Math.abs(spanDays - 40) < 1, `oldest to newest judged post, got ${spanDays}d`);
+});
+
+test("the recency window is adjustable for accounts that post rarely", () => {
+  // A weekly poster has too few posts in 90 days to say anything; widening the
+  // window is the honest trade (more sample, staler signal) and is the
+  // caller's call to make rather than ours.
+  seed("hk-widen", [
+    { caption: "Stop doing crunches", views: 400, daysAgo: 200 },
+    { caption: "Stop skipping rest", views: 400, daysAgo: 220 },
+    { caption: "Never train to failure", views: 400, daysAgo: 240 },
+    { caption: "Leg day today", views: 100, daysAgo: 30 },
+  ]);
+  const narrow = hookReport({ owner: OWNER, accountId: "hk-widen", now: NOW });
+  assert.equal(narrow.baseline.mature_posts, 1);
+
+  const wide = hookReport({ owner: OWNER, accountId: "hk-widen", recencyDays: 365, now: NOW });
+  assert.equal(wide.baseline.mature_posts, 4);
+  assert.equal(wide.patterns.find((p) => p.pattern === "contrarian")?.confident, true);
+});

@@ -2472,12 +2472,16 @@ router.get(
       return;
     }
     const maturityRaw = Number(req.query.maturity_days);
+    const recencyRaw = Number(req.query.recency_days);
     res.json(
       hookReport({
         owner: caller,
         accountId: account_id,
         tag,
         maturityDays: Number.isFinite(maturityRaw) && maturityRaw >= 0 ? maturityRaw : undefined,
+        // Hooks decay, so the report is bounded to a recent window by default.
+        // Widening it is the caller's trade: more sample, staler signal.
+        recencyDays: Number.isFinite(recencyRaw) && recencyRaw > 0 ? recencyRaw : undefined,
       }),
     );
   }

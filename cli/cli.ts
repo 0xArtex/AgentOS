@@ -1325,6 +1325,7 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<username> | --tag <niche>', desc: "Which caption openings earn views, vs this account's OWN median" },
     { flag: '--caption "..."', desc: 'Classify a draft opening before posting, with what your history says about it' },
     { flag: '--maturity-days <n>', desc: 'Only judge posts older than n days (default 7 — younger ones are still distributing)' },
+    { flag: '--recency-days <n>', desc: 'Only judge posts NEWER than n days (default 90 — hooks decay, so old wins are not evidence about now)' },
     { flag: '(price)', desc: '$0.001 USDC' },
   ],
   series: [
@@ -9176,7 +9177,12 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
 
             let data: any
             try {
-              data = await ao.socialTiktokHooks({ accountId: acctId, tag, caption })
+              // These were advertised in help but never sent — the flags did nothing.
+              const maturityDays = flags['maturity-days'] !== undefined ? Number(flags['maturity-days']) : undefined
+              const recencyDays = flags['recency-days'] !== undefined ? Number(flags['recency-days']) : undefined
+              if (maturityDays !== undefined && !Number.isFinite(maturityDays)) err('--maturity-days must be a number', EXIT.BAD_INPUT)
+              if (recencyDays !== undefined && (!Number.isFinite(recencyDays) || recencyDays <= 0)) err('--recency-days must be a positive number', EXIT.BAD_INPUT)
+              data = await ao.socialTiktokHooks({ accountId: acctId, tag, caption, maturityDays, recencyDays })
             } catch (e: any) {
               err(`hooks failed: ${e.message}`, EXIT.GENERAL)
             }

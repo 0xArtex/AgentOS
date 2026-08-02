@@ -140,7 +140,7 @@ palmyr tiktok info|rename|remove|totp <username>  # Local account management (fr
 | Accounts your wallet owns, with session health | `GET /social/tiktok/accounts` | 0.001 |
 | Fleet success rates by op | `GET /social/tiktok/health` | Free |
 
-**Hooks are measured, not asserted.** Lift is against the account's OWN median — never another account's. Posts younger than 7 days are excluded (still distributing), a pattern with fewer than 3 mature posts reports `confident: false`, and an unconfident 10x sorts BELOW a confident 1.5x. There is no cross-platform hook corpus behind this: `?tag=` pools YOUR accounts in a niche.
+**Hooks are measured, not asserted.** Lift is against the account's OWN median — never another account's. Posts younger than 7 days are excluded (still distributing) and posts older than 90 days are excluded too (**hooks decay** — an opening that worked last year is not evidence about now); every report states the `window` it covers. A pattern with fewer than 3 mature posts reports `confident: false`, and an unconfident 10x sorts BELOW a confident 1.5x. There is no cross-platform hook corpus behind this: `?tag=` pools YOUR accounts in a niche.
 
 **Ownership:** an account registered by a `connect --server` login is bound to the wallet that registered it. Another wallet acting on it gets `403 NOT_YOUR_ACCOUNT` and is refunded. Accounts you never registered stay usable by anyone holding a valid cookie jar, so the older BYO-cookies flow is unaffected.
 
