@@ -1325,6 +1325,7 @@ const TIKTOK_HELP: Record<string, Array<{ flag: string; desc: string; hint?: str
     { flag: '<username> | --tag <niche>', desc: "Which caption openings earn views, vs this account's OWN median" },
     { flag: '--caption "..."', desc: 'Classify a draft opening before posting, with what your history says about it' },
     { flag: '--maturity-days <n>', desc: 'Only judge posts older than n days (default 7 — younger ones are still distributing)' },
+    { flag: '--niche <niche>', desc: "What's working in a niche across TikTok (no account history needed — the day-one answer)" },
     { flag: '--recency-days <n>', desc: 'Only judge posts NEWER than n days (default 90 — hooks decay, so old wins are not evidence about now)' },
     { flag: '(price)', desc: '$0.001 USDC' },
   ],
@@ -9170,8 +9171,9 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             // caption argument classifies a draft before you post it.
             const username = positional[0] || (flags.username as string)
             const tag = flags.tag as string | undefined
+            const niche = flags.niche as string | undefined
             const caption = (flags.caption as string) || (flags.text as string)
-            if (!username && !tag) err('<username> or --tag <niche> required', EXIT.BAD_INPUT)
+            if (!username && !tag && !niche) err('<username>, --tag <folder>, or --niche <niche> required', EXIT.BAD_INPUT)
             const acc = username ? sv.getAccount(platform, username) : undefined
             const acctId = username ? (acc ? acc.id : username) : undefined
 
@@ -9182,11 +9184,34 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
               const recencyDays = flags['recency-days'] !== undefined ? Number(flags['recency-days']) : undefined
               if (maturityDays !== undefined && !Number.isFinite(maturityDays)) err('--maturity-days must be a number', EXIT.BAD_INPUT)
               if (recencyDays !== undefined && (!Number.isFinite(recencyDays) || recencyDays <= 0)) err('--recency-days must be a positive number', EXIT.BAD_INPUT)
-              data = await ao.socialTiktokHooks({ accountId: acctId, tag, caption, maturityDays, recencyDays })
+              data = await ao.socialTiktokHooks({ accountId: acctId, tag, niche, caption, maturityDays, recencyDays })
             } catch (e: any) {
               err(`hooks failed: ${e.message}`, EXIT.GENERAL)
             }
             if (AGENT_MODE) return print(data)
+
+            // A corpus answer is about OTHER accounts, so it is rendered on its
+            // own and never merged into the account view.
+            if (niche) {
+              console.log(`\n  ${t.accent}${data.niche_label || data.niche}${t.reset} — ${t.muted}observed in this niche, not your account${t.reset}`)
+              if (data.resolved) console.log(`  ${t.muted}"${data.requested}" resolved to ${data.niche}${t.reset}`)
+              const w = data.window || {}
+              const fr = data.freshness || {}
+              console.log(`  ${t.muted}${w.posts ?? 0} posts · median ${w.median_views ?? '—'} views · collected ${fr.age_days ?? '?'}d ago${t.reset}\n`)
+              for (const p of data.patterns || []) {
+                const lift = p.lift == null ? '—' : `${p.lift}x`
+                const mark = p.confident ? '' : `  ${t.muted}(${p.posts} post(s) — thin)${t.reset}`
+                console.log(`  ${String(p.label).padEnd(28)} ${lift.padStart(6)}  ${String(p.posts).padStart(3)} post(s)${mark}`)
+                for (const ex of (p.examples || []).slice(0, 2)) {
+                  const when = ex.posted_at ? String(ex.posted_at).slice(0, 10) : '?'
+                  console.log(`      ${t.muted}${when}  ${String(ex.views).padStart(9)}  ${String(ex.hook).slice(0, 52)}${t.reset}`)
+                }
+              }
+              console.log()
+              for (const n of data.notes || []) console.log(`  ${t.muted}${n}${t.reset}`)
+              console.log()
+              return
+            }
 
             const label = username || `#${tag}`
 
@@ -9229,6 +9254,72 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
             }
             for (const n of data.notes || []) console.log(`  ${t.muted}${n}${t.reset}`)
             console.log()
+            return
+          }
+
+          case 'corpus': {
+            // OPERATOR-ONLY ingestion. Deliberately not something an agent can
+            // trigger: each refresh pays a real upstream per query, so if a
+            // cache miss started one, anyone could spend the budget by asking
+            // about niches nobody wants. It also keeps the paying wallet off
+            // the server — this CLI pays, then uploads the result.
+            const sub = positional[0] || 'status'
+            const { NICHES, resolveNiche } = await import('./niches.js')
+
+            if (sub === 'niches') {
+              if (AGENT_MODE) return print({ niches: NICHES.map((n: any) => ({ niche: n.id, label: n.label, queries: n.queries })) })
+              console.log(`\n  ${t.accent}niches${t.reset}\n`)
+              for (const n of NICHES) console.log(`  ${String(n.id).padEnd(14)} ${n.label}`)
+              console.log(`\n  ${t.muted}${NICHES.length} niches — pass any word, it resolves to the nearest${t.reset}\n`)
+              return
+            }
+
+            if (sub === 'refresh') {
+              const asked = positional[1] || (flags.niche as string)
+              if (!asked) err('<niche> required — try: palmyr tiktok corpus niches', EXIT.BAD_INPUT)
+              const res = resolveNiche(asked)
+              if (!res) err(`Could not resolve "${asked}". Run: palmyr tiktok corpus niches`, EXIT.BAD_INPUT)
+              const niche = res!.niche
+              if (res!.resolved) log(`"${asked}" → ${niche.id}`)
+
+              const depth = flags.depth !== undefined ? Number(flags.depth) : 4
+              if (!Number.isFinite(depth) || depth < 1) err('--depth must be a positive number', EXIT.BAD_INPUT)
+              const queries = niche.queries.slice(0, depth)
+
+              const { paidRequest } = await import('./pay.js')
+              const collections: { query: string; posts: any[] }[] = []
+              let spent = 0
+              for (const q of queries) {
+                if (!AGENT_MODE) process.stderr.write(`  fetching "${q}"…\n`)
+                try {
+                  const r = await paidRequest(
+                    'https://stablesocial.dev', 'POST', '/api/sc/tiktok/search/keyword',
+                    { query: q }, undefined, 1, { maxUsdc: 0.25 },
+                  )
+                  const items = (r.data?.search_item_list || []).map((x: any) => x.aweme_info).filter(Boolean)
+                  collections.push({ query: q, posts: items })
+                  spent += 0.06
+                  if (!AGENT_MODE) process.stderr.write(`    ${items.length} posts\n`)
+                } catch (e: any) {
+                  // One failed query should not discard the ones that worked.
+                  process.stderr.write(`    failed: ${e?.message || e}\n`)
+                }
+              }
+              if (collections.length === 0) err('every query failed — nothing collected, nothing uploaded', EXIT.GENERAL)
+
+              const { buildAdminHeaders } = await import('./admin-auth.js')
+              const path = '/social/tiktok/corpus'
+              let up: any
+              try {
+                up = await ao.socialTiktokCorpusUpload(niche.id, collections, Number(spent.toFixed(4)), buildAdminHeaders('POST', path))
+              } catch (e: any) {
+                err(`collected ${collections.length} queries but upload failed: ${e.message}`, EXIT.GENERAL)
+              }
+              log(`corpus ${niche.id}: stored ${up?.stored} posts from ${collections.length} queries ($${spent.toFixed(2)})`)
+              return print({ ...up, spent_usdc: Number(spent.toFixed(4)) })
+            }
+
+            err(`Unknown corpus command: ${sub}. Try: niches, refresh <niche>`, EXIT.BAD_INPUT)
             return
           }
 
@@ -9463,7 +9554,7 @@ try { texts = JSON.parse(readFileSync(fileTextsPath, 'utf8').replace(/^﻿/, '')
           }
 
           default:
-            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, push, pull, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, series, hooks, review, monitor, follow, like, delete, bio, name, pfp`)
+            err(`Unknown tiktok command: ${subcommand}. Try: connect, import, push, pull, list, info, rename, tag, remove, totp, login, session, post, schedule, draft, drafts, approve, reject, logs, analytics, series, hooks, corpus, review, monitor, follow, like, delete, bio, name, pfp`)
         }
         break
       }

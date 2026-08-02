@@ -113,6 +113,7 @@ Use `--url <https>` instead of `--file` to post from a URL. `--privacy` takes 0/
 | Command | Cost | What it does |
 |---------|------|--------------|
 | `palmyr tiktok analytics <username>` | $0.005 | Scrape per-post views/likes/comments from Studio, tier each post against the account's own history, and record the sample **server-side** as well as locally. Free in self-hosted. |
+| `palmyr tiktok hooks --niche fitness` | $0.05 | What's working in a **niche across TikTok** — needs no posting history, so it's the answer on day one. Any word resolves to the nearest niche and the reply says which. Each example carries the date it worked, because hooks decay. |
 | `palmyr tiktok hooks <username>` | $0.001 | Which caption openings earn views, measured against this account's **own** median. `--tag <niche>` pools every account you own in that niche; `--caption "..."` classifies a draft before you post it. |
 | `palmyr tiktok series <username>` | $0.001 | The server's stored per-post history, which survives this machine. `--video <id>` for one video's full time-series; `--hours 24` for per-video growth over a window. |
 | `palmyr tiktok review <username>` | free | Performance review off local snapshots — totals, tier mix, best/worst post, avg engagement rate, and the trend vs the previous snapshot. |

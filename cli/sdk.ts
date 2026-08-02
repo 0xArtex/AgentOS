@@ -1470,14 +1470,34 @@ export class Palmyr {
    * median. Scope by accountId, or by tag to pool a niche across the accounts
    * the wallet owns. Pass `caption` to classify a draft before posting.
    */
-  async socialTiktokHooks(opts: { accountId?: string; tag?: string; caption?: string; maturityDays?: number; recencyDays?: number } = {}): Promise<any> {
+  async socialTiktokHooks(opts: { accountId?: string; tag?: string; niche?: string; caption?: string; maturityDays?: number; recencyDays?: number } = {}): Promise<any> {
     const q = new URLSearchParams()
     if (opts.accountId) q.set('account_id', opts.accountId)
     if (opts.tag) q.set('tag', opts.tag)
+    if (opts.niche) q.set('niche', opts.niche)
     if (opts.caption) q.set('caption', opts.caption)
     if (opts.maturityDays !== undefined) q.set('maturity_days', String(opts.maturityDays))
     if (opts.recencyDays !== undefined) q.set('recency_days', String(opts.recencyDays))
     return this.request('GET', `/social/tiktok/hooks?${q.toString()}`)
+  }
+
+  /**
+   * Upload a niche collection. ADMIN ONLY — the server refuses this without a
+   * pool-admin signature, because collection costs real money upstream and
+   * must never be triggerable by ordinary traffic.
+   */
+  async socialTiktokCorpusUpload(
+    niche: string,
+    collections: { query: string; posts: any[] }[],
+    costUsdc: number,
+    adminHeaders: Record<string, string>,
+  ): Promise<any> {
+    return this.requestWithHeaders('POST', '/social/tiktok/corpus', { niche, collections, cost_usdc: costUsdc }, adminHeaders)
+  }
+
+  /** Free: the niche list, with how fresh each corpus is. */
+  async socialTiktokNiches(): Promise<any> {
+    return this.request('GET', '/social/tiktok/niches')
   }
 
   // ── Info ──

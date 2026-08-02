@@ -8,7 +8,6 @@
  */
 import { Router, Request, Response } from "express";
 import { requireAuth } from "../middleware/auth";
-import { requirePoolAdmin } from "../middleware/pool-admin";
 import { refundAndRespond } from "../services/refund";
 import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
@@ -85,6 +84,9 @@ import {
 } from "../services/tiktok-accounts";
 import { seriesFor, latestForAccount, growthSince } from "../services/tiktok-metrics";
 import { hookReport, checkCaption } from "../services/tiktok-hooks";
+import { corpusReport, storeCollection, recordCollectionRun, corpusFreshness, collectionHistory, parseUpstreamPost } from "../services/tiktok-corpus";
+import { NICHES, resolveNiche, getNiche } from "../services/tiktok-niches";
+import { requirePoolAdmin } from "../middleware/pool-admin";
 import {
   followUser as tiktokFollow,
   likeVideo as tiktokLike,
@@ -2449,6 +2451,25 @@ router.get(
     const account_id = typeof req.query.account_id === "string" ? req.query.account_id : undefined;
     const tag = typeof req.query.tag === "string" ? req.query.tag : undefined;
     const caption = typeof req.query.caption === "string" ? req.query.caption : undefined;
+    const niche = typeof req.query.niche === "string" ? req.query.niche : undefined;
+
+    // A niche asks what is working on the PLATFORM, which needs no account and
+    // no history — the answer for a new account, which is most of them. It is
+    // served on its own and never merged with a caller's measured results:
+    // another creator's reach is not theirs, and one number containing both
+    // would be a claim we cannot support.
+    if (niche) {
+      const report = corpusReport({ niche });
+      if (!report) {
+        res.status(400).json({
+          error: "Unknown niche",
+          message: `Could not resolve "${niche}". GET /social/tiktok/niches lists them (free).`,
+        });
+        return;
+      }
+      res.json(report);
+      return;
+    }
 
     // A single account is owner-gated exactly like the series read. A tag scope
     // needs no gate: it resolves through listByOwner, which only ever returns
@@ -2486,5 +2507,79 @@ router.get(
     );
   }
 );
+
+/**
+ * GET /social/tiktok/niches — the niche list. Free, because an agent should not
+ * have to pay to learn what it may ask for.
+ */
+router.get("/tiktok/niches", (_req: Request, res: Response) => {
+  res.json({
+    niches: NICHES.map((n) => ({
+      ...corpusFreshness(n.id),
+      niche: n.id,
+      label: n.label,
+    })),
+    count: NICHES.length,
+    note: "Pass any word to /social/tiktok/hooks?niche=... — it resolves to the nearest of these and tells you which.",
+  });
+});
+
+/**
+ * POST /social/tiktok/corpus — ingest a collection. ADMIN ONLY.
+ *
+ * Deliberately not agent-triggerable. The upstream costs real money per call,
+ * so if a cache miss could start one, anyone could spend our budget by asking
+ * for niches nobody wants. Collection is an operator decision; agents only
+ * read. This also keeps the paying wallet off the server entirely — the
+ * operator's CLI pays and uploads the result.
+ */
+router.post(
+  "/tiktok/corpus",
+  requirePoolAdmin,
+  (req: AuthenticatedRequest, res: Response) => {
+    const { niche, collections, cost_usdc } = (req.body || {}) as {
+      niche?: string;
+      collections?: { query: string; posts: any[] }[];
+      cost_usdc?: number;
+    };
+    const target = typeof niche === "string" ? getNiche(niche) : undefined;
+    if (!target) {
+      res.status(400).json({ error: "Unknown niche", niches: NICHES.map((n) => n.id) });
+      return;
+    }
+    if (!Array.isArray(collections) || collections.length === 0) {
+      res.status(400).json({ error: "collections[] is required" });
+      return;
+    }
+
+    // One timestamp for the whole run: the rows are a single snapshot, and
+    // splitting them across timestamps would fracture the "latest collection"
+    // read into partial slices.
+    const collectedAt = new Date().toISOString();
+    let stored = 0;
+    for (const c of collections) {
+      if (!c || typeof c.query !== "string" || !Array.isArray(c.posts)) continue;
+      const parsed = c.posts.map(parseUpstreamPost).filter(Boolean) as any[];
+      stored += storeCollection(target.id, c.query, parsed, collectedAt);
+    }
+    recordCollectionRun({
+      niche: target.id,
+      collectedAt,
+      queries: collections.length,
+      posts: stored,
+      costUsdc: Number.isFinite(Number(cost_usdc)) ? Number(cost_usdc) : 0,
+      error: stored === 0 ? "collection stored no posts" : null,
+    });
+    res.status(201).json({ niche: target.id, collected_at: collectedAt, stored, queries: collections.length });
+  }
+);
+
+/** GET /social/tiktok/corpus/history — what we collected and when. Admin only. */
+router.get("/tiktok/corpus/history", requirePoolAdmin, (req: AuthenticatedRequest, res: Response) => {
+  const niche = typeof req.query.niche === "string" ? req.query.niche : "";
+  const target = getNiche(niche);
+  if (!target) { res.status(400).json({ error: "Unknown niche", niches: NICHES.map((n) => n.id) }); return; }
+  res.json({ niche: target.id, collections: collectionHistory(target.id) });
+});
 
 export default router;
