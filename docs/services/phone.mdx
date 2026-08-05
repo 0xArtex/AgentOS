@@ -38,7 +38,7 @@ The `<ID>` is returned by `buy` and identifies the number you own.
 | `palmyr phone buy --country US [--area 415]` | $3.00 | Provisions a real number. Local numbers preferred over toll-free. |
 | `palmyr phone messages --id <ID>` | $0.02 | Read inbound SMS history. |
 | `palmyr phone sms --id <ID> --to +1... --body "..."` | $0.05 | Send SMS. |
-| `palmyr phone delete --id <ID>` | $0.01 | Release the number. |
+| `palmyr phone release --id <ID>` | $0.01 | Release the number. |
 | `palmyr phone call --id <ID> --to +1... [--tts "..."]` | $0.10 | Outbound dial with optional text-to-speech on connect. |
 | `palmyr phone transfer-ownership --id <ID> --to <wallet>` | $0.01 | Hand the number to another wallet. Clears shared access — the prior owner's collaborators don't travel with the number. |
 | `palmyr phone share --id <ID> --with <wallet>` | $0.01 | Grant another wallet shared use (send/read SMS, place calls). Owner-only. |
@@ -46,10 +46,22 @@ The `<ID>` is returned by `buy` and identifies the number you own.
 
 ## Voice calls
 
-`palmyr phone call` places an outbound dial and, with `--tts`, speaks a string when the callee connects.
+`palmyr phone call` places an outbound dial and, with `--tts`, speaks a string when the callee connects. It returns a `callControlId` — the handle every live-call command below takes as `--call`.
+
+| Command | Cost | What it does |
+|---|---|---|
+| `palmyr phone call-info --call <CALL_ID>` | $0.02 | Read the call's current state. |
+| `palmyr phone speak --call <CALL_ID> --text "..."` | $0.08 | Speak text into a live call (`--voice`, `--language`). |
+| `palmyr phone play --call <CALL_ID> --url https://...` | $0.08 | Play an audio file into the call. |
+| `palmyr phone gather --call <CALL_ID>` | $0.08 | Collect DTMF from the callee (`--prompt`, `--min-digits`, `--max-digits`, `--timeout`, `--terminating-digit`). |
+| `palmyr phone dtmf --call <CALL_ID> --digits "1234#"` | $0.02 | Send DTMF tones (IVR menus). |
+| `palmyr phone record --call <CALL_ID>` | $0.10 | Start recording; `palmyr phone record-stop --call <CALL_ID>` is $0.02. |
+| `palmyr phone answer --call <CALL_ID>` | $0.02 | Answer an inbound call. |
+| `palmyr phone hangup --call <CALL_ID>` | $0.02 | End the call. |
+| `palmyr phone transfer --call <CALL_ID> --to +1...` | $0.10 | Transfer the call to another number. |
 
 <Info>
-  Live call control — `speak`, `play`, `dtmf`, `gather`, `record`, `hangup`, and `transfer` — is exposed through the SDK and the REST API rather than the CLI. Drive an in-progress call programmatically over those surfaces.
+  The CLI, the SDK, and the REST API all drive the same live-call endpoints — nothing here is CLI-only or SDK-only.
 </Info>
 
 ## Ownership & sharing
@@ -67,7 +79,7 @@ The `$0.01` charge on these is an **ownership proof**: the signing wallet pays a
 ## Safety
 
 - **`E.164` pre-flight.** `palmyr phone sms` and `palmyr phone call` validate the destination and reject malformed `E.164` numbers or unsupported destinations before charging, so a doomed request costs nothing.
-- **Ownership.** Only the wallet that paid for `buy` — plus any wallets it shared the number with — can read, send, or call from the number. Release stays owner-only: `palmyr phone delete` for $0.01 when you no longer need it.
+- **Ownership.** Only the wallet that paid for `buy` — plus any wallets it shared the number with — can read, send, or call from the number. Release stays owner-only: `palmyr phone release` for $0.01 when you no longer need it.
 
 ## See also
 

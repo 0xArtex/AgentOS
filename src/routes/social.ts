@@ -1105,6 +1105,35 @@ function validateScheduleBody(req: AuthenticatedRequest, res: Response, next: ()
   next();
 }
 
+// createScheduled rejects for ordinary reasons the pre-paywall validation
+// cannot see — an account_id this wallet doesn't own, or one that was revoked.
+// x402 settled before the handler ran, so relaying that as a bare 400 bills a
+// wallet for a post that was never scheduled. Refund it, exactly as the buy
+// path does on no-inventory. Balance/dashboard payers (no req.payment) are made
+// whole by the 4xx itself, so they just get the result body.
+async function respondScheduleResult(
+  req: AuthenticatedRequest,
+  res: Response,
+  result: { success: boolean; id?: string; error?: string },
+  fallbackError = "Could not schedule post",
+  errorLabel = "Schedule failed",
+): Promise<void> {
+  if (result.success) {
+    res.status(200).json(result);
+    return;
+  }
+  if (req.payment) {
+    await refundAndRespond(req, res, {
+      reason: result.error || fallbackError,
+      userMessage: (result.error || fallbackError) + " — your payment is being refunded.",
+      httpStatus: 400,
+      errorLabel,
+    });
+    return;
+  }
+  res.status(400).json(result);
+}
+
 router.post(
   "/scheduled/post",
   requireXEnabled,
@@ -1135,7 +1164,7 @@ router.post(
       post_at,
       paid_amount_usdc: 0.001,
     });
-    res.status(result.success ? 200 : 400).json(result);
+    await respondScheduleResult(req, res, result);
   }
 );
 
@@ -1169,7 +1198,7 @@ router.post(
       post_at,
       paid_amount_usdc: 0.005,
     });
-    res.status(result.success ? 200 : 400).json(result);
+    await respondScheduleResult(req, res, result);
   }
 );
 
@@ -1204,7 +1233,7 @@ router.post(
       post_at,
       paid_amount_usdc: 0.005,
     });
-    res.status(result.success ? 200 : 400).json(result);
+    await respondScheduleResult(req, res, result);
   }
 );
 
@@ -1273,7 +1302,10 @@ router.delete(
     }
     try {
       const result = cancelScheduled(wallet, id);
-      res.status(result.success ? 200 : 400).json(result);
+      // Same settle-then-reject shape as the /scheduled/* creators: "not found
+      // for this wallet" and already-cancelled are ordinary outcomes, so the
+      // $0.001 has to go back rather than buying a 400.
+      await respondScheduleResult(req, res, result, "Could not cancel scheduled post", "Cancel failed");
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Cancel scheduled failed" });
     }
@@ -2485,19 +2517,53 @@ router.get(
         (req as any)._corpusEnsure = ensured;
       }
       const report = corpusReport({ niche });
+      const ensured = (req as any)._corpusEnsure;
       if (!report) {
-        res.status(400).json({
-          error: "Unknown niche",
-          message: `Could not resolve "${niche}". GET /social/tiktok/niches lists them (free).`,
+        // ?niche= priced this request at $0.05 and x402 settled it before the
+        // handler ran. A word we cannot resolve is an ordinary outcome, not an
+        // upstream failure — but it returns nothing, so billing for it would be
+        // charging for the niche list, which is free two routes down.
+        await refundAndRespond(req, res, {
+          reason: `unresolvable niche: ${niche}`,
+          userMessage: `Could not resolve "${niche}" — your payment is being refunded. GET /social/tiktok/niches lists them (free).`,
+          httpStatus: 400,
+          errorLabel: "Unknown niche",
+          extra: { error_code: "UNKNOWN_NICHE" },
         });
         return;
       }
-      const ensured = (req as any)._corpusEnsure;
+      const refreshing = !!ensured?.refreshing || isCollecting(report.niche);
+      // What the $0.05 buys is the corpus behind the answer. With no patterns
+      // to return AND no collection running to produce any, there is no corpus
+      // and none coming — the caller would be paying for the note that says so.
+      // A refresh that genuinely started is the thing they paid for (ask again
+      // shortly), and so is any report with patterns in it, however thin.
+      if (report.patterns.length === 0 && !refreshing) {
+        await refundAndRespond(req, res, {
+          reason: `empty corpus for niche ${report.niche}${ensured?.skipped ? ` (collection skipped: ${ensured.skipped})` : ""}`,
+          userMessage:
+            `No collected posts to report for "${report.niche}", and no collection is running to change that` +
+            (ensured?.skipped === "not_configured" ? " (auto-collection is off on this deployment)" : "") +
+            " — your payment is being refunded.",
+          httpStatus: 503,
+          errorLabel: "Corpus unavailable",
+          extra: {
+            ...report,
+            error_code: "CORPUS_EMPTY",
+            collection: {
+              auto: collectorEnabled(),
+              refreshing: false,
+              ...(ensured?.skipped ? { skipped: ensured.skipped } : {}),
+            },
+          },
+        });
+        return;
+      }
       res.json({
         ...report,
         collection: {
           auto: collectorEnabled(),
-          refreshing: !!ensured?.refreshing || isCollecting(report.niche),
+          refreshing,
           ...(ensured?.skipped ? { skipped: ensured.skipped } : {}),
         },
         ...(ensured?.skipped === "not_configured"

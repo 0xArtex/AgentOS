@@ -75,7 +75,7 @@ Full guide: [Phone & SMS](/services/phone).
 | `phone messages --id <ID>` | $0.02 | Read inbound SMS history. |
 | `phone sms --id <ID> --to +1... --body "..."` | $0.05 | Send an SMS. |
 | `phone call --id <ID> --to +1... [--tts "..."]` | $0.10 | Outbound call with optional text-to-speech. |
-| `phone delete --id <ID>` | $0.01 | Release the number. |
+| `phone release --id <ID>` | $0.01 | Release the number. |
 | `phone transfer-ownership --id <ID> --to <wallet>` | $0.01 | Hand the number to another wallet (clears shared access). |
 | `phone share --id <ID> --with <wallet>` | $0.01 | Grant another wallet shared use of the number. |
 | `phone unshare --id <ID> --from <wallet>` | $0.01 | Revoke a shared wallet's use. |
@@ -125,6 +125,17 @@ Full guide: [Domains](/services/domains).
 | `domain transfer-ownership --name X --to <wallet>` | $0.01 | Hand the domain to another wallet. |
 | `domain share / unshare --name X --with <wallet>` | $0.01 | Grant or revoke shared DNS access. |
 
+## Cards
+
+Prepaid USA Visa cards loaded with an exact balance. Full guide: [Cards](/services/card).
+
+| Command | Cost | Description |
+|---|---|---|
+| `card buy --amount 20` | amount + 3% fee (min $0.50) | Buy a card loaded with exactly that balance ($5–$1000). Async: polls the free operation until ready (~10s), then fetches the number/CVV for $0.01. `--no-wait` skips the polling; `--no-details` skips the fetch. |
+| `card list` | $0.01 | Your cards: status, last4, balance (never full numbers). |
+| `card get --id <CARD_ID>` | $0.01 | Full card number, CVV, expiry. Owner only. |
+| `card refresh --id <CARD_ID>` | $0.01 | Live balance and transactions from the issuer (re-scrape limited to 1 per 5 min per card). |
+
 ## X / Twitter
 
 Full guide: [X / Twitter](/services/twitter).
@@ -156,18 +167,24 @@ Direct browser automation — no password stored server-side. Full guide: [TikTo
 | `tiktok connect <username> --server` | $0.01 | **Recommended.** Logs in inside the account's own persistent browser profile on the server; later ops need no cookies. |
 | `tiktok connect <username>` | free | QR hand-off; `--local` opens a browser here instead. |
 | `tiktok import <username> ...` | free | Bring your own cookies or credentials. |
+| `tiktok push <username>` / `tiktok pull <username> --code <code>` | free | Move a session captured on a trusted machine to the machine that runs the ops (one-time transfer code). |
 | `tiktok list / info / session / rename / tag / remove / totp` | free | Local account management. |
 | `tiktok list --server` | $0.001 | Accounts the server knows your wallet owns, with session health — the only view that sees `--server` accounts. |
 | `tiktok login <username>` | $0.02 | Validate the session via a stealth browser. |
 | `tiktok post <username> --file video.mp4 --caption "..."` | $0.01 | Post a video. |
-| `tiktok schedule <username> --at <iso> --file video.mp4` | $0.01 | TikTok-native scheduled post. |
+| `tiktok schedule <username> --at <iso> --file video.mp4` | $0.01 | TikTok-native scheduled post (~15 min to ~10 days out). |
+| `tiktok scheduled [<account>]` | $0.001 | What you have queued — Palmyr's own record, since TikTok exposes no way to read pending posts back. `--all` includes cancelled and published. |
+| `tiktok cancel <operation-id> --account <user>` | $0.001 | Cancel a scheduled post by deleting the held video (TikTok has no "unschedule"). |
 | `tiktok follow / like / delete / bio / name` | $0.001 | Engagement and profile. |
 | `tiktok pfp <username> --file pic.png` | $0.005 | Set the avatar. |
 | `tiktok draft <username> ...` | free | Stage a post for human approval. |
 | `tiktok drafts / approve / reject / logs` | free / $0.01 | Approval queue (`approve` is $0.01) and audit log. |
 | `tiktok analytics <username>` | $0.005 | Scrape per-post metrics and record the sample server-side (free when self-hosted). |
 | `tiktok series <username>` | $0.001 | The server's stored per-post history. `--video <id>` for one series; `--hours 24` for growth. |
+| `tiktok hooks <username>` | $0.001 | Which caption openings earn views, against the account's own median. `--tag <folder>` pools the accounts you own; `--caption "..."` classifies a draft before posting. |
+| `tiktok hooks --niche fitness` | $0.05 | What is working in that niche across TikTok — needs no posting history, so it is the answer for a new account. |
 | `tiktok review / monitor` | free | Performance review and the unattended monitor loop. |
+| `tiktok corpus niches` | free | List the niches `hooks --niche` resolves against. `corpus refresh <niche>` is operator-only (pool-admin signature) and pays the upstream collector directly. |
 
 ## Utility
 

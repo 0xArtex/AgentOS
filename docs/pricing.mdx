@@ -12,7 +12,7 @@ Every Palmyr service and what each action costs. It's all **pay-per-action** in 
 
 ## Free
 
-Discovery and local work never cost anything: `search`, `list`, `info`, `pricing`, `health`, `status`, `note`, and **every local wallet operation** (create, import, rekey, tag, export, sign).
+Discovery and local work never cost anything: `search`, `info`, `pricing`, `health`, `status`, `note`, and **every local wallet operation** (create, import, rekey, tag, export, sign). `list` is free where it reads local state (wallets, TikTok and X accounts); the server-side listings are priced in the tables below.
 
 ## Phone & SMS
 
@@ -23,7 +23,7 @@ Discovery and local work never cost anything: `search`, `list`, `info`, `pricing
 | `messages` (read inbound SMS) | $0.02 |
 | `sms` (send) | $0.05 |
 | `call` (outbound, optional TTS) | $0.10 |
-| `delete` (release) | $0.01 |
+| `release` | $0.01 |
 | `transfer-ownership` / `share` / `unshare` | $0.01 |
 
 ## Email
@@ -93,12 +93,23 @@ Trades route directly from your wallet to on-chain DEXs (Jupiter on Solana, Para
 
 | Action | Cost |
 |---|---|
-| `connect` / `import` / `list` / `info` / `session` / `draft` / `reject` / `logs` / `review` / `monitor` | free |
+| `connect` (QR hand-off, or `--local`) / `import` / `list` / `info` / `session` / `rename` / `tag` / `remove` / `totp` / `push` / `pull` / `draft` / `drafts` / `reject` / `logs` / `review` / `monitor` | free |
+| `connect --server` | $0.01 |
+| `list --server` | $0.001 |
 | `login` | $0.02 |
 | `post` / `schedule` / `approve` | $0.01 |
 | `follow` / `like` / `delete` / `bio` / `name` | $0.001 |
 | `pfp` | $0.005 |
 | `analytics` | $0.005 (free when self-hosted) |
+| `hooks` (your own accounts, or `--tag`) | $0.001 |
+| `hooks --niche` | $0.05 |
+| `series` / `scheduled` / `cancel` | $0.001 |
+| `corpus niches` | free |
+| `corpus refresh` | operator-only — no Palmyr charge |
+
+`connect` is free when the login happens on your machine (the default QR hand-off, or `--local`); `connect --server` is the $0.01 path that logs in inside the account's own browser profile on the server. Same split on `list`: local is free, `--server` is $0.001 — the payment is what identifies your wallet.
+
+`hooks` has two prices because it answers two different questions: $0.001 measures **your** accounts against their own median, $0.05 reports what is working in a niche across TikTok. `corpus refresh` pre-warms a niche and is operator-only (pool-admin signature); it pays the upstream collector directly, not Palmyr, and agents never need it — the server refreshes a stale niche itself when `hooks --niche` asks for one.
 
 ## API keys
 
