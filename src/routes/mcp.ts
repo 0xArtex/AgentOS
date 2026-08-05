@@ -16,10 +16,15 @@ import { Router, Request, Response } from "express";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { registerPalmyrTools } from "../services/mcp-tools";
+import { clientIp } from "../middleware/client-ip";
 
 const router = Router();
 
-function buildServer(): McpServer {
+// `callerIp` is resolved here, on the real /mcp request, because this is the
+// only place that still sees the socket peer — the tools reach the API over
+// loopback, where every caller would otherwise key as 127.0.0.1 and share one
+// rate-limit and brute-force bucket.
+function buildServer(callerIp?: string): McpServer {
   const server = new McpServer(
     { name: "ai.palmyr/palmyr", title: "Palmyr", version: "1.0.0" },
     {
@@ -27,13 +32,13 @@ function buildServer(): McpServer {
         "Palmyr exposes real-world capabilities (email, phone, X/TikTok, domains, VPS, and the i402 intent resolver) that agents pay for per-action via x402 (USDC on Solana or Base). No account or API key. Call a paid tool once with no `payment` to receive x402 instructions, then sign and call again with `payment`.",
     },
   );
-  registerPalmyrTools(server);
+  registerPalmyrTools(server, callerIp);
   return server;
 }
 
 // POST /mcp — one JSON-RPC exchange per request (stateless).
 router.post("/", async (req: Request, res: Response) => {
-  const server = buildServer();
+  const server = buildServer(clientIp(req));
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

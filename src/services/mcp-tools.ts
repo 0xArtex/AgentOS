@@ -15,6 +15,15 @@
  * loopback origin. undici `fetch` ignores a manually-set Host header (verified),
  * so instead we string-replace the internal origin with https://palmyr.ai in
  * every proxied response body before returning it.
+ *
+ * Caller identity: a loopback fetch carries no client identity, so every MCP
+ * sub-request from every user in the world used to key as 127.0.0.1 — one shared
+ * rate-limit bucket, and one caller's routine 401/403s could brute-force-block
+ * the entire MCP surface for 15 minutes. `registerPalmyrTools` therefore takes
+ * the caller's ALREADY-RESOLVED IP (clientIp() on the /mcp request, which is
+ * where the CF-Connecting-IP trust check belongs) and every proxied call passes
+ * it on as CF-Connecting-IP — believed downstream precisely because the peer of
+ * the loopback fetch is loopback, the one condition clientIp() trusts.
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
@@ -28,6 +37,18 @@ const PAYMENT_PARAM = z
   .optional()
   .describe(
     "base64 x402 payment payload (X-PAYMENT); omit on first call to receive payment instructions",
+  );
+
+// TikTok session jar. OPTIONAL, not required: an account connected with
+// tiktok_connect keeps its session in its own browser profile on the server and
+// has no jar to send — routes/social.ts accepts an empty one for it
+// (hasServerProfile), so demanding cookies here locked agents out of the
+// recommended `connect --server` path.
+const TIKTOK_COOKIES_PARAM = z
+  .array(z.any())
+  .optional()
+  .describe(
+    "Session cookies for the TikTok account. Omit for an account connected with tiktok_connect — its session lives in that account's own browser profile on the server, so there is no jar to send.",
   );
 
 const PAY_INSTRUCTIONS =
@@ -57,20 +78,29 @@ function scrubLoopback(text: string): string {
 
 /**
  * Proxy a single request to the local Palmyr API. Forwards ONLY method, path,
- * JSON body, and X-PAYMENT (when a payment arg is present) — no other client
- * headers. Returns the scrubbed body text + parsed JSON (best-effort).
+ * JSON body, X-PAYMENT (when a payment arg is present) and the caller's IP as
+ * CF-Connecting-IP (when known) — no other client headers. Returns the scrubbed
+ * body text + parsed JSON (best-effort).
  */
 async function proxyToApi(opts: {
   method: string;
   path: string;
   body?: unknown;
   payment?: string;
+  callerIp?: string;
 }): Promise<{ status: number; text: string; json: any; headers: Record<string, string> }> {
   const url = `http://127.0.0.1:${config.port}${opts.path}`;
   const isBodyMethod = opts.method !== "GET" && opts.method !== "HEAD";
   const headers: Record<string, string> = {};
   if (isBodyMethod) headers["Content-Type"] = "application/json";
   if (opts.payment) headers["X-PAYMENT"] = opts.payment;
+  // Give the API back the identity the loopback hop erases. This fetch's peer IS
+  // loopback, which is exactly (and only) when clientIp() believes
+  // CF-Connecting-IP — so the value lands in the per-IP rate limiter and the
+  // brute-force lockout instead of 127.0.0.1. Nothing is weakened by setting it
+  // here: `callerIp` is what clientIp() already resolved for the /mcp request
+  // (peer-checked there), never a raw inbound header we re-forward blindly.
+  if (opts.callerIp) headers["CF-Connecting-IP"] = opts.callerIp;
 
   const resp = await fetch(url, {
     method: opts.method,
@@ -84,7 +114,7 @@ async function proxyToApi(opts: {
   } catch {
     /* non-JSON body */
   }
-  // Flatten response headers (lowercased keys) so callRoute can read the
+  // Flatten response headers (lowercased keys) so callRouteAs can read the
   // spec settlement receipt (PAYMENT-RESPONSE) the x402 middleware sets.
   const respHeaders: Record<string, string> = {};
   resp.headers.forEach((v, k) => {
@@ -186,8 +216,13 @@ export function buildToolResult(
  * the SDK as `extra._meta["x402/payment"]`) OR the base64 `payment` arg. Both
  * converge on the single loopback X-PAYMENT settlement (the loopback API is the
  * only settler). Response mapping is delegated to `buildToolResult`.
+ *
+ * `callerIp` is the MCP caller's resolved IP, forwarded so the proxied request
+ * keys on the real caller (see proxyToApi); registerPalmyrTools binds it once
+ * and the tool handlers call the bound `callRoute`.
  */
-async function callRoute(
+async function callRouteAs(
+  callerIp: string | undefined,
   method: string,
   path: string,
   body: unknown,
@@ -204,7 +239,7 @@ async function callRoute(
 
   let result: { status: number; text: string; json: any; headers: Record<string, string> };
   try {
-    result = await proxyToApi({ method, path, body, payment: xPayment });
+    result = await proxyToApi({ method, path, body, payment: xPayment, callerIp });
   } catch (err: any) {
     return {
       isError: true,
@@ -248,8 +283,24 @@ function addTool(
 /**
  * Register every curated Palmyr tool on the given MCP server. Called fresh per
  * request in the stateless transport, so it must stay cheap + side-effect-free.
+ *
+ * `callerIp` is the IP of the agent making the /mcp request, as resolved by
+ * clientIp() there — pass it so the proxied sub-requests key on the real caller
+ * rather than collapsing to loopback (see the header comment). Omitted (dev,
+ * tests) the behaviour is unchanged.
  */
-export function registerPalmyrTools(server: McpServer): void {
+export function registerPalmyrTools(server: McpServer, callerIp?: string): void {
+  // Bind the caller's identity into every proxied call. Handlers below call this
+  // exactly as before; the IP rides along without threading it through 30 sites.
+  const callRoute = (
+    method: string,
+    path: string,
+    body: unknown,
+    paymentArg: string | undefined,
+    extra?: any,
+    toolName?: string,
+  ): Promise<TextToolResult> => callRouteAs(callerIp, method, path, body, paymentArg, extra, toolName);
+
   // ── Free tools ─────────────────────────────────────────────
   addTool(server, 
     "palmyr_pricing",
@@ -631,10 +682,10 @@ export function registerPalmyrTools(server: McpServer): void {
       title: "Post to TikTok",
       description:
         "Post a video to a TikTok account you control (from video_base64 or video_url), immediately or scheduled. " +
-        "Async: returns an operation to poll. Costs 0.01 USDC, paid per-action via x402.",
+        "Async: returns an operation to poll with tiktok_operation_status. Costs 0.01 USDC, paid per-action via x402.",
       inputSchema: {
         account_id: z.string().describe("Your identifier for the TikTok account"),
-        cookies: z.array(z.any()).describe("Non-empty array of session cookies for the TikTok account"),
+        cookies: TIKTOK_COOKIES_PARAM,
         caption: z.string(),
         video_base64: z.string().optional().describe("Base64 video bytes — only fits tiny clips (the MCP transport caps request bodies at 1mb); prefer video_url"),
         video_url: z.string().optional().describe("Public URL to the video (preferred; no size limit)"),
@@ -654,6 +705,216 @@ export function registerPalmyrTools(server: McpServer): void {
     async (args: any, extra: any) => {
       const { payment, ...rest } = args;
       return callRoute("POST", "/social/tiktok/post", rest, payment, extra, "tiktok_post");
+    },
+  );
+
+  // TikTok — poll an async operation. Free.
+  addTool(server,
+    "tiktok_operation_status",
+    {
+      title: "Check TikTok operation status",
+      description:
+        "Poll an async TikTok operation started by tiktok_post / tiktok_analytics / tiktok_cancel_scheduled (free). " +
+        "done=true when status is 'posted' / 'done' (carries video_url or the op's result) or 'failed' (payment auto-refunded — see refund_status).",
+      inputSchema: {
+        operation_id: z.string().describe("operation_id returned by the tool that started the operation"),
+      } as Shape,
+    },
+    async (args: any) =>
+      callRoute("GET", `/social/tiktok/operations/${encodeURIComponent(args.operation_id)}`, undefined, undefined),
+  );
+
+  // TikTok — server-side connect (the recommended way to attach an account). 0.01 USDC.
+  addTool(server,
+    "tiktok_connect",
+    {
+      title: "Connect a TikTok account (server-side login)",
+      description:
+        "Attach a TikTok account by logging in ON THE SERVER, into that account's own persistent browser profile: returns a connect_url to hand a human, who scans the QR in the TikTok app. " +
+        "The recommended path — the browser that authenticates is the browser that later acts, and every other TikTok tool then works with `cookies` omitted (no jar to move). " +
+        "The paying wallet becomes the account's owner. Async: poll tiktok_connect_status with the returned token. Costs 0.01 USDC, paid per-action via x402.",
+      inputSchema: {
+        account_id: z.string().describe("Your identifier for the TikTok account (1-64 chars of A-Z a-z 0-9 . _ -)"),
+        country: z.string().optional().describe("ISO-2 country the login browser should exit from, e.g. 'US' — TikTok reads a scan from the wrong country as phishing"),
+        proxy_session_id: z.string().optional(),
+        tag: z.string().optional().describe("Label grouping accounts (a niche, a client); tiktok_accounts and tiktok_hooks can scope to it"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, ...rest } = args;
+      return callRoute("POST", "/social/tiktok/connect", rest, payment, extra, "tiktok_connect");
+    },
+  );
+
+  // TikTok — poll a server-side connect. Free.
+  addTool(server,
+    "tiktok_connect_status",
+    {
+      title: "Check TikTok connect status",
+      description:
+        "Poll a server-side login started by tiktok_connect (free). done=true when state is 'completed' (the account is live and usable with cookies omitted) or 'failed'.",
+      inputSchema: {
+        token: z.string().describe("Connect token returned by tiktok_connect"),
+      } as Shape,
+    },
+    async (args: any) =>
+      callRoute("GET", `/social/tiktok/connect/${encodeURIComponent(args.token)}`, undefined, undefined),
+  );
+
+  // TikTok — list the accounts this wallet owns. 0.001 USDC ownership proof.
+  addTool(server,
+    "tiktok_accounts",
+    {
+      title: "List your TikTok accounts",
+      description:
+        "List the TikTok accounts the paying wallet owns, with session health (status, profile_present, hours_since_success, last_error_code) — i.e. which of your accounts are still logged in. Costs 0.001 USDC, paid per-action via x402.",
+      inputSchema: {
+        tag: z.string().optional().describe("Only accounts carrying this tag"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, tag } = args;
+      return callRoute("GET", `/social/tiktok/accounts${qs({ tag })}`, undefined, payment, extra, "tiktok_accounts");
+    },
+  );
+
+  // TikTok — post analytics (async). 0.005 USDC.
+  addTool(server,
+    "tiktok_analytics",
+    {
+      title: "Fetch TikTok analytics",
+      description:
+        "Scrape per-post analytics (views, likes, comments, shares) for a TikTok account you control, and record a sample so tiktok_series can answer 'is it still growing'. " +
+        "Async: returns an operation to poll with tiktok_operation_status. Costs 0.005 USDC, paid per-action via x402.",
+      inputSchema: {
+        account_id: z.string().describe("Your identifier for the TikTok account"),
+        cookies: TIKTOK_COOKIES_PARAM,
+        proxy_session_id: z.string().optional(),
+        country: z.string().optional(),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, ...rest } = args;
+      return callRoute("POST", "/social/tiktok/analytics", rest, payment, extra, "tiktok_analytics");
+    },
+  );
+
+  // TikTok — stored engagement history. 0.001 USDC.
+  addTool(server,
+    "tiktok_series",
+    {
+      title: "Read TikTok engagement history",
+      description:
+        "Read the stored per-post history for an account you own: the full time series for one video (video_id), per-video growth over a window (hours), or the latest sample per video (neither). " +
+        "Samples come from tiktok_analytics runs, so history exists only for what you have scraped. Costs 0.001 USDC, paid per-action via x402.",
+      inputSchema: {
+        account_id: z.string().describe("Your identifier for the TikTok account"),
+        video_id: z.string().optional().describe("Return the full sample series for this one video"),
+        hours: z.number().optional().describe("Return per-video growth over the last N hours"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, account_id, video_id, hours } = args;
+      return callRoute("GET", `/social/tiktok/series${qs({ account_id, video_id, hours })}`, undefined, payment, extra, "tiktok_series");
+    },
+  );
+
+  // TikTok — hook analysis. TWO prices on one route: 0.001 USDC for your own
+  // accounts, 0.05 USDC for ?niche= (backed by a paid upstream collection).
+  addTool(server,
+    "tiktok_hooks",
+    {
+      title: "TikTok hook analysis",
+      description:
+        "Which caption openings actually earn views. Pass account_id or tag to measure YOUR accounts against their own median (0.001 USDC). " +
+        "Pass niche to report what is working in that niche across TikTok, needing no posting history — the answer for a brand-new account (0.05 USDC; tiktok_niches lists them, free). " +
+        "The two are never blended. Pass caption to classify a draft before posting. Paid per-action via x402 — the 402 challenge carries the exact price for the arguments you sent.",
+      inputSchema: {
+        account_id: z.string().optional().describe("Measure this account you own (0.001 USDC)"),
+        tag: z.string().optional().describe("Pool every account you own carrying this tag (0.001 USDC)"),
+        niche: z.string().optional().describe("Report the niche across TikTok — any word, resolved to the nearest known niche (0.05 USDC)"),
+        caption: z.string().optional().describe("Classify this draft caption against the patterns in scope instead of returning the full report"),
+        maturity_days: z.number().optional().describe("Only count posts at least this old, so young posts don't drag the median"),
+        recency_days: z.number().optional().describe("Widen or narrow the recency window (hooks decay; more sample, staler signal)"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, account_id, tag, niche, caption, maturity_days, recency_days } = args;
+      return callRoute(
+        "GET",
+        `/social/tiktok/hooks${qs({ account_id, tag, niche, caption, maturity_days, recency_days })}`,
+        undefined,
+        payment,
+        extra,
+        "tiktok_hooks",
+      );
+    },
+  );
+
+  // TikTok — the niche list behind tiktok_hooks(niche). Free.
+  addTool(server,
+    "tiktok_niches",
+    {
+      title: "List TikTok niches",
+      description:
+        "List the niches tiktok_hooks can report on, with how fresh each corpus is. Free — an agent should not pay to learn what it may ask for.",
+      inputSchema: {} as Shape,
+    },
+    async () => callRoute("GET", "/social/tiktok/niches", undefined, undefined),
+  );
+
+  // TikTok — list scheduled posts. 0.001 USDC.
+  addTool(server,
+    "tiktok_scheduled",
+    {
+      title: "List scheduled TikTok posts",
+      description:
+        "List the posts you have queued with tiktok_post(schedule_at), and whether each is still pending, due, or confirmed published. " +
+        "Palmyr's own record — TikTok exposes no way to read pending posts back, so edits made directly in TikTok Studio are invisible to it. Costs 0.001 USDC, paid per-action via x402.",
+      inputSchema: {
+        account_id: z.string().optional().describe("Only posts for this account"),
+        include_done: z.boolean().optional().describe("Also return posts already published or cancelled"),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, account_id, include_done } = args;
+      return callRoute("GET", `/social/tiktok/scheduled${qs({ account_id, include_done })}`, undefined, payment, extra, "tiktok_scheduled");
+    },
+  );
+
+  // TikTok — cancel a scheduled post (async). 0.001 USDC.
+  addTool(server,
+    "tiktok_cancel_scheduled",
+    {
+      title: "Cancel a scheduled TikTok post",
+      description:
+        "Cancel a post queued with tiktok_post(schedule_at). TikTok has no 'unschedule', so this deletes the held video — the cancellation is recorded only once that succeeded. " +
+        "Async: returns an operation to poll with tiktok_operation_status. Costs 0.001 USDC, paid per-action via x402.",
+      inputSchema: {
+        operation_id: z.string().describe("operation_id of the scheduled post (as returned by tiktok_post / listed by tiktok_scheduled)"),
+        account_id: z.string().describe("Your identifier for the TikTok account holding the post"),
+        cookies: TIKTOK_COOKIES_PARAM,
+        proxy_session_id: z.string().optional(),
+        country: z.string().optional(),
+        payment: PAYMENT_PARAM,
+      } as Shape,
+    },
+    async (args: any, extra: any) => {
+      const { payment, operation_id, ...rest } = args;
+      return callRoute(
+        "POST",
+        `/social/tiktok/scheduled/${encodeURIComponent(operation_id)}/cancel`,
+        rest,
+        payment,
+        extra,
+        "tiktok_cancel_scheduled",
+      );
     },
   );
 
