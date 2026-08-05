@@ -7,7 +7,7 @@
 
 The agent-native CLI and SDK for [Palmyr](https://palmyr.ai).
 
-Phone numbers, end-to-end encrypted email, VPS, domains, and non-custodial crypto wallets — accessed over the [x402](https://github.com/coinbase/x402) HTTP payment protocol. Pay per call in USDC on Solana or Base. No accounts, no API keys, no monthly bills.
+Phone numbers, end-to-end encrypted email, VPS, domains, X and TikTok accounts, and non-custodial crypto wallets — accessed over the [x402](https://github.com/coinbase/x402) HTTP payment protocol. Pay per call in USDC on Solana or Base. No accounts, no API keys, no monthly bills.
 
 ```
 npm i -g @palmyr/cli
@@ -623,15 +623,17 @@ The previous local-queue + `palmyr worker` daemon were deprecated when server-si
 
 ### TikTok
 
-Direct browser automation — no marketplace or paid upstream. A TikTok session comes from a real-browser login (`connect`), not a password the server stores. Account-management commands are local-vault only (free); the action ops run server-side through the account's residential IP.
+Direct browser automation — no marketplace or paid upstream. A TikTok session comes from a real-browser login (`connect`), not a password the server stores. Account-management commands are local-vault only (free); the action ops run server-side through the account's residential IP. Beyond posting, `hooks` reports which caption openings actually earn views — against the account's own median, or across a whole niche for an account with no history yet.
 
 | Command | Cost | Notes |
 |---------|------|-------|
+| `palmyr tiktok connect <username> --server` *(`--tag <folder>` files it under a folder)* | $0.01 | **Recommended.** Logs in **on the server**, inside the account's own persistent browser profile — the browser that authenticates is the one that later posts, so no cookies are transferred and no device/IP mismatch is baked in at login. Ops then need no cookies at all. Prints the same `/connect/<token>` link for a human to scan; the login browser exits from **their** country, because TikTok refuses a scan whose phone and browser sit in different countries. |
 | `palmyr tiktok connect <username>` *(`--tag <folder>` files it under a folder)* | free | **Default: QR hand-off** — zero install, the cleanest UX. Prints a `/connect/<token>` link (in stderr + the result's `qr_link`); the human opens it and scans the QR with the **TikTok app on their phone** (where the account is already logged in). No password, no captcha, not sus, never blocked by TikTok. The link is **durable (~15 min) and auto-refreshes** as TikTok rotates the code (page polls `/connect/<token>/status`); the session is captured the moment they confirm. |
 | `palmyr tiktok connect <username> --local` | free | **On-machine** — opens Chrome/Edge/Brave on **this machine** and you log in here yourself; session auto-captured via CDP. For a desktop with a human present. No server call. |
 | `palmyr tiktok import <username> --sessionid <s> --csrf <c> --webid <w> --country <iso2>` | free | Bring your own cookies from a logged-in TikTok browser (log in anywhere, paste 3 cookies). |
 | `palmyr tiktok import <username> --credentials-line "login:pw:email:email_pw" --country <iso2>` | free | Marketplace colon format. Local vault only; `--country` drives proxy exit + browser locale. |
 | `palmyr tiktok list` *(`--tag <folder>` filters to one folder)* | free | List local TikTok accounts. |
+| `palmyr tiktok list --server` *(`--tag <folder>` filters to one folder)* | $0.001 | Accounts the **server** knows your wallet owns, with session health. The only view that sees `connect --server` accounts — their session lives in a browser profile on the server and never enters the local vault, so plain `list` will not show them. |
 | `palmyr tiktok info <username>` | free | Show one account (id, source, country, last action). |
 | `palmyr tiktok session <username>` | free | Whether a session is cached, its age in hours, and staleness (>12h). |
 | `palmyr tiktok rename <old> --to <new>` | free | Rename the local alias (does not change the TikTok handle). |
@@ -653,6 +655,9 @@ Direct browser automation — no marketplace or paid upstream. A TikTok session 
 | `palmyr tiktok reject <draft-id>` | free | Discard a queued draft. |
 | `palmyr tiktok logs [<username>]` *(`--tag <folder>`, `--limit N`)* | free | Audit log of posts that actually went out — approved drafts **and** direct posts (account, caption, timestamp, source). |
 | `palmyr tiktok analytics <username>` | $0.005 *(free in self-hosted)* | **Self-learning**: scrape per-post views/likes/comments from Studio, categorize each into tiers (`top`/`solid`/`underperforming`/`pending`) relative to the account's own posts, and append a snapshot to the local time-series (`~/.palmyr/social/analytics.jsonl`). |
+| `palmyr tiktok hooks <username>` *(`--tag <folder>` pools a folder, `--caption "..."` classifies a draft before posting)* | $0.001 | Which caption openings earn views, measured against **the account's own median** — never another account's. Posts younger than 7 days are excluded (still distributing) and older than 90 days too (hooks decay), and every report states the `window` it covers. A pattern with fewer than 3 mature posts reports `confident: false`, and an unconfident 10x sorts below a confident 1.5x. |
+| `palmyr tiktok hooks --niche fitness` | $0.05 | What's working in a **niche across TikTok** — other people's posts, so it needs no account history and is the day-one answer for a brand-new account. Never blended with your own numbers: another creator's reach is not a prediction about yours. Any word resolves to the nearest niche and the response says which one. |
+| `palmyr tiktok corpus niches` | free | The niche list `--niche` resolves against. The corpus keeps itself current — a stale one is served immediately and refreshed behind the response, and only a never-collected niche makes you wait. `corpus refresh <niche>` pre-warms one ahead of demand (operator only; spends from your own wallet). |
 | `palmyr tiktok review <username>` | free | Performance review off the local snapshots — totals, tier mix, best/worst post, avg engagement rate, and the **trend** vs the previous snapshot. |
 | `palmyr tiktok monitor tick \| start \| stop \| status` *(`--every 6h`, `--account a,b`)* | free locally *(each tick runs `analytics`)* | Unattended monitor (mirrors the wallet daemon): periodically runs `analytics` so `review` stays fresh. `tick` = one snapshot now; `start` = detached interval loop; default scope is all connected accounts. |
 
