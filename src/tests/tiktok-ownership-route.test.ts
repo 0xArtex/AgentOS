@@ -14,7 +14,8 @@
  * 4xx via a res.on('finish') hook — but the x402/USDC rail had no such net.)
  *
  * Harness: self-hosted mode bypasses requireAuth and the IPROYAL gate, and a
- * shim injects req.payment so each request can act as a chosen wallet.
+ * shim injects req.payment — a whole settlement, not just a payer — so each
+ * request can act as a chosen wallet AND be refunded like a real one.
  */
 import { describe, it, before, after, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -22,28 +23,76 @@ import express from "express";
 import { db, initDatabase } from "../db";
 import socialRouter from "../routes/social";
 import { registerAccount } from "../services/tiktok-accounts";
+import { PaymentProof } from "../types";
 
 const SUFFIX = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const ALICE = `0xALICE_route_${SUFFIX}`;
 const BOB = `0xBOB_route_${SUFFIX}`;
 const ACCT = `acct_route_${SUFFIX}`;
 const UNREGISTERED = `acct_unreg_${SUFFIX}`;
+/** What the shim pretends requireAuth settled before handing the handler over. */
+const SETTLED_USDC = 0.01;
+/** Unset for the duration: the refund path here is the real one. */
+const TREASURY_ENV = ["TREASURY_SOL_PRIVATE_KEY", "SVM_PRIVATE_KEY", "TREASURY_EVM_PRIVATE_KEY"];
 
 let server: any;
 let port: number;
 let savedSelfHosted: string | undefined;
 let savedSelfHostedForce: string | undefined;
+const savedTreasury: Record<string, string | undefined> = {};
+let paymentSeq = 0;
 
-async function post(path: string, payer: string, body: unknown): Promise<{ status: number; json: any }> {
+// Every request settles its own signature. The refunds ledger is UNIQUE on it,
+// so a shared one would make the second refund an idempotent replay of the
+// first instead of a new attempt.
+function nextSignature(): string {
+  return `sig_${SUFFIX}_${++paymentSeq}`;
+}
+
+async function post(path: string, payer: string, body: unknown): Promise<{ status: number; json: any; signature: string }> {
+  const signature = nextSignature();
   const res = await fetch(`http://127.0.0.1:${port}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json", "x-test-payer": payer },
+    headers: { "content-type": "application/json", "x-test-payer": payer, "x-test-signature": signature },
     body: JSON.stringify(body),
   });
   const text = await res.text();
   let json: any = {};
   try { json = JSON.parse(text); } catch { json = { raw: text }; }
-  return { status: res.status, json };
+  return { status: res.status, json, signature };
+}
+
+async function get(path: string, payer: string): Promise<{ status: number; text: string; json: any; signature: string }> {
+  const signature = nextSignature();
+  const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+    headers: { "x-test-payer": payer, "x-test-signature": signature },
+  });
+  const text = await res.text();
+  let json: any = {};
+  try { json = JSON.parse(text); } catch { json = { raw: text }; }
+  return { status: res.status, text, json, signature };
+}
+
+/**
+ * The refund actually happened — not just the word "refund" in a response.
+ *
+ * refundUsdcToPayer writes the ledger row BEFORE it touches the chain, so the
+ * row is the proof of intent that survives in a unit test: the on-chain send
+ * cannot succeed here (no treasury key, no network) but nothing reaches the
+ * send at all unless the handler asked for a refund of this exact settlement.
+ * Delete the refundAndRespond call from a route and there is no row to find.
+ */
+function assertRefunded(r: { json: any; signature: string }, payer: string, endpoint: string): void {
+  assert.equal(r.json.refund?.chain, "solana", `${endpoint} must report the refund back to the caller`);
+  assert.equal(r.json.refund?.amount_usdc, SETTLED_USDC, "the whole settled amount goes back");
+  const row = db.prepare(
+    "SELECT payer, chain, amount_usdc, endpoint FROM refunds WHERE original_payment_signature = ?"
+  ).get(r.signature) as any;
+  assert.ok(row, `${endpoint} must go through the refund path, not answer with a bare rejection`);
+  assert.equal(row.payer, payer, "the refund is owed to whoever paid");
+  assert.equal(row.chain, "solana", "the refund returns on the chain that settled");
+  assert.equal(row.amount_usdc, SETTLED_USDC);
+  assert.equal(row.endpoint, endpoint);
 }
 
 before(async () => {
@@ -52,12 +101,33 @@ before(async () => {
   savedSelfHostedForce = process.env.PALMYR_SELF_HOSTED_FORCE;
   process.env.PALMYR_SELF_HOSTED = "1";
   process.env.PALMYR_SELF_HOSTED_FORCE = "1";
+  // The refunds these routes issue are real from here down. Unset the treasury
+  // keys so a developer with a funded .env cannot make this file move money:
+  // the send fails at the key check, before any RPC, and the ledger row — the
+  // thing actually under test — is written either way.
+  for (const k of TREASURY_ENV) {
+    savedTreasury[k] = process.env[k];
+    delete process.env[k];
+  }
 
   const app = express();
   app.use(express.json());
   app.use((req, _res, next) => {
     const payer = req.headers["x-test-payer"];
-    if (payer) (req as any).payment = { payer: String(payer) };
+    // A full PaymentProof, because refundAndRespond reads chain / amount /
+    // signature off it and answers with "contact ops" — without ever reaching
+    // the ledger — if any of them is missing. A payer-only shim would let a
+    // route that refunds nothing still say the word "refund".
+    if (payer) {
+      const payment: PaymentProof = {
+        signature: String(req.headers["x-test-signature"] || nextSignature()),
+        payer: String(payer),
+        amountLamports: BigInt(Math.round(SETTLED_USDC * 1e6)),
+        verifiedAt: Date.now(),
+        chain: "solana",
+      };
+      (req as any).payment = payment;
+    }
     next();
   });
   app.use("/social", socialRouter);
@@ -70,7 +140,12 @@ after(async () => {
   else process.env.PALMYR_SELF_HOSTED = savedSelfHosted;
   if (savedSelfHostedForce === undefined) delete process.env.PALMYR_SELF_HOSTED_FORCE;
   else process.env.PALMYR_SELF_HOSTED_FORCE = savedSelfHostedForce;
+  for (const k of TREASURY_ENV) {
+    if (savedTreasury[k] === undefined) delete process.env[k];
+    else process.env[k] = savedTreasury[k];
+  }
   db.prepare("DELETE FROM tiktok_accounts WHERE id IN (?, ?)").run(ACCT, UNREGISTERED);
+  db.prepare("DELETE FROM refunds WHERE original_payment_signature LIKE ?").run(`sig_${SUFFIX}_%`);
   await new Promise<void>((r) => server.close(() => r()));
 });
 
@@ -88,15 +163,12 @@ describe("TikTok op routes enforce account ownership", () => {
 
   it("refunds the rejected caller rather than keeping their money", async () => {
     // Payment settles before the handler, so a bare 403 would charge for an
-    // operation we refuse to run. The refunding path is what produces this
-    // message — a plain res.status(403) never mentions a refund.
+    // operation we refuse to run. Checked against the refunds ledger rather
+    // than the response text: the "contact ops" answer refundAndRespond gives
+    // when it cannot identify the settlement also contains the word refund.
     const r = await post("/social/tiktok/follow", BOB, { account_id: ACCT, user: "@nasa", cookies: [] });
     assert.equal(r.status, 403);
-    assert.match(
-      JSON.stringify(r.json),
-      /refund/i,
-      "an ownership rejection must go through the refund path, not a bare 403",
-    );
+    assertRefunded(r, BOB, "POST /social/tiktok/follow");
   });
 
   it("does not lock out the legitimate owner", async () => {
@@ -127,7 +199,8 @@ describe("TikTok op routes enforce account ownership", () => {
     assert.equal(r.status, 400);
     assert.equal(r.json.error_code, "INVALID_INPUT");
     assert.match(JSON.stringify(r.json), /10 days/, "the actual limit must be stated, not just 'invalid'");
-    assert.match(JSON.stringify(r.json), /refund/i, "payment settled before the handler, so a refusal must refund");
+    // Payment settled before the handler, so a refusal must refund.
+    assertRefunded(r, ALICE, "POST /social/tiktok/post");
     // The window is machine-readable, so an agent can plan against it rather
     // than discovering it by failing.
     assert.deepEqual(r.json.schedule_window, { min_minutes: 15, max_days: 10 });
@@ -156,34 +229,27 @@ describe("TikTok op routes enforce account ownership", () => {
     // The series is account data. If reads were ungated, anyone could pull a
     // competitor's per-video engagement by guessing an account id — the write
     // ops would be bound and the interesting data would be public anyway.
-    const res = await fetch(`http://127.0.0.1:${port}/social/tiktok/series?account_id=${ACCT}`, {
-      headers: { "x-test-payer": BOB },
-    });
-    const body = await res.text();
-    assert.equal(res.status, 403, "history must be owner-only");
-    assert.match(body, /NOT_YOUR_ACCOUNT/);
-    assert.match(body, /refund/i, "a paid read refused after settlement must refund, same as the ops");
+    const r = await get(`/social/tiktok/series?account_id=${ACCT}`, BOB);
+    assert.equal(r.status, 403, "history must be owner-only");
+    assert.match(r.text, /NOT_YOUR_ACCOUNT/);
+    // A paid read refused after settlement must refund, same as the ops.
+    assertRefunded(r, BOB, "GET /social/tiktok/series");
   });
 
   it("gates the hook report, and serves the owner a real one", async () => {
     // Hook performance is derived from the same account data, so it inherits
     // the same binding — otherwise the numbers we refuse to serve directly
     // would leak through the analysis of them.
-    const denied = await fetch(`http://127.0.0.1:${port}/social/tiktok/hooks?account_id=${ACCT}`, {
-      headers: { "x-test-payer": BOB },
-    });
-    const deniedBody = await denied.text();
+    const denied = await get(`/social/tiktok/hooks?account_id=${ACCT}`, BOB);
     assert.equal(denied.status, 403);
-    assert.match(deniedBody, /NOT_YOUR_ACCOUNT/);
-    assert.match(deniedBody, /refund/i);
+    assert.match(denied.text, /NOT_YOUR_ACCOUNT/);
+    assertRefunded(denied, BOB, "GET /social/tiktok/hooks");
 
     // The owner gets a real report, with an empty account stated as such
     // rather than dressed up as a finding.
-    const ok = await fetch(`http://127.0.0.1:${port}/social/tiktok/hooks?account_id=${ACCT}`, {
-      headers: { "x-test-payer": ALICE },
-    });
+    const ok = await get(`/social/tiktok/hooks?account_id=${ACCT}`, ALICE);
     assert.equal(ok.status, 200);
-    const report = await ok.json() as any;
+    const report = ok.json;
     assert.equal(report.baseline.mature_posts, 0);
     assert.deepEqual(report.patterns, []);
     assert.match(JSON.stringify(report.notes), /No posts old enough/);
@@ -191,11 +257,9 @@ describe("TikTok op routes enforce account ownership", () => {
 
   it("classifies a draft caption through the route, with no history needed", async () => {
     const q = new URLSearchParams({ account_id: ACCT, caption: "Stop doing crunches. Do this instead #gym" });
-    const res = await fetch(`http://127.0.0.1:${port}/social/tiktok/hooks?${q}`, {
-      headers: { "x-test-payer": ALICE },
-    });
+    const res = await get(`/social/tiktok/hooks?${q}`, ALICE);
     assert.equal(res.status, 200);
-    const check = await res.json() as any;
+    const check = res.json;
     assert.equal(check.hook, "Stop doing crunches.", "hashtags are not the hook");
     assert.ok(check.patterns.some((p: any) => p.pattern === "contrarian"));
     // No data yet, so it must say so rather than produce a verdict.
