@@ -643,6 +643,8 @@ Direct browser automation — no marketplace or paid upstream. A TikTok session 
 | `palmyr tiktok login <username>` | $0.02 | Validate stored cookies/credentials via a stealth browser and cache the session. |
 | `palmyr tiktok post <username> --file video.mp4 --caption "..."` *(or `--url <https>`; `--privacy 0\|1\|2` = public / friends / private, default public)* | $0.01 | Post a video. Returns success after server-side verification. |
 | `palmyr tiktok schedule <username> --at <iso8601> --file video.mp4 --caption "..."` *(or `--url <https>`)* | $0.01 | Schedule via TikTok's own native scheduler — ~15 min to ~10 days out. Aborts before submit if the schedule can't be set, so it never posts "now" by mistake. |
+| `palmyr tiktok scheduled` *(`--all` includes cancelled and already-published)* | $0.001 | What this wallet has queued, and whether each is pending, due, or confirmed published. This is **Palmyr's own record** — TikTok does not expose which posts are held, so a post you edit, reschedule or delete directly in Studio will not be reflected here. Cancel through Palmyr to keep the two in step. |
+| `palmyr tiktok cancel <operation-id>` | $0.001 | Cancel a scheduled post. TikTok has no "unschedule", so this **deletes the held video** — async (202 + poll), and the cancellation is only recorded once the delete actually succeeds. Refunds if no scheduled post with that id belongs to your wallet. |
 | `palmyr tiktok follow <username> --user @handle` | $0.001 | |
 | `palmyr tiktok like <username> --video <url>` | $0.001 | |
 | `palmyr tiktok delete <username> --video <url>` | $0.001 | Deletes via TikTok Studio's content manager. |
