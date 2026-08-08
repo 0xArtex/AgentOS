@@ -55,6 +55,31 @@ export function tiktokCanonicalAlias(req: Request, res: Response, next: NextFunc
   next();
 }
 
+/**
+ * The TikTok hostname shares a process with Palmyr during migration, but it is
+ * still a separate public product. Discovery handlers are mounted before this
+ * guard; only the versioned API and human QR hand-off continue past it.
+ */
+export function tiktokHostIsolation(req: Request, res: Response, next: NextFunction): void {
+  if (!isTikTokServiceRequest(req)) {
+    next();
+    return;
+  }
+
+  const originalPath = req.originalUrl.split("?")[0];
+  const isCanonicalApi = canonicalToLegacyPath(req.method, originalPath) !== undefined;
+  const isQrHandoff = req.method === "GET" && /^\/connect\/[^/]+(?:\/status)?\/?$/.test(originalPath);
+  if (isCanonicalApi || isQrHandoff) {
+    next();
+    return;
+  }
+
+  res.status(404).json({
+    error: "Not found",
+    message: "This route is not part of the TikTok Automation API.",
+  });
+}
+
 function forwardedHeaders(req: Request): Headers {
   const result = new Headers();
   for (const [name, rawValue] of Object.entries(req.headers)) {
