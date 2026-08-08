@@ -324,6 +324,8 @@ export function bazaarInfo(method: string, isBodyMethod: boolean) {
 
 function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Metadata) {
   const resource = "https://" + (req.get("host") || "palmyr.ai") + req.originalUrl;
+  const isTikTokOrigin = (req.get("host") || "").split(":")[0].toLowerCase()
+    === (process.env.TIKTOK_SERVICE_HOST || "tiktok.palmyr.ai").toLowerCase();
   // CDP's x402 facilitator schema caps resource.description at 500 chars, and
   // v2 clients echo the challenge's resource back into their payment payload —
   // so an over-long description poisons the payload and the CDP verify 400s
@@ -392,7 +394,7 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
       // Resource-level Bazaar metadata (spec: serviceName ≤32 ASCII, tags ≤5
       // each ≤32 ASCII, iconUrl absolute https). Soft-dropped by the crawler if
       // malformed, so emitting is upside-only.
-      serviceName: bazaarServiceName(metadata?.category),
+      serviceName: isTikTokOrigin ? "TikTok Automation" : bazaarServiceName(metadata?.category),
       tags: bazaarTags(metadata),
       iconUrl: BAZAAR_ICON_URL,
     },
