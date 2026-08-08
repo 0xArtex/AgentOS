@@ -8,6 +8,7 @@ import {
   buildTikTokWellKnown,
   createTikTokCompatibilityProxy,
   tiktokCanonicalAlias,
+  tiktokHostIsolation,
 } from "../middleware/tiktok-service";
 import {
   TIKTOK_SERVICE_ROUTES,
@@ -57,6 +58,33 @@ describe("TikTok canonical alias", () => {
         original_url: "/v1/post",
         poll_url: "/v1/operations/op_1",
       });
+    } finally {
+      await new Promise<void>((resolve) => listener.close(() => resolve()));
+      if (previousHost === undefined) delete process.env.TIKTOK_SERVICE_HOST;
+      else process.env.TIKTOK_SERVICE_HOST = previousHost;
+    }
+  });
+
+  it("isolates the TikTok hostname from unrelated Palmyr routes", async () => {
+    const previousHost = process.env.TIKTOK_SERVICE_HOST;
+    process.env.TIKTOK_SERVICE_HOST = "127.0.0.1";
+    const app = express();
+    app.use(tiktokCanonicalAlias);
+    app.use(tiktokHostIsolation);
+    app.get("/social/tiktok/niches", (_req, res) => res.json({ niches: [] }));
+    app.get("/connect/:token", (_req, res) => res.send("qr"));
+    app.get("/phone", (_req, res) => res.json({ leaked: true }));
+    const listener = app.listen(0, "127.0.0.1");
+    await once(listener, "listening");
+    const port = (listener.address() as AddressInfo).port;
+    try {
+      const api = await fetch(`http://127.0.0.1:${port}/v1/niches`);
+      assert.equal(api.status, 200);
+      const qr = await fetch(`http://127.0.0.1:${port}/connect/token_1`);
+      assert.equal(qr.status, 200);
+      const unrelated = await fetch(`http://127.0.0.1:${port}/phone`);
+      assert.equal(unrelated.status, 404);
+      assert.equal((await unrelated.json() as any).message, "This route is not part of the TikTok Automation API.");
     } finally {
       await new Promise<void>((resolve) => listener.close(() => resolve()));
       if (previousHost === undefined) delete process.env.TIKTOK_SERVICE_HOST;

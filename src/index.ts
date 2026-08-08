@@ -55,6 +55,7 @@ import {
   createTikTokCompatibilityProxy,
   mountTikTokServiceDiscovery,
   tiktokCanonicalAlias,
+  tiktokHostIsolation,
 } from "./middleware/tiktok-service";
 
 
@@ -158,6 +159,10 @@ app.use((req, res, next) => {
 import { mountDiscoveryRoutes } from "./routes/well-known";
 mountTikTokServiceDiscovery(app);
 mountDiscoveryRoutes(app);
+// The two products share a process during migration, not a public route
+// surface. TikTok discovery handlers run above; this guard admits only its
+// explicit /v1 contract and QR hand-off before Palmyr's other routes mount.
+app.use(tiktokHostIsolation);
 
 app.use(rateLimit(200, 60_000));
 app.use(requestLogger);
