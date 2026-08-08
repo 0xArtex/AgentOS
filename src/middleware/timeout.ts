@@ -51,6 +51,7 @@ const WAIT_OTP_PATH = /^\/phone\/numbers\/[^/]+\/wait-otp\/?$/;
 export function isTimeoutExempt(path: string): boolean {
   return (
     path.startsWith("/social") ||
+    path.startsWith("/v1") ||
     path.startsWith("/chat") ||
     path.startsWith("/mcp") ||
     path === "/domains/register" ||

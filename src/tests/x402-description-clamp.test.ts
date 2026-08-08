@@ -11,14 +11,14 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { send402Response } from "../middleware/x402";
 
-function capture() {
+function capture(host = "palmyr.ai") {
   let body: any;
   const res: any = {
     setHeader: () => {},
     status: () => res,
     json: (b: any) => { body = b; return res; },
   };
-  const req: any = { get: () => "palmyr.ai", method: "POST", originalUrl: "/phone/temp" };
+  const req: any = { get: () => host, method: "POST", originalUrl: "/phone/temp" };
   return { res, req, get: () => body };
 }
 
@@ -38,5 +38,11 @@ describe("x402 resource.description is clamped to CDP's 500-char cap", () => {
     const desc = "Lease a cheap, receive-only US temp number for one SMS code.";
     send402Response(res, req, 0.2, "test", { description: desc, category: "communications", tags: [] });
     assert.equal(get().resource.description, desc);
+  });
+
+  it("gives the canonical TikTok origin its focused Bazaar product name", () => {
+    const { res, req, get } = capture("tiktok.palmyr.ai");
+    send402Response(res, req, 0.01, "test", { category: "social", tags: ["tiktok"] });
+    assert.equal(get().resource.serviceName, "TikTok Automation");
   });
 });

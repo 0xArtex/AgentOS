@@ -49,6 +49,10 @@ export const config = {
   // Server
   port: parseInt(optional("PORT", "3000"), 10),
   nodeEnv: optional("NODE_ENV", "development"),
+  // When set on the Palmyr gateway, the explicitly mapped legacy TikTok
+  // routes proxy to this canonical service. Leave empty for local-runtime
+  // fallback during rollout and rollback.
+  tiktokServiceOrigin: optional("TIKTOK_SERVICE_ORIGIN", ""),
 
   // Solana / x402
   solanaRpcUrl: optional("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),

@@ -51,9 +51,19 @@ import templatesRoutes from "./routes/templates";
 import logsRoutes from "./routes/logs";
 import metricsRoutes from "./routes/metrics";
 import agentManifestRoutes from "./routes/agent-manifest";
+import {
+  createTikTokCompatibilityProxy,
+  mountTikTokServiceDiscovery,
+  tiktokCanonicalAlias,
+} from "./middleware/tiktok-service";
 
 
 const app = express();
+
+// tiktok.palmyr.ai owns the stable /v1 contract. Rewrite it before body-size
+// and timeout classification so the existing runtime keeps its proven media
+// limits and browser-operation exemptions during extraction.
+app.use(tiktokCanonicalAlias);
 
 // gzip JSON + JS + CSS + HTML responses. WebP/MP4/PNG are skipped by the
 // default `compressible` filter so already-compressed bytes don't get re-run.
@@ -146,6 +156,7 @@ app.use((req, res, next) => {
 // handlers introspect the live router stack, so they reflect any route
 // registered later in this file.
 import { mountDiscoveryRoutes } from "./routes/well-known";
+mountTikTokServiceDiscovery(app);
 mountDiscoveryRoutes(app);
 
 app.use(rateLimit(200, 60_000));
@@ -253,6 +264,11 @@ app.use(resolveDashboardSession as any);
 // ── Routes ────────────────────────────────────────────────────
 app.use("/phone", phoneRoutes);
 app.use("/email", emailRoutes);
+// Palmyr compatibility boundary: when TIKTOK_SERVICE_ORIGIN is set, only the
+// explicitly versioned public routes cross into the TikTok service. This runs
+// before Palmyr's own social/x402 handlers, so settlement happens exactly once
+// at the canonical service and its challenge/receipt pass through unchanged.
+app.use(createTikTokCompatibilityProxy({ origin: config.tiktokServiceOrigin }));
 app.use("/social", socialRoutes);
 app.use("/x", xAccountRoutes);
 app.use("/skills", skillsRoutes);
