@@ -2132,7 +2132,13 @@ router.post(
       // { token: <writer>, done } → mark the login captured so the page confirms.
       const { qr_data_url, token, done } = (req.body || {}) as { qr_data_url?: string; token?: string; done?: boolean };
       const r = putQr({ dataUrl: qr_data_url, token, done: !!done });
-      res.json({ token: r.token, writer: r.writer, expires_in_sec: r.expiresInSec });
+      const host = req.get("host") || "tiktok.palmyr.ai";
+      res.json({
+        token: r.token,
+        writer: r.writer,
+        connect_url: `https://${host}/connect/${r.token}`,
+        expires_in_sec: r.expiresInSec,
+      });
     } catch (err: any) {
       res.status(400).json({ error: err.message || "qr host failed" });
     }

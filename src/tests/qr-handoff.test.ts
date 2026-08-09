@@ -44,6 +44,7 @@ test("renderQrPage embeds the token + polls; renderExpiredPage explains expiry",
   assert.ok(page.includes("abc123token"));
   assert.ok(page.includes("/status"));
   assert.ok(/TikTok/.test(page));
+  assert.ok(/same country or a nearby region/i.test(page));
   assert.ok(/expired/i.test(renderExpiredPage()));
 });
 

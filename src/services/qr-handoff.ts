@@ -122,6 +122,8 @@ const PAGE_HEAD =
   `.qr{background:#fff;padding:16px;border-radius:16px;display:inline-block}` +
   `.qr img{display:block;width:240px;height:240px}` +
   `.steps{margin-top:20px;color:#cfc8b8;font-size:14px;line-height:1.8}` +
+  `.notice{margin:18px auto 0;padding:12px;border:1px solid #5f7a7f;border-radius:10px;` +
+  `color:#cfc8b8;font-size:12px;line-height:1.5;text-align:left}` +
   `.foot{margin-top:22px;color:#5f7a7f;font-size:12px}` +
   `</style></head><body><div class="card">`;
 
@@ -137,6 +139,7 @@ export function renderQrPage(token: string): string {
     `<div class="qr" id="qrbox" style="display:none"><img id="qr" alt="TikTok login QR"></div>` +
     `<div class="steps">1. Open TikTok on your phone<br>` +
     `2. Profile → ☰ menu → Scan QR code<br>3. Confirm login</div>` +
+    `<div class="notice"><strong>Location check:</strong> The browser running the agent and the phone scanning this code should use the same country or a nearby region, ideally the account's usual region. TikTok may refuse distant logins. Align the VPS/browser exit and phone IP before scanning, and follow TikTok's Terms.</div>` +
     `<p class="foot">Keep this page open — the code refreshes automatically.</p>` +
     `<script>(function(){var T=${t};var sub=document.getElementById('sub'),box=document.getElementById('qrbox'),img=document.getElementById('qr');` +
     `function tick(){fetch('/connect/'+T+'/status',{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(s){` +

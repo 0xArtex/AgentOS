@@ -22,13 +22,15 @@ describe("TikTok service route contract", () => {
     assert.equal(canonicalToLegacyPath("GET", "/v1/operations/op%2Fsafe"), "/social/tiktok/operations/op%2Fsafe");
     assert.equal(legacyToCanonicalPath("POST", "/social/tiktok/corpus"), undefined);
     assert.equal(canonicalToLegacyPath("DELETE", "/v1/post"), undefined);
-    assert.equal(TIKTOK_SERVICE_ROUTES.length, 17);
+    assert.equal(canonicalToLegacyPath("POST", "/v1/connect/relay"), "/social/tiktok/qr");
+    assert.equal(TIKTOK_SERVICE_ROUTES.length, 18);
   });
 
   it("publishes only TikTok /v1 routes in discovery", () => {
     const openapi = buildTikTokOpenApi() as any;
     const wellKnown = buildTikTokWellKnown() as any;
     assert.ok(openapi.paths["/v1/post"].post);
+    assert.equal(openapi.paths["/v1/connect/relay"].post["x-payment-info"].price.mode, "free");
     assert.equal(openapi.paths["/v1/post"].post["x-payment-info"].price.amount, "0.01");
     assert.ok(!openapi.paths["/social/tiktok/post"]);
     assert.ok(wellKnown.resources.includes("https://tiktok.palmyr.ai/v1/post"));
@@ -72,6 +74,7 @@ describe("TikTok canonical alias", () => {
     app.use(tiktokCanonicalAlias);
     app.use(tiktokHostIsolation);
     app.get("/social/tiktok/niches", (_req, res) => res.json({ niches: [] }));
+    app.post("/social/tiktok/qr", (_req, res) => res.json({ relay: true }));
     app.get("/connect/:token", (_req, res) => res.send("qr"));
     app.get("/phone", (_req, res) => res.json({ leaked: true }));
     const listener = app.listen(0, "127.0.0.1");
@@ -82,6 +85,9 @@ describe("TikTok canonical alias", () => {
       assert.equal(api.status, 200);
       const qr = await fetch(`http://127.0.0.1:${port}/connect/token_1`);
       assert.equal(qr.status, 200);
+      const relay = await fetch(`http://127.0.0.1:${port}/v1/connect/relay`, { method: "POST" });
+      assert.equal(relay.status, 200);
+      assert.equal((await relay.json() as any).relay, true);
       const unrelated = await fetch(`http://127.0.0.1:${port}/phone`);
       assert.equal(unrelated.status, 404);
       assert.equal((await unrelated.json() as any).message, "This route is not part of the TikTok Automation API.");

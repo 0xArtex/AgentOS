@@ -13,6 +13,7 @@ export type TikTokServiceRoute = {
  */
 export const TIKTOK_SERVICE_ROUTES: readonly TikTokServiceRoute[] = [
   { method: "POST", canonicalPath: "/v1/connect", legacyPath: "/social/tiktok/connect", priceUsdc: 0.01, description: "Start a secure TikTok QR login." },
+  { method: "POST", canonicalPath: "/v1/connect/relay", legacyPath: "/social/tiktok/qr", priceUsdc: 0, description: "Create or refresh an ephemeral QR hand-off for a self-hosted TikTok login." },
   { method: "GET", canonicalPath: "/v1/connect/:token", legacyPath: "/social/tiktok/connect/:token", priceUsdc: 0, description: "Poll a TikTok QR login." },
   { method: "GET", canonicalPath: "/v1/accounts", legacyPath: "/social/tiktok/accounts", priceUsdc: 0.001, description: "List connected TikTok accounts and session health." },
   { method: "POST", canonicalPath: "/v1/post", legacyPath: "/social/tiktok/post", priceUsdc: 0.01, description: "Post or schedule a TikTok video." },
