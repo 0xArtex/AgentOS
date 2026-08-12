@@ -186,3 +186,119 @@ export function checkOwnership(accountId: string, caller: string | undefined): O
   }
   return { allowed: true, registered: true };
 }
+
+/* ─── Deployable pool ──────────────────────────────────────────────────────
+   A warmed, server-connected account waiting to be handed to a buyer is just a
+   row owned by a reserved sentinel. "Deploying" it is an atomic owner swap — no
+   second table, and no credentials to move, because the profile stays on the box
+   and IS the credential. This mirrors social_account_pool's poolBuy, adapted to
+   the profile-is-the-credential model where the account never leaves the server. */
+
+/**
+ * The reserved owner for accounts sitting in the deployable pool. Namespaced with
+ * a colon so it can never collide with a real wallet or a `dashboard:<id>`
+ * identity — both of which own their accounts through this same column.
+ */
+export const POOL_OWNER = "palmyr:tiktok-pool";
+
+export interface PoolLeaseResult {
+  ok: boolean;
+  row?: TikTokAccountRow;
+  error?: string;
+}
+
+/**
+ * Hand the oldest ready pool account to `buyer`, optionally filtered by country.
+ * Atomic like poolBuy: pick the oldest eligible row, then flip its owner in the
+ * SAME transaction guarded on the sentinel, so two concurrent deploys can never
+ * lease the same account (the second UPDATE matches zero rows and loses the race).
+ * Only 'active' rows are eligible — a pool account that logged out has no live
+ * session to hand over.
+ */
+export function leaseFromPool(
+  buyer: string,
+  opts: { country?: string; tag?: string } = {},
+): PoolLeaseResult {
+  if (!buyer) return { ok: false, error: "buyer identity required" };
+  if (buyer === POOL_OWNER) return { ok: false, error: "cannot lease to the pool sentinel" };
+  const country = opts.country ? opts.country.toUpperCase() : null;
+  const lease = db.transaction(() => {
+    const row = db
+      .prepare(
+        `SELECT id FROM tiktok_accounts
+          WHERE owner = ? AND status = 'active'
+            AND (? IS NULL OR UPPER(country) = ?)
+          ORDER BY created_at ASC
+          LIMIT 1`,
+      )
+      .get(POOL_OWNER, country, country) as { id: string } | undefined;
+    if (!row) return null;
+    const res = db
+      .prepare(
+        `UPDATE tiktok_accounts
+            SET owner = ?, tag = COALESCE(?, tag), connected_at = COALESCE(connected_at, ?)
+          WHERE id = ? AND owner = ? AND status = 'active'`,
+      )
+      .run(buyer, opts.tag ?? null, nowIso(), row.id, POOL_OWNER);
+    if (res.changes !== 1) return null; // lost the race to a concurrent deploy
+    return row.id;
+  });
+  const id = lease();
+  if (!id) {
+    return {
+      ok: false,
+      error: country ? `no ready pool accounts for country=${country}` : "no ready pool accounts",
+    };
+  }
+  return { ok: true, row: getAccount(id)! };
+}
+
+/**
+ * Register a fresh row destined for the pool (owner = sentinel). The seed flow
+ * calls this before starting the QR connect, so the account is pool-owned from
+ * the first moment rather than producing an orphan directory nothing can attribute.
+ */
+export function registerPoolAccount(opts: {
+  id: string;
+  country?: string;
+  proxySessionId?: string;
+  tag?: string;
+}): { ok: true; row: TikTokAccountRow } | { ok: false; error: string } {
+  return registerAccount({
+    id: opts.id,
+    owner: POOL_OWNER,
+    country: opts.country,
+    proxySessionId: opts.proxySessionId,
+    tag: opts.tag,
+  });
+}
+
+export interface PoolStock {
+  total: number;
+  by_country: Record<string, number>;
+}
+
+/**
+ * Ready-to-deploy stock, grouped by country. Powers both the no-stock hint on a
+ * failed deploy ("in stock now: US, BR") and the storefront's availability view.
+ */
+export function poolStock(): PoolStock {
+  // Country is grouped upper-cased so the keys line up with the lease filter
+  // (which matches on UPPER(country)) and the storefront's flag/name lookups,
+  // regardless of the case a seed was stored in.
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(NULLIF(UPPER(country), ''), '?') AS country, COUNT(*) AS n
+         FROM tiktok_accounts
+        WHERE owner = ? AND status = 'active'
+        GROUP BY COALESCE(NULLIF(UPPER(country), ''), '?')`,
+    )
+    .all(POOL_OWNER) as Array<{ country: string; n: number }>;
+  const by_country: Record<string, number> = {};
+  let total = 0;
+  for (const r of rows) {
+    by_country[r.country] = r.n;
+    total += r.n;
+  }
+  return { total, by_country };
+}

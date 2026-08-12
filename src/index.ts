@@ -84,6 +84,9 @@ const IMAGE_UPLOAD_ROUTES = new Set([
   "/social/twitter/avatar",
   "/social/twitter/banner",
   "/social/tiktok/avatar",
+  // Deploy carries the new account's avatar inline (image_base64), same tier as
+  // the standalone avatar op.
+  "/social/tiktok/deploy",
 ]);
 const VIDEO_UPLOAD_ROUTES = new Set([
   "/social/tiktok/post",
@@ -302,6 +305,10 @@ app.use("/api/discovery", discoveryRoutes);
 app.get("/discover", (_req, res) => res.redirect(301, "/discovery"));
 app.get("/discovery", (_req, res) =>
   res.sendFile(path.join(__dirname, "..", "public", "discovery", "index.html"))
+);
+// /socials — one-click TikTok account storefront (deploy from the warmed pool).
+app.get("/socials", (_req, res) =>
+  res.sendFile(path.join(__dirname, "..", "public", "socials.html"))
 );
 import provisionRoutes from "./routes/provision";
 app.use("/provision", provisionRoutes);
