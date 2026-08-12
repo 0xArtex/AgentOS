@@ -86,6 +86,13 @@ import {
   poolStock,
   POOL_OWNER,
 } from "../services/tiktok-accounts";
+import {
+  beginSeed,
+  runSeed,
+  parseCredentialLine,
+  DEFAULT_CREDENTIAL_FORMAT,
+  SeedCredentialsInput,
+} from "../services/tiktok-pool-seed";
 import { seriesFor, latestForAccount, growthSince } from "../services/tiktok-metrics";
 import { hookReport, checkCaption } from "../services/tiktok-hooks";
 import { corpusReport, storeCollection, recordCollectionRun, corpusFreshness, collectionHistory, parseUpstreamPost } from "../services/tiktok-corpus";
@@ -2438,6 +2445,99 @@ router.post(
     } catch (err: any) {
       res.status(500).json({ error: err?.message || "could not start a pool seed" });
     }
+  },
+);
+
+// POST /social/tiktok/pool/seed-credentials — admin-only. Seed a BOUGHT account
+// (login/password/email, e.g. accsmarket) into the pool WITHOUT the operator's
+// IP ever touching TikTok: the form-login runs server-side through the account's
+// pinned residential proxy, so the session is born on the exact exit that will
+// operate it forever. Async — the browser login (captcha + email-OTP) runs in
+// the background; poll GET /social/tiktok/pool/seed/:id. On failure the row goes
+// 'dead' (never leasable) with a diagnostic code. Accepts either explicit fields
+// or a raw supplier line + a colon-template `format`.
+router.post(
+  "/tiktok/pool/seed-credentials",
+  requirePoolAdmin,
+  requireSocialReady,
+  (req: Request, res: Response) => {
+    try {
+      const body = (req.body || {}) as {
+        login?: string; password?: string; email?: string; email_password?: string;
+        credentials_line?: string; format?: string; country?: string; tag?: string;
+      };
+      let creds: { login: string; password: string; email?: string; email_password?: string };
+      if (body.credentials_line) {
+        try {
+          creds = parseCredentialLine(body.credentials_line, body.format || DEFAULT_CREDENTIAL_FORMAT);
+        } catch (e: any) {
+          res.status(400).json({ error: e?.message || "could not parse credentials_line", error_code: "BAD_FORMAT" });
+          return;
+        }
+      } else {
+        if (!body.login || !body.password) {
+          res.status(400).json({ error: "provide login + password (and email + email_password), or a credentials_line + format", error_code: "INVALID_INPUT" });
+          return;
+        }
+        creds = { login: body.login, password: body.password, email: body.email, email_password: body.email_password };
+      }
+      const input: SeedCredentialsInput = {
+        ...creds,
+        country: typeof body.country === "string" ? body.country : undefined,
+        tag: typeof body.tag === "string" ? body.tag : undefined,
+      };
+      const started = beginSeed(input);
+      res.status(202).json({
+        account_id: started.account_id,
+        status: started.status,
+        poll_url: `/social/tiktok/pool/seed/${started.account_id}`,
+        message:
+          "Seeding started. The login runs server-side through the account's pinned residential proxy — your IP never touches TikTok. Captcha and email-OTP are auto-solved, which can take 1-3 minutes. " +
+          "Poll the poll_url until status is 'active' (leasable) or 'dead' (seed failed — read last_error_code).",
+      });
+      // Fire-and-forget: progress is read off the account row's status by the poll
+      // endpoint. runSeed itself lands the row in 'active' or 'dead' and never throws
+      // out; the catch is a last-resort guard so an unexpected throw is still logged.
+      setImmediate(() => {
+        runSeed({
+          account_id: started.account_id,
+          proxy_session_id: started.proxy_session_id,
+          country: input.country,
+          login: input.login,
+          password: input.password,
+          email: input.email,
+          email_password: input.email_password,
+        }).catch((e) => console.error(`[tiktok-seed] runSeed threw for ${started.account_id}:`, e?.message || e));
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "could not start a credential seed" });
+    }
+  },
+);
+
+// GET /social/tiktok/pool/seed/:id — admin-only poll for a credential seed.
+// 'active' = leasable; 'dead' = failed (last_error_code says why); anything else
+// = still working. profile_present confirms the session actually landed on disk.
+router.get(
+  "/tiktok/pool/seed/:id",
+  requirePoolAdmin,
+  (req: Request, res: Response) => {
+    const acct = getTikTokAccount(String(req.params.id || ""));
+    if (!acct) {
+      res.status(404).json({ error: "unknown seed account" });
+      return;
+    }
+    res.json({
+      account_id: acct.id,
+      handle: acct.handle && acct.handle !== acct.id ? acct.handle : null,
+      country: acct.country,
+      status: acct.status,
+      leasable: acct.status === "active",
+      done: acct.status === "active" || acct.status === "dead",
+      profile_present: hasServerProfile(acct.id),
+      last_error_code: acct.last_error_code,
+      last_error_at: acct.last_error_at,
+    });
   },
 );
 

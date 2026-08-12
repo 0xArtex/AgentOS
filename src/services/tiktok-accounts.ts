@@ -138,6 +138,21 @@ export function setTag(id: string, tag: string | null): void {
   db.prepare("UPDATE tiktok_accounts SET tag=? WHERE id=?").run(tag, id);
 }
 
+/** Record the real @handle once a login reveals it (registration seeds it to the id). */
+export function setHandle(id: string, handle: string): void {
+  db.prepare("UPDATE tiktok_accounts SET handle=? WHERE id=?").run(handle, id);
+}
+
+/**
+ * Move an account to the terminal 'dead' state with a diagnostic code. Used when
+ * a pool seed can't establish a session: poolStock counts only 'active', so a
+ * dead row is never offered to a buyer, and the code says why the seed failed.
+ */
+export function markDead(id: string, errorCode?: string): void {
+  db.prepare("UPDATE tiktok_accounts SET status='dead', last_error_code=?, last_error_at=? WHERE id=?")
+    .run(errorCode || "SEED_FAILED", nowIso(), id);
+}
+
 export interface AccountHealth extends TikTokAccountRow {
   /** Whether a browser profile actually exists on this host for the account. */
   profile_present: boolean;
