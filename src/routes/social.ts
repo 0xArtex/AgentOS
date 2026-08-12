@@ -81,6 +81,10 @@ import {
   getAccount as getTikTokAccount,
   registerAccount as registerTikTokAccount,
   listByOwner as listTikTokAccountsByOwner,
+  leaseFromPool,
+  registerPoolAccount,
+  poolStock,
+  POOL_OWNER,
 } from "../services/tiktok-accounts";
 import { seriesFor, latestForAccount, growthSince } from "../services/tiktok-metrics";
 import { hookReport, checkCaption } from "../services/tiktok-hooks";
@@ -107,6 +111,7 @@ import { createOpJob, getOpJob } from "../services/tiktok-ops-jobs";
 import { createXOpJob, getXOpJob } from "../services/x-ops-jobs";
 import { stashSession, claimSession } from "../services/tiktok-session-transfer";
 import { rateLimit } from "../middleware/rateLimit";
+import { randomUUID } from "crypto";
 
 const router = Router();
 
@@ -2250,6 +2255,189 @@ router.get(
       last_error_code: a.last_error_code,
     }));
     res.json({ owner, count: accounts.length, ...(tag ? { tag } : {}), accounts });
+  },
+);
+
+// ─── One-click deploy — the storefront ─────────────────────────────────────
+// A ready TikTok account is a warmed, server-connected row already sitting in
+// the pool (owner = the sentinel). Deploy hands one over: pay, and it becomes
+// yours and live in a single atomic owner swap — no QR, no phone, no signup. The
+// name/bio/photo you pass are branded on as a FREE, best-effort follow-up
+// (retryable with the cheap profile/avatar ops), so the $3 buys the scarce thing
+// — the account — and a cosmetic hiccup never refunds a delivered account. Only a
+// genuine no-stock (or a pre-lease failure) refunds.
+const TIKTOK_DEPLOY_PRICE_USDC = 3;
+router.post(
+  "/tiktok/deploy",
+  requireSocialReady,
+  requireAuth(TIKTOK_DEPLOY_PRICE_USDC, "general", {
+    description:
+      "Deploy a brand-new, ready-to-use TikTok account from the warmed pool — no QR, no signup. Optionally pass display_name/bio/image_base64/image_url to brand it on the spot, and country to target a market. You become the owner and drive it with the other tiktok ops.",
+    category: "social",
+    tags: ["tiktok", "deploy", "account", "launch", "one-click"],
+  }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const owner = req.payment?.payer || req.agentId;
+    if (!owner) {
+      res.status(401).json({ error: "Unauthenticated", message: "A wallet or dashboard identity is required to own an account." });
+      return;
+    }
+    const { country, display_name, bio, image_base64, image_url, tag } = (req.body || {}) as {
+      country?: string;
+      display_name?: string;
+      bio?: string;
+      image_base64?: string;
+      image_url?: string;
+      tag?: string;
+    };
+
+    // A balance/dashboard payer is not charged on a 4xx (the balance middleware
+    // refunds on finish), so there we just relay the error; an x402 payer already
+    // settled on-chain, so there we refund. Same split /twitter/buy uses.
+    const decline = async (httpStatus: number, errorLabel: string, msg: string, extra: Record<string, unknown> = {}) => {
+      if (req.payment) {
+        await refundAndRespond(req, res, { reason: msg, userMessage: `${msg} — your payment is being refunded.`, httpStatus, errorLabel, extra });
+      } else {
+        res.status(httpStatus).json({ error: errorLabel, message: msg, ...extra });
+      }
+    };
+
+    // Validate the cosmetic inputs BEFORE leasing — the same limits updateProfile
+    // enforces — so a typo fails fast rather than handing out a scarce account
+    // branded with nothing.
+    if (display_name !== undefined && (typeof display_name !== "string" || display_name.length < 1 || display_name.length > 30)) {
+      await decline(400, "Invalid input", "display_name must be 1-30 chars", { error_code: "INVALID_INPUT" });
+      return;
+    }
+    if (bio !== undefined && (typeof bio !== "string" || bio.length > 80)) {
+      await decline(400, "Invalid input", "bio must be <=80 chars", { error_code: "INVALID_INPUT" });
+      return;
+    }
+
+    try {
+      const leased = leaseFromPool(String(owner), {
+        country: typeof country === "string" ? country : undefined,
+        tag: typeof tag === "string" ? tag : undefined,
+      });
+      if (!leased.ok || !leased.row) {
+        // Nothing to deliver → refund and say what IS in stock so the caller can
+        // drop or change the country filter. Mirrors /twitter/buy's empty-inventory path.
+        const stock = poolStock();
+        const inStock = Object.keys(stock.by_country).filter((c) => c !== "?");
+        const hint =
+          stock.total > 0
+            ? ` In stock now: ${inStock.length ? inStock.join(", ") : "unlabelled"} (${stock.total} ready). Drop the country filter or pick one of these.`
+            : " No accounts are ready in the pool right now — try again shortly.";
+        await decline(409, "No accounts available", (leased.error || "no ready pool accounts") + hint, { available: false, stock: stock.by_country });
+        return;
+      }
+
+      const acct = leased.row;
+      // The account is now the caller's and already live (it was connected as a
+      // pool asset). Brand it with a single follow-up op that sets name+bio then
+      // the photo. Created with NO payment context on purpose: this rebrand is
+      // free convenience, so its own success or failure must never move the $3
+      // that already bought the delivered account. If it fails, the caller still
+      // owns a live account and can retry via the cheap profile/avatar ops.
+      let rebrand: { operation_id: string; poll_url: string } | null = null;
+      const wantsProfile = display_name !== undefined || bio !== undefined;
+      const wantsAvatar = Boolean(image_base64 || image_url);
+      if (wantsProfile || wantsAvatar) {
+        const job = createOpJob(
+          { op: "profile", account_id: acct.id, owner: String(owner), paymentSignature: null, paymentChain: null, chargedUsdc: null },
+          async () => {
+            const applied: string[] = [];
+            const errors: string[] = [];
+            if (wantsProfile) {
+              const p = await tiktokUpdateProfile({ account_id: acct.id, proxy_session_id: acct.proxy_session_id ?? undefined, country: acct.country ?? undefined, cookies: [], bio, display_name });
+              if (p.success) applied.push(...(p.data?.updated ?? []));
+              else errors.push(`profile: ${p.error || "failed"}`);
+            }
+            if (wantsAvatar) {
+              const a = await tiktokUpdateAvatar({ account_id: acct.id, proxy_session_id: acct.proxy_session_id ?? undefined, country: acct.country ?? undefined, cookies: [], image_base64, image_url });
+              if (a.success) applied.push("avatar");
+              else errors.push(`avatar: ${a.error || "failed"}`);
+            }
+            if (applied.length === 0 && errors.length > 0) {
+              return { success: false, error: errors.join("; "), error_code: "UNKNOWN" as const };
+            }
+            return { success: true, data: { applied, ...(errors.length ? { partial_errors: errors } : {}) } };
+          },
+        );
+        rebrand = { operation_id: job.id, poll_url: `/social/tiktok/operations/${job.id}` };
+      }
+
+      res.status(202).json({
+        account_id: acct.id,
+        handle: acct.handle,
+        country: acct.country,
+        status: acct.status,
+        owner: String(owner),
+        deployed: true,
+        rebrand,
+        message:
+          "Your TikTok account is deployed and live. " +
+          (rebrand ? "Applying your name/bio/photo now — poll rebrand.poll_url until it's done. " : "") +
+          "Drive it with the other tiktok ops (post/follow/like/profile/avatar) using this account_id.",
+      });
+    } catch (err: any) {
+      await decline(500, "Deploy failed", `deploy failed: ${err?.message || err}`);
+    }
+  },
+);
+
+// GET /social/tiktok/pool/stock — public read of what's ready to deploy, so the
+// storefront can show availability and price before anyone pays. Unpaid, like
+// /twitter/pool/prices: it exposes only aggregate counts, never account detail.
+router.get("/tiktok/pool/stock", (_req: Request, res: Response) => {
+  const stock = poolStock();
+  res.json({ price_usdc: TIKTOK_DEPLOY_PRICE_USDC, ...stock });
+});
+
+// POST /social/tiktok/pool/seed — admin-only. Mint a QR hand-off link for a NEW
+// pool account: the row is registered to the sentinel up front, and whoever opens
+// the link scans with the TikTok app IN THE TARGET COUNTRY (the exit is pinned to
+// `country` so TikTok doesn't read a distant scan as phishing). On a successful
+// scan the account flips to 'active' and joins the deployable pool. This is how
+// stock gets in — the buy side (deploy) never touches signup.
+router.post(
+  "/tiktok/pool/seed",
+  requirePoolAdmin,
+  requireSocialReady,
+  (req: Request, res: Response) => {
+    try {
+      const { country } = (req.body || {}) as { country?: string };
+      const id = randomUUID().replace(/-/g, "");
+      const proxySessionId = id; // the hex id doubles as the sticky IPRoyal session key
+      const registered = registerPoolAccount({
+        id,
+        country: typeof country === "string" ? country : undefined,
+        proxySessionId,
+      });
+      if (!registered.ok) {
+        res.status(500).json({ error: registered.error });
+        return;
+      }
+      const started = startServerConnect({
+        accountId: id,
+        owner: POOL_OWNER,
+        country: typeof country === "string" ? country : undefined,
+        proxySessionId,
+        baseUrl: "https://" + (req.get("host") || "palmyr.ai"),
+      });
+      const { writer: _writer, ...safe } = started;
+      res.status(202).json({
+        ...safe,
+        account_id: id,
+        pool: true,
+        status: "awaiting_viewer",
+        message:
+          "Open connect_url and scan with the TikTok app in the target country. On a successful scan the account joins the deployable pool and can be handed to a buyer via POST /social/tiktok/deploy.",
+        poll_url: `/social/tiktok/connect/${started.token}`,
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || "could not start a pool seed" });
+    }
   },
 );
 
