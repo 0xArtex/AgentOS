@@ -4,191 +4,232 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Palmyr — Socials</title>
-  <meta name="description" content="Deploy ready-to-use TikTok accounts in one click. No QR, no signup — pay, brand, launch." />
+  <meta name="description" content="Deploy ready-to-use social accounts in one click. Pick a name, bio and photo, pay, and it's live — no signup, no QR." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600;700&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap" rel="stylesheet" />
   <style>
     :root{
-      --teal:#112D32; --teal-2:#173a41; --teal-3:#0c2429;
-      --amber:#F6AF56; --amber-2:#f5c07d;
-      --cream:#F5EFE6; --muted:#9fb0b3; --line:rgba(245,239,230,.12);
-      --card:#153439; --card-2:#122e33;
-      --ok:#5fd08a; --warn:#F6AF56; --bad:#e8776b; --idle:#7d8f92;
-      --pink:#FE2C55; --cyan:#25F4EE;
-      --shadow:0 10px 40px rgba(0,0,0,.35);
+      --bg:#0b0c0e; --panel:#0e0f12; --card:#15171c; --card-2:#131419; --raised:#1b1d23;
+      --line:rgba(255,255,255,.075); --line-2:rgba(255,255,255,.13);
+      --fg:#eceef1; --fg-dim:#c3c6cc; --muted:#8a8d95; --faint:#5f636b;
+      --amber:#F6AF56; --amber-soft:#f5c489; --amber-ink:#231607;
+      --ok:#61d095; --warn:#f6af56; --bad:#e8776b; --idle:#6b7078;
+      --blue:#5b8cff;
       --serif:'Cormorant Garamond',Georgia,'Times New Roman',serif;
       --sans:'DM Sans',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+      --shadow:0 24px 60px -20px rgba(0,0,0,.6);
+      --sidebar:236px;
     }
     *{box-sizing:border-box}
     html,body{margin:0;padding:0}
-    body{
-      background:radial-gradient(1200px 600px at 80% -10%, #1a444c 0%, var(--teal) 45%, var(--teal-3) 100%);
-      color:var(--cream); font-family:var(--sans); min-height:100vh;
-      -webkit-font-smoothing:antialiased; line-height:1.5;
-    }
-    a{color:inherit}
+    body{background:var(--bg);color:var(--fg);font-family:var(--sans);min-height:100vh;-webkit-font-smoothing:antialiased;font-size:15px;line-height:1.55}
+    a{color:inherit;text-decoration:none}
     button{font-family:inherit;cursor:pointer}
-    .wrap{max-width:1120px;margin:0 auto;padding:0 24px}
+    ::selection{background:rgba(246,175,86,.25)}
+    /* soft ambient glow, very subtle */
+    body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;
+      background:radial-gradient(900px 500px at 78% -8%, rgba(246,175,86,.06), transparent 60%),radial-gradient(700px 400px at 8% 108%, rgba(91,140,255,.05), transparent 55%)}
 
-    /* ── Top bar ───────────────────────────── */
-    header{position:sticky;top:0;z-index:40;backdrop-filter:blur(10px);
-      background:linear-gradient(180deg,rgba(17,45,50,.92),rgba(17,45,50,.65));border-bottom:1px solid var(--line)}
-    .bar{display:flex;align-items:center;gap:16px;height:66px}
-    .brand{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-weight:700;font-size:22px;letter-spacing:.5px;text-decoration:none}
-    .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 14px var(--amber)}
-    .brand small{font-family:var(--sans);font-size:12px;color:var(--muted);font-weight:500;margin-left:2px;letter-spacing:1.5px;text-transform:uppercase}
-    .spacer{flex:1}
-    .chip{display:inline-flex;align-items:center;gap:8px;padding:8px 14px;border-radius:999px;border:1px solid var(--line);
-      background:rgba(255,255,255,.03);font-size:13px;font-weight:600}
-    .chip.bal{cursor:pointer;transition:.15s}
-    .chip.bal:hover{border-color:var(--amber);color:var(--amber-2)}
-    .chip .amt{color:var(--amber)}
-    .btn{border:none;border-radius:10px;padding:10px 16px;font-weight:600;font-size:14px;transition:.15s;background:var(--amber);color:#20140a}
+    /* ── Shell ──────────────────────────────── */
+    .shell{display:grid;grid-template-columns:var(--sidebar) 1fr;min-height:100vh;position:relative;z-index:1}
+    aside{position:sticky;top:0;height:100vh;border-right:1px solid var(--line);background:linear-gradient(180deg,var(--panel),#0a0b0d);display:flex;flex-direction:column;padding:22px 16px}
+    .brand{display:flex;align-items:center;gap:10px;padding:6px 8px 22px;font-family:var(--serif);font-weight:700;font-size:23px;letter-spacing:.4px}
+    .brand .dot{width:9px;height:9px;border-radius:50%;background:var(--amber);box-shadow:0 0 12px var(--amber)}
+    .brand .tag{margin-left:auto;font-family:var(--sans);font-size:9.5px;font-weight:600;letter-spacing:1.6px;text-transform:uppercase;color:var(--faint);border:1px solid var(--line);border-radius:5px;padding:3px 6px}
+    nav{display:flex;flex-direction:column;gap:3px;margin-top:6px}
+    .navlink{display:flex;align-items:center;gap:11px;padding:9px 11px;border-radius:9px;color:var(--muted);font-weight:500;font-size:14px;transition:.15s}
+    .navlink svg{width:17px;height:17px;opacity:.85;flex:0 0 auto}
+    .navlink:hover{color:var(--fg);background:rgba(255,255,255,.035)}
+    .navlink.active{color:var(--fg);background:rgba(246,175,86,.1);box-shadow:inset 0 0 0 1px rgba(246,175,86,.22)}
+    .navlink.active svg{color:var(--amber);opacity:1}
+    .navsec{font-size:10.5px;letter-spacing:1.4px;text-transform:uppercase;color:var(--faint);padding:16px 11px 7px;font-weight:600}
+    .side-foot{margin-top:auto;border-top:1px solid var(--line);padding-top:14px}
+    .userbox{display:flex;align-items:center;gap:10px;padding:6px}
+    .uavatar{width:34px;height:34px;border-radius:50%;background:linear-gradient(140deg,var(--amber),#d9782f);display:grid;place-items:center;color:var(--amber-ink);font-weight:700;font-size:14px;flex:0 0 auto}
+    .uinfo{min-width:0;flex:1}
+    .uinfo .nm{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .uinfo .bal{font-size:12px;color:var(--muted);cursor:pointer}
+    .uinfo .bal b{color:var(--amber)}
+    .uinfo .bal:hover{color:var(--amber-soft)}
+    .iconbtn{background:transparent;border:1px solid var(--line);color:var(--muted);width:30px;height:30px;border-radius:8px;display:grid;place-items:center;transition:.15s}
+    .iconbtn:hover{border-color:var(--line-2);color:var(--fg)}
+    .iconbtn svg{width:15px;height:15px}
+
+    /* ── Main ───────────────────────────────── */
+    main{padding:0;overflow:auto}
+    .topbar{height:56px;display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 34px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(11,12,14,.72);backdrop-filter:blur(12px);z-index:20}
+    .pill-note{margin-right:auto;display:flex;align-items:center;gap:9px;font-size:13px;color:var(--fg-dim);background:rgba(246,175,86,.07);border:1px solid rgba(246,175,86,.16);padding:6px 13px;border-radius:999px}
+    .pill-note .k{color:var(--amber);font-weight:600}
+    .btn{border:none;border-radius:10px;padding:9px 15px;font-weight:600;font-size:13.5px;transition:.15s;background:var(--amber);color:var(--amber-ink)}
     .btn:hover{filter:brightness(1.06);transform:translateY(-1px)}
-    .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--cream)}
-    .btn.ghost:hover{border-color:var(--amber);color:var(--amber-2)}
+    .btn.ghost{background:transparent;border:1px solid var(--line-2);color:var(--fg)}
+    .btn.ghost:hover{border-color:var(--amber);color:var(--amber-soft);transform:none}
     .btn:disabled{opacity:.5;cursor:not-allowed;transform:none;filter:none}
-    .avatar-mini{width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,var(--amber),#e07b39);display:grid;place-items:center;color:#20140a;font-weight:700;font-size:13px}
-    .usermenu{display:flex;align-items:center;gap:10px}
 
-    /* ── Hero ──────────────────────────────── */
-    .hero{padding:52px 0 26px}
-    .titlerow{display:flex;align-items:center;gap:18px;flex-wrap:wrap}
-    h1{font-family:var(--serif);font-weight:600;font-size:clamp(30px,5vw,46px);margin:0;letter-spacing:.3px}
-    .tt{display:inline-flex;align-items:center;gap:8px;padding:9px 15px;border:1.5px solid var(--cream);border-radius:14px;font-weight:600;font-size:15px;background:rgba(0,0,0,.15)}
-    .tt svg{width:18px;height:18px}
-    .sub{color:var(--muted);margin-top:14px;font-size:16px;max-width:640px}
-    .stockline{margin-top:10px;font-size:13.5px;color:var(--muted)}
-    .stockline b{color:var(--amber-2)}
+    .stage{max-width:1080px;margin:0 auto;padding:56px 34px 90px}
+    .headrow{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+    h1{font-family:var(--serif);font-weight:600;font-size:clamp(30px,4.4vw,45px);line-height:1.05;margin:0;letter-spacing:.2px}
+    .sub{color:var(--muted);margin-top:12px;font-size:15.5px;max-width:560px}
+    /* platform segmented control */
+    .seg{display:inline-flex;gap:4px;background:var(--card-2);border:1px solid var(--line);border-radius:12px;padding:4px}
+    .seg button{display:flex;align-items:center;gap:8px;background:transparent;border:none;color:var(--muted);padding:8px 14px;border-radius:9px;font-weight:600;font-size:13.5px;transition:.15s}
+    .seg button svg{width:15px;height:15px}
+    .seg button:hover{color:var(--fg)}
+    .seg button.on{background:var(--raised);color:var(--fg);box-shadow:0 1px 0 rgba(255,255,255,.05) inset,0 6px 16px -8px rgba(0,0,0,.5)}
+    .seg button.on.tw svg{color:#fff}
+    .seg button.on.tt svg{color:var(--amber)}
 
-    /* ── Grid ──────────────────────────────── */
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:20px;padding:12px 0 80px}
-    .card{position:relative;background:linear-gradient(180deg,var(--card),var(--card-2));border:1px solid var(--line);
-      border-radius:20px;padding:20px;min-height:230px;display:flex;flex-direction:column;transition:.18s;cursor:pointer;overflow:hidden}
-    .card:hover{transform:translateY(-3px);border-color:rgba(246,175,86,.4);box-shadow:var(--shadow)}
-    .card .status{position:absolute;top:16px;right:16px;display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)}
-    .sdot{width:9px;height:9px;border-radius:50%;background:var(--idle)}
-    .sdot.active{background:var(--ok);box-shadow:0 0 10px var(--ok)}
+    .stockline{margin-top:26px;font-size:13.5px;color:var(--muted);display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+    .stockline b{color:var(--amber-soft)}
+    .dotmark{width:6px;height:6px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px var(--ok)}
+
+    /* ── Grid ───────────────────────────────── */
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(216px,1fr));gap:18px;margin-top:22px}
+    .card{position:relative;background:linear-gradient(180deg,var(--card),var(--card-2));border:1px solid var(--line);border-radius:18px;padding:20px;min-height:216px;display:flex;flex-direction:column;transition:.2s cubic-bezier(.2,.7,.3,1);cursor:pointer;overflow:hidden;opacity:0;transform:translateY(8px);animation:rise .5s forwards}
+    @keyframes rise{to{opacity:1;transform:none}}
+    .card:hover{transform:translateY(-4px);border-color:var(--line-2);box-shadow:var(--shadow)}
+    .card .pbadge{position:absolute;top:15px;right:15px;width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:rgba(255,255,255,.05);border:1px solid var(--line)}
+    .card .pbadge svg{width:12px;height:12px}
+    .card .av{width:66px;height:66px;border-radius:50%;object-fit:cover;background:linear-gradient(140deg,var(--amber),#c96a2e);display:grid;place-items:center;color:var(--amber-ink);font-weight:700;font-size:26px;font-family:var(--serif);margin-bottom:15px;border:2px solid rgba(255,255,255,.08)}
+    .card .nm{font-weight:600;font-size:16.5px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .card .hd{color:var(--muted);font-size:13px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .card .foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding-top:15px}
+    .flag{font-size:15px}
+    .status{display:flex;align-items:center;gap:6px;font-size:11.5px;color:var(--muted);margin-left:auto}
+    .sdot{width:8px;height:8px;border-radius:50%;background:var(--idle)}
+    .sdot.active,.sdot.sold{background:var(--ok);box-shadow:0 0 9px var(--ok)}
     .sdot.connecting{background:var(--warn);animation:pulse 1.3s infinite}
-    .sdot.restricted{background:#e0913f}
+    .sdot.restricted,.sdot.session_expired{background:#e0913f}
     .sdot.logged_out,.sdot.dead{background:var(--bad)}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
-    .card .av{width:72px;height:72px;border-radius:50%;object-fit:cover;background:linear-gradient(135deg,var(--amber),#d96a2f);
-      display:grid;place-items:center;color:#20140a;font-weight:700;font-size:28px;font-family:var(--serif);margin-bottom:14px;border:2px solid rgba(255,255,255,.1)}
-    .card .nm{font-weight:600;font-size:17px;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .card .hd{color:var(--muted);font-size:13px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .card .foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding-top:14px}
-    .flag{font-size:15px}
-    .pill{font-size:11px;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.06);color:var(--muted);border:1px solid var(--line)}
-    .pill.deploying{color:var(--amber);border-color:rgba(246,175,86,.4);background:rgba(246,175,86,.08)}
-    .card.add{border-style:dashed;border-color:rgba(245,239,230,.28);align-items:center;justify-content:center;gap:12px;background:transparent}
-    .card.add:hover{border-color:var(--amber);background:rgba(246,175,86,.04)}
-    .plus{width:56px;height:56px;border-radius:50%;border:2px solid var(--amber);display:grid;place-items:center}
-    .plus svg{width:26px;height:26px;stroke:var(--amber)}
-    .card.add .lbl{font-weight:600;color:var(--cream)}
+    .pill{font-size:11px;padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.05);color:var(--muted);border:1px solid var(--line)}
+    .pill.busy{color:var(--amber);border-color:rgba(246,175,86,.35);background:rgba(246,175,86,.08)}
+    .card.add{border-style:dashed;border-color:var(--line-2);align-items:center;justify-content:center;gap:13px;background:transparent;animation:none;opacity:1;transform:none}
+    .card.add:hover{border-color:var(--amber);background:rgba(246,175,86,.03)}
+    .plus{width:54px;height:54px;border-radius:50%;border:1.5px solid var(--amber);display:grid;place-items:center;transition:.2s}
+    .card.add:hover .plus{background:rgba(246,175,86,.1)}
+    .plus svg{width:24px;height:24px;stroke:var(--amber)}
+    .card.add .lbl{font-weight:600;text-align:center}
     .card.add .lbl small{display:block;color:var(--muted);font-weight:400;font-size:12px;margin-top:3px}
+    .empty{grid-column:1/-1;color:var(--muted);padding:8px 2px;font-size:14px}
 
-    .empty{grid-column:1/-1;text-align:center;color:var(--muted);padding:30px 0}
-
-    /* ── Modal ─────────────────────────────── */
-    .scrim{position:fixed;inset:0;background:rgba(6,18,20,.72);backdrop-filter:blur(4px);z-index:60;display:none;align-items:center;justify-content:center;padding:20px}
-    .scrim.on{display:flex}
-    .modal{width:100%;max-width:460px;background:linear-gradient(180deg,#163940,#112b30);border:1px solid var(--line);border-radius:22px;box-shadow:var(--shadow);max-height:92vh;overflow:auto}
+    /* ── Modal ──────────────────────────────── */
+    .scrim{position:fixed;inset:0;background:rgba(6,7,9,.66);backdrop-filter:blur(6px);z-index:60;display:none;align-items:center;justify-content:center;padding:22px}
+    .scrim.on{display:flex;animation:fade .2s}
+    @keyframes fade{from{opacity:0}to{opacity:1}}
+    .modal{width:100%;max-width:452px;background:linear-gradient(180deg,#191b20,#121317);border:1px solid var(--line-2);border-radius:20px;box-shadow:var(--shadow);max-height:92vh;overflow:auto;animation:pop .22s cubic-bezier(.2,.8,.3,1)}
     .modal.lg{max-width:540px}
-    .mhead{display:flex;align-items:center;justify-content:space-between;padding:22px 24px 6px}
-    .mhead h3{font-family:var(--serif);font-weight:600;font-size:24px;margin:0}
-    .x{background:transparent;border:none;color:var(--muted);font-size:22px;line-height:1;padding:4px 8px;border-radius:8px}
-    .x:hover{color:var(--cream);background:rgba(255,255,255,.06)}
-    .mbody{padding:12px 24px 24px}
-    label{display:block;font-size:13px;font-weight:600;color:var(--cream);margin:16px 0 7px}
-    label .req{color:var(--amber);font-weight:400}
-    label .ct{float:right;color:var(--muted);font-weight:400}
-    input[type=text],input[type=email],input[type=password],textarea,select{
-      width:100%;background:var(--teal-3);border:1px solid var(--line);border-radius:11px;color:var(--cream);
-      padding:12px 13px;font-size:14.5px;font-family:inherit;transition:.15s}
-    input:focus,textarea:focus,select:focus{outline:none;border-color:var(--amber);background:#0e262b}
-    textarea{resize:vertical;min-height:64px}
-    select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239fb0b3' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 13px center}
-    .hint{font-size:12px;color:var(--muted);margin-top:6px}
-
-    /* avatar dropzone */
-    .drop{display:flex;gap:14px;align-items:center}
-    .dz{width:88px;height:88px;border-radius:50%;border:2px dashed var(--line);display:grid;place-items:center;overflow:hidden;flex:0 0 auto;background:var(--teal-3);cursor:pointer;transition:.15s}
+    @keyframes pop{from{opacity:0;transform:translateY(12px) scale(.99)}to{opacity:1;transform:none}}
+    .mhead{display:flex;align-items:center;justify-content:space-between;padding:22px 24px 4px}
+    .mhead h3{font-family:var(--serif);font-weight:600;font-size:25px;margin:0}
+    .x{background:transparent;border:none;color:var(--muted);font-size:15px;padding:6px;border-radius:8px;line-height:0}
+    .x:hover{color:var(--fg);background:rgba(255,255,255,.06)}
+    .x svg{width:16px;height:16px}
+    .mbody{padding:14px 24px 24px}
+    label{display:block;font-size:12.5px;font-weight:600;color:var(--fg-dim);margin:16px 0 7px}
+    label .ct{float:right;color:var(--faint);font-weight:400}
+    input[type=text],input[type=email],input[type=password],textarea,select{width:100%;background:#0c0d10;border:1px solid var(--line-2);border-radius:11px;color:var(--fg);padding:12px 13px;font-size:14.5px;font-family:inherit;transition:.15s}
+    input:focus,textarea:focus,select:focus{outline:none;border-color:var(--amber);background:#0a0b0e}
+    textarea{resize:vertical;min-height:62px}
+    select{appearance:none;background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8d95' stroke-width='2'><path d='M6 9l6 6 6-6'/></svg>");background-repeat:no-repeat;background-position:right 13px center}
+    .hint{font-size:12px;color:var(--muted);margin-top:7px}
+    .drop{display:flex;gap:15px;align-items:center}
+    .dz{width:84px;height:84px;border-radius:50%;border:2px dashed var(--line-2);display:grid;place-items:center;overflow:hidden;flex:0 0 auto;background:#0c0d10;cursor:pointer;transition:.15s}
     .dz:hover{border-color:var(--amber)}
     .dz img{width:100%;height:100%;object-fit:cover}
-    .dz .ph{color:var(--muted);font-size:11px;text-align:center;padding:0 8px}
+    .dz .ph{color:var(--muted);font-size:11px;text-align:center;padding:0 8px;line-height:1.3}
     .dz.filled{border-style:solid}
     .dztext{font-size:12.5px;color:var(--muted)}
-    .dztext b{color:var(--cream);font-weight:600;display:block;margin-bottom:2px}
+    .dztext b{color:var(--fg-dim);font-weight:600;display:block;margin-bottom:2px}
+    .launch{width:100%;margin-top:22px;padding:14px;font-size:15.5px;border-radius:13px;display:flex;align-items:center;justify-content:center;gap:10px}
+    .launch .price{background:rgba(0,0,0,.2);padding:2px 10px;border-radius:8px;font-size:14px}
+    .note{font-size:12px;color:var(--muted);text-align:center;margin-top:13px;line-height:1.5}
+    .spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.25);border-top-color:currentColor;border-radius:50%;display:inline-block;animation:sp .7s linear infinite}
+    @keyframes sp{to{transform:rotate(360deg)}}
 
-    .launch{width:100%;margin-top:22px;padding:15px;font-size:16px;border-radius:13px;display:flex;align-items:center;justify-content:center;gap:9px}
-    .launch .price{background:rgba(0,0,0,.18);padding:2px 9px;border-radius:8px;font-size:14px}
-    .note{font-size:12px;color:var(--muted);text-align:center;margin-top:12px;line-height:1.5}
-
-    /* auth tabs */
-    .tabs{display:flex;gap:6px;background:var(--teal-3);border-radius:11px;padding:5px;margin-bottom:6px}
+    /* auth */
+    .tabs{display:flex;gap:5px;background:#0c0d10;border-radius:11px;padding:5px;margin-bottom:4px}
     .tabs button{flex:1;background:transparent;border:none;color:var(--muted);padding:9px;border-radius:8px;font-weight:600;font-size:14px}
-    .tabs button.sel{background:var(--amber);color:#20140a}
-    .or{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px;margin:18px 0}
+    .tabs button.sel{background:var(--amber);color:var(--amber-ink)}
+    .or{display:flex;align-items:center;gap:12px;color:var(--faint);font-size:12px;margin:18px 0}
     .or::before,.or::after{content:"";flex:1;height:1px;background:var(--line)}
-    .phantom{width:100%;background:#ab9ff2;color:#1c1332;border:none;border-radius:11px;padding:13px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:9px;font-size:14px}
+    .phantom{width:100%;background:#ab9ff2;color:#1c1332;border:none;border-radius:11px;padding:12px;font-weight:700;display:flex;align-items:center;justify-content:center;gap:9px;font-size:14px}
     .phantom:hover{filter:brightness(1.05)}
 
     /* detail rows */
     .drow{display:flex;justify-content:space-between;gap:14px;padding:12px 0;border-bottom:1px solid var(--line);font-size:14px}
-    .drow .k{color:var(--muted)}
-    .drow .v{font-weight:600;text-align:right;word-break:break-all}
-    .copybox{background:var(--teal-3);border:1px solid var(--line);border-radius:11px;padding:12px 13px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;color:var(--amber-2);white-space:pre-wrap;word-break:break-all;position:relative;margin-top:8px}
-    .copybtn{position:absolute;top:8px;right:8px;font-size:11px;padding:5px 9px;border-radius:7px;background:rgba(0,0,0,.25);border:1px solid var(--line);color:var(--cream)}
-    .copybtn:hover{border-color:var(--amber);color:var(--amber-2)}
+    .drow .k{color:var(--muted)} .drow .v{font-weight:600;text-align:right;word-break:break-all}
+    .copybox{background:#0c0d10;border:1px solid var(--line);border-radius:11px;padding:12px 13px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;color:var(--amber-soft);white-space:pre-wrap;word-break:break-all;position:relative;margin-top:8px}
+    .copybtn{position:absolute;top:8px;right:8px;font-size:11px;padding:5px 9px;border-radius:7px;background:rgba(0,0,0,.3);border:1px solid var(--line-2);color:var(--fg)}
+    .copybtn:hover{border-color:var(--amber);color:var(--amber-soft)}
     .secnote{font-size:12.5px;color:var(--muted);margin-top:8px;line-height:1.55}
-
-    /* deposit */
-    .addr{background:var(--teal-3);border:1px solid var(--line);border-radius:11px;padding:12px 13px;margin-top:8px}
+    .addr{background:#0c0d10;border:1px solid var(--line);border-radius:11px;padding:12px 13px;margin-top:9px}
     .addr .lab{font-size:12px;color:var(--muted);display:flex;justify-content:space-between;margin-bottom:5px}
-    .addr .val{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;word-break:break-all;color:var(--cream)}
+    .addr .val{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12.5px;word-break:break-all}
 
-    /* toast */
-    #toasts{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:10px;align-items:center}
-    .toast{background:#12343a;border:1px solid var(--line);border-left:4px solid var(--amber);border-radius:12px;padding:13px 18px;font-size:14px;box-shadow:var(--shadow);max-width:440px;animation:slideup .25s ease}
+    #toasts{position:fixed;bottom:24px;left:calc(50% + var(--sidebar)/2);transform:translateX(-50%);z-index:90;display:flex;flex-direction:column;gap:10px;align-items:center}
+    .toast{background:#181a1f;border:1px solid var(--line-2);border-left:3px solid var(--amber);border-radius:12px;padding:13px 17px;font-size:14px;box-shadow:var(--shadow);max-width:440px;animation:slideup .25s}
     .toast.ok{border-left-color:var(--ok)} .toast.err{border-left-color:var(--bad)}
     @keyframes slideup{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-    .spin{width:16px;height:16px;border:2px solid rgba(255,255,255,.25);border-top-color:currentColor;border-radius:50%;display:inline-block;animation:sp .7s linear infinite}
-    @keyframes sp{to{transform:rotate(360deg)}}
-    .foot-note{text-align:center;color:var(--muted);font-size:12.5px;padding:0 0 40px}
+
+    @media(max-width:760px){
+      :root{--sidebar:0px}
+      aside{display:none}
+      .shell{grid-template-columns:1fr}
+      #toasts{left:50%}
+      .topbar{padding:0 18px}.stage{padding:34px 18px 80px}
+    }
   </style>
 </head>
 <body>
-  <header>
-    <div class="wrap bar">
-      <a class="brand" href="/"><span class="dot"></span>Palmyr<small>socials</small></a>
-      <div class="spacer"></div>
-      <div id="authArea"></div>
-    </div>
-  </header>
+  <div class="shell">
+    <!-- Sidebar -->
+    <aside>
+      <div class="brand"><span class="dot"></span>Palmyr<span class="tag">socials</span></div>
+      <nav>
+        <a class="navlink active" href="/socials">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
+          Deploy accounts
+        </a>
+        <a class="navlink" href="/dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 13h8V3H3zM13 21h8V3h-8zM3 21h8v-6H3z"/></svg>
+          Dashboard
+        </a>
+        <a class="navlink" href="/docs" target="_blank">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 3v6h6"/></svg>
+          Docs
+        </a>
+      </nav>
+      <div class="side-foot" id="sideFoot"></div>
+    </aside>
 
-  <main class="wrap">
-    <section class="hero">
-      <div class="titlerow">
-        <h1>Deploy Social Accounts in one click</h1>
-        <span class="tt">
-          <svg viewBox="0 0 24 24" fill="none"><path d="M16.5 3c.3 2.1 1.6 3.6 3.5 3.9v2.6c-1.3.1-2.5-.3-3.6-1v5.9c0 3.2-2.4 5.6-5.5 5.6S5.5 17.6 5.5 14.5 8 8.9 11 8.9c.3 0 .6 0 .9.1v2.7c-.3-.1-.6-.2-.9-.2-1.6 0-2.8 1.3-2.8 2.9s1.2 2.9 2.8 2.9 2.8-1.3 2.8-3V3h2.7z" fill="#FE2C55"/></svg>
-          tiktok
-        </span>
+    <!-- Main -->
+    <main>
+      <div class="topbar">
+        <div class="pill-note"><span class="k">New</span> Deploy live accounts in one click — no signup, no QR.</div>
+        <div id="topAuth"></div>
       </div>
-      <p class="sub">Pick a name, bio and photo, pay, and get a live TikTok account handed to you — no QR to scan, no phone, no signup. Ready to hand straight to your AI agent.</p>
-      <p class="stockline" id="stockline"></p>
-    </section>
 
-    <section class="grid" id="grid"></section>
-    <p class="foot-note">Accounts are operated server-side on their own residential IP. The login never leaves the box — you own the account, your agent drives it by id.</p>
-  </main>
+      <div class="stage">
+        <div class="headrow">
+          <div>
+            <h1>Deploy Social Accounts<br/>in one click</h1>
+            <p class="sub">Pick a name, bio and photo, pay, and a real account is yours in about a minute — operated server-side, ready to hand to your AI agent.</p>
+          </div>
+          <div class="seg" id="platformSeg"></div>
+        </div>
+
+        <div class="stockline" id="stockline"></div>
+        <section class="grid" id="grid"></section>
+      </div>
+    </main>
+  </div>
 
   <!-- Auth modal -->
   <div class="scrim" id="authScrim">
     <div class="modal">
-      <div class="mhead"><h3 id="authTitle">Sign in</h3><button class="x" data-close>&times;</button></div>
+      <div class="mhead"><h3 id="authTitle">Sign in</h3><button class="x" data-close>✕</button></div>
       <div class="mbody">
         <div class="tabs">
           <button id="tabLogin" class="sel" onclick="setAuthMode('login')">Sign in</button>
@@ -203,355 +244,262 @@
         </form>
         <div class="or">or</div>
         <button class="phantom" onclick="connectPhantom()">
-          <svg width="18" height="18" viewBox="0 0 128 128" fill="none"><rect width="128" height="128" rx="28" fill="#AB9FF2"/><path d="M110 65c0 25-20 45-45 45-22 0-40-16-44-37-.4-2 1.2-3 3-3h14c1.6 0 2.8 1.2 3.4 2.7C46 82 54 88 64 88c11 0 20-9 20-20V44c0-2 1.6-3.6 3.6-3.6h2.8C102 40.4 110 51 110 65z" fill="#fff"/></svg>
-          Connect Phantom
+          <svg width="17" height="17" viewBox="0 0 128 128" fill="none"><rect width="128" height="128" rx="28" fill="#AB9FF2"/><path d="M110 65c0 25-20 45-45 45-22 0-40-16-44-37-.4-2 1.2-3 3-3h14c1.6 0 2.8 1.2 3.4 2.7C46 82 54 88 64 88c11 0 20-9 20-20V44c0-2 1.6-3.6 3.6-3.6h2.8C102 40.4 110 51 110 65z" fill="#fff"/></svg>
+          Continue with Phantom
         </button>
-        <p class="note">Your session works across Palmyr — the same login funds and owns everything you deploy.</p>
+        <p class="note">One Palmyr login funds and owns everything you deploy.</p>
       </div>
     </div>
   </div>
 
-  <!-- Create / deploy modal -->
+  <!-- Create modal -->
   <div class="scrim" id="createScrim">
     <div class="modal lg">
-      <div class="mhead"><h3>Deploy a TikTok account</h3><button class="x" data-close>&times;</button></div>
+      <div class="mhead"><h3 id="createTitle">Deploy an account</h3><button class="x" data-close>✕</button></div>
       <div class="mbody">
         <label>Profile photo</label>
         <div class="drop">
-          <div class="dz" id="dz" onclick="document.getElementById('avaInput').click()">
-            <span class="ph" id="dzPh">Click to<br/>upload</span>
-          </div>
-          <div class="dztext">
-            <b>Give it a face</b>
-            PNG, JPG or WEBP, up to 10&nbsp;MB. Square looks best. Optional — you can set it later.
-          </div>
+          <div class="dz" id="dz" onclick="document.getElementById('avaInput').click()"><span class="ph" id="dzPh">Click to<br/>upload</span></div>
+          <div class="dztext"><b>Give it a face</b>PNG, JPG or WEBP, up to 10&nbsp;MB. Square looks best. Optional.</div>
           <input type="file" id="avaInput" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onAvatar(event)" />
         </div>
-
-        <label>Display name <span class="ct" id="nmCt">0/30</span></label>
-        <input type="text" id="dName" maxlength="30" placeholder="e.g. Olive & Ash" oninput="nmCt.textContent=this.value.length+'/30'" />
-
-        <label>Bio <span class="ct" id="bioCt">0/80</span></label>
-        <textarea id="dBio" maxlength="80" placeholder="One line about the account" oninput="bioCt.textContent=this.value.length+'/80'"></textarea>
-
-        <label>Market <span class="req">· picks the account's home country</span></label>
+        <label>Display name <span class="ct" id="nmCt">0/50</span></label>
+        <input type="text" id="dName" placeholder="e.g. Olive & Ash" oninput="clampName()" />
+        <label>Bio <span class="ct" id="bioCt">0/160</span></label>
+        <textarea id="dBio" placeholder="One line about the account" oninput="clampBio()"></textarea>
+        <label>Market <span class="ct">picks the account's country</span></label>
         <select id="dCountry"></select>
         <p class="hint" id="createStock"></p>
-
-        <button class="btn launch" id="launchBtn" onclick="deploy()">
-          <span>Launch account</span><span class="price">$3</span>
-        </button>
-        <p class="note">You're charged only if an account is delivered. The name, bio and photo are applied automatically right after — and never refund your account if one hiccups.</p>
+        <button class="btn launch" id="launchBtn" onclick="deploy()"><span id="launchLabel">Deploy account</span><span class="price" id="launchPrice">—</span></button>
+        <p class="note">Charged only if an account is delivered. Name, bio and photo apply automatically right after — a cosmetic hiccup never refunds your account.</p>
       </div>
     </div>
   </div>
 
   <!-- Detail modal -->
-  <div class="scrim" id="detailScrim">
-    <div class="modal lg"><div id="detailInner"></div></div>
-  </div>
-
+  <div class="scrim" id="detailScrim"><div class="modal lg"><div id="detailInner"></div></div></div>
   <!-- Top-up modal -->
-  <div class="scrim" id="topupScrim">
-    <div class="modal">
-      <div class="mhead"><h3>Add USDC balance</h3><button class="x" data-close>&times;</button></div>
-      <div class="mbody" id="topupBody"></div>
-    </div>
-  </div>
+  <div class="scrim" id="topupScrim"><div class="modal"><div class="mhead"><h3>Add USDC balance</h3><button class="x" data-close>✕</button></div><div class="mbody" id="topupBody"></div></div></div>
 
   <div id="toasts"></div>
 
 <script>
-/* ───────────────────────── state ───────────────────────── */
+/* ───────────── platform config ───────────── */
+const XSVG = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.24 2H21.5l-7.5 8.57L23 22h-6.9l-5.4-7.06L4.5 22H1.24l8.02-9.17L1 2h7.07l4.88 6.45zM17.1 20.06h1.8L7.02 3.84H5.1z"/></svg>';
+const TTSVG = '<svg viewBox="0 0 24 24" fill="none"><path d="M16.5 3c.3 2.1 1.6 3.6 3.5 3.9v2.6c-1.3.1-2.5-.3-3.6-1v5.9c0 3.2-2.4 5.6-5.5 5.6S5.5 17.6 5.5 14.5 8 8.9 11 8.9c.3 0 .6 0 .9.1v2.7c-.3-.1-.6-.2-.9-.2-1.6 0-2.8 1.3-2.8 2.9s1.2 2.9 2.8 2.9 2.8-1.3 2.8-3V3h2.7z" fill="currentColor"/></svg>';
+const PLATFORMS = {
+  twitter: { key:'twitter', label:'X', short:'tw', icon:XSVG, deploy:'/social/twitter/deploy', accounts:'/social/twitter/accounts', stock:'/social/twitter/pool/stock', nameMax:50, bioMax:160, opHint:'/social/twitter/post', opBody:'{"account_id":"ID","text":"gm"}' },
+  tiktok:  { key:'tiktok',  label:'TikTok', short:'tt', icon:TTSVG, deploy:'/social/tiktok/deploy', accounts:'/social/tiktok/accounts', stock:'/social/tiktok/pool/stock', nameMax:30, bioMax:80, opHint:'/social/tiktok/post', opBody:'{"account_id":"ID","video_url":"https://…mp4","caption":"gm"}' },
+};
+let PLATFORM = localStorage.getItem('socials_platform') || 'twitter';
+if(!PLATFORMS[PLATFORM]) PLATFORM='twitter';
+function P(){ return PLATFORMS[PLATFORM]; }
+
+/* ───────────── state ───────────── */
 const TOKEN_KEY='aos_token';
-let token = localStorage.getItem(TOKEN_KEY) || '';
-let me = null;            // {id,email,wallet_address,display_name}
-let balance = 0;
-let accounts = [];        // from /social/tiktok/accounts
-let stock = {total:0, by_country:{}, price_usdc:3};
-let authMode='login';
-let pendingAvatar=null;   // data URL for the create form
-const optimistic = {};    // account_id -> {name, avatar, deploying}
+let token=localStorage.getItem(TOKEN_KEY)||'';
+let me=null, balance=0, accounts=[], stock={total:0,by_country:{}}, authMode='login', pendingAvatar=null;
+const optimistic={};
+const FLAGS={US:'🇺🇸',GB:'🇬🇧',BR:'🇧🇷',DE:'🇩🇪',FR:'🇫🇷',ID:'🇮🇩',IN:'🇮🇳',NG:'🇳🇬',PH:'🇵🇭',ES:'🇪🇸',IT:'🇮🇹',MX:'🇲🇽',CA:'🇨🇦',AU:'🇦🇺',JP:'🇯🇵',TR:'🇹🇷',NL:'🇳🇱',PL:'🇵🇱',AE:'🇦🇪',SA:'🇸🇦'};
+const CNAMES={US:'United States',GB:'United Kingdom',BR:'Brazil',DE:'Germany',FR:'France',ID:'Indonesia',IN:'India',NG:'Nigeria',PH:'Philippines',ES:'Spain',IT:'Italy',MX:'Mexico',CA:'Canada',AU:'Australia',JP:'Japan',TR:'Turkey',NL:'Netherlands',PL:'Poland',AE:'UAE',SA:'Saudi Arabia'};
 
-const FLAGS={US:'🇺🇸',GB:'🇬🇧',BR:'🇧🇷',DE:'🇩🇪',FR:'🇫🇷',ID:'🇮🇩',IN:'🇮🇳',NG:'🇳🇬',PH:'🇵🇭',ES:'🇪🇸',IT:'🇮🇹',MX:'🇲🇽',CA:'🇨🇦',AU:'🇦🇺',JP:'🇯🇵',TR:'🇹🇷'};
-const COUNTRY_NAMES={US:'United States',GB:'United Kingdom',BR:'Brazil',DE:'Germany',FR:'France',ID:'Indonesia',IN:'India',NG:'Nigeria',PH:'Philippines',ES:'Spain',IT:'Italy',MX:'Mexico',CA:'Canada',AU:'Australia',JP:'Japan',TR:'Turkey'};
-
-/* ───────────────────────── helpers ─────────────────────── */
+/* ───────────── helpers ───────────── */
 const $=id=>document.getElementById(id);
 function authHeaders(json){const h={};if(token)h['Authorization']='Bearer '+token;if(json)h['Content-Type']='application/json';return h;}
-async function api(path,opts={}){
-  const r=await fetch(path,opts);
-  let body=null; try{body=await r.json();}catch(_){}
-  return {ok:r.ok,status:r.status,body:body||{}};
-}
-function toast(msg,kind){const t=document.createElement('div');t.className='toast '+(kind||'');t.innerHTML=msg;$('toasts').appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.4s';setTimeout(()=>t.remove(),400);},kind==='err'?6000:4200);}
+async function api(path,opts={}){const r=await fetch(path,opts);let b=null;try{b=await r.json();}catch(_){}
+  return {ok:r.ok,status:r.status,body:b||{}};}
+function toast(m,k){const t=document.createElement('div');t.className='toast '+(k||'');t.innerHTML=m;$('toasts').appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.4s';setTimeout(()=>t.remove(),400);},k==='err'?6000:4200);}
 function openScrim(id){$(id).classList.add('on');}
 function closeScrim(id){$(id).classList.remove('on');}
 document.querySelectorAll('[data-close]').forEach(b=>b.onclick=e=>e.target.closest('.scrim').classList.remove('on'));
 document.querySelectorAll('.scrim').forEach(s=>s.addEventListener('mousedown',e=>{if(e.target===s)s.classList.remove('on');}));
 function money(n){return '$'+Number(n||0).toFixed(2);}
-function flag(c){return c?(FLAGS[c.toUpperCase()]||'🌐'):'🌐';}
+function flag(c){return c?(FLAGS[String(c).toUpperCase()]||'🌐'):'🌐';}
 function initials(s){s=(s||'?').trim();return (s[0]||'?').toUpperCase();}
-function copy(txt,btn){navigator.clipboard.writeText(txt).then(()=>{if(btn){const o=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=o,1200);}});}
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function copy(t,btn){navigator.clipboard.writeText(t).then(()=>{if(btn){const o=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=o,1200);}});}
+function priceFor(country){ // resolve deploy price for a country from stock
+  const bc=stock.by_country||{};
+  if(country && bc[country] && typeof bc[country].price_usdc==='number') return bc[country].price_usdc;
+  if(typeof stock.default_price_usdc==='number') return stock.default_price_usdc;
+  if(typeof stock.price_usdc==='number') return stock.price_usdc; // tiktok flat
+  // fallback: any country's price
+  const any=Object.values(bc).find(v=>typeof v.price_usdc==='number');
+  return any?any.price_usdc:(PLATFORM==='tiktok'?3:5);
+}
+function stockCount(country){const bc=stock.by_country||{};const v=bc[country];if(v==null)return 0;return typeof v==='number'?v:(v.ready||0);}
 
-/* ───────────────────────── auth ────────────────────────── */
-function renderAuthArea(){
-  const a=$('authArea');
+/* ───────────── platform selector ───────────── */
+function renderSeg(){
+  $('platformSeg').innerHTML=Object.values(PLATFORMS).map(p=>
+    `<button class="${p.key===PLATFORM?'on '+p.short:''}" onclick="switchPlatform('${p.key}')">${p.icon}${p.label}</button>`).join('');
+}
+async function switchPlatform(k){ if(k===PLATFORM)return; PLATFORM=k; localStorage.setItem('socials_platform',k); renderSeg();
+  accounts=[]; renderGrid(); await Promise.all([loadStock(),loadAccounts()]); renderStockLine(); renderGrid(); }
+
+/* ───────────── auth ───────────── */
+function renderAuth(){
+  const t=$('topAuth'), sf=$('sideFoot');
   if(me){
-    a.innerHTML=`
-      <span class="chip bal" onclick="openTopup()">Balance <span class="amt">${money(balance)}</span></span>
-      <div class="usermenu">
-        <div class="avatar-mini">${initials(me.display_name||me.email||'?')}</div>
-        <button class="btn ghost" onclick="logout()">Sign out</button>
-      </div>`;
+    t.innerHTML=`<button class="btn ghost" onclick="onAddClick()">+ Deploy</button>`;
+    sf.innerHTML=`<div class="userbox"><div class="uavatar">${initials(me.display_name||me.email)}</div>
+      <div class="uinfo"><div class="nm">${esc(me.display_name||me.email||'You')}</div>
+      <div class="bal" onclick="openTopup()">Balance <b>${money(balance)}</b></div></div>
+      <button class="iconbtn" title="Sign out" onclick="logout()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M16 17l5-5-5-5M21 12H9M12 19H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h7"/></svg></button></div>`;
   }else{
-    a.innerHTML=`<button class="btn" onclick="openAuth()">Sign in</button>`;
+    t.innerHTML=`<button class="btn" onclick="openAuth()">Sign in</button>`;
+    sf.innerHTML=`<div class="userbox"><div class="uavatar">?</div><div class="uinfo"><div class="nm">Guest</div><div class="bal">Sign in to deploy</div></div></div>`;
   }
 }
 function openAuth(){setAuthMode('login');openScrim('authScrim');}
-function setAuthMode(m){
-  authMode=m;
-  $('tabLogin').classList.toggle('sel',m==='login');
-  $('tabReg').classList.toggle('sel',m==='register');
-  $('authTitle').textContent=m==='login'?'Sign in':'Create your account';
-  $('authSubmit').textContent=m==='login'?'Sign in':'Create account';
-  $('authPw').autocomplete=m==='login'?'current-password':'new-password';
-  $('pwHint').textContent=m==='register'?'min 10 chars':'';
-}
-async function submitAuth(e){
-  e.preventDefault();
-  const email=$('authEmail').value.trim(), password=$('authPw').value;
+function setAuthMode(m){authMode=m;$('tabLogin').classList.toggle('sel',m==='login');$('tabReg').classList.toggle('sel',m==='register');
+  $('authTitle').textContent=m==='login'?'Sign in':'Create your account';$('authSubmit').textContent=m==='login'?'Sign in':'Create account';
+  $('authPw').autocomplete=m==='login'?'current-password':'new-password';$('pwHint').textContent=m==='register'?'min 10 chars':'';}
+async function submitAuth(e){e.preventDefault();const email=$('authEmail').value.trim(),password=$('authPw').value;
   const btn=$('authSubmit');btn.disabled=true;const old=btn.textContent;btn.innerHTML='<span class="spin"></span>';
   const {ok,body}=await api('/auth/'+(authMode==='register'?'register':'login'),{method:'POST',headers:authHeaders(true),body:JSON.stringify({email,password})});
   btn.disabled=false;btn.textContent=old;
   if(!ok){toast(body.error||'Auth failed','err');return false;}
-  token=body.token;localStorage.setItem(TOKEN_KEY,token);
-  closeScrim('authScrim');
-  await boot();
-  toast('Welcome'+(me&&me.display_name?', '+me.display_name:'')+' 👋','ok');
-  return false;
-}
+  token=body.token;localStorage.setItem(TOKEN_KEY,token);closeScrim('authScrim');await boot();
+  toast('Welcome'+(me&&me.display_name?', '+me.display_name:'')+' 👋','ok');return false;}
 function b58(bytes){const A='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';let d=[0];for(const b of bytes){let c=b;for(let j=0;j<d.length;j++){c+=d[j]<<8;d[j]=c%58;c=(c/58)|0;}while(c){d.push(c%58);c=(c/58)|0;}}let s='';for(const b of bytes){if(b===0)s+='1';else break;}for(let j=d.length-1;j>=0;j--)s+=A[d[j]];return s;}
-async function connectPhantom(){
-  const prov=window.phantom?.solana||window.solana;
-  if(!prov||!prov.isPhantom){toast('Phantom wallet not found — install it or use email.','err');return;}
-  try{
-    await prov.connect();
-    const {body:n}=await api('/auth/wallet/nonce',{method:'POST',headers:authHeaders(true),body:'{}'});
-    const enc=new TextEncoder().encode(n.message);
-    const sig=await prov.signMessage(enc,'utf8');
-    const signature=b58(sig.signature||sig);
-    const walletAddress=prov.publicKey.toString();
-    const {ok,body}=await api('/auth/wallet',{method:'POST',headers:authHeaders(true),body:JSON.stringify({walletAddress,signature,message:n.message,chain:'solana'})});
+async function connectPhantom(){const prov=window.phantom?.solana||window.solana;
+  if(!prov||!prov.isPhantom){toast('Phantom not found — install it or use email.','err');return;}
+  try{await prov.connect();const {body:n}=await api('/auth/wallet/nonce',{method:'POST',headers:authHeaders(true),body:'{}'});
+    const sig=await prov.signMessage(new TextEncoder().encode(n.message),'utf8');
+    const {ok,body}=await api('/auth/wallet',{method:'POST',headers:authHeaders(true),body:JSON.stringify({walletAddress:prov.publicKey.toString(),signature:b58(sig.signature||sig),message:n.message,chain:'solana'})});
     if(!ok){toast(body.error||'Wallet sign-in failed','err');return;}
-    token=body.token;localStorage.setItem(TOKEN_KEY,token);
-    closeScrim('authScrim');await boot();toast('Wallet connected 👋','ok');
-  }catch(err){toast('Phantom: '+(err.message||'cancelled'),'err');}
-}
-async function logout(){await api('/auth/logout',{method:'POST',headers:authHeaders()});token='';localStorage.removeItem(TOKEN_KEY);me=null;accounts=[];renderAuthArea();renderGrid();}
+    token=body.token;localStorage.setItem(TOKEN_KEY,token);closeScrim('authScrim');await boot();toast('Wallet connected 👋','ok');
+  }catch(err){toast('Phantom: '+(err.message||'cancelled'),'err');}}
+async function logout(){await api('/auth/logout',{method:'POST',headers:authHeaders()});token='';localStorage.removeItem(TOKEN_KEY);me=null;accounts=[];renderAuth();renderGrid();}
 
-/* ───────────────────────── data ────────────────────────── */
-async function loadMe(){
-  if(!token){me=null;return;}
-  const {ok,body}=await api('/auth/me',{headers:authHeaders()});
-  if(ok)me=body; else {me=null;token='';localStorage.removeItem(TOKEN_KEY);}
-}
-async function loadBalance(){
-  if(!token){balance=0;return;}
-  const {ok,body}=await api('/balance',{headers:authHeaders()});
-  if(ok)balance=Number(body.balance_usdc||0);
-}
-async function loadAccounts(){
-  if(!token){accounts=[];return;}
-  const {ok,body}=await api('/social/tiktok/accounts',{headers:authHeaders()});
-  accounts=ok&&Array.isArray(body.accounts)?body.accounts:[];
-}
-async function loadStock(){
-  const {ok,body}=await api('/social/tiktok/pool/stock');
-  if(ok)stock=body;
-}
+/* ───────────── data ───────────── */
+async function loadMe(){if(!token){me=null;return;}const {ok,body}=await api('/auth/me',{headers:authHeaders()});if(ok)me=body;else{me=null;token='';localStorage.removeItem(TOKEN_KEY);}}
+async function loadBalance(){if(!token){balance=0;return;}const {ok,body}=await api('/balance',{headers:authHeaders()});if(ok)balance=Number(body.balance_usdc||0);}
+async function loadAccounts(){if(!token){accounts=[];return;}const {ok,body}=await api(P().accounts,{headers:authHeaders()});accounts=ok&&Array.isArray(body.accounts)?body.accounts:[];}
+async function loadStock(){const {ok,body}=await api(P().stock);stock=ok?body:{total:0,by_country:{}};}
 
-/* ───────────────────────── grid ────────────────────────── */
-function cachedAvatar(id){return localStorage.getItem('sav_'+id)||null;}
-function cachedName(id){return localStorage.getItem('snm_'+id)||null;}
+/* ───────────── grid ───────────── */
+const savKey=id=>'sav_'+PLATFORM+'_'+id, snmKey=id=>'snm_'+PLATFORM+'_'+id;
+function cachedAvatar(id){return localStorage.getItem(savKey(id));}
+function cachedName(id){return localStorage.getItem(snmKey(id));}
 function renderGrid(){
-  const g=$('grid');
-  const cards=[];
-  // merge optimistic (deploying) cards not yet in the accounts list
-  const known=new Set(accounts.map(a=>a.account_id));
-  const opt=Object.entries(optimistic).filter(([id])=>!known.has(id)).map(([id,o])=>({account_id:id,handle:o.name,status:'connecting',_opt:o}));
+  const g=$('grid');const cards=[];const known=new Set(accounts.map(a=>a.account_id));
+  const opt=Object.entries(optimistic).filter(([id,o])=>o.platform===PLATFORM&&!known.has(id)).map(([id,o])=>({account_id:id,handle:o.name,status:'connecting',_opt:o}));
   const list=[...opt,...accounts];
-
-  if(me&&list.length===0){
-    cards.push(`<div class="empty">No accounts yet — deploy your first one.</div>`);
-  }
-  for(const a of list){
+  if(me&&list.length===0)cards.push(`<div class="empty">No ${P().label} accounts yet — deploy your first one with the +.</div>`);
+  list.forEach((a,i)=>{
     const name=(a._opt&&a._opt.name)||cachedName(a.account_id)||a.handle||a.account_id.slice(0,10);
     const ava=(a._opt&&a._opt.avatar)||cachedAvatar(a.account_id);
-    const deploying=a._opt&&a._opt.deploying;
-    const st=a.status||'connecting';
-    cards.push(`<div class="card" onclick='openDetail(${JSON.stringify(a.account_id)})'>
-      <div class="status"><span class="sdot ${st}"></span>${deploying?'deploying':st}</div>
+    const busy=a._opt&&a._opt.deploying, st=a.status||'connecting';
+    const showHandle=(a.handle&&a.handle!==a.account_id)?'@'+a.handle:'';
+    cards.push(`<div class="card" style="animation-delay:${i*45}ms" onclick='openDetail(${JSON.stringify(a.account_id)})'>
+      <div class="pbadge">${P().icon}</div>
       <div class="av">${ava?`<img src="${ava}" alt=""/>`:initials(name)}</div>
-      <p class="nm">${escapeHtml(name)}</p>
-      <p class="hd">${a.account_id.startsWith(name)?'':'@'}${escapeHtml((a.handle&&a.handle!==a.account_id)?a.handle:'tiktok')}</p>
-      <div class="foot">
-        <span class="flag">${flag(a.country)}</span>
-        ${deploying?'<span class="pill deploying">setting up…</span>':`<span class="pill">${a.country?a.country.toUpperCase():'live'}</span>`}
-      </div>
-    </div>`);
-  }
-  // the + tile
-  cards.push(`<div class="card add" onclick="onAddClick()">
-    <div class="plus"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
-    <div class="lbl">Deploy account<small>from $3 · ready in ~1 min</small></div>
-  </div>`);
+      <p class="nm">${esc(name)}</p><p class="hd">${esc(showHandle||'ready')}</p>
+      <div class="foot"><span class="flag">${flag(a.country)}</span>
+        ${busy?'<span class="pill busy">setting up…</span>':`<span class="pill">${a.country?String(a.country).toUpperCase():'live'}</span>`}
+        <span class="status"><span class="sdot ${st}"></span>${busy?'deploying':st}</span></div></div>`);
+  });
+  cards.push(`<div class="card add" onclick="onAddClick()"><div class="plus"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
+    <div class="lbl">Deploy ${P().label} account<small>ready in ~1 min</small></div></div>`);
   g.innerHTML=cards.join('');
 }
-function escapeHtml(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-
 function renderStockLine(){
-  const n=stock.total||0;
+  const n=stock.total||0;const inStock=Object.keys(stock.by_country||{}).filter(c=>c!=='?');
   $('stockline').innerHTML = n>0
-    ? `<b>${n}</b> account${n===1?'':'s'} ready to deploy right now${Object.keys(stock.by_country).filter(c=>c!=='?').length?' · '+Object.keys(stock.by_country).filter(c=>c!=='?').map(c=>flag(c)+' '+c).join('  '):''}`
-    : `Pool is warming up — check back shortly.`;
+    ? `<span class="dotmark"></span><b>${n}</b> ${P().label} account${n===1?'':'s'} ready to deploy${inStock.length?' · '+inStock.slice(0,8).map(c=>flag(c)+' '+c).join('   '):''}`
+    : `<span class="dotmark" style="background:var(--warn);box-shadow:0 0 8px var(--warn)"></span> ${P().label} pool is warming up — check back shortly.`;
 }
 
-/* ───────────────────────── create / deploy ─────────────── */
+/* ───────────── create / deploy ───────────── */
+function clampName(){const el=$('dName');if(el.value.length>P().nameMax)el.value=el.value.slice(0,P().nameMax);$('nmCt').textContent=el.value.length+'/'+P().nameMax;}
+function clampBio(){const el=$('dBio');if(el.value.length>P().bioMax)el.value=el.value.slice(0,P().bioMax);$('bioCt').textContent=el.value.length+'/'+P().bioMax;}
+function refreshPrice(){const c=$('dCountry').value;$('launchPrice').textContent=money(priceFor(c));$('createStock').textContent = stock.total>0?`${stock.total} ${P().label} account(s) in the pool · charged only on delivery`:'No stock ready this moment — a deploy will refund if none is available.';}
 function onAddClick(){
   if(!me){openAuth();return;}
-  // reset form
-  pendingAvatar=null;$('dName').value='';$('dBio').value='';$('nmCt').textContent='0/30';$('bioCt').textContent='0/80';
-  $('dz').classList.remove('filled');$('dzPh').style.display='';$('dz').innerHTML='<span class="ph" id="dzPh">Click to<br/>upload</span>';
-  // country options from stock
+  pendingAvatar=null;$('dName').value='';$('dBio').value='';$('nmCt').textContent='0/'+P().nameMax;$('bioCt').textContent='0/'+P().bioMax;
+  $('dz').classList.remove('filled');$('dz').innerHTML='<span class="ph">Click to<br/>upload</span>';
+  $('createTitle').textContent='Deploy a '+P().label+' account';$('launchLabel').textContent='Deploy account';
   const sel=$('dCountry');const inStock=Object.keys(stock.by_country||{}).filter(c=>c!=='?');
   let opts=`<option value="">Any market (recommended)</option>`;
-  for(const c of inStock)opts+=`<option value="${c}">${flag(c)} ${COUNTRY_NAMES[c]||c} · ${stock.by_country[c]} ready</option>`;
-  sel.innerHTML=opts;
-  $('createStock').textContent = stock.total>0 ? `${stock.total} in the pool · charged only on delivery` : 'No stock ready this moment — a deploy will refund if none is available.';
+  for(const c of inStock)opts+=`<option value="${c}">${flag(c)} ${CNAMES[c]||c} · ${stockCount(c)} ready · ${money(priceFor(c))}</option>`;
+  sel.innerHTML=opts;sel.onchange=refreshPrice;refreshPrice();
   openScrim('createScrim');
 }
-function onAvatar(e){
-  const f=e.target.files[0];if(!f)return;
-  if(f.size>10*1024*1024){toast('Image is over 10 MB','err');return;}
-  const r=new FileReader();
-  r.onload=()=>{pendingAvatar=r.result;const dz=$('dz');dz.classList.add('filled');dz.innerHTML=`<img src="${pendingAvatar}" alt=""/>`;};
-  r.readAsDataURL(f);
-}
+function onAvatar(e){const f=e.target.files[0];if(!f)return;if(f.size>10*1024*1024){toast('Image is over 10 MB','err');return;}
+  const r=new FileReader();r.onload=()=>{pendingAvatar=r.result;const dz=$('dz');dz.classList.add('filled');dz.innerHTML=`<img src="${pendingAvatar}" alt=""/>`;};r.readAsDataURL(f);}
 async function deploy(){
   if(!me){openAuth();return;}
   const btn=$('launchBtn');btn.disabled=true;const old=btn.innerHTML;btn.innerHTML='<span class="spin"></span> Deploying…';
-  const payload={};
-  const nm=$('dName').value.trim(), bio=$('dBio').value, ctry=$('dCountry').value;
-  if(nm)payload.display_name=nm;
-  if(bio.trim())payload.bio=bio;
-  if(ctry)payload.country=ctry;
-  if(pendingAvatar)payload.image_base64=pendingAvatar;
-
-  const {ok,status,body}=await api('/social/tiktok/deploy',{method:'POST',headers:authHeaders(true),body:JSON.stringify(payload)});
+  const nm=$('dName').value.trim(),bio=$('dBio').value,ctry=$('dCountry').value;
+  const payload={};if(nm)payload.display_name=nm;if(bio.trim())payload.bio=bio;if(ctry)payload.country=ctry;if(pendingAvatar)payload.image_base64=pendingAvatar;
+  const {ok,status,body}=await api(P().deploy,{method:'POST',headers:authHeaders(true),body:JSON.stringify(payload)});
   btn.disabled=false;btn.innerHTML=old;
-
-  if(status===402||body.code==='insufficient_balance'){
-    closeScrim('createScrim');
-    toast(`Need ${money(body.required||3)} — your balance is ${money(body.balance!=null?body.balance:balance)}. Top up to launch.`,'err');
-    openTopup();return;
-  }
-  if(status===409||body.available===false){toast(body.message||'No accounts available right now — try Any market.','err');return;}
+  if(status===402||body.code==='insufficient_balance'){closeScrim('createScrim');toast(`Need ${money(body.required||priceFor(ctry))} — balance is ${money(body.balance!=null?body.balance:balance)}. Top up to deploy.`,'err');openTopup();return;}
+  if(status===409||body.available===false){toast(body.message||'No accounts available — try Any market.','err');return;}
   if(!ok){toast(body.message||body.error||'Deploy failed','err');return;}
-
-  // success — 202
-  const id=body.account_id;
-  if(nm)localStorage.setItem('snm_'+id,nm);
-  if(pendingAvatar)localStorage.setItem('sav_'+id,pendingAvatar);
-  optimistic[id]={name:nm||body.handle||'New account',avatar:pendingAvatar,deploying:!!(body.rebrand)};
-  closeScrim('createScrim');
-  await loadBalance();renderAuthArea();
-  await refresh();
-  toast('🎉 Account deployed and live!'+(body.rebrand?' Applying your name & photo…':''),'ok');
-  if(body.rebrand&&body.rebrand.operation_id)pollRebrand(id,body.rebrand.operation_id);
+  const id=body.account_id;if(nm)localStorage.setItem(snmKey(id),nm);if(pendingAvatar)localStorage.setItem(savKey(id),pendingAvatar);
+  optimistic[id]={platform:PLATFORM,name:nm||body.handle||'New account',avatar:pendingAvatar,deploying:!!body.rebrand};
+  closeScrim('createScrim');await loadBalance();renderAuth();await refresh();
+  toast('🎉 '+P().label+' account deployed and yours!'+(body.rebrand?' Applying your name & photo…':''),'ok');
+  if(body.rebrand&&body.rebrand.operation_id)pollRebrand(id,body.rebrand.poll_url||('/social/'+PLATFORM+'/operations/'+body.rebrand.operation_id));
 }
-async function pollRebrand(accountId,opId){
-  let tries=0;
-  const iv=setInterval(async()=>{
-    tries++;
-    const {ok,body}=await api('/social/tiktok/operations/'+opId);
-    if(ok&&body.done){
-      clearInterval(iv);
-      if(optimistic[accountId])optimistic[accountId].deploying=false;
-      if(body.status==='done'){
-        const applied=(body.result&&body.result.applied)||[];
-        toast('✨ '+(applied.length?applied.join(' + ')+' applied':'Profile set')+'.','ok');
-      }else{
-        toast('Account is live, but branding didn\\'t finish — open it to retry.','err');
-      }
-      await refresh();
-    }
-    if(tries>30)clearInterval(iv);
-  },5000);
-}
+async function pollRebrand(accountId,pollUrl){let tries=0;const iv=setInterval(async()=>{tries++;
+  const {ok,body}=await api(pollUrl);
+  if(ok&&body.done){clearInterval(iv);if(optimistic[accountId])optimistic[accountId].deploying=false;
+    if(body.status==='done'){const ap=(body.result&&body.result.applied)||[];toast('✨ '+(ap.length?ap.join(' + ')+' applied':'Profile set')+'.','ok');}
+    else toast('Account is live, but branding didn\\'t finish — open it to retry.','err');
+    await refresh();}
+  if(tries>30)clearInterval(iv);},5000);}
 
-/* ───────────────────────── detail ──────────────────────── */
+/* ───────────── detail ───────────── */
 function openDetail(id){
   const a=accounts.find(x=>x.account_id===id)||{account_id:id,status:'connecting'};
-  const name=cachedName(id)||(a.handle&&a.handle!==id?a.handle:'')||'TikTok account';
-  const ava=cachedAvatar(id);
-  const origin=location.origin;
-  const snippet=`curl -X POST ${origin}/social/tiktok/post \\\n  -H "Authorization: Bearer <your Palmyr session>" \\\n  -H "Content-Type: application/json" \\\n  -d '{"account_id":"${id}","video_url":"https://…mp4","caption":"gm"}'`;
+  const name=cachedName(id)||(a.handle&&a.handle!==id?a.handle:'')||(P().label+' account');
+  const ava=cachedAvatar(id);const origin=location.origin;
+  const snippet=`curl -X POST ${origin}${P().opHint} \\\n  -H "Authorization: Bearer <your Palmyr session>" \\\n  -H "Content-Type: application/json" \\\n  -d '${P().opBody.replace('ID',id)}'`;
   const rows=[
-    ['Account id',`<span style="font-family:ui-monospace,monospace">${escapeHtml(id)}</span>`],
+    ['Account id',`<span style="font-family:ui-monospace,monospace">${esc(id)}</span>`],
+    ['Platform',P().label],
     ['Status',`<span class="sdot ${a.status||'connecting'}" style="display:inline-block;margin-right:6px"></span>${a.status||'connecting'}`],
-    ['Market',`${flag(a.country)} ${a.country?a.country.toUpperCase():'—'}`],
-    ['Session on box',a.profile_present?'yes':'—'],
-    ['Last active',a.hours_since_success!=null?a.hours_since_success+'h ago':(a.last_seen_at?new Date(a.last_seen_at).toLocaleString():'—')],
+    ['Market',`${flag(a.country)} ${a.country?String(a.country).toUpperCase():'—'}`],
   ];
-  if(a.last_error_code)rows.push(['Last error',escapeHtml(a.last_error_code)]);
+  if(a.handle&&a.handle!==id)rows.splice(1,0,['Handle','@'+esc(a.handle)]);
   $('detailInner').innerHTML=`
-    <div class="mhead"><h3>Account</h3><button class="x" onclick="closeScrim('detailScrim')">&times;</button></div>
+    <div class="mhead"><h3>Account</h3><button class="x" onclick="closeScrim('detailScrim')">✕</button></div>
     <div class="mbody">
-      <div style="display:flex;align-items:center;gap:14px;margin-bottom:6px">
-        <div class="av" style="width:60px;height:60px;font-size:22px;margin:0">${ava?`<img src="${ava}" style="width:100%;height:100%;border-radius:50%;object-fit:cover" alt=""/>`:initials(name)}</div>
-        <div><div style="font-family:var(--serif);font-size:22px;font-weight:600">${escapeHtml(name)}</div>
-        <div style="color:var(--muted);font-size:13px">Owned by you · operated server-side</div></div>
-      </div>
+      <div style="display:flex;align-items:center;gap:14px;margin-bottom:4px">
+        <div class="av" style="width:58px;height:58px;font-size:21px;margin:0">${ava?`<img src="${ava}" style="width:100%;height:100%;border-radius:50%;object-fit:cover" alt=""/>`:initials(name)}</div>
+        <div><div style="font-family:var(--serif);font-size:22px;font-weight:600">${esc(name)}</div>
+        <div style="color:var(--muted);font-size:13px">Owned by you · operated server-side</div></div></div>
       ${rows.map(r=>`<div class="drow"><span class="k">${r[0]}</span><span class="v">${r[1]}</span></div>`).join('')}
       <label style="margin-top:20px">Hand to your AI agent</label>
-      <p class="secnote">Give your agent the <b>account id</b> above and your Palmyr session (or an x402 wallet). It drives the account through the API — post, follow, like, edit profile — with no credentials to pass around.</p>
-      <div class="copybox">${escapeHtml(snippet)}<button class="copybtn" onclick='copy(${JSON.stringify(snippet)},this)'>Copy</button></div>
+      <p class="secnote">Give your agent the <b>account id</b> and your Palmyr session (or an x402 wallet). It drives the account through the API — post, follow, edit profile — with no credentials to pass around.</p>
+      <div class="copybox">${esc(snippet)}<button class="copybtn" onclick='copy(${JSON.stringify(snippet)},this)'>Copy</button></div>
       <label style="margin-top:18px">Credentials</label>
-      <p class="secnote">🔒 Managed server-side. This account logs in inside its own browser profile on its own residential IP — the password and session never leave the box and are never exposed here. Ownership <i>is</i> your credential.</p>
+      <p class="secnote">🔒 Managed server-side. This account runs inside its own session on its own residential IP — the credentials never leave the box and are never exposed here. Ownership <i>is</i> your credential.</p>
       <div style="display:flex;gap:10px;margin-top:20px">
         <button class="btn ghost" style="flex:1" onclick='copy(${JSON.stringify(id)},this)'>Copy id</button>
-        <button class="btn" style="flex:1" onclick="closeScrim('detailScrim')">Done</button>
-      </div>
-    </div>`;
+        <button class="btn" style="flex:1" onclick="closeScrim('detailScrim')">Done</button></div></div>`;
   openScrim('detailScrim');
 }
 
-/* ───────────────────────── top-up ──────────────────────── */
-async function openTopup(){
-  openScrim('topupScrim');
-  $('topupBody').innerHTML='<p style="color:var(--muted)">Loading…</p>';
+/* ───────────── top-up ───────────── */
+async function openTopup(){openScrim('topupScrim');$('topupBody').innerHTML='<p style="color:var(--muted)">Loading…</p>';
   const {ok,body}=await api('/balance',{headers:authHeaders()});
   if(!ok){$('topupBody').innerHTML='<p style="color:var(--muted)">Sign in to view your balance.</p>';return;}
-  balance=Number(body.balance_usdc||0);renderAuthArea();
-  const d=body.deposit_addresses||{};
-  $('topupBody').innerHTML=`
-    <div class="drow"><span class="k">Current balance</span><span class="v" style="color:var(--amber)">${money(balance)}</span></div>
-    <p class="secnote" style="margin-top:14px">Send USDC to either address below. It credits automatically within ~60 seconds, then you can deploy. Each deploy costs <b>$3</b>.</p>
-    <div class="addr"><div class="lab"><span>USDC · Solana (SPL)</span><button class="copybtn" style="position:static" onclick='copy(${JSON.stringify(d.solana||'')},this)'>Copy</button></div><div class="val">${escapeHtml(d.solana||'—')}</div></div>
-    <div class="addr"><div class="lab"><span>USDC · Base (EVM)</span><button class="copybtn" style="position:static" onclick='copy(${JSON.stringify(d.evm||'')},this)'>Copy</button></div><div class="val">${escapeHtml(d.evm||'—')}</div></div>
-    <button class="btn ghost launch" onclick="refreshBalance(this)">Refresh balance</button>`;
-}
-async function refreshBalance(btn){if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>';}await loadBalance();renderAuthArea();if(btn){btn.disabled=false;btn.textContent='Refresh balance';}toast('Balance: '+money(balance),'ok');}
+  balance=Number(body.balance_usdc||0);renderAuth();const d=body.deposit_addresses||{};
+  $('topupBody').innerHTML=`<div class="drow"><span class="k">Current balance</span><span class="v" style="color:var(--amber)">${money(balance)}</span></div>
+    <p class="secnote" style="margin-top:14px">Send USDC to either address. It credits automatically within ~60 seconds, then you can deploy.</p>
+    <div class="addr"><div class="lab"><span>USDC · Solana (SPL)</span><button class="copybtn" style="position:static" onclick='copy(${JSON.stringify(d.solana||'')},this)'>Copy</button></div><div class="val">${esc(d.solana||'—')}</div></div>
+    <div class="addr"><div class="lab"><span>USDC · Base (EVM)</span><button class="copybtn" style="position:static" onclick='copy(${JSON.stringify(d.evm||'')},this)'>Copy</button></div><div class="val">${esc(d.evm||'—')}</div></div>
+    <button class="btn ghost launch" onclick="refreshBalance(this)">Refresh balance</button>`;}
+async function refreshBalance(btn){if(btn){btn.disabled=true;btn.innerHTML='<span class="spin"></span>';}await loadBalance();renderAuth();if(btn){btn.disabled=false;btn.textContent='Refresh balance';}toast('Balance: '+money(balance),'ok');}
 
-/* ───────────────────────── boot ────────────────────────── */
+/* ───────────── boot ───────────── */
 async function refresh(){await loadAccounts();renderGrid();}
-async function boot(){
-  await loadMe();
-  renderAuthArea();
-  await Promise.all([loadBalance(),loadStock(),loadAccounts()]);
-  renderAuthArea();renderStockLine();renderGrid();
-}
+async function boot(){await loadMe();renderAuth();renderSeg();await Promise.all([loadBalance(),loadStock(),loadAccounts()]);renderAuth();renderStockLine();renderGrid();}
 boot();
 </script>
 </body>

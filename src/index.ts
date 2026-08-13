@@ -83,6 +83,7 @@ app.use(paramPollution);
 const IMAGE_UPLOAD_ROUTES = new Set([
   "/social/twitter/avatar",
   "/social/twitter/banner",
+  "/social/twitter/deploy",
   "/social/tiktok/avatar",
   // Deploy carries the new account's avatar inline (image_base64), same tier as
   // the standalone avatar op.
