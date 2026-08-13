@@ -22,6 +22,7 @@ import {
   poolShare,
   poolUnshare,
   poolAccountsAccessibleBy,
+  poolListAccessibleSummaries,
 } from "../services/social-pool";
 import {
   setCountryPrice,
@@ -249,10 +250,25 @@ function validateOpBody(req: AuthenticatedRequest, res: Response): null | {
     proxy_session_id?: string;
     cookies?: any[];
   };
-  if (!account_id || !Array.isArray(cookies) || cookies.length === 0) {
-    return respondMissingSessionFields(req, res);
+  if (!account_id) return respondMissingSessionFields(req, res);
+  // Caller-supplied cookies keep working exactly as before (the older BYO flow).
+  if (Array.isArray(cookies) && cookies.length > 0) {
+    return { account_id, proxy_session_id, cookies };
   }
-  return { account_id, proxy_session_id, cookies };
+  // No cookies in the body — hydrate them server-side for an account this caller
+  // OWNS, so a pool-deployed account can be driven by id with the session never
+  // leaving the box (the same "the stored session IS the credential" model TikTok
+  // uses). Keyed on the proven payer/agent identity, this is also the first
+  // ownership gate the Twitter op path has had — a caller who doesn't own the
+  // account simply falls through to the missing-session error.
+  const caller = req.payment?.payer || req.agentId;
+  if (caller) {
+    const owned = poolAccountsAccessibleBy(String(caller), "twitter").find((a) => a.id === account_id);
+    if (owned && Array.isArray(owned.cookies) && owned.cookies.length > 0) {
+      return { account_id, proxy_session_id: proxy_session_id || owned.proxy_session_id, cookies: owned.cookies };
+    }
+  }
+  return respondMissingSessionFields(req, res);
 }
 
 router.post(
@@ -1582,6 +1598,154 @@ router.post(
       }
     }
   }
+);
+
+// POST /social/twitter/deploy — the one-click X account (the storefront's buy).
+// Pay, and a ready pool account becomes YOURS and is rebranded (name/bio/photo)
+// server-side in one step. Unlike /twitter/buy — which hands you the raw creds —
+// deploy keeps the session on the box: you own it by id and your agent drives it
+// through the /twitter/* ops with no cookies to carry (validateOpBody hydrates
+// them from the encrypted jar). The price buys the (scarce) account and is KEPT
+// the moment the lease succeeds; the rebrand is a free best-effort follow-up, so
+// a cosmetic hiccup never refunds a delivered account. Only a no-stock (or
+// pre-lease) failure refunds.
+router.post(
+  "/twitter/deploy",
+  requireXEnabled,
+  validateBuyFilters,
+  requireAuth(resolveBuyPrice, "general", {
+    description: "Deploy a ready-to-use X/Twitter account from the pool — pay, and it's yours and rebranded (name/bio/photo) in one click. You own it by id; your agent drives it with the other twitter ops, no cookies to carry.",
+    category: "social",
+    tags: ["twitter", "x", "deploy", "account", "launch", "one-click"],
+  }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const owner = req.payment?.payer || req.agentId;
+    if (!owner) {
+      res.status(401).json({ error: "Unauthenticated", message: "A wallet or dashboard identity is required to own an account." });
+      return;
+    }
+    const { country, display_name, bio, location, website, image_base64, image_url } = (req.body || {}) as {
+      country?: string; display_name?: string; bio?: string; location?: string; website?: string; image_base64?: string; image_url?: string;
+    };
+
+    const decline = async (httpStatus: number, errorLabel: string, msg: string, extra: Record<string, unknown> = {}) => {
+      if (req.payment) {
+        await refundAndRespond(req, res, { reason: msg, userMessage: `${msg} — your payment is being refunded.`, httpStatus, errorLabel, extra });
+      } else {
+        res.status(httpStatus).json({ error: errorLabel, message: msg, ...extra });
+      }
+    };
+
+    // Validate cosmetics up front (X's own limits, enforced by updateProfile) so a
+    // typo refunds rather than handing out a scarce account it can't be applied to.
+    if (display_name !== undefined && (typeof display_name !== "string" || display_name.length < 1 || display_name.length > 50)) {
+      await decline(400, "Invalid input", "display_name must be 1-50 chars", { error_code: "INVALID_INPUT" });
+      return;
+    }
+    if (bio !== undefined && (typeof bio !== "string" || bio.length > 160)) {
+      await decline(400, "Invalid input", "bio must be <=160 chars", { error_code: "INVALID_INPUT" });
+      return;
+    }
+
+    try {
+      const paidAmount = req.payment ? Number(req.payment.amountLamports) / 1_000_000 : undefined;
+      const leased = poolBuy({
+        platform: "twitter",
+        country: country ? country.toUpperCase() : undefined,
+        buyer_wallet: String(owner),
+        payment: req.payment ? { signature: req.payment.signature, chain: req.payment.chain || "solana", amount_usdc: paidAmount ?? 0 } : undefined,
+      });
+      if (!leased.success || !leased.account) {
+        const availableCountries = availablePoolCountries("twitter");
+        const hint = availableCountries.length
+          ? ` In stock now: ${availableCountries.join(", ")}. Drop the country filter or pick one of these.`
+          : " No accounts are ready in the pool right now.";
+        await decline(409, "No accounts available", (leased.error || "No matching accounts in pool") + hint, { available: false, availableCountries });
+        return;
+      }
+
+      const acct = leased.account;
+      // The account is the caller's now (poolBuy set sold_to_wallet) and its
+      // session lives server-side (cookies_encrypted survives the sale). Brand it
+      // with the cookies we just leased — one async op sets name/bio/etc then the
+      // avatar. Created with NO payment context so this rebrand's own failure never
+      // moves the price that already bought the delivered account; on failure the
+      // caller still owns a live account and can retry the cheap profile/avatar ops.
+      let rebrand: { operation_id: string; poll_url: string } | null = null;
+      const wantsProfile = display_name !== undefined || bio !== undefined || location !== undefined || website !== undefined;
+      const wantsAvatar = Boolean(image_base64 || image_url);
+      if (wantsProfile || wantsAvatar) {
+        const job = createXOpJob(
+          { op: "avatar", account_id: acct.id, owner: String(owner), paymentSignature: null, paymentChain: null, chargedUsdc: null },
+          async () => {
+            const applied: string[] = [];
+            const errors: string[] = [];
+            if (wantsProfile) {
+              const p = await updateProfile({ account_id: acct.id, proxy_session_id: acct.proxy_session_id, cookies: acct.cookies, display_name, bio, location, website });
+              if (p.success) applied.push("profile"); else errors.push(`profile: ${p.error || "failed"}`);
+            }
+            if (wantsAvatar) {
+              const a = await updateAvatar({ account_id: acct.id, proxy_session_id: acct.proxy_session_id, cookies: acct.cookies, image_base64, image_url });
+              if (a.success) applied.push("avatar"); else errors.push(`avatar: ${a.error || "failed"}`);
+            }
+            if (applied.length === 0 && errors.length > 0) return { success: false, error: errors.join("; ") };
+            return { success: true, data: { applied, ...(errors.length ? { partial_errors: errors } : {}) } };
+          },
+        );
+        rebrand = { operation_id: job.id, poll_url: `/social/twitter/operations/${job.id}` };
+      }
+
+      res.status(202).json({
+        account_id: acct.id,
+        handle: acct.username,
+        country: acct.country,
+        owner: String(owner),
+        deployed: true,
+        rebrand,
+        message:
+          "Your X account is deployed and yours. " +
+          (rebrand ? "Applying your name/bio/photo now — poll rebrand.poll_url until it's done. " : "") +
+          "Drive it with the twitter ops (post/reply/follow/profile/avatar) using this account_id — no cookies to carry.",
+      });
+    } catch (err: any) {
+      await decline(500, "Deploy failed", `deploy failed: ${err?.message || err}`);
+    }
+  },
+);
+
+// GET /social/twitter/pool/stock — public availability + per-country price for the
+// storefront, so it can show what's ready and the cost before anyone pays.
+// Aggregate counts + prices only, never account detail (mirrors /tiktok/pool/stock).
+router.get("/twitter/pool/stock", (_req: Request, res: Response) => {
+  const byCountry = poolStatus().by_country; // { US: { ready, sold }, ... }
+  const out: Record<string, { ready: number; price_usdc: number }> = {};
+  let total = 0;
+  for (const [country, counts] of Object.entries(byCountry)) {
+    if (!counts.ready) continue;
+    const key = country && country !== "?" ? country.toUpperCase() : "?";
+    out[key] = { ready: counts.ready, price_usdc: key !== "?" ? (getCountryPrice(key) ?? LEGACY_BUY_PRICE_USDC) : LEGACY_BUY_PRICE_USDC };
+    total += counts.ready;
+  }
+  res.json({ total, default_price_usdc: LEGACY_BUY_PRICE_USDC, by_country: out });
+});
+
+// GET /social/twitter/accounts — the X accounts this wallet owns (or shares),
+// secret-free, for the storefront grid. Mirrors GET /social/tiktok/accounts.
+router.get(
+  "/twitter/accounts",
+  requireAuth(0.001, "general", { description: "List the X/Twitter accounts your wallet owns (pool-deployed), with no secrets.", category: "social", tags: ["twitter", "x", "accounts", "mine"] }),
+  (req: AuthenticatedRequest, res: Response) => {
+    const owner = req.payment?.payer || req.agentId;
+    if (!owner) { res.status(401).json({ error: "Unauthenticated", message: "A wallet identity is required." }); return; }
+    const accounts = poolListAccessibleSummaries(String(owner), "twitter").map((a) => ({
+      account_id: a.id,
+      handle: a.username,
+      country: a.country,
+      status: a.status,
+      access: a.access,
+    }));
+    res.json({ owner, count: accounts.length, accounts });
+  },
 );
 
 /* ─── Disputes — buyer files, server auto-verifies via twitterapi.io ──
