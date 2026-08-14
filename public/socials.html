@@ -61,7 +61,7 @@
 
     /* ── Main ── */
     main{overflow:auto}
-    .topbar{height:56px;display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 34px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(17,45,50,.82);backdrop-filter:blur(14px);z-index:20}
+    .topbar{height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 34px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(17,45,50,.82);backdrop-filter:blur(14px);z-index:20}
     .pill-note{margin-right:auto;display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--fg-dim);background:rgba(246,175,86,.07);border:1px solid rgba(246,175,86,.16);padding:6px 13px;border-radius:100px}
     .pill-note .k{color:var(--accent);font-weight:600}
     .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:100px;padding:10px 18px;font-weight:600;font-size:13.5px;transition:.2s;background:var(--accent);color:var(--accent-ink);letter-spacing:-.01em}
@@ -178,6 +178,20 @@
     .brand{text-decoration:none;transition:opacity .15s}
     .brand:hover{opacity:.82}
     .brand .logo{width:21px;height:21px;filter:invert(1);flex:0 0 auto}
+    /* ── Collapsible sidebar + hover tooltips (Claude-app style) ── */
+    .sb-toggle{background:transparent;border:1px solid var(--line);color:var(--muted);width:32px;height:32px;border-radius:9px;display:grid;place-items:center;transition:.18s;flex:0 0 auto}
+    .sb-toggle:hover{border-color:var(--line-2);color:var(--fg);background:rgba(247,234,209,.04)}
+    .sb-toggle svg{width:16px;height:16px}
+    aside{overflow:visible;transition:padding .2s}
+    .navlink,.brand,.userbox{position:relative}
+    body.sb-collapsed{--sidebar:68px}
+    .sb-collapsed aside{padding-left:11px;padding-right:11px}
+    .sb-collapsed .brandname,.sb-collapsed .brand .tag,.sb-collapsed .nlabel,.sb-collapsed .uinfo,.sb-collapsed .userbox .iconbtn{display:none}
+    .sb-collapsed .brand{justify-content:center;gap:0;padding:6px 0 22px}
+    .sb-collapsed .navlink{justify-content:center;padding:10px 0}
+    .sb-collapsed .userbox{justify-content:center;padding:6px 0}
+    .sb-collapsed [data-tip]:hover::after{content:attr(data-tip);position:absolute;left:calc(100% + 14px);top:50%;background:var(--raised);color:var(--fg);border:1px solid var(--line-2);padding:5px 11px;border-radius:8px;font-size:12.5px;font-weight:500;white-space:nowrap;pointer-events:none;box-shadow:var(--shadow);z-index:80;animation:tipin .13s ease forwards}
+    @keyframes tipin{from{opacity:0;transform:translateY(-50%) translateX(-5px)}to{opacity:1;transform:translateY(-50%)}}
     /* "Soon" badge on a not-yet-live platform */
     .seg button.soon{opacity:.55}
     .seg button.soon:hover{opacity:.8}
@@ -220,23 +234,23 @@
 <body>
   <div class="shell">
     <aside>
-      <a class="brand" href="/" title="Back to palmyr.ai"><img class="logo" src="/assets/logo-mark.svg" alt="Palmyr" />Palmyr<span class="tag">socials</span></a>
+      <a class="brand" href="/" title="Back to palmyr.ai" data-tip="palmyr.ai"><img class="logo" src="/assets/logo-mark.svg" alt="Palmyr" /><span class="brandname">Palmyr</span><span class="tag">socials</span></a>
       <nav>
-        <a class="navlink active" href="/socials">
+        <a class="navlink active" href="/socials" data-tip="Deploy accounts">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
-          Deploy accounts
+          <span class="nlabel">Deploy accounts</span>
         </a>
-        <a class="navlink" href="/dashboard.html">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 13h8V3H3zM13 21h8V3h-8zM3 21h8v-6H3z"/></svg>
-          Dashboard
+        <a class="navlink" href="/dashboard.html" data-tip="Dashboard">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+          <span class="nlabel">Dashboard</span>
         </a>
-        <a class="navlink" href="/docs" target="_blank" rel="noopener">
+        <a class="navlink" href="https://docs.palmyr.ai" target="_blank" rel="noopener" data-tip="Docs">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 5a2 2 0 0 1 2-2h9l5 5v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><path d="M14 3v6h6"/></svg>
-          Docs
+          <span class="nlabel">Docs</span>
         </a>
-        <a class="navlink" href="/">
+        <a class="navlink" href="/" data-tip="Home">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 11l9-8 9 8M5 10v10h14V10"/></svg>
-          Home
+          <span class="nlabel">Home</span>
         </a>
       </nav>
       <div class="side-foot" id="sideFoot"></div>
@@ -244,6 +258,7 @@
 
     <main>
       <div class="topbar">
+        <button class="sb-toggle" onclick="toggleSidebar()" title="Collapse / expand sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg></button>
         <div id="topAuth"></div>
       </div>
       <div class="stage">
@@ -339,6 +354,8 @@ const CNAMES={US:'United States',GB:'United Kingdom',BR:'Brazil',DE:'Germany',FR
 
 /* ───────────── helpers ───────────── */
 const $=id=>document.getElementById(id);
+function toggleSidebar(){const c=document.body.classList.toggle('sb-collapsed');localStorage.setItem('socials_sb',c?'1':'0');}
+if(localStorage.getItem('socials_sb')==='1')document.body.classList.add('sb-collapsed');
 function authHeaders(json){const h={};if(token)h['Authorization']='Bearer '+token;if(json)h['Content-Type']='application/json';return h;}
 async function api(path,opts={}){const r=await fetch(path,opts);let b=null;try{b=await r.json();}catch(_){}return {ok:r.ok,status:r.status,body:b||{}};}
 function toast(m,k){const t=document.createElement('div');t.className='toast '+(k||'');t.innerHTML=m;$('toasts').appendChild(t);setTimeout(()=>{t.style.opacity='0';t.style.transition='.4s';setTimeout(()=>t.remove(),400);},k==='err'?6000:4200);}
@@ -422,7 +439,7 @@ function renderGrid(){
       <div class="pbadge">${P().icon}</div>
       <div class="av">${ava?`<img src="${ava}" alt=""/>`:initials(name)}</div>
       <p class="nm">${esc(name)}</p><p class="hd">${esc(showHandle||'ready')}</p>
-      <div class="foot"><span class="flag">${flag(a.country)}</span>
+      <div class="foot">
         ${busy?'<span class="pill busy">setting up…</span>':`<span class="pill">${a.country?String(a.country).toUpperCase():'live'}</span>`}
         <span class="status"><span class="sdot ${st}"></span>${busy?'deploying':st}</span></div></div>`);
   });
@@ -433,7 +450,7 @@ function renderGrid(){
 function renderStockLine(){
   const n=stock.total||0;const inStock=Object.keys(stock.by_country||{}).filter(c=>c!=='?');
   $('stockline').innerHTML=n>0
-    ?`<span class="dotmark"></span><b>${n}</b> ${P().label} account${n===1?'':'s'} ready to deploy${inStock.length?' · '+inStock.slice(0,8).map(c=>flag(c)+' '+c).join('   '):''}`
+    ?`<span class="dotmark"></span><b>${n}</b> ${P().label} account${n===1?'':'s'} ready to deploy${inStock.length?' · '+inStock.slice(0,10).join(' · '):''}`
     :`<span class="dotmark" style="background:var(--warn)"></span> ${P().label} pool is warming up — check back shortly.`;
 }
 
@@ -448,7 +465,7 @@ function onAddClick(){
   $('createTitle').textContent='Deploy a '+P().label+' account';$('launchLabel').textContent='Deploy account';
   const sel=$('dCountry');const inStock=Object.keys(stock.by_country||{}).filter(c=>c!=='?');
   let opts=`<option value="">Any market (recommended)</option>`;
-  for(const c of inStock)opts+=`<option value="${c}">${flag(c)} ${CNAMES[c]||c} · ${stockCount(c)} ready · ${money(priceFor(c))}</option>`;
+  for(const c of inStock)opts+=`<option value="${c}">${CNAMES[c]||c} (${c}) · ${stockCount(c)} ready · ${money(priceFor(c))}</option>`;
   sel.innerHTML=opts;sel.onchange=refreshPrice;refreshPrice();
   openScrim('createScrim');
 }
@@ -488,7 +505,7 @@ function openDetail(id){
     ['Account id',`<span class="mono">${esc(id)}</span>`],
     ['Platform',P().label],
     ['Status',`<span class="sdot ${a.status||'connecting'}" style="display:inline-block;margin-right:6px"></span>${a.status||'connecting'}`],
-    ['Market',`${flag(a.country)} ${a.country?String(a.country).toUpperCase():'—'}`],
+    ['Market',a.country?String(a.country).toUpperCase():'—'],
   ];
   if(a.handle&&a.handle!==id)rows.splice(1,0,['Handle','@'+esc(a.handle)]);
   $('detailInner').innerHTML=`
