@@ -174,17 +174,53 @@
     .toast.ok{border-left-color:var(--ok)} .toast.err{border-left-color:var(--bad)}
     @keyframes slideup{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
 
+    /* brand logo */
+    .brand{text-decoration:none;transition:opacity .15s}
+    .brand:hover{opacity:.82}
+    .brand .logo{width:21px;height:21px;filter:invert(1);flex:0 0 auto}
+    /* "Soon" badge on a not-yet-live platform */
+    .seg button.soon{opacity:.55}
+    .seg button.soon:hover{opacity:.8}
+    .soonbadge{font-size:8.5px;font-weight:700;text-transform:uppercase;letter-spacing:.6px;background:rgba(247,234,209,.13);color:var(--muted);padding:2px 6px;border-radius:100px;margin-left:1px}
+
+    /* ── Auth modal — ported verbatim from the dashboard so login/sign-up is identical ── */
+    .auth-screen{--accent:#a89774;--text:#f7ead1;--bg2:rgba(15,38,49,.92);--border:rgba(247,234,209,.1);--w20:rgba(247,234,209,.2);--w30:rgba(247,234,209,.3);--w60:rgba(247,234,209,.6);
+      position:fixed;inset:0;z-index:9999;background:rgba(8,9,13,.85);backdrop-filter:blur(8px);display:none;align-items:center;justify-content:center}
+    .auth-screen.open{display:flex}
+    .auth-card{width:380px;padding:40px 36px;background:var(--bg2);border:1px solid var(--border);border-radius:16px;backdrop-filter:blur(40px)}
+    .auth-logo{display:flex;align-items:center;gap:10px;justify-content:center;margin-bottom:6px}
+    .auth-logo img{width:28px;height:28px}
+    .auth-logo span{font-size:16px;font-weight:700;letter-spacing:-.02em}
+    .auth-subtitle{text-align:center;font-size:11px;color:var(--w30);margin-bottom:28px;font-family:var(--mono)}
+    .auth-tabs{display:flex;gap:0;margin-bottom:20px;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+    .auth-tab{flex:1;padding:8px;text-align:center;font-size:11px;font-weight:600;color:var(--w30);cursor:pointer;transition:all .15s;font-family:var(--mono);text-transform:uppercase;letter-spacing:.5px}
+    .auth-tab.active{background:rgba(255,255,255,.05);color:var(--text)}
+    .auth-tab:hover{color:var(--w60)}
+    .auth-form{display:flex;flex-direction:column;gap:10px}
+    .auth-input{padding:10px 14px;background:rgba(255,255,255,.03);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:12px;font-family:var(--mono);outline:none;transition:border-color .2s}
+    .auth-input:focus{border-color:var(--w30)}
+    .auth-input::placeholder{color:var(--w20)}
+    .auth-btn{padding:10px;background:var(--accent);border:none;border-radius:8px;color:#fff;font-size:11px;font-weight:700;cursor:pointer;font-family:var(--mono);letter-spacing:.5px;transition:opacity .2s;margin-top:4px}
+    .auth-btn:hover{opacity:.85}
+    .auth-divider{display:flex;align-items:center;gap:12px;margin:16px 0;color:var(--w20);font-size:10px;font-family:var(--mono)}
+    .auth-divider::before,.auth-divider::after{content:'';flex:1;height:1px;background:var(--border)}
+    .auth-wallet-btn{width:100%;padding:10px;background:transparent;border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--mono);display:flex;align-items:center;justify-content:center;gap:8px;transition:all .2s}
+    .auth-wallet-btn:hover{border-color:var(--w30);background:rgba(255,255,255,.03)}
+    .auth-wallet-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+    .auth-error{margin-top:12px;font-size:10px;color:#ff4444;text-align:center;font-family:var(--mono);min-height:14px}
+
     @media(max-width:760px){
       :root{--sidebar:0px}
       aside{display:none}.shell{grid-template-columns:1fr}
       #toasts{left:50%}.topbar{padding:0 18px}.stage{padding:34px 18px 80px}
+      .auth-card{width:calc(100% - 32px)}
     }
   </style>
 </head>
 <body>
   <div class="shell">
     <aside>
-      <div class="brand"><span class="dot"></span>Palmyr<span class="tag">socials</span></div>
+      <a class="brand" href="/" title="Back to palmyr.ai"><img class="logo" src="/assets/logo-mark.svg" alt="Palmyr" />Palmyr<span class="tag">socials</span></a>
       <nav>
         <a class="navlink active" href="/socials">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><path d="M17.5 14v7M14 17.5h7"/></svg>
@@ -208,7 +244,6 @@
 
     <main>
       <div class="topbar">
-        <div class="pill-note"><span class="k">New</span> Deploy live accounts in one click — no signup, no QR.</div>
         <div id="topAuth"></div>
       </div>
       <div class="stage">
@@ -225,28 +260,33 @@
     </main>
   </div>
 
-  <div class="scrim" id="authScrim">
-    <div class="modal">
-      <div class="mhead"><h3 id="authTitle">Sign in</h3><button class="x" data-close>✕</button></div>
-      <div class="mbody">
-        <div class="tabs">
-          <button id="tabLogin" class="sel" onclick="setAuthMode('login')">Sign in</button>
-          <button id="tabReg" onclick="setAuthMode('register')">Create account</button>
-        </div>
-        <form id="authForm" onsubmit="return submitAuth(event)">
-          <label>Email</label>
-          <input type="email" id="authEmail" autocomplete="email" required />
-          <label>Password <span class="ct" id="pwHint"></span></label>
-          <input type="password" id="authPw" autocomplete="current-password" required />
-          <button class="btn launch" type="submit" id="authSubmit">Sign in</button>
-        </form>
-        <div class="or">or</div>
-        <button class="phantom" onclick="connectPhantom()">
-          <svg width="17" height="17" viewBox="0 0 128 128" fill="none"><rect width="128" height="128" rx="28" fill="#AB9FF2"/><path d="M110 65c0 25-20 45-45 45-22 0-40-16-44-37-.4-2 1.2-3 3-3h14c1.6 0 2.8 1.2 3.4 2.7C46 82 54 88 64 88c11 0 20-9 20-20V44c0-2 1.6-3.6 3.6-3.6h2.8C102 40.4 110 51 110 65z" fill="#fff"/></svg>
-          Continue with Phantom
-        </button>
-        <p class="note">One Palmyr login funds and owns everything you deploy.</p>
+  <!-- Auth modal — the same one used on the dashboard -->
+  <div class="auth-screen" id="authScreen">
+    <div class="auth-card" style="position:relative">
+      <div class="modal-close" onclick="document.getElementById('authScreen').classList.remove('open')" style="position:absolute;top:12px;right:12px;cursor:pointer"><svg viewBox="0 0 24 24" style="width:16px;height:16px;stroke:var(--w30);fill:none;stroke-width:2;stroke-linecap:round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></div>
+      <div class="auth-logo"><img src="/assets/logo-mark.svg" alt="Palmyr" style="filter:invert(1)"><span style="color:var(--accent)">PALMYR</span></div>
+      <div class="auth-subtitle">Autonomous infrastructure for AI agents</div>
+      <div class="auth-tabs">
+        <div class="auth-tab active" data-tab="login">Sign In</div>
+        <div class="auth-tab" data-tab="register">Sign Up</div>
       </div>
+      <form class="auth-form" id="authFormLogin" autocomplete="on">
+        <input type="email" class="auth-input" id="loginEmail" placeholder="Email" autocomplete="email" required>
+        <input type="password" class="auth-input" id="loginPassword" placeholder="Password" autocomplete="current-password" required>
+        <button type="submit" class="auth-btn">SIGN IN</button>
+      </form>
+      <form class="auth-form" id="authFormRegister" style="display:none" autocomplete="on">
+        <input type="text" class="auth-input" id="regName" placeholder="Name (optional)" autocomplete="name">
+        <input type="email" class="auth-input" id="regEmail" placeholder="Email" autocomplete="email" required>
+        <input type="password" class="auth-input" id="regPassword" placeholder="Password (min 6 chars)" autocomplete="new-password" required>
+        <button type="submit" class="auth-btn">CREATE ACCOUNT</button>
+      </form>
+      <div class="auth-divider"><span>or</span></div>
+      <button class="auth-wallet-btn" id="authWalletBtn">
+        <svg viewBox="0 0 24 24"><path d="M21 12V7H5a2 2 0 010-4h14v4"/><path d="M3 5v14a2 2 0 002 2h16v-5"/><path d="M18 12a2 2 0 100 4 2 2 0 000-4z"/></svg>
+        Connect Wallet
+      </button>
+      <div class="auth-error" id="authError"></div>
     </div>
   </div>
 
@@ -283,10 +323,10 @@ const XSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.24 2H21.5l
 const TTSVG='<svg viewBox="0 0 24 24" fill="none"><path d="M16.5 3c.3 2.1 1.6 3.6 3.5 3.9v2.6c-1.3.1-2.5-.3-3.6-1v5.9c0 3.2-2.4 5.6-5.5 5.6S5.5 17.6 5.5 14.5 8 8.9 11 8.9c.3 0 .6 0 .9.1v2.7c-.3-.1-.6-.2-.9-.2-1.6 0-2.8 1.3-2.8 2.9s1.2 2.9 2.8 2.9 2.8-1.3 2.8-3V3h2.7z" fill="currentColor"/></svg>';
 const PLATFORMS={
   twitter:{key:'twitter',label:'X',icon:XSVG,deploy:'/social/twitter/deploy',accounts:'/social/twitter/accounts',stock:'/social/twitter/pool/stock',nameMax:50,bioMax:160,opHint:'/social/twitter/post',opBody:'{"account_id":"ID","text":"gm"}'},
-  tiktok:{key:'tiktok',label:'TikTok',icon:TTSVG,deploy:'/social/tiktok/deploy',accounts:'/social/tiktok/accounts',stock:'/social/tiktok/pool/stock',nameMax:30,bioMax:80,opHint:'/social/tiktok/post',opBody:'{"account_id":"ID","video_url":"https://…mp4","caption":"gm"}'},
+  tiktok:{key:'tiktok',label:'TikTok',icon:TTSVG,soon:true,deploy:'/social/tiktok/deploy',accounts:'/social/tiktok/accounts',stock:'/social/tiktok/pool/stock',nameMax:30,bioMax:80,opHint:'/social/tiktok/post',opBody:'{"account_id":"ID","video_url":"https://…mp4","caption":"gm"}'},
 };
 let PLATFORM=localStorage.getItem('socials_platform')||'twitter';
-if(!PLATFORMS[PLATFORM])PLATFORM='twitter';
+if(!PLATFORMS[PLATFORM]||PLATFORMS[PLATFORM].soon)PLATFORM='twitter';
 function P(){return PLATFORMS[PLATFORM];}
 
 /* ───────────── state ───────────── */
@@ -319,8 +359,8 @@ function priceFor(country){const bc=stock.by_country||{};
 function stockCount(country){const bc=stock.by_country||{};const v=bc[country];if(v==null)return 0;return typeof v==='number'?v:(v.ready||0);}
 
 /* ───────────── platform selector ───────────── */
-function renderSeg(){$('platformSeg').innerHTML=Object.values(PLATFORMS).map(p=>`<button class="${p.key===PLATFORM?'on':''}" onclick="switchPlatform('${p.key}')">${p.icon}${p.label}</button>`).join('');}
-async function switchPlatform(k){if(k===PLATFORM)return;PLATFORM=k;localStorage.setItem('socials_platform',k);renderSeg();accounts=[];renderGrid();await Promise.all([loadStock(),loadAccounts()]);renderStockLine();renderGrid();}
+function renderSeg(){$('platformSeg').innerHTML=Object.values(PLATFORMS).map(p=>`<button class="${p.key===PLATFORM?'on':''}${p.soon?' soon':''}"${p.soon?' title="TikTok deploy is coming soon"':''} onclick="switchPlatform('${p.key}')">${p.icon}${p.label}${p.soon?'<span class="soonbadge">Soon</span>':''}</button>`).join('');}
+async function switchPlatform(k){if(k===PLATFORM)return;if(PLATFORMS[k]&&PLATFORMS[k].soon){toast('TikTok deploy is coming soon — X is live now.','');return;}PLATFORM=k;localStorage.setItem('socials_platform',k);renderSeg();accounts=[];renderGrid();await Promise.all([loadStock(),loadAccounts()]);renderStockLine();renderGrid();}
 
 /* ───────────── auth ───────────── */
 function renderAuth(){const t=$('topAuth'),sf=$('sideFoot');
@@ -331,26 +371,31 @@ function renderAuth(){const t=$('topAuth'),sf=$('sideFoot');
       <button class="iconbtn" title="Sign out" onclick="logout()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M16 17l5-5-5-5M21 12H9M12 19H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h7"/></svg></button></div>`;
   }else{t.innerHTML=`<button class="btn" onclick="openAuth()">Sign in</button>`;
     sf.innerHTML=`<div class="userbox"><div class="uavatar">?</div><div class="uinfo"><div class="nm">Guest</div><div class="bal">Sign in to deploy</div></div></div>`;}}
-function openAuth(){setAuthMode('login');openScrim('authScrim');}
-function setAuthMode(m){authMode=m;$('tabLogin').classList.toggle('sel',m==='login');$('tabReg').classList.toggle('sel',m==='register');
-  $('authTitle').textContent=m==='login'?'Sign in':'Create your account';$('authSubmit').textContent=m==='login'?'Sign in':'Create account';
-  $('authPw').autocomplete=m==='login'?'current-password':'new-password';$('pwHint').textContent=m==='register'?'min 10 chars':'';}
-async function submitAuth(e){e.preventDefault();const email=$('authEmail').value.trim(),password=$('authPw').value;
-  const btn=$('authSubmit');btn.disabled=true;const old=btn.textContent;btn.innerHTML='<span class="spin"></span>';
-  const {ok,body}=await api('/auth/'+(authMode==='register'?'register':'login'),{method:'POST',headers:authHeaders(true),body:JSON.stringify({email,password})});
-  btn.disabled=false;btn.textContent=old;
-  if(!ok){toast(body.error||'Auth failed','err');return false;}
-  token=body.token;localStorage.setItem(TOKEN_KEY,token);closeScrim('authScrim');await boot();
-  toast('Welcome'+(me&&me.display_name?', '+me.display_name:'')+' 👋','ok');return false;}
+function openAuth(){document.getElementById('authScreen').classList.add('open');}
+function showAuthError(msg){$('authError').textContent=msg||'';}
+async function afterAuth(d){token=d.token;me=d.user||me;localStorage.setItem(TOKEN_KEY,token);document.getElementById('authScreen').classList.remove('open');await boot();toast('Welcome'+(me&&me.display_name?', '+me.display_name:'')+' 👋','ok');}
 function b58(bytes){const A='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';let d=[0];for(const b of bytes){let c=b;for(let j=0;j<d.length;j++){c+=d[j]<<8;d[j]=c%58;c=(c/58)|0;}while(c){d.push(c%58);c=(c/58)|0;}}let s='';for(const b of bytes){if(b===0)s+='1';else break;}for(let j=d.length-1;j>=0;j--)s+=A[d[j]];return s;}
-async function connectPhantom(){const prov=window.phantom?.solana||window.solana;
-  if(!prov||!prov.isPhantom){toast('Phantom not found — install it or use email.','err');return;}
-  try{await prov.connect();const {body:n}=await api('/auth/wallet/nonce',{method:'POST',headers:authHeaders(true),body:'{}'});
-    const sig=await prov.signMessage(new TextEncoder().encode(n.message),'utf8');
-    const {ok,body}=await api('/auth/wallet',{method:'POST',headers:authHeaders(true),body:JSON.stringify({walletAddress:prov.publicKey.toString(),signature:b58(sig.signature||sig),message:n.message,chain:'solana'})});
-    if(!ok){toast(body.error||'Wallet sign-in failed','err');return;}
-    token=body.token;localStorage.setItem(TOKEN_KEY,token);closeScrim('authScrim');await boot();toast('Wallet connected 👋','ok');
-  }catch(err){toast('Phantom: '+(err.message||'cancelled'),'err');}}
+// Tab switching + form/wallet handlers — same behaviour as the dashboard's auth modal.
+document.querySelectorAll('.auth-tab').forEach(tab=>tab.addEventListener('click',()=>{
+  document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));tab.classList.add('active');
+  $('authFormLogin').style.display=tab.dataset.tab==='login'?'flex':'none';
+  $('authFormRegister').style.display=tab.dataset.tab==='register'?'flex':'none';showAuthError('');}));
+$('authFormLogin').addEventListener('submit',async e=>{e.preventDefault();showAuthError('');
+  try{const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('loginEmail').value,password:$('loginPassword').value})});
+    const d=await r.json();if(!r.ok){showAuthError(d.error||'Login failed');return;}await afterAuth(d);}catch(_){showAuthError('Network error');}});
+$('authFormRegister').addEventListener('submit',async e=>{e.preventDefault();showAuthError('');
+  try{const r=await fetch('/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('regName').value,email:$('regEmail').value,password:$('regPassword').value})});
+    const d=await r.json();if(!r.ok){showAuthError(d.error||'Registration failed');return;}await afterAuth(d);}catch(_){showAuthError('Network error');}});
+$('authWalletBtn').addEventListener('click',async()=>{showAuthError('');
+  const prov=window.phantom?.solana||window.solana;
+  if(!prov||!prov.isPhantom){showAuthError('Phantom wallet not found. Install it at phantom.app');return;}
+  try{await prov.connect();const pubkey=prov.publicKey.toString();
+    const nonceRes=await fetch('/auth/wallet/nonce',{method:'POST',headers:{'Content-Type':'application/json'}});const{message}=await nonceRes.json();
+    const{signature}=await prov.signMessage(new TextEncoder().encode(message),'utf8');
+    const r=await fetch('/auth/wallet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({walletAddress:pubkey,signature:b58(signature),message,chain:'solana'})});
+    const d=await r.json();if(!r.ok){showAuthError(d.error||'Wallet auth failed');return;}await afterAuth(d);}
+  catch(e){showAuthError((e.message||'').includes('User rejected')?'Wallet connection cancelled':(e.message||'Wallet connection failed'));}});
+document.getElementById('authScreen').addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.classList.remove('open');});
 async function logout(){await api('/auth/logout',{method:'POST',headers:authHeaders()});token='';localStorage.removeItem(TOKEN_KEY);me=null;accounts=[];renderAuth();renderGrid();}
 
 /* ───────────── data ───────────── */
