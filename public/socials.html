@@ -201,6 +201,16 @@
     .sb-collapsed .sb-handle svg{transform:rotate(180deg)}
     /* guest avatar — a generated gradient orb (à la Perplexity) instead of a "?" */
     .uavatar.guest{background:radial-gradient(circle at 28% 24%, #f8c98a, transparent 46%),radial-gradient(circle at 76% 72%, #3f857b, transparent 52%),linear-gradient(135deg,#F6AF56,#5b8cff)}
+    /* "Add to your agent" CTA — the sidebar footer when signed out */
+    .agent-cta{width:100%;display:flex;align-items:center;gap:11px;padding:10px;border-radius:12px;background:rgba(246,175,86,.07);border:1px solid rgba(246,175,86,.2);color:var(--fg);cursor:pointer;transition:.18s;text-align:left;font-family:inherit;position:relative}
+    .agent-cta:hover{background:rgba(246,175,86,.12);border-color:rgba(246,175,86,.42);transform:translateY(-1px)}
+    .agent-cta-ic{width:33px;height:33px;border-radius:9px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;flex:0 0 auto}
+    .agent-cta-ic svg{width:19px;height:19px}
+    .agent-cta-tx{min-width:0;display:flex;flex-direction:column;line-height:1.25}
+    .agent-cta-tx b{font-size:13px;font-weight:600;white-space:nowrap}
+    .agent-cta-tx small{font-size:11.5px;color:var(--muted)}
+    .sb-collapsed .agent-cta{justify-content:center;padding:8px 0;gap:0}
+    .sb-collapsed .agent-cta-tx{display:none}
     /* "Soon" badge on a not-yet-live platform */
     .seg button.soon{opacity:.55}
     .seg button.soon:hover{opacity:.8}
@@ -338,6 +348,25 @@
 
   <div class="scrim" id="detailScrim"><div class="modal lg"><div id="detailInner"></div></div></div>
   <div class="scrim" id="topupScrim"><div class="modal"><div class="mhead"><h3>Add USDC balance</h3><button class="x" data-close>✕</button></div><div class="mbody" id="topupBody"></div></div></div>
+  <div class="scrim" id="agentScrim">
+    <div class="modal lg">
+      <div class="mhead"><h3>Add Palmyr to your agent</h3><button class="x" data-close>✕</button></div>
+      <div class="mbody">
+        <p class="secnote">Give your AI agent Palmyr's real-world tools — phone, email, social accounts, domains, compute — paid per call with USDC. Pick how it connects:</p>
+        <label>Agent Skill <span class="ct">Claude Code, Cursor &amp; skills-compatible agents</span></label>
+        <div class="copybox">npx skills add https://palmyr.ai<button class="copybtn" onclick="copy('npx skills add https://palmyr.ai',this)">Copy</button></div>
+        <label>MCP server <span class="ct">any MCP client</span></label>
+        <div class="copybox">claude mcp add --transport http palmyr https://palmyr.ai/mcp<button class="copybtn" onclick="copy('claude mcp add --transport http palmyr https://palmyr.ai/mcp',this)">Copy</button></div>
+        <p class="hint">Or point any MCP client at <span class="mono">https://palmyr.ai/mcp</span> (Streamable HTTP).</p>
+        <label>Or just hand it the instructions</label>
+        <div class="copybox">https://palmyr.ai/skill.md<button class="copybtn" onclick="copy('https://palmyr.ai/skill.md',this)">Copy</button></div>
+        <div style="display:flex;gap:10px;margin-top:22px">
+          <a class="btn ghost" href="https://docs.palmyr.ai" target="_blank" rel="noopener" style="flex:1">Read the docs</a>
+          <button class="btn" style="flex:1" onclick="closeScrim('agentScrim')">Done</button>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="toasts"></div>
 
 <script>
@@ -395,7 +424,10 @@ function renderAuth(){const t=$('topAuth'),sf=$('sideFoot');
       <div class="bal" onclick="openTopup()">Balance <b>${money(balance)}</b></div></div>
       <button class="iconbtn" title="Sign out" onclick="logout()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M16 17l5-5-5-5M21 12H9M12 19H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h7"/></svg></button></div>`;
   }else{t.innerHTML=`<button class="btn" onclick="openAuth()">Sign in</button>`;
-    sf.innerHTML=`<div class="userbox"><div class="uavatar guest"></div><div class="uinfo"><div class="nm">Guest</div><div class="bal">Sign in to deploy</div></div></div>`;}}
+    sf.innerHTML=`<button class="agent-cta" onclick="openAgentModal()" data-tip="Add to your agent" title="Add Palmyr to your agent">
+      <span class="agent-cta-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="8" width="15" height="11" rx="2.5"/><path d="M12 4.6V8"/><circle cx="12" cy="3.4" r="1.2"/><path d="M9.2 13h.01M14.8 13h.01"/><path d="M2 13v2.5M22 13v2.5"/></svg></span>
+      <span class="agent-cta-tx"><b>Add to your agent</b><small>Skill or MCP</small></span>
+    </button>`;}}
 function openAuth(){document.getElementById('authScreen').classList.add('open');}
 function showAuthError(msg){$('authError').textContent=msg||'';}
 async function afterAuth(d){token=d.token;me=d.user||me;localStorage.setItem(TOKEN_KEY,token);document.getElementById('authScreen').classList.remove('open');await boot();toast('Welcome'+(me&&me.display_name?', '+me.display_name:'')+' 👋','ok');}
@@ -531,6 +563,7 @@ function openDetail(id){
 }
 
 /* ───────────── top-up ───────────── */
+function openAgentModal(){openScrim('agentScrim');}
 async function openTopup(){openScrim('topupScrim');$('topupBody').innerHTML='<p style="color:var(--muted)">Loading…</p>';
   const {ok,body}=await api('/balance',{headers:authHeaders()});
   if(!ok){$('topupBody').innerHTML='<p style="color:var(--muted)">Sign in to view your balance.</p>';return;}
