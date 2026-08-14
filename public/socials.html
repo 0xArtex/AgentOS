@@ -61,7 +61,8 @@
 
     /* ── Main ── */
     main{overflow:auto}
-    .topbar{height:56px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 34px;border-bottom:1px solid var(--line);position:sticky;top:0;background:rgba(17,45,50,.82);backdrop-filter:blur(14px);z-index:20}
+    .topbar{height:56px;display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:0 34px;position:sticky;top:0;z-index:20;pointer-events:none}
+    .topbar #topAuth{pointer-events:auto}
     .pill-note{margin-right:auto;display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--fg-dim);background:rgba(246,175,86,.07);border:1px solid rgba(246,175,86,.16);padding:6px 13px;border-radius:100px}
     .pill-note .k{color:var(--accent);font-weight:600}
     .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:none;border-radius:100px;padding:10px 18px;font-weight:600;font-size:13.5px;transition:.2s;background:var(--accent);color:var(--accent-ink);letter-spacing:-.01em}
@@ -192,6 +193,14 @@
     .sb-collapsed .userbox{justify-content:center;padding:6px 0}
     .sb-collapsed [data-tip]:hover::after{content:attr(data-tip);position:absolute;left:calc(100% + 14px);top:50%;background:var(--raised);color:var(--fg);border:1px solid var(--line-2);padding:5px 11px;border-radius:8px;font-size:12.5px;font-weight:500;white-space:nowrap;pointer-events:none;box-shadow:var(--shadow);z-index:80;animation:tipin .13s ease forwards}
     @keyframes tipin{from{opacity:0;transform:translateY(-50%) translateX(-5px)}to{opacity:1;transform:translateY(-50%)}}
+    /* break-line collapse handle — lives on the sidebar edge, reveals on hover of the sidebar */
+    .sb-handle{position:absolute;top:72px;right:-13px;width:26px;height:26px;border-radius:50%;background:var(--surface-2);border:1px solid var(--line-2);color:var(--muted);display:grid;place-items:center;cursor:pointer;z-index:40;opacity:0;transform:scale(.8);transition:opacity .18s,transform .18s,color .18s,border-color .18s,background .18s;box-shadow:0 5px 14px -5px rgba(0,0,0,.45)}
+    aside:hover .sb-handle{opacity:1;transform:scale(1)}
+    .sb-handle:hover{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
+    .sb-handle svg{width:14px;height:14px;transition:transform .2s}
+    .sb-collapsed .sb-handle svg{transform:rotate(180deg)}
+    /* guest avatar — a generated gradient orb (à la Perplexity) instead of a "?" */
+    .uavatar.guest{background:radial-gradient(circle at 28% 24%, #f8c98a, transparent 46%),radial-gradient(circle at 76% 72%, #3f857b, transparent 52%),linear-gradient(135deg,#F6AF56,#5b8cff)}
     /* "Soon" badge on a not-yet-live platform */
     .seg button.soon{opacity:.55}
     .seg button.soon:hover{opacity:.8}
@@ -254,22 +263,21 @@
         </a>
       </nav>
       <div class="side-foot" id="sideFoot"></div>
+      <button class="sb-handle" onclick="toggleSidebar()" title="Collapse / expand sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg></button>
     </aside>
 
     <main>
       <div class="topbar">
-        <button class="sb-toggle" onclick="toggleSidebar()" title="Collapse / expand sidebar" aria-label="Toggle sidebar"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/></svg></button>
         <div id="topAuth"></div>
       </div>
       <div class="stage">
         <div class="headrow">
           <div>
             <h1>Deploy Social Accounts<br/>in one click</h1>
-            <p class="sub">Pick a name, bio and photo, pay, and a real account is yours in about a minute — operated server-side, ready to hand to your AI agent.</p>
+            <p class="sub">Pick a name, bio, and photo, pay, and a real account is yours in about a minute.</p>
           </div>
           <div class="seg" id="platformSeg"></div>
         </div>
-        <div class="stockline" id="stockline"></div>
         <section class="grid" id="grid"></section>
       </div>
     </main>
@@ -387,7 +395,7 @@ function renderAuth(){const t=$('topAuth'),sf=$('sideFoot');
       <div class="bal" onclick="openTopup()">Balance <b>${money(balance)}</b></div></div>
       <button class="iconbtn" title="Sign out" onclick="logout()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M16 17l5-5-5-5M21 12H9M12 19H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h7"/></svg></button></div>`;
   }else{t.innerHTML=`<button class="btn" onclick="openAuth()">Sign in</button>`;
-    sf.innerHTML=`<div class="userbox"><div class="uavatar">?</div><div class="uinfo"><div class="nm">Guest</div><div class="bal">Sign in to deploy</div></div></div>`;}}
+    sf.innerHTML=`<div class="userbox"><div class="uavatar guest"></div><div class="uinfo"><div class="nm">Guest</div><div class="bal">Sign in to deploy</div></div></div>`;}}
 function openAuth(){document.getElementById('authScreen').classList.add('open');}
 function showAuthError(msg){$('authError').textContent=msg||'';}
 async function afterAuth(d){token=d.token;me=d.user||me;localStorage.setItem(TOKEN_KEY,token);document.getElementById('authScreen').classList.remove('open');await boot();toast('Welcome'+(me&&me.display_name?', '+me.display_name:'')+' 👋','ok');}
@@ -447,12 +455,7 @@ function renderGrid(){
     <div class="lbl">Deploy ${P().label} account<small>ready in ~1 min</small></div></div>`);
   g.innerHTML=cards.join('');
 }
-function renderStockLine(){
-  const n=stock.total||0;const inStock=Object.keys(stock.by_country||{}).filter(c=>c!=='?');
-  $('stockline').innerHTML=n>0
-    ?`<span class="dotmark"></span><b>${n}</b> ${P().label} account${n===1?'':'s'} ready to deploy${inStock.length?' · '+inStock.slice(0,10).join(' · '):''}`
-    :`<span class="dotmark" style="background:var(--warn)"></span> ${P().label} pool is warming up — check back shortly.`;
-}
+function renderStockLine(){/* stockline removed from the UI */}
 
 /* ───────────── create / deploy ───────────── */
 function clampName(){const el=$('dName');if(el.value.length>P().nameMax)el.value=el.value.slice(0,P().nameMax);$('nmCt').textContent=el.value.length+'/'+P().nameMax;}
