@@ -19,10 +19,15 @@ const SCRYPT_N = 2 ** 15;
 const SCRYPT_R = 8;
 const SCRYPT_P = 1;
 const SCRYPT_KEYLEN = 64;
+// scrypt's working memory is ~128·N·r bytes ≈ 32 MB at N=2^15, r=8, which meets or
+// exceeds Node's DEFAULT maxmem (32 MB) and makes scryptSync throw "memory limit
+// exceeded" on OpenSSL 3 builds (register/login then 500). Raise the ceiling so
+// hashing AND verifying work; it must cover both the current N and any stored N.
+const SCRYPT_MAXMEM = 128 * 1024 * 1024;
 
 function hashPassword(password: string): string {
   const salt = randomBytes(16);
-  const hash = scryptSync(password, salt, SCRYPT_KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });
+  const hash = scryptSync(password, salt, SCRYPT_KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, maxmem: SCRYPT_MAXMEM });
   return `scrypt:${SCRYPT_N}:${SCRYPT_R}:${SCRYPT_P}:${salt.toString("hex")}:${hash.toString("hex")}`;
 }
 
@@ -35,7 +40,7 @@ function verifyPassword(password: string, stored: string): boolean {
     const p = parseInt(parts[3], 10);
     const salt = Buffer.from(parts[4], "hex");
     const expected = Buffer.from(parts[5], "hex");
-    const actual = scryptSync(password, salt, expected.length, { N, r, p });
+    const actual = scryptSync(password, salt, expected.length, { N, r, p, maxmem: SCRYPT_MAXMEM });
     return expected.length === actual.length && timingSafeEqual(expected, actual);
   }
   // Legacy format: "<salt-hex>:<sha256-hex>".
