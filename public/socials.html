@@ -99,6 +99,8 @@
     .card .av img{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
     .card .nm{font-weight:600;font-size:16px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .card .hd{color:var(--muted);font-size:12.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .handle-link{color:inherit;text-decoration:none;text-underline-offset:2px}
+    .handle-link:hover{color:var(--accent-soft);text-decoration:underline}
     .card .foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding-top:15px}
     .flag{font-size:14px}
     .status{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-left:auto}
@@ -419,6 +421,7 @@ function money(n){return '$'+Number(n||0).toFixed(2);}
 function flag(c){return c?(FLAGS[String(c).toUpperCase()]||'🌐'):'🌐';}
 function initials(s){s=(s||'?').trim();return (s[0]||'?').toUpperCase();}
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function handleLink(handle,stopCard=false){const clean=String(handle||'').replace(/^@/,'');return `<a class="handle-link" href="https://x.com/${encodeURIComponent(clean)}" target="_blank" rel="noopener noreferrer"${stopCard?' onclick="event.stopPropagation()"':''}>@${esc(clean)}</a>`;}
 function copy(t,btn){navigator.clipboard.writeText(t).then(()=>{if(btn){const o=btn.textContent;btn.textContent='Copied';setTimeout(()=>btn.textContent=o,1200);}});}
 function priceFor(country){const bc=stock.by_country||{};
   if(country&&bc[country]&&typeof bc[country].price_usdc==='number')return bc[country].price_usdc;
@@ -509,7 +512,7 @@ function renderGrid(){
     cards.push(`<div class="card" style="animation-delay:${i*40}ms" onclick='openDetail(${JSON.stringify(a.account_id)})'>
       <div class="pbadge">${P().icon}</div>
       <div class="av">${ava?`<img src="${ava}" alt=""/>`:initials(name)}</div>
-      <p class="nm">${esc(name)}</p><p class="hd">${esc(showHandle||'ready')}</p>
+      <p class="nm">${esc(name)}</p><p class="hd">${showHandle?handleLink(handle,true):'ready'}</p>
       <div class="foot">
         ${busy?'<span class="pill busy">setting up…</span>':`<span class="pill">${a.country?String(a.country).toUpperCase():'live'}</span>`}
         <span class="status"><span class="sdot ${st}"></span>${busy?'deploying':st}</span></div></div>`);
@@ -578,7 +581,7 @@ function openDetail(id){
     ['Status',`<span class="sdot ${a.status||'connecting'}" style="display:inline-block;margin-right:6px"></span>${a.status||'connecting'}`],
     ['Market',a.country?String(a.country).toUpperCase():'—'],
   ];
-  if(handle&&handle!==id)rows.splice(1,0,['Handle','@'+esc(handle)]);
+  if(handle&&handle!==id)rows.splice(1,0,['Handle',handleLink(handle)]);
   $('detailInner').innerHTML=`
     <div class="mhead"><h3>Account</h3><button class="x" onclick="closeScrim('detailScrim')">✕</button></div>
     <div class="mbody">

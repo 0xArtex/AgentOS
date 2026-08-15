@@ -13,6 +13,9 @@ test("socials deploy modal keeps the compact layout without the removed note", (
   assert.match(html, /id="createPlatformIcon"/);
   assert.match(html, /id="dUsername"[^>]*maxlength="16"/);
   assert.match(html, /payload\.username=username/);
+  assert.match(html, /href="https:\/\/x\.com\/\$\{encodeURIComponent\(clean\)\}" target="_blank" rel="noopener noreferrer"/);
+  assert.match(html, /onclick="event\.stopPropagation\(\)"/);
+  assert.match(html, /showHandle\?handleLink\(handle,true\):'ready'/);
   assert.match(html, /\.card \.av\{[^}]*overflow:hidden[^}]*\}/);
   assert.match(html, /\.card \.av img\{[^}]*width:100%[^}]*height:100%[^}]*object-fit:cover[^}]*\}/);
   assert.doesNotMatch(html, /create-modal|create-platform-mark|UPLOAD_PLACEHOLDER/);
