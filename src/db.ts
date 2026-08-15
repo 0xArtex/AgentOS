@@ -818,10 +818,43 @@ export function initDatabase(): void {
       wallet_address TEXT UNIQUE,
       wallet_chain TEXT,
       display_name TEXT,
+      email_verified_at TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc'))
     );
     CREATE INDEX IF NOT EXISTS idx_dash_users_email ON dashboard_users(email);
     CREATE INDEX IF NOT EXISTS idx_dash_users_wallet ON dashboard_users(wallet_address);
+  `);
+
+  // Email verification shipped after dashboard accounts were already live.
+  // Existing email/password users successfully authenticated before this
+  // column existed, so grandfather them as verified exactly once. New users
+  // are only inserted after consuming a verification link (dashboard-auth).
+  const dashboardUserCols = db.prepare("PRAGMA table_info(dashboard_users)").all() as Array<{ name: string }>;
+  if (!dashboardUserCols.some((c) => c.name === "email_verified_at")) {
+    db.transaction(() => {
+      db.exec("ALTER TABLE dashboard_users ADD COLUMN email_verified_at TEXT");
+      db.exec("UPDATE dashboard_users SET email_verified_at = created_at WHERE email IS NOT NULL");
+    })();
+  }
+
+  // Pending registrations are deliberately separate from dashboard_users:
+  // an unverified address is not an account and cannot receive a session. The
+  // hash stored here belongs to the same single-use token; re-registering
+  // atomically replaces both, so an attacker cannot swap a victim's password
+  // underneath a verification link that was already emailed.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS dashboard_pending_registrations (
+      email TEXT PRIMARY KEY,
+      password_hash TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      continue_path TEXT NOT NULL DEFAULT '/dashboard.html',
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'utc')),
+      last_sent_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_dash_pending_token ON dashboard_pending_registrations(token_hash);
+    CREATE INDEX IF NOT EXISTS idx_dash_pending_expiry ON dashboard_pending_registrations(expires_at);
   `);
 
   // Dashboard sessions

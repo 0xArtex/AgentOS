@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=Cormorant+Garamond:ital,wght@0,500;0,600;0,700;1,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <script defer src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit"></script>
   <style>
     /* Palmyr brand palette — matched to the landing page */
     :root{
@@ -241,6 +242,8 @@
     .auth-wallet-btn:hover{border-color:var(--w30);background:rgba(255,255,255,.03)}
     .auth-wallet-btn svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
     .auth-error{margin-top:12px;font-size:10px;color:#ff4444;text-align:center;font-family:var(--mono);min-height:14px}
+    .auth-error.ok{color:var(--ok)}
+    .turnstile-slot{min-height:65px;display:flex;align-items:center;justify-content:center;margin:2px 0}
 
     @media(max-width:760px){
       :root{--sidebar:0px}
@@ -311,7 +314,8 @@
       <form class="auth-form" id="authFormRegister" style="display:none" autocomplete="on">
         <input type="text" class="auth-input" id="regName" placeholder="Name (optional)" autocomplete="name">
         <input type="email" class="auth-input" id="regEmail" placeholder="Email" autocomplete="email" required>
-        <input type="password" class="auth-input" id="regPassword" placeholder="Password (min 6 chars)" autocomplete="new-password" required>
+        <input type="password" class="auth-input" id="regPassword" placeholder="Password (min 10 chars)" autocomplete="new-password" minlength="10" maxlength="256" required>
+        <div class="turnstile-slot" id="registerTurnstile"></div>
         <button type="submit" class="auth-btn">CREATE ACCOUNT</button>
       </form>
       <div class="auth-divider"><span>or</span></div>
@@ -385,6 +389,7 @@ function P(){return PLATFORMS[PLATFORM];}
 const TOKEN_KEY='aos_token';
 let token=localStorage.getItem(TOKEN_KEY)||'';
 let me=null,balance=0,accounts=[],stock={total:0,by_country:{}},authMode='login',pendingAvatar=null;
+let turnstileWidget=null,turnstileToken='',signupConfig=null,pendingVerificationEmail='';
 const optimistic={};
 const FLAGS={US:'🇺🇸',GB:'🇬🇧',BR:'🇧🇷',DE:'🇩🇪',FR:'🇫🇷',ID:'🇮🇩',IN:'🇮🇳',NG:'🇳🇬',PH:'🇵🇭',ES:'🇪🇸',IT:'🇮🇹',MX:'🇲🇽',CA:'🇨🇦',AU:'🇦🇺',JP:'🇯🇵',TR:'🇹🇷',NL:'🇳🇱',PL:'🇵🇱',AE:'🇦🇪',SA:'🇸🇦'};
 const CNAMES={US:'United States',GB:'United Kingdom',BR:'Brazil',DE:'Germany',FR:'France',ID:'Indonesia',IN:'India',NG:'Nigeria',PH:'Philippines',ES:'Spain',IT:'Italy',MX:'Mexico',CA:'Canada',AU:'Australia',JP:'Japan',TR:'Turkey',NL:'Netherlands',PL:'Poland',AE:'UAE',SA:'Saudi Arabia'};
@@ -429,20 +434,33 @@ function renderAuth(){const t=$('topAuth'),sf=$('sideFoot');
       <span class="agent-cta-tx"><b>Add to your agent</b><small>Skill or MCP</small></span>
     </button>`;}}
 function openAuth(){document.getElementById('authScreen').classList.add('open');}
-function showAuthError(msg){$('authError').textContent=msg||'';}
+function showAuthError(msg,ok=false){const el=$('authError');el.textContent=msg||'';el.classList.toggle('ok',!!ok);}
+function resetSignupTurnstile(){turnstileToken='';if(turnstileWidget!==null&&window.turnstile)window.turnstile.reset(turnstileWidget);}
+async function initSignupProtection(){
+  if(!signupConfig){try{const r=await fetch('/auth/config',{cache:'no-store'});signupConfig=await r.json();}catch(_){signupConfig={signupAvailable:false,turnstileSiteKey:''};}}
+  if(!signupConfig.signupAvailable||!signupConfig.turnstileSiteKey){showAuthError('Sign-up is temporarily unavailable. Please use wallet sign-in or try again later.');return;}
+  if(turnstileWidget!==null)return;
+  let tries=0;const render=()=>{if(turnstileWidget!==null)return;if(!window.turnstile){if(++tries<50)setTimeout(render,100);else showAuthError('Anti-bot check could not load. Please refresh.');return;}
+    turnstileWidget=window.turnstile.render('#registerTurnstile',{sitekey:signupConfig.turnstileSiteKey,theme:'dark',action:'register',callback:t=>{turnstileToken=t;showAuthError('');},'expired-callback':()=>{turnstileToken='';},'error-callback':()=>{turnstileToken='';showAuthError('Anti-bot check failed to load. Please retry.');}});};render();
+}
 async function afterAuth(d){token=d.token;me=d.user||me;localStorage.setItem(TOKEN_KEY,token);document.getElementById('authScreen').classList.remove('open');await boot();toast('Welcome'+(me&&me.display_name?', '+me.display_name:'')+' 👋','ok');}
 function b58(bytes){const A='123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';let d=[0];for(const b of bytes){let c=b;for(let j=0;j<d.length;j++){c+=d[j]<<8;d[j]=c%58;c=(c/58)|0;}while(c){d.push(c%58);c=(c/58)|0;}}let s='';for(const b of bytes){if(b===0)s+='1';else break;}for(let j=d.length-1;j>=0;j--)s+=A[d[j]];return s;}
 // Tab switching + form/wallet handlers — same behaviour as the dashboard's auth modal.
 document.querySelectorAll('.auth-tab').forEach(tab=>tab.addEventListener('click',()=>{
   document.querySelectorAll('.auth-tab').forEach(t=>t.classList.remove('active'));tab.classList.add('active');
   $('authFormLogin').style.display=tab.dataset.tab==='login'?'flex':'none';
-  $('authFormRegister').style.display=tab.dataset.tab==='register'?'flex':'none';showAuthError('');}));
+  $('authFormRegister').style.display=tab.dataset.tab==='register'?'flex':'none';showAuthError('');if(tab.dataset.tab==='register')initSignupProtection();}));
 $('authFormLogin').addEventListener('submit',async e=>{e.preventDefault();showAuthError('');
   try{const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({email:$('loginEmail').value,password:$('loginPassword').value})});
     const d=await r.json();if(!r.ok){showAuthError(d.error||'Login failed');return;}await afterAuth(d);}catch(_){showAuthError('Network error');}});
 $('authFormRegister').addEventListener('submit',async e=>{e.preventDefault();showAuthError('');
-  try{const r=await fetch('/auth/register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:$('regName').value,email:$('regEmail').value,password:$('regPassword').value})});
-    const d=await r.json();if(!r.ok){showAuthError(d.error||'Registration failed');return;}await afterAuth(d);}catch(_){showAuthError('Network error');}});
+  const email=$('regEmail').value.trim().toLowerCase();if(!turnstileToken){showAuthError('Complete the anti-bot check first.');return;}
+  const resend=pendingVerificationEmail===email,button=e.currentTarget.querySelector('button[type="submit"]');button.disabled=true;button.textContent=resend?'SENDING...':'CREATING...';
+  try{const path=resend?'/auth/resend-verification':'/auth/register';const body=resend?{email,turnstileToken,continuePath:'/socials'}:{name:$('regName').value,email,password:$('regPassword').value,turnstileToken,continuePath:'/socials'};
+    const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok){showAuthError(d.error||'Registration failed');return;}
+    pendingVerificationEmail=email;$('regPassword').value='';showAuthError(d.message||'Check your inbox for the verification link.',true);}catch(_){showAuthError('Network error');}
+  finally{resetSignupTurnstile();button.disabled=false;button.textContent=pendingVerificationEmail===email?'RESEND VERIFICATION':'CREATE ACCOUNT';}});
+$('regEmail').addEventListener('input',e=>{if(e.target.value.trim().toLowerCase()!==pendingVerificationEmail)e.target.form.querySelector('button[type="submit"]').textContent='CREATE ACCOUNT';});
 $('authWalletBtn').addEventListener('click',async()=>{showAuthError('');
   const prov=window.phantom?.solana||window.solana;
   if(!prov||!prov.isPhantom){showAuthError('Phantom wallet not found. Install it at phantom.app');return;}
@@ -578,7 +596,9 @@ async function refreshBalance(btn){if(btn){btn.disabled=true;btn.innerHTML='<spa
 /* ───────────── boot ───────────── */
 async function refresh(){await loadAccounts();renderGrid();}
 async function boot(){await loadMe();renderAuth();renderSeg();await Promise.all([loadBalance(),loadStock(),loadAccounts()]);renderAuth();renderStockLine();renderGrid();}
-boot();
+const verificationUrl=new URL(location.href),emailJustVerified=verificationUrl.searchParams.get('email_verified')==='1';
+if(emailJustVerified){verificationUrl.searchParams.delete('email_verified');history.replaceState({},'',verificationUrl.pathname+verificationUrl.search+verificationUrl.hash);}
+boot().then(()=>{if(emailJustVerified&&!token){document.querySelector('.auth-tab[data-tab="login"]').click();openAuth();showAuthError('Email verified. Sign in to continue.',true);}});
 </script>
 </body>
 </html>
