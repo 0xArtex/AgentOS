@@ -149,6 +149,54 @@
     .launch{width:100%;margin-top:22px;padding:13px;font-size:15px;border-radius:100px;display:flex;align-items:center;justify-content:center;gap:10px}
     .launch .price{background:rgba(17,45,50,.24);padding:2px 11px;border-radius:100px;font-size:13.5px;font-family:var(--mono)}
     .note{font-size:12px;color:var(--muted);text-align:center;margin-top:13px;line-height:1.55}
+
+    /* ── Deploy account modal ── */
+    #createScrim{background:rgba(4,16,20,.8);backdrop-filter:blur(14px) saturate(.9)}
+    #createScrim .create-modal{max-width:600px;border-radius:26px;background:linear-gradient(155deg,rgba(18,48,54,.98),rgba(9,29,36,.99));border-color:rgba(247,234,209,.17);box-shadow:0 28px 90px rgba(0,0,0,.52),inset 0 1px rgba(255,255,255,.025)}
+    #createScrim .create-mhead{padding:28px 30px 8px;gap:18px}
+    #createScrim .create-heading{display:flex;align-items:center;gap:14px;min-width:0}
+    #createScrim .create-platform-mark{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;flex:0 0 auto;color:var(--accent-ink);background:linear-gradient(145deg,var(--accent-soft),var(--accent));box-shadow:0 8px 24px rgba(246,175,86,.16)}
+    #createScrim .create-platform-mark svg{width:19px;height:19px}
+    #createScrim .mhead h3{font-family:var(--sans);font-size:27px;font-weight:650;letter-spacing:-.025em;line-height:1.15}
+    #createScrim .create-close{width:40px;height:40px;border:1px solid var(--line);border-radius:50%;display:grid;place-items:center;padding:0;flex:0 0 auto}
+    #createScrim .create-close svg{width:18px;height:18px;stroke:currentColor}
+    #createScrim .create-close:hover{border-color:var(--line-2);background:rgba(247,234,209,.07)}
+    #createScrim .create-body{padding:18px 30px 30px}
+    #createScrim label{font-size:14px;color:var(--fg);margin:22px 0 9px;line-height:1.3}
+    #createScrim label .ct{color:var(--muted);font-size:13px}
+    #createScrim input[type=text],#createScrim textarea,#createScrim select{border-radius:13px;border-color:rgba(247,234,209,.15);background:rgba(4,20,27,.52);font-size:15px;padding:15px 16px;min-height:54px}
+    #createScrim input[type=text]:hover,#createScrim textarea:hover,#createScrim select:hover{border-color:rgba(247,234,209,.25)}
+    #createScrim input[type=text]:focus,#createScrim textarea:focus,#createScrim select:focus{background:rgba(4,20,27,.75);box-shadow:0 0 0 3px rgba(246,175,86,.1)}
+    #createScrim textarea{min-height:102px;line-height:1.55}
+    #createScrim .drop{gap:22px;align-items:center}
+    #createScrim .dz{position:relative;width:126px;height:126px;border-radius:22px;border:1px solid rgba(247,234,209,.16);background:rgba(4,20,27,.46);color:var(--fg-dim);padding:0}
+    #createScrim .dz::after{content:"";position:absolute;inset:17px;border:2px dashed rgba(247,234,209,.3);border-radius:50%;transition:.18s}
+    #createScrim .dz:hover{border-color:rgba(246,175,86,.55);background:rgba(246,175,86,.045)}
+    #createScrim .dz:hover::after{border-color:var(--accent)}
+    #createScrim .dz.filled::after{display:none}
+    #createScrim .dz img{position:relative;z-index:1}
+    #createScrim .upload-placeholder{position:relative;z-index:1;display:flex;flex-direction:column;align-items:center;gap:7px;font-size:11px;font-weight:600;letter-spacing:.02em}
+    #createScrim .upload-placeholder svg{width:25px;height:25px;stroke:currentColor}
+    #createScrim .dztext{font-size:14px;line-height:1.55;max-width:320px}
+    #createScrim .dztext b{font-size:18px;color:var(--fg);margin-bottom:3px;letter-spacing:-.015em}
+    #createScrim #createStock{position:relative;padding-left:16px;margin:11px 0 0;font-size:13px;line-height:1.45}
+    #createScrim #createStock::before{content:"";position:absolute;left:1px;top:.48em;width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 4px rgba(105,211,160,.08)}
+    #createScrim .launch{min-height:60px;margin-top:26px;border-radius:16px;font-size:17px;font-weight:700;background:linear-gradient(110deg,#f6af56,#ef9850);box-shadow:0 12px 30px rgba(239,152,80,.18),inset 0 1px rgba(255,255,255,.34)}
+    #createScrim .launch:hover{filter:brightness(1.06);box-shadow:0 15px 34px rgba(239,152,80,.25),inset 0 1px rgba(255,255,255,.34)}
+    #createScrim .launch .price{font-size:14px;padding:4px 12px;background:rgba(17,45,50,.22)}
+    @media(max-width:620px){
+      #createScrim{padding:10px;align-items:flex-end}
+      #createScrim .create-modal{border-radius:22px 22px 0 0;max-height:94vh}
+      #createScrim .create-mhead{padding:22px 20px 6px}
+      #createScrim .create-body{padding:12px 20px 24px}
+      #createScrim .mhead h3{font-size:23px}
+      #createScrim .create-platform-mark{width:38px;height:38px;border-radius:11px}
+      #createScrim .dz{width:108px;height:108px;border-radius:19px}
+      #createScrim .dz::after{inset:14px}
+      #createScrim .drop{gap:17px}
+      #createScrim .dztext{font-size:13px}
+      #createScrim .dztext b{font-size:16px}
+    }
     .spin{width:16px;height:16px;border:2px solid rgba(17,45,50,.3);border-top-color:currentColor;border-radius:50%;display:inline-block;animation:sp .7s linear infinite}
     @keyframes sp{to{transform:rotate(360deg)}}
 
@@ -328,24 +376,26 @@
   </div>
 
   <div class="scrim" id="createScrim">
-    <div class="modal lg">
-      <div class="mhead"><h3 id="createTitle">Deploy an account</h3><button class="x" data-close>✕</button></div>
-      <div class="mbody">
+    <div class="modal lg create-modal">
+      <div class="mhead create-mhead">
+        <div class="create-heading"><span class="create-platform-mark" id="createPlatformMark" aria-hidden="true"></span><h3 id="createTitle">Deploy an account</h3></div>
+        <button class="x create-close" data-close aria-label="Close deploy modal"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+      </div>
+      <div class="mbody create-body">
         <label>Profile photo</label>
         <div class="drop">
-          <div class="dz" id="dz" onclick="document.getElementById('avaInput').click()"><span class="ph" id="dzPh">Click to<br/>upload</span></div>
+          <button type="button" class="dz" id="dz" aria-label="Upload profile photo" onclick="document.getElementById('avaInput').click()"><span class="upload-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg><span>Upload</span></span></button>
           <div class="dztext"><b>Give it a face</b>PNG, JPG or WEBP, up to 10&nbsp;MB. Square looks best. Optional.</div>
           <input type="file" id="avaInput" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onAvatar(event)" />
         </div>
         <label>Display name <span class="ct" id="nmCt">0/50</span></label>
-        <input type="text" id="dName" placeholder="e.g. Olive & Ash" oninput="clampName()" />
+        <input type="text" id="dName" placeholder="e.g. Olive & Ash" maxlength="50" oninput="clampName()" />
         <label>Bio <span class="ct" id="bioCt">0/160</span></label>
-        <textarea id="dBio" placeholder="One line about the account" oninput="clampBio()"></textarea>
+        <textarea id="dBio" placeholder="One line about the account" maxlength="160" oninput="clampBio()"></textarea>
         <label>Market <span class="ct">picks the account's country</span></label>
         <select id="dCountry"></select>
         <p class="hint" id="createStock"></p>
         <button class="btn launch" id="launchBtn" onclick="deploy()"><span id="launchLabel">Deploy account</span><span class="price" id="launchPrice">—</span></button>
-        <p class="note">Charged only if an account is delivered. Name, bio and photo apply automatically right after — a cosmetic hiccup never refunds your account.</p>
       </div>
     </div>
   </div>
@@ -377,6 +427,7 @@
 /* ───────────── platform config ───────────── */
 const XSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.24 2H21.5l-7.5 8.57L23 22h-6.9l-5.4-7.06L4.5 22H1.24l8.02-9.17L1 2h7.07l4.88 6.45zM17.1 20.06h1.8L7.02 3.84H5.1z"/></svg>';
 const TTSVG='<svg viewBox="0 0 24 24" fill="none"><path d="M16.5 3c.3 2.1 1.6 3.6 3.5 3.9v2.6c-1.3.1-2.5-.3-3.6-1v5.9c0 3.2-2.4 5.6-5.5 5.6S5.5 17.6 5.5 14.5 8 8.9 11 8.9c.3 0 .6 0 .9.1v2.7c-.3-.1-.6-.2-.9-.2-1.6 0-2.8 1.3-2.8 2.9s1.2 2.9 2.8 2.9 2.8-1.3 2.8-3V3h2.7z" fill="currentColor"/></svg>';
+const UPLOAD_PLACEHOLDER='<span class="upload-placeholder"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7.5 8.5 12 4l4.5 4.5"/><path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></svg><span>Upload</span></span>';
 const PLATFORMS={
   twitter:{key:'twitter',label:'X',icon:XSVG,deploy:'/social/twitter/deploy',accounts:'/social/twitter/accounts',stock:'/social/twitter/pool/stock',nameMax:50,bioMax:160,opHint:'/social/twitter/post',opBody:'{"account_id":"ID","text":"gm"}'},
   tiktok:{key:'tiktok',label:'TikTok',icon:TTSVG,soon:true,deploy:'/social/tiktok/deploy',accounts:'/social/tiktok/accounts',stock:'/social/tiktok/pool/stock',nameMax:30,bioMax:80,opHint:'/social/tiktok/post',opBody:'{"account_id":"ID","video_url":"https://…mp4","caption":"gm"}'},
@@ -515,8 +566,9 @@ function refreshPrice(){const c=$('dCountry').value;$('launchPrice').textContent
 function onAddClick(){
   if(!me){openAuth();return;}
   pendingAvatar=null;$('dName').value='';$('dBio').value='';$('nmCt').textContent='0/'+P().nameMax;$('bioCt').textContent='0/'+P().bioMax;
-  $('dz').classList.remove('filled');$('dz').innerHTML='<span class="ph">Click to<br/>upload</span>';
-  $('createTitle').textContent='Deploy a '+P().label+' account';$('launchLabel').textContent='Deploy account';
+  $('dName').maxLength=P().nameMax;$('dBio').maxLength=P().bioMax;
+  $('dz').classList.remove('filled');$('dz').innerHTML=UPLOAD_PLACEHOLDER;
+  $('createPlatformMark').innerHTML=P().icon;$('createTitle').textContent='Deploy a '+P().label+' account';$('launchLabel').textContent='Deploy account';
   const sel=$('dCountry');const inStock=Object.keys(stock.by_country||{}).filter(c=>c!=='?');
   let opts=`<option value="">Any market (recommended)</option>`;
   for(const c of inStock)opts+=`<option value="${c}">${CNAMES[c]||c} (${c}) · ${stockCount(c)} ready · ${money(priceFor(c))}</option>`;
