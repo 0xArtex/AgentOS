@@ -116,7 +116,7 @@ import {
 } from "../services/tiktok-operations";
 import { createPostJob, getPostJob } from "../services/tiktok-post-jobs";
 import { createOpJob, getOpJob } from "../services/tiktok-ops-jobs";
-import { createXOpJob, getXOpJob } from "../services/x-ops-jobs";
+import { createXOpJob, getXOpJob, getXOpJobProgress } from "../services/x-ops-jobs";
 import { stashSession, claimSession } from "../services/tiktok-session-transfer";
 import { rateLimit } from "../middleware/rateLimit";
 import { randomUUID } from "crypto";
@@ -595,6 +595,7 @@ router.get(
       op: op.op,
       status: op.status,
       done: op.status === "done" || op.status === "failed",
+      progress: getXOpJobProgress(id),
       account_id: op.account_id,
       poll_url: `/social/twitter/operations/${id}`,
       result: op.result_json ? JSON.parse(op.result_json) : null,
@@ -1683,14 +1684,16 @@ router.post(
       if (wantsProfile || wantsAvatar || wantsUsername) {
         const job = createXOpJob(
           { op: "avatar", account_id: acct.id, owner: String(owner), paymentSignature: null, paymentChain: null, chargedUsdc: null },
-          async () => {
+          async (reportProgress) => {
             const applied: string[] = [];
             const errors: string[] = [];
             if (wantsProfile) {
+              reportProgress("profile", "Updating name and bio");
               const p = await updateProfile({ account_id: acct.id, proxy_session_id: acct.proxy_session_id, cookies: acct.cookies, display_name, bio, location, website });
               if (p.success) applied.push("profile"); else errors.push(`profile: ${p.error || "failed"}`);
             }
             if (wantsAvatar) {
+              reportProgress("avatar", "Changing profile photo");
               const a = await updateAvatar({ account_id: acct.id, proxy_session_id: acct.proxy_session_id, cookies: acct.cookies, image_base64, image_url });
               if (a.success) applied.push("avatar"); else errors.push(`avatar: ${a.error || "failed"}`);
             }
@@ -1698,9 +1701,11 @@ router.post(
             // profile/avatar steps. X may request password re-auth; the pool
             // credential stays server-side and is never returned to the buyer.
             if (wantsUsername) {
+              reportProgress("username", "Changing username");
               const u = await changeUsername({ account_id: acct.id, proxy_session_id: acct.proxy_session_id, cookies: acct.cookies, new_username: requestedUsername!, password: acct.credentials.password });
               if (u.success) applied.push("username"); else errors.push(`username: ${u.error || "failed"}`);
             }
+            reportProgress("finalizing", "Finalizing account");
             if (applied.length === 0 && errors.length > 0) return { success: false, error: errors.join("; ") };
             return { success: true, data: { applied, ...(errors.length ? { partial_errors: errors } : {}) } };
           },

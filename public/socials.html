@@ -93,6 +93,8 @@
     .card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;min-height:214px;display:flex;flex-direction:column;transition:transform .22s cubic-bezier(.2,.7,.3,1),border-color .22s;cursor:pointer;opacity:0;transform:translateY(6px);animation:rise .45s forwards;overflow:hidden}
     @keyframes rise{to{opacity:1;transform:none}}
     .card:hover{transform:translateY(-3px);border-color:rgba(246,175,86,.32)}
+    .card.setting-up{cursor:default;border-color:rgba(246,175,86,.22);background:linear-gradient(145deg,rgba(246,175,86,.055),var(--card))}
+    .card.setting-up:hover{transform:none;border-color:rgba(246,175,86,.3)}
     .card .pbadge{position:absolute;top:15px;right:15px;width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:rgba(247,234,209,.05);border:1px solid var(--line);color:var(--fg-dim)}
     .card .pbadge svg{width:12px;height:12px}
     .card .av{width:64px;height:64px;border-radius:50%;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink);font-weight:600;font-size:25px;font-family:var(--serif);margin-bottom:15px;border:1px solid rgba(247,234,209,.12);overflow:hidden;flex:0 0 auto}
@@ -112,6 +114,9 @@
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
     .pill{font-size:11px;padding:3px 9px;border-radius:100px;background:rgba(247,234,209,.05);color:var(--muted);border:1px solid var(--line)}
     .pill.busy{color:var(--accent);border-color:rgba(246,175,86,.32);background:rgba(246,175,86,.08)}
+    .setup-progress{min-width:0;display:flex;align-items:center;gap:8px;color:var(--accent-soft);font-size:11.5px;line-height:1.3}
+    .setup-progress span:last-child{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .setup-dot{width:8px;height:8px;border-radius:50%;flex:0 0 auto;background:var(--accent);box-shadow:0 0 0 4px rgba(246,175,86,.1);animation:pulse 1.4s infinite}
     .card.add{border-style:dashed;border-color:var(--line-2);align-items:center;justify-content:center;gap:12px;background:transparent;animation:none;opacity:1;transform:none}
     .card.add:hover{border-color:var(--accent);background:rgba(246,175,86,.03);transform:none}
     .plus{width:52px;height:52px;border-radius:50%;border:1px solid var(--accent);display:grid;place-items:center;transition:.2s}
@@ -403,6 +408,7 @@ let token=localStorage.getItem(TOKEN_KEY)||'';
 let me=null,balance=0,accounts=[],stock={total:0,by_country:{}},authMode='login',pendingAvatar=null;
 let turnstileWidget=null,turnstileToken='',signupConfig=null,pendingVerificationEmail='';
 const optimistic={};
+const activeSetupPolls=new Set();
 const FLAGS={US:'🇺🇸',GB:'🇬🇧',BR:'🇧🇷',DE:'🇩🇪',FR:'🇫🇷',ID:'🇮🇩',IN:'🇮🇳',NG:'🇳🇬',PH:'🇵🇭',ES:'🇪🇸',IT:'🇮🇹',MX:'🇲🇽',CA:'🇨🇦',AU:'🇦🇺',JP:'🇯🇵',TR:'🇹🇷',NL:'🇳🇱',PL:'🇵🇱',AE:'🇦🇪',SA:'🇸🇦'};
 const CNAMES={US:'United States',GB:'United Kingdom',BR:'Brazil',DE:'Germany',FR:'France',ID:'Indonesia',IN:'India',NG:'Nigeria',PH:'Philippines',ES:'Spain',IT:'Italy',MX:'Mexico',CA:'Canada',AU:'Australia',JP:'Japan',TR:'Turkey',NL:'Netherlands',PL:'Poland',AE:'UAE',SA:'Saudi Arabia'};
 
@@ -485,37 +491,39 @@ $('authWalletBtn').addEventListener('click',async()=>{showAuthError('');
     const d=await r.json();if(!r.ok){showAuthError(d.error||'Wallet auth failed');return;}await afterAuth(d);}
   catch(e){showAuthError((e.message||'').includes('User rejected')?'Wallet connection cancelled':(e.message||'Wallet connection failed'));}});
 document.getElementById('authScreen').addEventListener('click',e=>{if(e.target===e.currentTarget)e.currentTarget.classList.remove('open');});
-async function logout(){await api('/auth/logout',{method:'POST',headers:authHeaders()});token='';localStorage.removeItem(TOKEN_KEY);me=null;accounts=[];renderAuth();renderGrid();}
+async function logout(){await api('/auth/logout',{method:'POST',headers:authHeaders()});token='';localStorage.removeItem(TOKEN_KEY);me=null;accounts=[];Object.keys(optimistic).forEach(id=>delete optimistic[id]);renderAuth();renderGrid();}
 
 /* ───────────── data ───────────── */
 async function loadMe(){if(!token){me=null;return;}const {ok,body}=await api('/auth/me',{headers:authHeaders()});if(ok)me=body;else{me=null;token='';localStorage.removeItem(TOKEN_KEY);}}
 async function loadBalance(){if(!token){balance=0;return;}const {ok,body}=await api('/balance',{headers:authHeaders()});if(ok)balance=Number(body.balance_usdc||0);}
-async function loadAccounts(){if(!token){accounts=[];return;}const {ok,body}=await api(P().accounts,{headers:authHeaders()});accounts=ok&&Array.isArray(body.accounts)?body.accounts:[];}
+async function loadAccounts(){if(!token){accounts=[];return;}const {ok,body}=await api(P().accounts,{headers:authHeaders()});accounts=ok&&Array.isArray(body.accounts)?body.accounts:[];resumePendingSetups();}
 async function loadStock(){const {ok,body}=await api(P().stock);stock=ok?body:{total:0,by_country:{}};}
 
 /* ───────────── grid ───────────── */
-const savKey=id=>'sav_'+PLATFORM+'_'+id,snmKey=id=>'snm_'+PLATFORM+'_'+id,sunKey=id=>'sun_'+PLATFORM+'_'+id;
+const savKey=id=>'sav_'+PLATFORM+'_'+id,snmKey=id=>'snm_'+PLATFORM+'_'+id,sunKey=id=>'sun_'+PLATFORM+'_'+id,sopKey=id=>'sop_'+PLATFORM+'_'+id;
 function cachedAvatar(id){return localStorage.getItem(savKey(id));}
 function cachedName(id){return localStorage.getItem(snmKey(id));}
 function cachedUsername(id){return localStorage.getItem(sunKey(id));}
+function resumePendingSetups(){for(const a of accounts){let pending=null;try{pending=JSON.parse(localStorage.getItem(sopKey(a.account_id))||'null');}catch(_){}if(!pending||!pending.pollUrl)continue;if(!optimistic[a.account_id])optimistic[a.account_id]={platform:PLATFORM,name:cachedName(a.account_id)||pending.requestedHandle||a.handle||'New account',handle:pending.requestedHandle||cachedUsername(a.account_id)||a.handle,avatar:cachedAvatar(a.account_id),deploying:true,setupMessage:'Resuming account setup'};pollRebrand(a.account_id,pending.pollUrl,pending.requestedHandle||'');}}
 function renderGrid(){
   const g=$('grid');const cards=[];const known=new Set(accounts.map(a=>a.account_id));
   const opt=Object.entries(optimistic).filter(([id,o])=>o.platform===PLATFORM&&!known.has(id)).map(([id,o])=>({account_id:id,handle:o.handle||o.name,status:'connecting',_opt:o}));
-  const list=[...opt,...accounts];
+  const hydrated=accounts.map(a=>optimistic[a.account_id]&&optimistic[a.account_id].platform===PLATFORM?{...a,_opt:optimistic[a.account_id]}:a);
+  const list=[...opt,...hydrated];
   if(me&&list.length===0)cards.push(`<div class="empty">No ${P().label} accounts yet — deploy your first one with the +.</div>`);
   list.forEach((a,i)=>{
     const name=(a._opt&&a._opt.name)||cachedName(a.account_id)||cachedUsername(a.account_id)||a.handle||a.account_id.slice(0,10);
     const ava=(a._opt&&a._opt.avatar)||cachedAvatar(a.account_id);
     const busy=a._opt&&a._opt.deploying,st=a.status||'connecting';
+    const setupMessage=(a._opt&&a._opt.setupMessage)||'Warming up account';
     const handle=(a._opt&&a._opt.handle)||cachedUsername(a.account_id)||a.handle;
     const showHandle=(handle&&handle!==a.account_id)?'@'+handle:'';
-    cards.push(`<div class="card" style="animation-delay:${i*40}ms" onclick='openDetail(${JSON.stringify(a.account_id)})'>
+    cards.push(`<div class="card${busy?' setting-up':''}" style="animation-delay:${i*40}ms"${busy?' aria-busy="true"':` onclick='openDetail(${JSON.stringify(a.account_id)})'`}>
       <div class="pbadge">${P().icon}</div>
       <div class="av">${ava?`<img src="${ava}" alt=""/>`:initials(name)}</div>
-      <p class="nm">${esc(name)}</p><p class="hd">${showHandle?handleLink(handle,true):'ready'}</p>
+      <p class="nm">${esc(name)}</p><p class="hd">${busy?esc(showHandle||'account reserved'):(showHandle?handleLink(handle,true):'ready')}</p>
       <div class="foot">
-        ${busy?'<span class="pill busy">setting up…</span>':`<span class="pill">${a.country?String(a.country).toUpperCase():'live'}</span>`}
-        <span class="status"><span class="sdot ${st}"></span>${busy?'deploying':st}</span></div></div>`);
+        ${busy?`<span class="setup-progress"><span class="setup-dot"></span><span>${esc(setupMessage)}</span></span>`:`<span class="pill">${a.country?String(a.country).toUpperCase():'live'}</span><span class="status"><span class="sdot ${st}"></span>${st}</span>`}</div></div>`);
   });
   cards.push(`<div class="card add" onclick="onAddClick()"><div class="plus"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div>
     <div class="lbl">Deploy ${P().label} account<small>ready in ~1 min</small></div></div>`);
@@ -555,18 +563,26 @@ async function deploy(){
   if(status===409||body.available===false){toast(body.message||'No accounts available — try Any market.','err');return;}
   if(!ok){toast(body.message||body.error||'Deploy failed','err');return;}
   const id=body.account_id;try{if(nm)localStorage.setItem(snmKey(id),nm);if(pendingAvatar)localStorage.setItem(savKey(id),pendingAvatar);}catch(_){/* large uploads can exceed browser storage; keep the live preview */}
-  optimistic[id]={platform:PLATFORM,name:nm||username||body.handle||'New account',handle:username||body.handle,requestedHandle:username,avatar:pendingAvatar,deploying:!!body.rebrand};
+  optimistic[id]={platform:PLATFORM,name:nm||username||body.handle||'New account',handle:username||body.handle,requestedHandle:username,avatar:pendingAvatar,deploying:!!body.rebrand,setupMessage:'Warming up account'};
+  if(body.rebrand)try{localStorage.setItem(sopKey(id),JSON.stringify({pollUrl:body.rebrand.poll_url||('/social/'+PLATFORM+'/operations/'+body.rebrand.operation_id),requestedHandle:username}));}catch(_){}
   closeScrim('createScrim');await loadBalance();renderAuth();await refresh();
   toast('🎉 '+P().label+' account deployed and yours!'+(body.rebrand?' Applying your profile…':''),'ok');
   if(body.rebrand&&body.rebrand.operation_id)pollRebrand(id,body.rebrand.poll_url||('/social/'+PLATFORM+'/operations/'+body.rebrand.operation_id),username);
 }
-async function pollRebrand(accountId,pollUrl,requestedHandle){let tries=0;const iv=setInterval(async()=>{tries++;
-  const {ok,body}=await api(pollUrl);
-  if(ok&&body.done){clearInterval(iv);if(optimistic[accountId])optimistic[accountId].deploying=false;
-    if(body.status==='done'){const ap=(body.result&&body.result.applied)||[],errs=(body.result&&body.result.partial_errors)||[];if(requestedHandle&&ap.includes('username'))try{localStorage.setItem(sunKey(accountId),requestedHandle);}catch(_){}toast('✨ '+(ap.length?ap.join(' + ')+' applied':'Profile set')+'.','ok');if(errs.length)toast('Account is live, but '+errs.join('; '), 'err');}
-    else toast("Account is live, but branding didn't finish — open it to retry.","err");
-    await refresh();}
-  if(tries>30)clearInterval(iv);},5000);}
+async function pollRebrand(accountId,pollUrl,requestedHandle){
+  if(activeSetupPolls.has(accountId))return;activeSetupPolls.add(accountId);
+  const tick=async()=>{
+    const {ok,body}=await api(pollUrl);
+    if(ok&&body.progress&&optimistic[accountId]){optimistic[accountId].setupMessage=body.progress.message||'Setting up account';renderGrid();}
+    if(ok&&body.done){
+      if(body.status==='done'){const ap=(body.result&&body.result.applied)||[],errs=(body.result&&body.result.partial_errors)||[];if(requestedHandle&&ap.includes('username'))try{localStorage.setItem(sunKey(accountId),requestedHandle);}catch(_){}toast('✨ '+(ap.length?ap.join(' + ')+' applied':'Profile set')+'.','ok');if(errs.length)toast('Account is live, but '+errs.join('; '), 'err');}
+      else toast("Account is live, but branding didn't finish — open it to retry.","err");
+      activeSetupPolls.delete(accountId);try{localStorage.removeItem(sopKey(accountId));}catch(_){}delete optimistic[accountId];await refresh();return;
+    }
+    setTimeout(tick,2000);
+  };
+  tick();
+}
 
 /* ───────────── detail ───────────── */
 function openDetail(id){

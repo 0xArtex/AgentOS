@@ -16,6 +16,13 @@ test("socials deploy modal keeps the compact layout without the removed note", (
   assert.match(html, /href="https:\/\/x\.com\/\$\{encodeURIComponent\(clean\)\}" target="_blank" rel="noopener noreferrer"/);
   assert.match(html, /onclick="event\.stopPropagation\(\)"/);
   assert.match(html, /showHandle\?handleLink\(handle,true\):'ready'/);
+  assert.match(html, /accounts\.map\(a=>optimistic\[a\.account_id\][\s\S]*?_opt:optimistic\[a\.account_id\]/);
+  assert.match(html, /aria-busy="true"/);
+  assert.match(html, /setupMessage:'Warming up account'/);
+  assert.match(html, /body\.progress\.message/);
+  assert.match(html, /delete optimistic\[accountId\]/);
+  assert.match(html, /resumePendingSetups\(\)/);
+  assert.doesNotMatch(html, /tries>30/);
   assert.match(html, /\.card \.av\{[^}]*overflow:hidden[^}]*\}/);
   assert.match(html, /\.card \.av img\{[^}]*width:100%[^}]*height:100%[^}]*object-fit:cover[^}]*\}/);
   assert.doesNotMatch(html, /create-modal|create-platform-mark|UPLOAD_PLACEHOLDER/);
