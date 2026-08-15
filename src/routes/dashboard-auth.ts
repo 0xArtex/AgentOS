@@ -4,10 +4,24 @@ import { createHash, randomBytes, scryptSync, timingSafeEqual } from "crypto";
 import nacl from "tweetnacl";
 import { PublicKey } from "@solana/web3.js";
 import bs58 from "bs58";
+import { rateLimit } from "../middleware/rateLimit";
+import { clientIp } from "../middleware/client-ip";
+import {
+  cleanupExpiredPendingRegistrations,
+  consumePendingRegistration,
+  createPendingRegistration,
+  normalizeContinuePath,
+  resendPendingRegistration,
+  signupProtectionConfigured,
+  turnstileSiteKey,
+  verifyTurnstile,
+} from "../services/signup-protection";
 
 const router = Router();
 const SESSION_DAYS = 30;
 const NONCE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const signupRateLimit = rateLimit(5, 60 * 60_000);
+const resendRateLimit = rateLimit(3, 60 * 60_000);
 
 /**
  * scrypt password hashing. Format: "scrypt:<N>:<r>:<p>:<salt-hex>:<hash-hex>".
@@ -66,32 +80,107 @@ function createSession(userId: string): string {
 }
 
 // POST /auth/register — email/password signup
-router.post("/register", (req: Request, res: Response) => {
-  const { email, password, name } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: "email and password required" });
+function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  if (email.length < 3 || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email;
+}
+
+async function requireTurnstile(req: Request, res: Response): Promise<boolean> {
+  const result = await verifyTurnstile(req.body?.turnstileToken, clientIp(req));
+  if (result.ok) return true;
+  if (result.unavailable) {
+    console.error(`[auth] Turnstile unavailable: ${result.reason}`);
+    res.status(503).json({ error: "Sign-up protection is temporarily unavailable. Please try again shortly.", code: "TURNSTILE_UNAVAILABLE" });
+  } else {
+    res.status(400).json({ error: "Please complete the anti-bot check and try again.", code: "TURNSTILE_FAILED" });
+  }
+  return false;
+}
+
+const VERIFY_MESSAGE = "Check your inbox for a verification link. It expires in 30 minutes.";
+
+// The Turnstile site key is intentionally public; siteverify keeps the secret
+// server-side. no-store makes key rotations visible to already-open clients.
+router.get("/config", (_req: Request, res: Response) => {
+  res.set("Cache-Control", "no-store");
+  res.json({ turnstileSiteKey: turnstileSiteKey(), signupAvailable: signupProtectionConfigured() });
+});
+
+// Create a pending registration and email a single-use activation link. No
+// dashboard user or session exists until that link is consumed. The strict
+// limiter and Turnstile both run before expensive scrypt hashing.
+router.post("/register", signupRateLimit, async (req: Request, res: Response) => {
+  const email = normalizeEmail(req.body?.email);
+  const password = req.body?.password;
+  const rawName = req.body?.name;
+  if (!email || typeof password !== "string") return res.status(400).json({ error: "A valid email and password are required" });
   if (password.length < 10) return res.status(400).json({ error: "Password must be at least 10 characters" });
+  if (password.length > 256) return res.status(400).json({ error: "Password must be at most 256 characters" });
+  if (rawName !== undefined && typeof rawName !== "string") return res.status(400).json({ error: "Name must be a string" });
+  const displayName = (typeof rawName === "string" ? rawName.trim() : "") || email.split("@")[0];
+  if (displayName.length > 80) return res.status(400).json({ error: "Name must be at most 80 characters" });
+  if (!await requireTurnstile(req, res)) return;
 
+  // Deliberately indistinguishable from a new address, so registration cannot
+  // be used as an account-enumeration oracle.
   const existing = db.prepare("SELECT id FROM dashboard_users WHERE email = ?").get(email);
-  if (existing) return res.status(409).json({ error: "Email already registered" });
+  if (existing) return res.status(202).json({ verification_required: true, message: VERIFY_MESSAGE });
 
-  const userId = crypto.randomUUID();
-  const passwordHash = hashPassword(password);
-  db.prepare(
-    "INSERT INTO dashboard_users (id, email, password_hash, display_name) VALUES (?, ?, ?, ?)"
-  ).run(userId, email.toLowerCase(), passwordHash, name || email.split("@")[0]);
+  try {
+    cleanupExpiredPendingRegistrations();
+    await createPendingRegistration({
+      email,
+      passwordHash: hashPassword(password),
+      displayName,
+      continuePath: normalizeContinuePath(req.body?.continuePath),
+    });
+    res.status(202).json({ verification_required: true, message: VERIFY_MESSAGE });
+  } catch (error: any) {
+    console.error(`[auth] verification email failed for pending registration: ${error?.message || error}`);
+    res.status(503).json({ error: "We could not send the verification email. Please try again in a minute.", code: "EMAIL_SEND_FAILED" });
+  }
+});
 
-  const token = createSession(userId);
-  res.json({ token, user: { id: userId, email, display_name: name || email.split("@")[0] } });
+// Generic response prevents account enumeration. The separate 3/hour/IP cap
+// and 60-second per-address cooldown prevent email bombing.
+router.post("/resend-verification", resendRateLimit, async (req: Request, res: Response) => {
+  const email = normalizeEmail(req.body?.email);
+  if (!email) return res.status(400).json({ error: "A valid email is required" });
+  if (!await requireTurnstile(req, res)) return;
+  try {
+    await resendPendingRegistration(email, normalizeContinuePath(req.body?.continuePath));
+    res.json({ message: "If a verification is pending for that address, a fresh link is on its way." });
+  } catch (error: any) {
+    console.error(`[auth] verification resend failed: ${error?.message || error}`);
+    res.status(503).json({ error: "We could not resend the verification email. Please try again later.", code: "EMAIL_SEND_FAILED" });
+  }
+});
+
+// Consume a database-hashed, single-use token and only then materialize the
+// active dashboard user. The user signs in with the password they chose.
+router.get("/verify-email", (req: Request, res: Response) => {
+  res.set("Cache-Control", "no-store");
+  const result = consumePendingRegistration(req.query.token);
+  if (result.ok) {
+    const next = normalizeContinuePath(req.query.next || result.continuePath);
+    return res.redirect(303, `${next}?email_verified=1`);
+  }
+  const reason = result.reason === "expired" ? "This verification link has expired." : "This verification link is invalid or has already been used.";
+  res.status(400).type("html").send(`<!doctype html><html><head><meta name="viewport" content="width=device-width"><title>Email verification</title></head><body style="margin:0;background:#112d32;color:#f7ead1;font-family:Arial,sans-serif"><main style="max-width:520px;margin:12vh auto;padding:32px"><div style="color:#F6AF56;font-weight:700;margin-bottom:28px">PALMYR</div><h1>Could not verify email</h1><p style="color:rgba(247,234,209,.7);line-height:1.6">${reason} Return to sign up and request a new one.</p><a href="/dashboard.html" style="color:#F6AF56">Back to Palmyr</a></main></body></html>`);
 });
 
 // POST /auth/login — email/password login
 router.post("/login", (req: Request, res: Response) => {
-  const { email, password } = req.body || {};
-  if (!email || !password) return res.status(400).json({ error: "email and password required" });
+  const email = normalizeEmail(req.body?.email);
+  const password = req.body?.password;
+  if (!email || typeof password !== "string") return res.status(400).json({ error: "email and password required" });
 
-  const user = db.prepare("SELECT * FROM dashboard_users WHERE email = ?").get(email.toLowerCase()) as any;
+  const user = db.prepare("SELECT * FROM dashboard_users WHERE email = ?").get(email) as any;
   if (!user || !user.password_hash) return res.status(401).json({ error: "Invalid email or password" });
   if (!verifyPassword(password, user.password_hash)) return res.status(401).json({ error: "Invalid email or password" });
+  if (!user.email_verified_at) return res.status(403).json({ error: "Verify your email before signing in", code: "EMAIL_NOT_VERIFIED" });
 
   // Silently upgrade legacy SHA-256 hashes to scrypt on successful login.
   if (isLegacyHash(user.password_hash)) {

@@ -21,6 +21,7 @@ interface RateLimitEntry {
 // clientIp(), which trusts only the CF-edge IP a caller cannot forge through
 // the tunnel — never a raw inbound header.
 const store = new Map<string, RateLimitEntry>();
+let nextLimiterId = 0;
 
 // Cleanup stale entries every 5 minutes. unref: a housekeeping timer must
 // not keep the process alive (tests importing route files would hang).
@@ -39,13 +40,20 @@ setInterval(() => {
  * @param windowMs     Window duration in milliseconds
  */
 export function rateLimit(maxRequests: number = 10, windowMs: number = 60_000) {
+  // Every limiter needs its own namespace. Without this, the global 200/min
+  // middleware and a route-specific 5/hour limiter increment the SAME entry,
+  // so ordinary page/API traffic can exhaust the signup bucket (and each
+  // signup is counted twice). The identity/IP is still the caller dimension;
+  // limiterId separates independently configured policies.
+  const limiterId = ++nextLimiterId;
   return (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
     // Authenticated identity first: req.agentId / req.payment.payer are set by
     // trusted middleware earlier in the pipeline. The IP fallback uses
     // clientIp() (CF-Connecting-IP behind the tunnel, else req.ip) — without it
     // every caller collapses to 127.0.0.1 in prod. We still NEVER trust a raw
     // X-Forwarded-* header (forgeable); CF-Connecting-IP is edge-controlled.
-    const key = req.agentId || req.payment?.payer || clientIp(req) || "unknown";
+    const identity = req.agentId || req.payment?.payer || clientIp(req) || "unknown";
+    const key = `${limiterId}:${identity}`;
     const now = Date.now();
 
     let entry = store.get(key);

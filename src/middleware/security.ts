@@ -20,11 +20,12 @@ export const securityHeaders = helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://plausible.palmyr.ai"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://plausible.palmyr.ai", "https://challenges.cloudflare.com"],
       scriptSrcAttr: ["'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:"],
       connectSrc: ["'self'", "http:", "https:"],
+      frameSrc: ["'self'", "https://challenges.cloudflare.com"],
     },
   },
   crossOriginEmbedderPolicy: false,
