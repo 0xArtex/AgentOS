@@ -30,6 +30,28 @@ import type { OpResult } from "./social-operations";
 export type XOpName = "avatar" | "banner";
 export type XOpJobStatus = "pending" | "running" | "done" | "failed";
 
+export interface XOpJobProgress {
+  step: string;
+  message: string;
+  updated_at: string;
+}
+
+export type XOpProgressReporter = (step: string, message: string) => void;
+type XOpRunner = (reportProgress: XOpProgressReporter) => Promise<OpResult<any>>;
+
+// Progress is intentionally ephemeral, just like the in-memory browser thunk.
+// A restart terminalizes the job through recovery, so there is no stale setup
+// state to resume. Completed entries expire to keep this bounded.
+const progressByJob = new Map<string, XOpJobProgress>();
+
+function setXOpProgress(jobId: string, step: string, message: string): void {
+  progressByJob.set(jobId, { step, message, updated_at: nowIso() });
+}
+
+export function getXOpJobProgress(jobId: string): XOpJobProgress | null {
+  return progressByJob.get(jobId) || null;
+}
+
 export interface XOpJobRow {
   id: string;
   op: XOpName;
@@ -103,7 +125,7 @@ export interface CreateXOpJobInput {
  */
 export function createXOpJob(
   input: CreateXOpJobInput,
-  run: () => Promise<OpResult<any>>,
+  run: XOpRunner,
   deps: XOpDeps = defaultDeps()
 ): XOpJobRow {
   const id = randomUUID();
@@ -123,11 +145,12 @@ export function createXOpJob(
     // recovery cutoff lexicographically — same trap noted in domain-registration.
     new Date().toISOString()
   );
+  setXOpProgress(id, "queued", "Warming up account");
   scheduleWorker(id, run, deps);
   return getXOpJob(id)!;
 }
 
-function scheduleWorker(id: string, run: () => Promise<OpResult<any>>, deps: XOpDeps): void {
+function scheduleWorker(id: string, run: XOpRunner, deps: XOpDeps): void {
   setImmediate(() => {
     runXOpJob(id, run, deps).catch((e) => {
       try {
@@ -143,7 +166,7 @@ function scheduleWorker(id: string, run: () => Promise<OpResult<any>>, deps: XOp
 
 export async function runXOpJob(
   jobId: string,
-  run: () => Promise<OpResult<any>>,
+  run: XOpRunner,
   deps: XOpDeps = defaultDeps()
 ): Promise<void> {
   const job = getXOpJob(jobId);
@@ -152,10 +175,11 @@ export async function runXOpJob(
 
   db.prepare("UPDATE x_op_jobs SET status='running', started_at=? WHERE id=? AND status='pending'")
     .run(nowIso(), jobId);
+  setXOpProgress(jobId, "warming_up", "Warming up account");
 
   let result: OpResult<any>;
   try {
-    result = await run();
+    result = await run((step, message) => setXOpProgress(jobId, step, message));
   } catch (e: any) {
     // The op threw. These ops are safe to retry, so fail + refund (no reconcile)
     // — the caller re-runs; re-setting the same avatar/banner is a no-op.
@@ -168,6 +192,9 @@ export async function runXOpJob(
   if (result.success) {
     db.prepare("UPDATE x_op_jobs SET status='done', result_json=?, completed_at=? WHERE id=?")
       .run(result.data != null ? JSON.stringify(result.data) : null, nowIso(), jobId);
+    setXOpProgress(jobId, "ready", "Account ready");
+    const cleanup = setTimeout(() => progressByJob.delete(jobId), 60 * 60 * 1000);
+    cleanup.unref?.();
     return;
   }
 
@@ -180,6 +207,9 @@ export async function runXOpJob(
 function markFailed(jobId: string, code: string, message: string): void {
   db.prepare("UPDATE x_op_jobs SET status='failed', error=?, error_code=?, completed_at=? WHERE id=?")
     .run(message, code, nowIso(), jobId);
+  setXOpProgress(jobId, "failed", "Setup needs attention");
+  const cleanup = setTimeout(() => progressByJob.delete(jobId), 60 * 60 * 1000);
+  cleanup.unref?.();
 }
 
 async function issueRefund(job: XOpJobRow, deps: XOpDeps, reason: string): Promise<void> {
