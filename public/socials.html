@@ -436,6 +436,7 @@ function renderAuth(){const t=$('topAuth'),sf=$('sideFoot');
 function openAuth(){document.getElementById('authScreen').classList.add('open');}
 function showAuthError(msg,ok=false){const el=$('authError');el.textContent=msg||'';el.classList.toggle('ok',!!ok);}
 function resetSignupTurnstile(){turnstileToken='';if(turnstileWidget!==null&&window.turnstile)window.turnstile.reset(turnstileWidget);}
+function showExistingAccountLogin(email,message){$('loginEmail').value=email;document.querySelector('.auth-tab[data-tab="login"]').click();showAuthError(message||'An account with this email already exists. Sign in instead.');$('loginPassword').focus();}
 async function initSignupProtection(){
   if(!signupConfig){try{const r=await fetch('/auth/config',{cache:'no-store'});signupConfig=await r.json();}catch(_){signupConfig={signupAvailable:false,turnstileSiteKey:''};}}
   if(!signupConfig.signupAvailable||!signupConfig.turnstileSiteKey){showAuthError('Sign-up is temporarily unavailable. Please use wallet sign-in or try again later.');return;}
@@ -457,7 +458,7 @@ $('authFormRegister').addEventListener('submit',async e=>{e.preventDefault();sho
   const email=$('regEmail').value.trim().toLowerCase();if(!turnstileToken){showAuthError('Complete the anti-bot check first.');return;}
   const resend=pendingVerificationEmail===email,button=e.currentTarget.querySelector('button[type="submit"]');button.disabled=true;button.textContent=resend?'SENDING...':'CREATING...';
   try{const path=resend?'/auth/resend-verification':'/auth/register';const body=resend?{email,turnstileToken,continuePath:'/socials'}:{name:$('regName').value,email,password:$('regPassword').value,turnstileToken,continuePath:'/socials'};
-    const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok){showAuthError(d.error||'Registration failed');return;}
+    const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();if(!r.ok){if(d.code==='ACCOUNT_EXISTS'){showExistingAccountLogin(email,d.error);return;}showAuthError(d.error||'Registration failed');return;}
     pendingVerificationEmail=email;$('regPassword').value='';showAuthError(d.message||'Check your inbox for the verification link.',true);}catch(_){showAuthError('Network error');}
   finally{resetSignupTurnstile();button.disabled=false;button.textContent=pendingVerificationEmail===email?'RESEND VERIFICATION':'CREATE ACCOUNT';}});
 $('regEmail').addEventListener('input',e=>{if(e.target.value.trim().toLowerCase()!==pendingVerificationEmail)e.target.form.querySelector('button[type="submit"]').textContent='CREATE ACCOUNT';});

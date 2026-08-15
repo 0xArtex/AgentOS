@@ -81,6 +81,13 @@ test("register + verify email + login round-trip works (scrypt maxmem)", async (
     assert.equal(login.status, 200, `login should succeed, got ${login.status}: ${JSON.stringify(loginBody)}`);
     assert.ok(loginBody.token);
 
+    const duplicate = await call("/auth/register", { email, password, name: "Diag", turnstileToken: "valid-turnstile-token" });
+    const duplicateBody: any = await duplicate.json().catch(() => ({}));
+    assert.equal(duplicate.status, 409, "an existing account is directed to sign in");
+    assert.equal(duplicateBody.code, "ACCOUNT_EXISTS");
+    assert.equal(duplicateBody.login_required, true);
+    assert.match(duplicateBody.error, /sign in/i);
+
     const bad = await call("/auth/login", { email, password: "wrong-password-xyz" });
     assert.equal(bad.status, 401, "a wrong password is rejected, not 500");
   } finally {
