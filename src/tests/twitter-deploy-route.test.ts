@@ -173,6 +173,18 @@ describe("POST /social/twitter/deploy", () => {
     const row = db.prepare("SELECT status FROM social_account_pool WHERE id = ?").get(`xd_badbio_${SUFFIX}`) as any;
     assert.equal(row.status, "ready", "a typo must not consume a scarce account");
   });
+
+  it("refunds an invalid requested username before leasing", async () => {
+    const id = `xd_baduser_${SUFFIX}`;
+    seedPool({ id, country: "ZY" });
+    const r = await post("/social/twitter/deploy", BUYER, { country: "ZY", username: "not-valid-handle" });
+    assert.equal(r.status, 400);
+    assert.equal(r.json.error_code, "INVALID_INPUT");
+    assert.match(r.json.message, /username must be 4-15 chars/i);
+    assertRefunded(r, BUYER);
+    const row = db.prepare("SELECT status FROM social_account_pool WHERE id = ?").get(id) as any;
+    assert.equal(row.status, "ready", "an invalid username must not consume an account");
+  });
 });
 
 describe("GET /social/twitter/pool/stock", () => {

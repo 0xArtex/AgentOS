@@ -1601,7 +1601,7 @@ router.post(
 );
 
 // POST /social/twitter/deploy — the one-click X account (the storefront's buy).
-// Pay, and a ready pool account becomes YOURS and is rebranded (name/bio/photo)
+// Pay, and a ready pool account becomes YOURS and is rebranded (name/username/bio/photo)
 // server-side in one step. Unlike /twitter/buy — which hands you the raw creds —
 // deploy keeps the session on the box: you own it by id and your agent drives it
 // through the /twitter/* ops with no cookies to carry (validateOpBody hydrates
@@ -1614,7 +1614,7 @@ router.post(
   requireXEnabled,
   validateBuyFilters,
   requireAuth(resolveBuyPrice, "general", {
-    description: "Deploy a ready-to-use X/Twitter account from the pool — pay, and it's yours and rebranded (name/bio/photo) in one click. You own it by id; your agent drives it with the other twitter ops, no cookies to carry.",
+    description: "Deploy a ready-to-use X/Twitter account from the pool — pay, and it's yours and rebranded (name/username/bio/photo) in one click. You own it by id; your agent drives it with the other twitter ops, no cookies to carry.",
     category: "social",
     tags: ["twitter", "x", "deploy", "account", "launch", "one-click"],
   }),
@@ -1624,9 +1624,10 @@ router.post(
       res.status(401).json({ error: "Unauthenticated", message: "A wallet or dashboard identity is required to own an account." });
       return;
     }
-    const { country, display_name, bio, location, website, image_base64, image_url } = (req.body || {}) as {
-      country?: string; display_name?: string; bio?: string; location?: string; website?: string; image_base64?: string; image_url?: string;
+    const { country, display_name, username, bio, location, website, image_base64, image_url } = (req.body || {}) as {
+      country?: string; display_name?: string; username?: string; bio?: string; location?: string; website?: string; image_base64?: string; image_url?: string;
     };
+    const requestedUsername = typeof username === "string" ? username.replace(/^@/, "").trim() : username;
 
     const decline = async (httpStatus: number, errorLabel: string, msg: string, extra: Record<string, unknown> = {}) => {
       if (req.payment) {
@@ -1644,6 +1645,10 @@ router.post(
     }
     if (bio !== undefined && (typeof bio !== "string" || bio.length > 160)) {
       await decline(400, "Invalid input", "bio must be <=160 chars", { error_code: "INVALID_INPUT" });
+      return;
+    }
+    if (requestedUsername !== undefined && (typeof requestedUsername !== "string" || !/^[A-Za-z0-9_]{4,15}$/.test(requestedUsername))) {
+      await decline(400, "Invalid input", "username must be 4-15 chars using only letters, numbers, or underscores", { error_code: "INVALID_INPUT" });
       return;
     }
 
@@ -1674,7 +1679,8 @@ router.post(
       let rebrand: { operation_id: string; poll_url: string } | null = null;
       const wantsProfile = display_name !== undefined || bio !== undefined || location !== undefined || website !== undefined;
       const wantsAvatar = Boolean(image_base64 || image_url);
-      if (wantsProfile || wantsAvatar) {
+      const wantsUsername = requestedUsername !== undefined;
+      if (wantsProfile || wantsAvatar || wantsUsername) {
         const job = createXOpJob(
           { op: "avatar", account_id: acct.id, owner: String(owner), paymentSignature: null, paymentChain: null, chargedUsdc: null },
           async () => {
@@ -1688,6 +1694,13 @@ router.post(
               const a = await updateAvatar({ account_id: acct.id, proxy_session_id: acct.proxy_session_id, cookies: acct.cookies, image_base64, image_url });
               if (a.success) applied.push("avatar"); else errors.push(`avatar: ${a.error || "failed"}`);
             }
+            // Rename last so the original handle remains usable throughout the
+            // profile/avatar steps. X may request password re-auth; the pool
+            // credential stays server-side and is never returned to the buyer.
+            if (wantsUsername) {
+              const u = await changeUsername({ account_id: acct.id, proxy_session_id: acct.proxy_session_id, cookies: acct.cookies, new_username: requestedUsername!, password: acct.credentials.password });
+              if (u.success) applied.push("username"); else errors.push(`username: ${u.error || "failed"}`);
+            }
             if (applied.length === 0 && errors.length > 0) return { success: false, error: errors.join("; ") };
             return { success: true, data: { applied, ...(errors.length ? { partial_errors: errors } : {}) } };
           },
@@ -1698,13 +1711,14 @@ router.post(
       res.status(202).json({
         account_id: acct.id,
         handle: acct.username,
+        requested_handle: requestedUsername,
         country: acct.country,
         owner: String(owner),
         deployed: true,
         rebrand,
         message:
           "Your X account is deployed and yours. " +
-          (rebrand ? "Applying your name/bio/photo now — poll rebrand.poll_url until it's done. " : "") +
+          (rebrand ? "Applying your name/username/bio/photo now — poll rebrand.poll_url until it's done. " : "") +
           "Drive it with the twitter ops (post/reply/follow/profile/avatar) using this account_id — no cookies to carry.",
       });
     } catch (err: any) {

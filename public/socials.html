@@ -90,12 +90,13 @@
 
     /* ── Grid ── */
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(214px,1fr));gap:16px;margin-top:22px}
-    .card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;min-height:214px;display:flex;flex-direction:column;transition:transform .22s cubic-bezier(.2,.7,.3,1),border-color .22s;cursor:pointer;opacity:0;transform:translateY(6px);animation:rise .45s forwards}
+    .card{position:relative;background:var(--card);border:1px solid var(--line);border-radius:var(--radius);padding:20px;min-height:214px;display:flex;flex-direction:column;transition:transform .22s cubic-bezier(.2,.7,.3,1),border-color .22s;cursor:pointer;opacity:0;transform:translateY(6px);animation:rise .45s forwards;overflow:hidden}
     @keyframes rise{to{opacity:1;transform:none}}
     .card:hover{transform:translateY(-3px);border-color:rgba(246,175,86,.32)}
     .card .pbadge{position:absolute;top:15px;right:15px;width:22px;height:22px;border-radius:6px;display:grid;place-items:center;background:rgba(247,234,209,.05);border:1px solid var(--line);color:var(--fg-dim)}
     .card .pbadge svg{width:12px;height:12px}
-    .card .av{width:64px;height:64px;border-radius:50%;object-fit:cover;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink);font-weight:600;font-size:25px;font-family:var(--serif);margin-bottom:15px;border:1px solid rgba(247,234,209,.12)}
+    .card .av{width:64px;height:64px;border-radius:50%;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink);font-weight:600;font-size:25px;font-family:var(--serif);margin-bottom:15px;border:1px solid rgba(247,234,209,.12);overflow:hidden;flex:0 0 auto}
+    .card .av img{display:block;width:100%;height:100%;object-fit:cover;border-radius:inherit}
     .card .nm{font-weight:600;font-size:16px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .card .hd{color:var(--muted);font-size:12.5px;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .card .foot{margin-top:auto;display:flex;align-items:center;gap:8px;padding-top:15px}
@@ -127,6 +128,9 @@
     @keyframes pop{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
     .mhead{display:flex;align-items:center;justify-content:space-between;padding:22px 24px 4px}
     .mhead h3{font-family:var(--serif);font-weight:600;font-size:26px;margin:0;letter-spacing:-.01em}
+    .create-title{display:flex;align-items:center;gap:9px;min-width:0}
+    .create-title-icon{width:27px;height:27px;border-radius:7px;display:grid;place-items:center;flex:0 0 auto;background:rgba(247,234,209,.05);border:1px solid var(--line);color:var(--fg-dim)}
+    .create-title-icon svg{width:13px;height:13px}
     .x{background:transparent;border:none;color:var(--muted);font-size:14px;padding:6px;border-radius:8px;line-height:0}
     .x:hover{color:var(--fg);background:rgba(247,234,209,.06)}
     .mbody{padding:14px 24px 24px}
@@ -146,12 +150,15 @@
     .dz.filled{border-style:solid}
     .dztext{font-size:12.5px;color:var(--muted)}
     .dztext b{color:var(--fg-dim);font-weight:600;display:block;margin-bottom:2px}
+    .identity-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .identity-grid>div{min-width:0}
     .launch{width:100%;margin-top:22px;padding:13px;font-size:15px;border-radius:100px;display:flex;align-items:center;justify-content:center;gap:10px}
     .launch .price{background:rgba(17,45,50,.24);padding:2px 11px;border-radius:100px;font-size:13.5px;font-family:var(--mono)}
     .note{font-size:12px;color:var(--muted);text-align:center;margin-top:13px;line-height:1.55}
 
     .spin{width:16px;height:16px;border:2px solid rgba(17,45,50,.3);border-top-color:currentColor;border-radius:50%;display:inline-block;animation:sp .7s linear infinite}
     @keyframes sp{to{transform:rotate(360deg)}}
+    @media(max-width:560px){.identity-grid{grid-template-columns:1fr}}
 
     .tabs{display:flex;gap:5px;background:var(--surface);border-radius:100px;padding:5px;margin-bottom:4px}
     .tabs button{flex:1;background:transparent;border:none;color:var(--muted);padding:9px;border-radius:100px;font-weight:600;font-size:14px}
@@ -330,7 +337,7 @@
 
   <div class="scrim" id="createScrim">
     <div class="modal lg">
-      <div class="mhead"><h3 id="createTitle">Deploy an account</h3><button class="x" data-close aria-label="Close deploy modal">✕</button></div>
+      <div class="mhead"><div class="create-title"><span class="create-title-icon" id="createPlatformIcon" aria-hidden="true"></span><h3 id="createTitle">Deploy an account</h3></div><button class="x" data-close aria-label="Close deploy modal">✕</button></div>
       <div class="mbody">
         <label>Profile photo</label>
         <div class="drop">
@@ -338,8 +345,11 @@
           <div class="dztext"><b>Give it a face</b>PNG, JPG or WEBP, up to 10&nbsp;MB. Square looks best. Optional.</div>
           <input type="file" id="avaInput" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="onAvatar(event)" />
         </div>
-        <label>Display name <span class="ct" id="nmCt">0/50</span></label>
-        <input type="text" id="dName" placeholder="e.g. Olive & Ash" maxlength="50" oninput="clampName()" />
+        <div class="identity-grid">
+          <div><label>Display name <span class="ct" id="nmCt">0/50</span></label><input type="text" id="dName" placeholder="e.g. Olive & Ash" maxlength="50" oninput="clampName()" /></div>
+          <div><label>Username <span class="ct" id="unCt">0/15</span></label><input type="text" id="dUsername" placeholder="e.g. oliveandash" maxlength="16" autocapitalize="none" autocomplete="off" spellcheck="false" oninput="clampUsername()" /></div>
+        </div>
+        <p class="hint">Optional · 4–15 letters, numbers or underscores. You can omit the @.</p>
         <label>Bio <span class="ct" id="bioCt">0/160</span></label>
         <textarea id="dBio" placeholder="One line about the account" maxlength="160" oninput="clampBio()"></textarea>
         <label>Market <span class="ct">picks the account's country</span></label>
@@ -481,19 +491,21 @@ async function loadAccounts(){if(!token){accounts=[];return;}const {ok,body}=awa
 async function loadStock(){const {ok,body}=await api(P().stock);stock=ok?body:{total:0,by_country:{}};}
 
 /* ───────────── grid ───────────── */
-const savKey=id=>'sav_'+PLATFORM+'_'+id,snmKey=id=>'snm_'+PLATFORM+'_'+id;
+const savKey=id=>'sav_'+PLATFORM+'_'+id,snmKey=id=>'snm_'+PLATFORM+'_'+id,sunKey=id=>'sun_'+PLATFORM+'_'+id;
 function cachedAvatar(id){return localStorage.getItem(savKey(id));}
 function cachedName(id){return localStorage.getItem(snmKey(id));}
+function cachedUsername(id){return localStorage.getItem(sunKey(id));}
 function renderGrid(){
   const g=$('grid');const cards=[];const known=new Set(accounts.map(a=>a.account_id));
-  const opt=Object.entries(optimistic).filter(([id,o])=>o.platform===PLATFORM&&!known.has(id)).map(([id,o])=>({account_id:id,handle:o.name,status:'connecting',_opt:o}));
+  const opt=Object.entries(optimistic).filter(([id,o])=>o.platform===PLATFORM&&!known.has(id)).map(([id,o])=>({account_id:id,handle:o.handle||o.name,status:'connecting',_opt:o}));
   const list=[...opt,...accounts];
   if(me&&list.length===0)cards.push(`<div class="empty">No ${P().label} accounts yet — deploy your first one with the +.</div>`);
   list.forEach((a,i)=>{
-    const name=(a._opt&&a._opt.name)||cachedName(a.account_id)||a.handle||a.account_id.slice(0,10);
+    const name=(a._opt&&a._opt.name)||cachedName(a.account_id)||cachedUsername(a.account_id)||a.handle||a.account_id.slice(0,10);
     const ava=(a._opt&&a._opt.avatar)||cachedAvatar(a.account_id);
     const busy=a._opt&&a._opt.deploying,st=a.status||'connecting';
-    const showHandle=(a.handle&&a.handle!==a.account_id)?'@'+a.handle:'';
+    const handle=(a._opt&&a._opt.handle)||cachedUsername(a.account_id)||a.handle;
+    const showHandle=(handle&&handle!==a.account_id)?'@'+handle:'';
     cards.push(`<div class="card" style="animation-delay:${i*40}ms" onclick='openDetail(${JSON.stringify(a.account_id)})'>
       <div class="pbadge">${P().icon}</div>
       <div class="av">${ava?`<img src="${ava}" alt=""/>`:initials(name)}</div>
@@ -510,14 +522,15 @@ function renderStockLine(){/* stockline removed from the UI */}
 
 /* ───────────── create / deploy ───────────── */
 function clampName(){const el=$('dName');if(el.value.length>P().nameMax)el.value=el.value.slice(0,P().nameMax);$('nmCt').textContent=el.value.length+'/'+P().nameMax;}
+function clampUsername(){const el=$('dUsername');el.value=el.value.replace(/^@+/,'').replace(/[^A-Za-z0-9_]/g,'').slice(0,15);$('unCt').textContent=el.value.length+'/15';}
 function clampBio(){const el=$('dBio');if(el.value.length>P().bioMax)el.value=el.value.slice(0,P().bioMax);$('bioCt').textContent=el.value.length+'/'+P().bioMax;}
 function refreshPrice(){const c=$('dCountry').value;$('launchPrice').textContent=money(priceFor(c));$('createStock').textContent=stock.total>0?`${stock.total} ${P().label} account(s) in the pool · charged only on delivery`:'No stock ready this moment — a deploy will refund if none is available.';}
 function onAddClick(){
   if(!me){openAuth();return;}
-  pendingAvatar=null;$('dName').value='';$('dBio').value='';$('nmCt').textContent='0/'+P().nameMax;$('bioCt').textContent='0/'+P().bioMax;
+  pendingAvatar=null;$('dName').value='';$('dUsername').value='';$('dBio').value='';$('nmCt').textContent='0/'+P().nameMax;$('unCt').textContent='0/15';$('bioCt').textContent='0/'+P().bioMax;
   $('dName').maxLength=P().nameMax;$('dBio').maxLength=P().bioMax;
   $('dz').classList.remove('filled');$('dz').innerHTML='<span class="ph">Click to<br/>upload</span>';
-  $('createTitle').textContent='Deploy a '+P().label+' account';$('launchLabel').textContent='Deploy account';
+  $('createPlatformIcon').innerHTML=P().icon;$('createTitle').textContent='Deploy '+(P().label==='X'?'an ':'a ')+P().label+' account';$('launchLabel').textContent='Deploy account';
   const sel=$('dCountry');const inStock=Object.keys(stock.by_country||{}).filter(c=>c!=='?');
   let opts=`<option value="">Any market (recommended)</option>`;
   for(const c of inStock)opts+=`<option value="${c}">${CNAMES[c]||c} (${c}) · ${stockCount(c)} ready · ${money(priceFor(c))}</option>`;
@@ -528,24 +541,26 @@ function onAvatar(e){const f=e.target.files[0];if(!f)return;if(f.size>10*1024*10
   const r=new FileReader();r.onload=()=>{pendingAvatar=r.result;const dz=$('dz');dz.classList.add('filled');dz.innerHTML=`<img src="${pendingAvatar}" alt=""/>`;};r.readAsDataURL(f);}
 async function deploy(){
   if(!me){openAuth();return;}
+  const nm=$('dName').value.trim(),username=$('dUsername').value.trim().replace(/^@/,'');
+  if(username&&!/^[A-Za-z0-9_]{4,15}$/.test(username)){toast('Username must be 4–15 letters, numbers or underscores.','err');$('dUsername').focus();return;}
   const btn=$('launchBtn');btn.disabled=true;const old=btn.innerHTML;btn.innerHTML='<span class="spin"></span> Deploying…';
-  const nm=$('dName').value.trim(),bio=$('dBio').value,ctry=$('dCountry').value;
-  const payload={};if(nm)payload.display_name=nm;if(bio.trim())payload.bio=bio;if(ctry)payload.country=ctry;if(pendingAvatar)payload.image_base64=pendingAvatar;
+  const bio=$('dBio').value,ctry=$('dCountry').value;
+  const payload={};if(nm)payload.display_name=nm;if(username)payload.username=username;if(bio.trim())payload.bio=bio;if(ctry)payload.country=ctry;if(pendingAvatar)payload.image_base64=pendingAvatar;
   const {ok,status,body}=await api(P().deploy,{method:'POST',headers:authHeaders(true),body:JSON.stringify(payload)});
   btn.disabled=false;btn.innerHTML=old;
   if(status===402||body.code==='insufficient_balance'){closeScrim('createScrim');toast(`Need ${money(body.required||priceFor(ctry))} — balance is ${money(body.balance!=null?body.balance:balance)}. Top up to deploy.`,'err');openTopup();return;}
   if(status===409||body.available===false){toast(body.message||'No accounts available — try Any market.','err');return;}
   if(!ok){toast(body.message||body.error||'Deploy failed','err');return;}
-  const id=body.account_id;if(nm)localStorage.setItem(snmKey(id),nm);if(pendingAvatar)localStorage.setItem(savKey(id),pendingAvatar);
-  optimistic[id]={platform:PLATFORM,name:nm||body.handle||'New account',avatar:pendingAvatar,deploying:!!body.rebrand};
+  const id=body.account_id;try{if(nm)localStorage.setItem(snmKey(id),nm);if(pendingAvatar)localStorage.setItem(savKey(id),pendingAvatar);}catch(_){/* large uploads can exceed browser storage; keep the live preview */}
+  optimistic[id]={platform:PLATFORM,name:nm||username||body.handle||'New account',handle:username||body.handle,requestedHandle:username,avatar:pendingAvatar,deploying:!!body.rebrand};
   closeScrim('createScrim');await loadBalance();renderAuth();await refresh();
-  toast('🎉 '+P().label+' account deployed and yours!'+(body.rebrand?' Applying your name & photo…':''),'ok');
-  if(body.rebrand&&body.rebrand.operation_id)pollRebrand(id,body.rebrand.poll_url||('/social/'+PLATFORM+'/operations/'+body.rebrand.operation_id));
+  toast('🎉 '+P().label+' account deployed and yours!'+(body.rebrand?' Applying your profile…':''),'ok');
+  if(body.rebrand&&body.rebrand.operation_id)pollRebrand(id,body.rebrand.poll_url||('/social/'+PLATFORM+'/operations/'+body.rebrand.operation_id),username);
 }
-async function pollRebrand(accountId,pollUrl){let tries=0;const iv=setInterval(async()=>{tries++;
+async function pollRebrand(accountId,pollUrl,requestedHandle){let tries=0;const iv=setInterval(async()=>{tries++;
   const {ok,body}=await api(pollUrl);
   if(ok&&body.done){clearInterval(iv);if(optimistic[accountId])optimistic[accountId].deploying=false;
-    if(body.status==='done'){const ap=(body.result&&body.result.applied)||[];toast('✨ '+(ap.length?ap.join(' + ')+' applied':'Profile set')+'.','ok');}
+    if(body.status==='done'){const ap=(body.result&&body.result.applied)||[],errs=(body.result&&body.result.partial_errors)||[];if(requestedHandle&&ap.includes('username'))try{localStorage.setItem(sunKey(accountId),requestedHandle);}catch(_){}toast('✨ '+(ap.length?ap.join(' + ')+' applied':'Profile set')+'.','ok');if(errs.length)toast('Account is live, but '+errs.join('; '), 'err');}
     else toast("Account is live, but branding didn't finish — open it to retry.","err");
     await refresh();}
   if(tries>30)clearInterval(iv);},5000);}
@@ -553,7 +568,8 @@ async function pollRebrand(accountId,pollUrl){let tries=0;const iv=setInterval(a
 /* ───────────── detail ───────────── */
 function openDetail(id){
   const a=accounts.find(x=>x.account_id===id)||{account_id:id,status:'connecting'};
-  const name=cachedName(id)||(a.handle&&a.handle!==id?a.handle:'')||(P().label+' account');
+  const name=cachedName(id)||cachedUsername(id)||(a.handle&&a.handle!==id?a.handle:'')||(P().label+' account');
+  const handle=cachedUsername(id)||a.handle;
   const ava=cachedAvatar(id);const origin=location.origin;
   const snippet=`curl -X POST ${origin}${P().opHint} \\\n  -H "Authorization: Bearer <your Palmyr session>" \\\n  -H "Content-Type: application/json" \\\n  -d '${P().opBody.replace('ID',id)}'`;
   const rows=[
@@ -562,7 +578,7 @@ function openDetail(id){
     ['Status',`<span class="sdot ${a.status||'connecting'}" style="display:inline-block;margin-right:6px"></span>${a.status||'connecting'}`],
     ['Market',a.country?String(a.country).toUpperCase():'—'],
   ];
-  if(a.handle&&a.handle!==id)rows.splice(1,0,['Handle','@'+esc(a.handle)]);
+  if(handle&&handle!==id)rows.splice(1,0,['Handle','@'+esc(handle)]);
   $('detailInner').innerHTML=`
     <div class="mhead"><h3>Account</h3><button class="x" onclick="closeScrim('detailScrim')">✕</button></div>
     <div class="mbody">
