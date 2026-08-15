@@ -123,10 +123,17 @@ router.post("/register", signupRateLimit, async (req: Request, res: Response) =>
   if (displayName.length > 80) return res.status(400).json({ error: "Name must be at most 80 characters" });
   if (!await requireTurnstile(req, res)) return;
 
-  // Deliberately indistinguishable from a new address, so registration cannot
-  // be used as an account-enumeration oracle.
+  // Turnstile and the per-IP signup limit run before this lookup, which keeps
+  // automated enumeration expensive while giving real users the conventional
+  // and much clearer "sign in instead" path.
   const existing = db.prepare("SELECT id FROM dashboard_users WHERE email = ?").get(email);
-  if (existing) return res.status(202).json({ verification_required: true, message: VERIFY_MESSAGE });
+  if (existing) {
+    return res.status(409).json({
+      error: "An account with this email already exists. Sign in instead.",
+      code: "ACCOUNT_EXISTS",
+      login_required: true,
+    });
+  }
 
   try {
     cleanupExpiredPendingRegistrations();

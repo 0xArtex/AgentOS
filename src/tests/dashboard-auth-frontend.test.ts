@@ -11,6 +11,10 @@ for (const file of ["public/dashboard.html", "public/socials.html"]) {
     assert.match(html, /turnstileToken/);
     assert.match(html, /continuePath/);
     assert.match(html, /RESEND VERIFICATION/);
+    assert.match(html, /ACCOUNT_EXISTS/);
+    assert.match(html, /showExistingAccountLogin\(email,d\.error\)/);
+    assert.match(html, /loginEmail/);
+    assert.match(html, /auth-tab\[data-tab=["']login["']\]/);
     assert.match(html, /Password \(min 10 chars\)/);
     assert.doesNotMatch(html, /Password \(min 6 chars\)/);
 

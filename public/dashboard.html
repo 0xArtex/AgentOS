@@ -793,6 +793,12 @@ function authHeaders(){
 
 function showAuthError(msg,ok=false){const el=document.getElementById('authError');el.textContent=msg;el.classList.toggle('ok',!!ok);}
 function resetSignupTurnstile(){_turnstileToken='';if(_turnstileWidget!==null&&window.turnstile)window.turnstile.reset(_turnstileWidget);}
+function showExistingAccountLogin(email,message){
+  document.getElementById('loginEmail').value=email;
+  document.querySelector('.auth-tab[data-tab="login"]').click();
+  showAuthError(message||'An account with this email already exists. Sign in instead.');
+  document.getElementById('loginPassword').focus();
+}
 async function initSignupProtection(){
   if(!_signupConfig){
     try{const r=await fetch('/auth/config',{cache:'no-store'});_signupConfig=await r.json();}
@@ -851,7 +857,7 @@ document.getElementById('authFormRegister').addEventListener('submit',async e=>{
     const body=resend?{email,turnstileToken:_turnstileToken,continuePath:'/dashboard.html'}:{name,email,password,turnstileToken:_turnstileToken,continuePath:'/dashboard.html'};
     const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});
     const d=await r.json();
-    if(!r.ok){showAuthError(d.error||'Registration failed');return;}
+    if(!r.ok){if(d.code==='ACCOUNT_EXISTS'){showExistingAccountLogin(email,d.error);return;}showAuthError(d.error||'Registration failed');return;}
     _pendingVerificationEmail=email;
     document.getElementById('regPassword').value='';
     showAuthError(d.message||'Check your inbox for the verification link.',true);
