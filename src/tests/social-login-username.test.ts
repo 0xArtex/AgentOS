@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   loginFailureForPhase,
+  selectLoginInput,
   TWITTER_PASSWORD_SELECTOR,
   usernameFromProfileHref,
 } from "../services/social-login";
@@ -32,4 +33,20 @@ test("every X password selector branch excludes aria-hidden autofill decoys", ()
   const branches = TWITTER_PASSWORD_SELECTOR.split(",").map((value) => value.trim());
   assert.ok(branches.length >= 2);
   assert.ok(branches.every((value) => value.includes(':not([aria-hidden="true"])')));
+});
+
+test("selectLoginInput prefers the stable live-modal locator", async () => {
+  const layered = { waitFor: async () => {} };
+  const page = {
+    locator: (selector: string) => {
+      assert.equal(selector, "#layers");
+      return {
+        locator: (inputSelector: string) => {
+          assert.equal(inputSelector, "input[name=user]");
+          return { last: () => layered };
+        },
+      };
+    },
+  };
+  assert.equal(await selectLoginInput(page, "input[name=user]", "user"), layered);
 });
