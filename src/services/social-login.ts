@@ -108,6 +108,8 @@ export interface TwitterLoginRequest {
 export interface TwitterLoginResult {
   success: boolean;
   cookies?: any[];
+  /** Authenticated @handle discovered from X's profile navigation link. */
+  username?: string;
   captured_at?: string;
   error?: string;
   error_code?:
@@ -127,6 +129,44 @@ export interface TwitterLoginResult {
     page_text_excerpt?: string;
     screenshot_path?: string;
   };
+}
+
+const X_RESERVED_PATHS = new Set([
+  "compose",
+  "explore",
+  "home",
+  "i",
+  "login",
+  "messages",
+  "notifications",
+  "search",
+  "settings",
+]);
+
+/** Parse an authenticated profile navigation href without accepting X routes. */
+export function usernameFromProfileHref(href?: string | null): string | undefined {
+  if (!href) return undefined;
+  try {
+    const url = new URL(href, "https://x.com");
+    const hostname = url.hostname.toLowerCase();
+    if (hostname !== "x.com" && hostname !== "www.x.com" && hostname !== "twitter.com" && hostname !== "www.twitter.com") {
+      return undefined;
+    }
+    const segments = url.pathname.split("/").filter(Boolean);
+    if (segments.length !== 1) return undefined;
+    const username = decodeURIComponent(segments[0]).replace(/^@/, "");
+    if (!/^[A-Za-z0-9_]{1,15}$/.test(username)) return undefined;
+    if (X_RESERVED_PATHS.has(username.toLowerCase())) return undefined;
+    return username;
+  } catch {
+    return undefined;
+  }
+}
+
+async function detectAuthenticatedUsername(page: any): Promise<string | undefined> {
+  const profileLink = page.locator('a[data-testid="AppTabBar_Profile_Link"]').first();
+  await profileLink.waitFor({ state: "attached", timeout: 12000 }).catch(() => {});
+  return usernameFromProfileHref(await profileLink.getAttribute("href").catch(() => null));
 }
 
 export async function loginTwitter(
@@ -231,9 +271,11 @@ export async function loginTwitter(
         .catch(() => {});
 
       const cookies = await ctx.cookies();
+      const username = await detectAuthenticatedUsername(page);
       return {
         success: true,
         cookies,
+        username,
         captured_at: new Date().toISOString(),
       };
     }
@@ -510,10 +552,12 @@ export async function loginTwitter(
 
     // ── We're in. Harvest cookies. ──
     const cookies = await ctx.cookies();
+    const username = await detectAuthenticatedUsername(page);
 
     return {
       success: true,
       cookies,
+      username,
       captured_at: new Date().toISOString(),
     };
   } catch (e: any) {
