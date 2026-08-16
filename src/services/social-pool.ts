@@ -175,6 +175,20 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
   }
 
   const cookies = loginResult.cookies || [];
+  const suppliedUsername = req.username.replace(/^@/, "").trim();
+  const detectedUsername = loginResult.username?.replace(/^@/, "").trim();
+  const username = detectedUsername || suppliedUsername;
+
+  // Some suppliers use the email address as the login and omit the X handle.
+  // Never persist that email (or another invalid placeholder) as a public
+  // username: the authenticated profile link is the source of truth.
+  if (!/^[A-Za-z0-9_]{1,15}$/.test(username)) {
+    return {
+      success: false,
+      error: "Seed login succeeded, but the authenticated X username could not be detected.",
+      login_error_code: "USERNAME_DETECTION_FAILED",
+    };
+  }
 
   // Profile detection via twitterapi.io — runs AFTER the seed login confirms
   // the account is alive. Country, source, rename history, and the richer
@@ -194,7 +208,7 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
   let detectedAffiliate: string | null = null;
   let detectedRestId: string | null = null;
   try {
-    const info = await getUserInfo(req.username);
+    const info = await getUserInfo(username);
     if (info) {
       detectedCountry = info.country;
       detectedLocation = info.location_raw;
@@ -208,7 +222,7 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
       detectedRestId = info.rest_id;
     }
   } catch (e: any) {
-    console.warn(`[pool] profile detection threw for @${req.username}:`, e?.message || e);
+    console.warn(`[pool] profile detection threw for @${username}:`, e?.message || e);
   }
 
   const adminCountry = req.country ? req.country.toUpperCase() : null;
@@ -236,7 +250,7 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
   ).run(
     id,
     req.platform,
-    req.username,
+    username,
     finalCountry,
     req.age_category || null,
     proxySessionId,
