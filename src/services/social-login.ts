@@ -79,6 +79,21 @@ async function tagInteractable(page: any, selector: string, tag: string): Promis
 }
 
 /**
+ * Prefer a stable selector inside X's live modal. The jetfuel flow can rerender
+ * an input immediately after it is tagged, which makes an attribute-based
+ * locator stale. The hit-tested tag remains a fallback for legacy layouts.
+ */
+export async function selectLoginInput(page: any, selector: string, tag: string): Promise<any | null> {
+  const layered = page.locator("#layers").locator(selector).last();
+  try {
+    await layered.waitFor({ state: "visible", timeout: 3000 });
+    return layered;
+  } catch {
+    return tagInteractable(page, selector, tag);
+  }
+}
+
+/**
  * Detect X's soft anti-automation interstitials ("We've temporarily limited
  * your login", unusual-activity, rate-limit) from visible page text, so they're
  * surfaced as RATE_LIMITED instead of a mystery "unknown flow".
@@ -367,7 +382,7 @@ export async function loginTwitter(
     }
 
     phase = "select_login_input";
-    const loginInput = await tagInteractable(page, USERNAME_SELECTOR, "user");
+    const loginInput = await selectLoginInput(page, USERNAME_SELECTOR, "user");
     if (!loginInput) {
       const diag = await snapshot("no-login-input");
       return {
@@ -481,7 +496,7 @@ export async function loginTwitter(
       const PW_SELECTOR = TWITTER_PASSWORD_SELECTOR;
       await page.locator(PW_SELECTOR).first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
       const pwInput =
-        (await tagInteractable(page, PW_SELECTOR, "pw")) ||
+        (await selectLoginInput(page, PW_SELECTOR, "pw")) ||
         page.locator(PW_SELECTOR).first();
       await pwInput.click();
       await pwInput.fill("");
@@ -570,7 +585,7 @@ export async function loginTwitter(
       // 2FA field can be dual-rendered too — target the real, topmost numeric
       // input rather than page.fill() (which throws on multiple matches).
       const otpInput =
-        (await tagInteractable(page, 'input[inputmode="numeric"]:not([aria-hidden="true"])', "otp")) ||
+        (await selectLoginInput(page, 'input[inputmode="numeric"]:not([aria-hidden="true"])', "otp")) ||
         page.locator('input[inputmode="numeric"]:not([aria-hidden="true"])').first();
       phase = "fill_totp";
       await otpInput.click().catch(() => {});
