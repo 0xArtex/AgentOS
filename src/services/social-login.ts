@@ -117,6 +117,38 @@ export async function inputHasExpectedValue(input: any, expected: string): Promi
 }
 
 /**
+ * Resolve and focus the topmost field synchronously, then type via the page
+ * keyboard. This survives X replacing the password node between locator
+ * resolution and interaction. Returns only a boolean verification result.
+ */
+export async function typeTopmostInput(
+  page: any,
+  selector: string,
+  value: string,
+  delay: number
+): Promise<boolean> {
+  const sel = JSON.stringify(selector);
+  const focused = await page.evaluate(`(() => {
+    const els = Array.from(document.querySelectorAll(${sel}));
+    const pick = els.find((el) => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height) return false;
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return top === el || el.contains(top);
+    });
+    if (!pick) return false;
+    pick.focus();
+    return document.activeElement === pick;
+  })()`).catch(() => false);
+  if (!focused) return false;
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Delete");
+  await page.keyboard.type(value, { delay });
+  const activeInput = page.locator("input:focus").last();
+  return inputHasExpectedValue(activeInput, value);
+}
+
+/**
  * Detect X's soft anti-automation interstitials ("We've temporarily limited
  * your login", unusual-activity, rate-limit) from visible page text, so they're
  * surfaced as RATE_LIMITED instead of a mystery "unknown flow".
@@ -518,12 +550,9 @@ export async function loginTwitter(
       // topmost password input, never the aria-hidden autofill bait.
       const PW_SELECTOR = TWITTER_PASSWORD_SELECTOR;
       await page.locator(PW_SELECTOR).first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
-      const pwInput =
-        (await selectLoginInput(page, PW_SELECTOR, "pw")) ||
-        page.locator(PW_SELECTOR).first();
-      await typeFocusedInput(page, pwInput, req.password, 40);
+      const passwordAccepted = await typeTopmostInput(page, PW_SELECTOR, req.password, 40);
       phase = "verify_password_input";
-      if (!(await inputHasExpectedValue(pwInput, req.password))) {
+      if (!passwordAccepted) {
         return {
           success: false,
           error: "X's password field did not retain the entered value; login was not submitted.",

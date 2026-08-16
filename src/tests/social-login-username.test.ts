@@ -5,6 +5,7 @@ import {
   inputHasExpectedValue,
   selectLoginInput,
   typeFocusedInput,
+  typeTopmostInput,
   TWITTER_PASSWORD_SELECTOR,
   usernameFromProfileHref,
 } from "../services/social-login";
@@ -73,4 +74,22 @@ test("inputHasExpectedValue compares password input without exposing its value",
   const input = { inputValue: async () => "secret-value" };
   assert.equal(await inputHasExpectedValue(input, "secret-value"), true);
   assert.equal(await inputHasExpectedValue(input, "different-value"), false);
+});
+
+test("typeTopmostInput verifies the focused live field before submission", async () => {
+  const actions: string[] = [];
+  const activeInput = { inputValue: async () => "secret-value" };
+  const page = {
+    evaluate: async () => true,
+    keyboard: {
+      press: async (key: string) => { actions.push(`press:${key}`); },
+      type: async (_value: string, options: { delay: number }) => { actions.push(`type:${options.delay}`); },
+    },
+    locator: (selector: string) => {
+      assert.equal(selector, "input:focus");
+      return { last: () => activeInput };
+    },
+  };
+  assert.equal(await typeTopmostInput(page, "input[type=password]", "secret-value", 40), true);
+  assert.deepEqual(actions, ["press:Control+A", "press:Delete", "type:40"]);
 });
