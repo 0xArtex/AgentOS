@@ -110,6 +110,12 @@ export async function typeFocusedInput(
   await page.keyboard.type(value, { delay });
 }
 
+/** Compare in memory only; callers must never include either value in logs. */
+export async function inputHasExpectedValue(input: any, expected: string): Promise<boolean> {
+  const actual = await input.inputValue().catch(() => "");
+  return actual === expected;
+}
+
 /**
  * Detect X's soft anti-automation interstitials ("We've temporarily limited
  * your login", unusual-activity, rate-limit) from visible page text, so they're
@@ -516,6 +522,15 @@ export async function loginTwitter(
         (await selectLoginInput(page, PW_SELECTOR, "pw")) ||
         page.locator(PW_SELECTOR).first();
       await typeFocusedInput(page, pwInput, req.password, 40);
+      phase = "verify_password_input";
+      if (!(await inputHasExpectedValue(pwInput, req.password))) {
+        return {
+          success: false,
+          error: "X's password field did not retain the entered value; login was not submitted.",
+          error_code: "UNEXPECTED_FLOW",
+          diagnostics: { phase },
+        };
+      }
       await page.waitForTimeout(500);
       // New flow: #layers type="submit". Legacy: a "Log in" button ("Log in" is
       // not a substring of the SSO buttons, so has-text is safe).
