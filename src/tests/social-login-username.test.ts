@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { usernameFromProfileHref } from "../services/social-login";
+import { loginFailureForPhase, usernameFromProfileHref } from "../services/social-login";
 
 test("usernameFromProfileHref accepts X profile links", () => {
   assert.equal(usernameFromProfileHref("/valid_handle"), "valid_handle");
@@ -14,4 +14,12 @@ test("usernameFromProfileHref rejects routes, nested paths, and foreign hosts", 
   assert.equal(usernameFromProfileHref("https://example.com/valid_handle"), undefined);
   assert.equal(usernameFromProfileHref("/this_handle_is_far_too_long"), undefined);
   assert.equal(usernameFromProfileHref(null), undefined);
+});
+
+test("loginFailureForPhase reports only the safe phase and timeout class", () => {
+  const secret = "private-account-password";
+  const failure = loginFailureForPhase("fill_password", new Error(`Timeout 30000ms exceeded while filling ${secret}`));
+  assert.equal(failure.error_code, "LOGIN_TIMEOUT");
+  assert.equal(failure.diagnostics?.phase, "fill_password");
+  assert.equal(JSON.stringify(failure).includes(secret), false);
 });

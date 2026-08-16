@@ -124,6 +124,7 @@ export interface TwitterLoginResult {
     | "RATE_LIMITED"
     | "LOGIN_FAILED";
   diagnostics?: {
+    phase?: string;
     url?: string;
     title?: string;
     page_text_excerpt?: string;
@@ -169,6 +170,19 @@ async function detectAuthenticatedUsername(page: any): Promise<string | undefine
   return usernameFromProfileHref(await profileLink.getAttribute("href").catch(() => null));
 }
 
+/** Reduce browser exceptions to a phase-only diagnostic; never echo inputs. */
+export function loginFailureForPhase(phase: string, error: unknown): TwitterLoginResult {
+  const err = error as any;
+  const message = String(err?.message || err || "");
+  const timedOut = err?.name === "TimeoutError" || /timeout|timed out|exceeded/i.test(message);
+  return {
+    success: false,
+    error: `X login ${timedOut ? "timed out" : "failed"} during ${phase}.`,
+    error_code: timedOut ? "LOGIN_TIMEOUT" : "LOGIN_FAILED",
+    diagnostics: { phase },
+  };
+}
+
 export async function loginTwitter(
   req: TwitterLoginRequest
 ): Promise<TwitterLoginResult> {
@@ -198,6 +212,7 @@ export async function loginTwitter(
     };
   }
 
+  let phase = "create_context";
   try {
     const ctx = await browser.newContext({
       userAgent:
@@ -219,6 +234,7 @@ export async function loginTwitter(
     // request fetches a fresh ct0 from X and the harvest step at the end
     // captures it. auth_token alone is enough to establish the session.
     if (req.auth_token) {
+      phase = "inject_cookies";
       const injected: any[] = [
         {
           name: "auth_token",
@@ -242,6 +258,7 @@ export async function loginTwitter(
       }
       await ctx.addCookies(injected);
       const page = await ctx.newPage();
+      phase = "open_home_with_cookies";
       try {
         await page.goto("https://x.com/home", {
           waitUntil: "domcontentloaded",
@@ -270,7 +287,9 @@ export async function loginTwitter(
         .waitForSelector('[data-testid="primaryColumn"], [aria-label*="Home"]', { timeout: 15000 })
         .catch(() => {});
 
+      phase = "harvest_cookies";
       const cookies = await ctx.cookies();
+      phase = "detect_username";
       const username = await detectAuthenticatedUsername(page);
       return {
         success: true,
@@ -283,6 +302,7 @@ export async function loginTwitter(
     // ── Slow path: form login ──
     const page = await ctx.newPage();
 
+    phase = "open_login";
     await page.goto("https://x.com/i/flow/login", {
       waitUntil: "domcontentloaded",
       timeout: 45000,
@@ -324,6 +344,7 @@ export async function loginTwitter(
     const USERNAME_SELECTOR =
       'input[name="username_or_email"], input[autocomplete~="username"], input[name="text"]';
 
+    phase = "wait_for_login_input";
     try {
       await page.locator(USERNAME_SELECTOR).first().waitFor({ state: "visible", timeout: 20000 });
     } catch {
@@ -339,6 +360,7 @@ export async function loginTwitter(
       };
     }
 
+    phase = "select_login_input";
     const loginInput = await tagInteractable(page, USERNAME_SELECTOR, "user");
     if (!loginInput) {
       const diag = await snapshot("no-login-input");
@@ -353,6 +375,7 @@ export async function loginTwitter(
     // Focus, clear, then type character-by-character. `pressSequentially`
     // dispatches real keydown/keypress/keyup events which X's form listens
     // for to validate + enable the Next button.
+    phase = "fill_login_input";
     await loginInput.click();
     await loginInput.press("Control+A");
     await loginInput.press("Delete");
@@ -375,6 +398,7 @@ export async function loginTwitter(
 
     // Capture the pre-submit state so if the submit fails we know the input
     // was correctly filled.
+    phase = "snapshot_before_login_submit";
     await snapshot("before-next-click");
 
     // Submit. New flow: the only type="submit" inside #layers is the "Continue"
@@ -382,6 +406,7 @@ export async function loginTwitter(
     // without matching "Continue with phone/Google/Apple". Legacy: the testid /
     // "Next" button ("Next" is not a substring of any other button, so has-text
     // is safe). Enter submits the single-field form as a last resort.
+    phase = "submit_login_identifier";
     const nextButton = page
       .locator(
         '#layers button[type="submit"]:visible, ' +
@@ -403,6 +428,7 @@ export async function loginTwitter(
     // Exclude the aria-hidden decoy <input name="password"> the jf flow plants on
     // the username screen, and accept the new #jf-input-password id alongside the
     // legacy name.
+    phase = "wait_for_password_or_challenge";
     const nextStep = await Promise.race([
       page
         .waitForSelector('input[name="password"]:not([aria-hidden="true"]), #jf-input-password', { timeout: 15000 })
@@ -443,6 +469,7 @@ export async function loginTwitter(
 
     // ── Step 3: password (if we didn't already hit 2FA) ──
     if (nextStep === "password") {
+      phase = "fill_password";
       // Same decoy/dual-render hazard as the username field — pick the real,
       // topmost password input, never the aria-hidden autofill bait.
       const PW_SELECTOR = 'input[name="password"]:not([aria-hidden="true"]), #jf-input-password';
@@ -456,6 +483,7 @@ export async function loginTwitter(
       await page.waitForTimeout(500);
       // New flow: #layers type="submit". Legacy: a "Log in" button ("Log in" is
       // not a substring of the SSO buttons, so has-text is safe).
+      phase = "submit_password";
       const loginButton = page
         .locator(
           '#layers button[type="submit"]:visible, ' +
@@ -471,6 +499,7 @@ export async function loginTwitter(
     }
 
     // ── Step 4: post-password disposition ──
+    phase = "wait_after_password";
     const afterPassword = await Promise.race([
       page
         .waitForURL(/(x|twitter)\.com\/home/, { timeout: 25000 })
@@ -530,17 +559,21 @@ export async function loginTwitter(
           error_code: "TOTP_REQUIRED",
         };
       }
+      phase = "generate_totp";
       const code = totpCode(req.totp_seed);
       // 2FA field can be dual-rendered too — target the real, topmost numeric
       // input rather than page.fill() (which throws on multiple matches).
       const otpInput =
         (await tagInteractable(page, 'input[inputmode="numeric"]:not([aria-hidden="true"])', "otp")) ||
         page.locator('input[inputmode="numeric"]:not([aria-hidden="true"])').first();
+      phase = "fill_totp";
       await otpInput.click().catch(() => {});
       await otpInput.fill("");
       await otpInput.type(code, { delay: 60 });
       await page.waitForTimeout(400);
+      phase = "submit_totp";
       await page.keyboard.press("Enter");
+      phase = "wait_for_home_after_totp";
       await page.waitForURL(/(x|twitter)\.com\/home/, { timeout: 25000 });
     } else if (afterPassword !== "home") {
       return {
@@ -551,7 +584,9 @@ export async function loginTwitter(
     }
 
     // ── We're in. Harvest cookies. ──
+    phase = "harvest_cookies";
     const cookies = await ctx.cookies();
+    phase = "detect_username";
     const username = await detectAuthenticatedUsername(page);
 
     return {
@@ -561,11 +596,7 @@ export async function loginTwitter(
       captured_at: new Date().toISOString(),
     };
   } catch (e: any) {
-    return {
-      success: false,
-      error: e.message || String(e),
-      error_code: "LOGIN_FAILED",
-    };
+    return loginFailureForPhase(phase, e);
   } finally {
     try {
       await browser.close();
