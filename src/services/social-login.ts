@@ -94,6 +94,23 @@ export async function selectLoginInput(page: any, selector: string, tag: string)
 }
 
 /**
+ * Focus the resolved input and type through the page keyboard. This avoids
+ * Playwright's pointer-actionability wait, which X's modal overlay can block
+ * even when the real field is visible and focusable.
+ */
+export async function typeFocusedInput(
+  page: any,
+  input: any,
+  value: string,
+  delay: number
+): Promise<void> {
+  await input.focus({ timeout: 5000 });
+  await page.keyboard.press("Control+A");
+  await page.keyboard.press("Delete");
+  await page.keyboard.type(value, { delay });
+}
+
+/**
  * Detect X's soft anti-automation interstitials ("We've temporarily limited
  * your login", unusual-activity, rate-limit) from visible page text, so they're
  * surfaced as RATE_LIMITED instead of a mystery "unknown flow".
@@ -498,9 +515,7 @@ export async function loginTwitter(
       const pwInput =
         (await selectLoginInput(page, PW_SELECTOR, "pw")) ||
         page.locator(PW_SELECTOR).first();
-      await pwInput.click();
-      await pwInput.fill("");
-      await pwInput.type(req.password, { delay: 40 });
+      await typeFocusedInput(page, pwInput, req.password, 40);
       await page.waitForTimeout(500);
       // New flow: #layers type="submit". Legacy: a "Log in" button ("Log in" is
       // not a substring of the SSO buttons, so has-text is safe).

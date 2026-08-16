@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   loginFailureForPhase,
   selectLoginInput,
+  typeFocusedInput,
   TWITTER_PASSWORD_SELECTOR,
   usernameFromProfileHref,
 } from "../services/social-login";
@@ -49,4 +50,20 @@ test("selectLoginInput prefers the stable live-modal locator", async () => {
     },
   };
   assert.equal(await selectLoginInput(page, "input[name=user]", "user"), layered);
+});
+
+test("typeFocusedInput avoids pointer actions blocked by X's modal overlay", async () => {
+  const actions: string[] = [];
+  const input = {
+    focus: async () => { actions.push("focus"); },
+    click: async () => { throw new Error("click must not be used"); },
+  };
+  const page = {
+    keyboard: {
+      press: async (key: string) => { actions.push(`press:${key}`); },
+      type: async (_value: string, options: { delay: number }) => { actions.push(`type:${options.delay}`); },
+    },
+  };
+  await typeFocusedInput(page, input, "test-value", 40);
+  assert.deepEqual(actions, ["focus", "press:Control+A", "press:Delete", "type:40"]);
 });
