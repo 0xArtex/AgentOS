@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   loginFailureForPhase,
+  inputHasExpectedValue,
   selectLoginInput,
   typeFocusedInput,
   TWITTER_PASSWORD_SELECTOR,
@@ -66,4 +67,10 @@ test("typeFocusedInput avoids pointer actions blocked by X's modal overlay", asy
   };
   await typeFocusedInput(page, input, "test-value", 40);
   assert.deepEqual(actions, ["focus", "press:Control+A", "press:Delete", "type:40"]);
+});
+
+test("inputHasExpectedValue compares password input without exposing its value", async () => {
+  const input = { inputValue: async () => "secret-value" };
+  assert.equal(await inputHasExpectedValue(input, "secret-value"), true);
+  assert.equal(await inputHasExpectedValue(input, "different-value"), false);
 });
