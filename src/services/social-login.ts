@@ -144,6 +144,12 @@ const X_RESERVED_PATHS = new Set([
   "settings",
 ]);
 
+// X keeps an aria-hidden password input on the identifier screen for browser
+// autofill. Every selector branch must exclude it, including the newer jf id,
+// or the flow advances before the real password screen has rendered.
+export const TWITTER_PASSWORD_SELECTOR =
+  'input[name="password"]:not([aria-hidden="true"]), #jf-input-password:not([aria-hidden="true"])';
+
 /** Parse an authenticated profile navigation href without accepting X routes. */
 export function usernameFromProfileHref(href?: string | null): string | undefined {
   if (!href) return undefined;
@@ -431,7 +437,7 @@ export async function loginTwitter(
     phase = "wait_for_password_or_challenge";
     const nextStep = await Promise.race([
       page
-        .waitForSelector('input[name="password"]:not([aria-hidden="true"]), #jf-input-password', { timeout: 15000 })
+        .waitForSelector(TWITTER_PASSWORD_SELECTOR, { timeout: 15000 })
         .then(() => "password"),
       page
         .waitForSelector('input[data-testid="ocfEnterTextTextInput"]', {
@@ -472,7 +478,7 @@ export async function loginTwitter(
       phase = "fill_password";
       // Same decoy/dual-render hazard as the username field — pick the real,
       // topmost password input, never the aria-hidden autofill bait.
-      const PW_SELECTOR = 'input[name="password"]:not([aria-hidden="true"]), #jf-input-password';
+      const PW_SELECTOR = TWITTER_PASSWORD_SELECTOR;
       await page.locator(PW_SELECTOR).first().waitFor({ state: "visible", timeout: 10000 }).catch(() => {});
       const pwInput =
         (await tagInteractable(page, PW_SELECTOR, "pw")) ||
