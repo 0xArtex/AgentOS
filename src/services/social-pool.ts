@@ -291,8 +291,105 @@ export async function poolAdd(req: PoolAddRequest): Promise<PoolAddResult> {
   };
 }
 
+export interface PoolAddTikTokRequest {
+  /** The account's public @handle (label only — the buyer signs in with credentials.login). */
+  username: string;
+  credentials: PoolCredentials;
+  country?: string;
+  sale_price_usdc: number;
+  acquired_cost_usdc?: number;
+  notes?: string;
+}
+
+export interface PoolAddTikTokResult {
+  success: boolean;
+  id?: string;
+  proxy_session_id?: string;
+  error?: string;
+  /** Non-fatal: flags a handover that's likely to fail a new-device challenge. */
+  warning?: string;
+}
+
+/**
+ * Add a TikTok account to the shared pool for credential HANDOVER.
+ *
+ * Unlike poolAdd (twitter), this performs NO server login: TikTok's automated
+ * login is blocked (~70% perma-spin), so we never drive a headless session.
+ * We just store the raw credentials encrypted and mark the row `ready`; the
+ * buyer receives them from poolBuy and signs in themselves on the real app,
+ * where human logins aren't blocked. That's the whole point of handover-only.
+ *
+ * The email + email_password matter: a fresh-device login usually triggers an
+ * email verification code, so an account seeded without them is flagged (but
+ * still allowed — some accounts won't challenge).
+ */
+export function poolAddTikTok(req: PoolAddTikTokRequest): PoolAddTikTokResult {
+  if (!req.username || !req.credentials?.login || !req.credentials?.password) {
+    return { success: false, error: "username, credentials.login and credentials.password are required" };
+  }
+  if (typeof req.sale_price_usdc !== "number" || req.sale_price_usdc <= 0) {
+    return { success: false, error: "sale_price_usdc must be a positive number" };
+  }
+
+  const id = randomUUID().replace(/-/g, "");
+  const proxySessionId = id; // hex id doubles as the sticky IPRoyal session key
+  const username = req.username.replace(/^@/, "").trim();
+  const credsBlob = encrypt(JSON.stringify(req.credentials));
+  const cookiesBlob = encrypt(JSON.stringify([])); // handover has no server cookies
+  const now = new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO social_account_pool (
+       id, platform, username, country,
+       proxy_session_id, credentials_encrypted, cookies_encrypted,
+       acquired_cost_usdc, sale_price_usdc, status, created_at, notes
+     ) VALUES (?, 'tiktok', ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?)`
+  ).run(
+    id,
+    username,
+    req.country ? req.country.toUpperCase() : null,
+    proxySessionId,
+    credsBlob,
+    cookiesBlob,
+    req.acquired_cost_usdc ?? null,
+    req.sale_price_usdc,
+    now,
+    req.notes ?? null,
+  );
+
+  const warning =
+    !req.credentials.email || !req.credentials.email_password
+      ? "No email/email_password stored — the buyer may fail a new-device verification challenge. Include the account email for a clean handover."
+      : undefined;
+
+  return { success: true, id, proxy_session_id: proxySessionId, ...(warning ? { warning } : {}) };
+}
+
+/**
+ * Ready-stock counts by country for one platform, for the public storefront
+ * stock endpoint. Distinct from poolStatus (which aggregates every platform
+ * together) — the storefront needs a per-platform view.
+ */
+export function poolReadyStock(platform: string): { total: number; by_country: Record<string, number> } {
+  const rows = db
+    .prepare(
+      `SELECT COALESCE(country, '?') AS country, COUNT(*) AS n
+       FROM social_account_pool
+       WHERE platform = ? AND status = 'ready'
+       GROUP BY country`
+    )
+    .all(platform) as Array<{ country: string; n: number }>;
+  let total = 0;
+  const by_country: Record<string, number> = {};
+  for (const r of rows) {
+    total += r.n;
+    by_country[r.country] = r.n;
+  }
+  return { total, by_country };
+}
+
 export interface PoolBuyRequest {
-  platform: "twitter";
+  platform: "twitter" | "tiktok";
   country?: string;
   age_category?: string;
   /**
@@ -358,8 +455,14 @@ export interface PoolBuyResult {
 }
 
 export function poolBuy(req: PoolBuyRequest): PoolBuyResult {
-  if (req.platform !== "twitter") {
-    return { success: false, error: "The shared account pool is twitter-only right now; TikTok accounts are connected, not bought — use `palmyr tiktok connect <handle> --server`." };
+  // Twitter and TikTok both sell out of this one credential pool now. TikTok is
+  // handover-only (poolAddTikTok stores creds without a server login, since
+  // TikTok's automated login is blocked) — the buyer receives the raw
+  // credentials and signs in on their own device. The twitter-specific filters
+  // (source, registered_*, renames) stay NULL on TikTok rows and simply don't
+  // filter, so the same reservation query serves both.
+  if (req.platform !== "twitter" && req.platform !== "tiktok") {
+    return { success: false, error: `Unsupported platform "${req.platform}" for the shared account pool.` };
   }
   if (!req.buyer_wallet) {
     return { success: false, error: "buyer_wallet is required" };
