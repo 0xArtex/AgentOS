@@ -13,8 +13,11 @@ import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
 import { isSelfHosted } from "../services/self-hosted";
 import { tiktokHealthSnapshot } from "../services/tiktok-health";
+import type { PoolCredentials } from "../services/social-pool";
 import {
   poolAdd,
+  poolAddTikTok,
+  poolReadyStock,
   poolBuy,
   availablePoolCountries,
   poolStatus,
@@ -2583,6 +2586,162 @@ router.get("/tiktok/pool/stock", (_req: Request, res: Response) => {
   const stock = poolStock();
   res.json({ price_usdc: TIKTOK_DEPLOY_PRICE_USDC, ...stock });
 });
+
+/* ─── TikTok credential HANDOVER (the storefront model) ──────────────────
+   TikTok automated login is blocked, so instead of driving accounts
+   server-side (the /tiktok/deploy + tiktok_accounts path above, now dormant)
+   we sell the raw credentials out of the shared social_account_pool, exactly
+   like /twitter/buy. The buyer receives login/password/email and signs in on
+   the real app themselves. Admin seeds with /tiktok/pool-add; buyers call
+   /tiktok/buy; the storefront reads /tiktok/stock. Flat price for now — X's
+   per-country pricing lives in a country-keyed table that would collide. */
+const TIKTOK_BUY_PRICE_USDC = 5;
+
+// GET /social/tiktok/stock — public read of handover stock (ready credentials
+// by country), for the storefront. Distinct from the dormant server-side
+// /tiktok/pool/stock above.
+router.get("/tiktok/stock", (_req: Request, res: Response) => {
+  const s = poolReadyStock("tiktok");
+  res.json({ total: s.total, price_usdc: TIKTOK_BUY_PRICE_USDC, by_country: s.by_country });
+});
+
+// POST /social/tiktok/pool-add — admin-only. Seed a bought/created TikTok
+// account into the handover pool. Accepts explicit fields or a
+// `login:password[:email[:email_password]]` credentials_line (accsmarket
+// format). No server login is attempted (it's blocked); we just store the
+// credentials for handover.
+router.post(
+  "/tiktok/pool-add",
+  requireTikTokEnabled,
+  requirePoolAdmin,
+  (req: Request, res: Response) => {
+    const {
+      credentials_line,
+      username: explicitUsername,
+      login,
+      password,
+      email,
+      email_password,
+      country,
+      sale_price_usdc,
+      acquired_cost_usdc,
+      notes,
+    } = (req.body || {}) as Record<string, any>;
+
+    let creds: PoolCredentials = { login: "", password: "" };
+    let username = explicitUsername;
+
+    if (credentials_line && typeof credentials_line === "string") {
+      const raw = credentials_line.split(":");
+      while (raw.length > 0 && raw[raw.length - 1] === "") raw.pop();
+      if (raw.length < 2 || raw.length > 4) {
+        res.status(400).json({
+          error: "credentials_line must have 2-4 colon-separated fields: login:password[:email[:email_password]]",
+          hint: "If your password contains ':', use explicit body fields instead of credentials_line.",
+          got: raw.length,
+        });
+        return;
+      }
+      creds = { login: raw[0], password: raw[1], email: raw[2], email_password: raw[3] };
+      if (!username) username = raw[0];
+    } else {
+      creds = { login: login || username, password, email, email_password };
+    }
+
+    if (!username || !creds.login || !creds.password) {
+      res.status(400).json({ error: "username and login+password (or credentials_line) required" });
+      return;
+    }
+
+    try {
+      const result = poolAddTikTok({
+        username,
+        credentials: creds,
+        country,
+        sale_price_usdc: typeof sale_price_usdc === "number" ? sale_price_usdc : TIKTOK_BUY_PRICE_USDC,
+        acquired_cost_usdc: typeof acquired_cost_usdc === "number" ? acquired_cost_usdc : undefined,
+        notes,
+      });
+      res.status(result.success ? 200 : 400).json(result);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || "Pool add failed" });
+    }
+  }
+);
+
+// Reject a malformed country BEFORE the paywall so an x402 payer isn't charged
+// then refunded on a typo. Mirrors validateBuyFilters (lighter — flat price).
+function validateTikTokBuy(req: Request, res: Response, next: () => void): void {
+  const c = (req.body || {}).country;
+  if (c && !/^[A-Za-z]{2}$/.test(String(c))) {
+    res.status(400).json({ error: "Invalid country", message: "country must be a 2-letter ISO 3166-1 alpha-2 code (e.g. US)" });
+    return;
+  }
+  next();
+}
+
+// POST /social/tiktok/buy — the one-click TikTok account. Pay, and you receive
+// the FULL credentials (login/password/email) to sign in on your side and
+// change anything. Handover-only: Palmyr never logs in for you.
+router.post(
+  "/tiktok/buy",
+  requireTikTokEnabled,
+  validateTikTokBuy,
+  requireAuth(TIKTOK_BUY_PRICE_USDC, "general", {
+    description:
+      "Buy a ready-to-use TikTok account and receive its full login credentials (username, password, email) to sign in on your own device and change the password. Optionally pass country to target a market.",
+    category: "social",
+    tags: ["tiktok", "buy", "account", "credentials", "one-click"],
+  }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { country } = (req.body || {}) as { country?: string };
+    const buyerWallet = req.payment?.payer || req.agentId;
+    if (!buyerWallet) {
+      res.status(400).json({ error: "No payer/agent identity" });
+      return;
+    }
+    try {
+      const paidAmount = req.payment ? Number(req.payment.amountLamports) / 1_000_000 : undefined;
+      const result = poolBuy({
+        platform: "tiktok",
+        country: country ? country.toUpperCase() : undefined,
+        buyer_wallet: buyerWallet,
+        payment: req.payment
+          ? { signature: req.payment.signature, chain: req.payment.chain || "solana", amount_usdc: paidAmount ?? 0 }
+          : undefined,
+      });
+      if (!result.success) {
+        const availableCountries = availablePoolCountries("tiktok");
+        const hint = availableCountries.length
+          ? ` Currently in stock: ${availableCountries.join(", ")}. Drop the country filter or pick one of these.`
+          : " No TikTok accounts are ready right now — try again shortly.";
+        if (req.payment) {
+          await refundAndRespond(req, res, {
+            reason: result.error || "No matching accounts in pool",
+            userMessage: (result.error || "No matching TikTok accounts in pool") + " — your payment is being refunded." + hint,
+            errorLabel: "No matching accounts",
+            httpStatus: 409,
+            extra: { available: false, availableCountries },
+          });
+        } else {
+          res.status(409).json({ ...result, availableCountries });
+        }
+        return;
+      }
+      res.status(200).json(result);
+    } catch (err: any) {
+      if (req.payment) {
+        await refundAndRespond(req, res, {
+          reason: `Buy failed: ${err?.message || err}`,
+          userMessage: "Could not complete the purchase — your payment is being refunded.",
+          errorLabel: "Buy failed",
+        });
+      } else {
+        res.status(500).json({ error: err.message || "Buy failed" });
+      }
+    }
+  }
+);
 
 // POST /social/tiktok/pool/seed — admin-only. Mint a QR hand-off link for a NEW
 // pool account: the row is registered to the sentinel up front, and whoever opens
