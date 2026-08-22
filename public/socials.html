@@ -396,7 +396,7 @@ const XSVG='<svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.24 2H21.5l
 const TTSVG='<svg viewBox="0 0 24 24" fill="none"><path d="M16.5 3c.3 2.1 1.6 3.6 3.5 3.9v2.6c-1.3.1-2.5-.3-3.6-1v5.9c0 3.2-2.4 5.6-5.5 5.6S5.5 17.6 5.5 14.5 8 8.9 11 8.9c.3 0 .6 0 .9.1v2.7c-.3-.1-.6-.2-.9-.2-1.6 0-2.8 1.3-2.8 2.9s1.2 2.9 2.8 2.9 2.8-1.3 2.8-3V3h2.7z" fill="currentColor"/></svg>';
 const PLATFORMS={
   twitter:{key:'twitter',label:'X',icon:XSVG,deploy:'/social/twitter/deploy',accounts:'/social/twitter/accounts',stock:'/social/twitter/pool/stock',nameMax:50,bioMax:160,opHint:'/social/twitter/post',opBody:'{"account_id":"ID","text":"gm"}'},
-  tiktok:{key:'tiktok',label:'TikTok',icon:TTSVG,soon:true,deploy:'/social/tiktok/deploy',accounts:'/social/tiktok/accounts',stock:'/social/tiktok/pool/stock',nameMax:30,bioMax:80,opHint:'/social/tiktok/post',opBody:'{"account_id":"ID","video_url":"https://…mp4","caption":"gm"}'},
+  tiktok:{key:'tiktok',label:'TikTok',icon:TTSVG,soon:true,deploy:'/social/tiktok/buy',accounts:'/social/tiktok/accounts',stock:'/social/tiktok/pool/stock',nameMax:30,bioMax:80,opHint:'/social/tiktok/post',opBody:'{"account_id":"ID","video_url":"https://…mp4","caption":"gm"}'},
 };
 let PLATFORM=localStorage.getItem('socials_platform')||'twitter';
 if(!PLATFORMS[PLATFORM]||PLATFORMS[PLATFORM].soon)PLATFORM='twitter';

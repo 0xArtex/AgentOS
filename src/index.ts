@@ -85,9 +85,9 @@ const IMAGE_UPLOAD_ROUTES = new Set([
   "/social/twitter/banner",
   "/social/twitter/deploy",
   "/social/tiktok/avatar",
-  // Deploy carries the new account's avatar inline (image_base64), same tier as
-  // the standalone avatar op.
-  "/social/tiktok/deploy",
+  // Buy carries the new account's avatar inline (image_base64) for the on-the-spot
+  // rebrand, same tier as the standalone avatar op.
+  "/social/tiktok/buy",
 ]);
 const VIDEO_UPLOAD_ROUTES = new Set([
   "/social/tiktok/post",

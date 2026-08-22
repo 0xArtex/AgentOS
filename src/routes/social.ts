@@ -13,11 +13,8 @@ import { AuthenticatedRequest } from "../types";
 import { loginTwitter } from "../services/social-login";
 import { isSelfHosted } from "../services/self-hosted";
 import { tiktokHealthSnapshot } from "../services/tiktok-health";
-import type { PoolCredentials } from "../services/social-pool";
 import {
   poolAdd,
-  poolAddTikTok,
-  poolReadyStock,
   poolBuy,
   availablePoolCountries,
   poolStatus,
@@ -2492,15 +2489,15 @@ function parseTikTokCredsFromBody(body: any): { creds?: TikTokCredentials; error
 // (retryable with the cheap profile/avatar ops), so the $3 buys the scarce thing
 // — the account — and a cosmetic hiccup never refunds a delivered account. Only a
 // genuine no-stock (or a pre-lease failure) refunds.
-const TIKTOK_DEPLOY_PRICE_USDC = 3;
+const TIKTOK_BUY_PRICE_USDC = 3;
 router.post(
-  "/tiktok/deploy",
+  "/tiktok/buy",
   requireSocialReady,
-  requireAuth(TIKTOK_DEPLOY_PRICE_USDC, "general", {
+  requireAuth(TIKTOK_BUY_PRICE_USDC, "general", {
     description:
-      "Deploy a brand-new, ready-to-use TikTok account from the warmed pool — no QR, no signup. Optionally pass display_name/bio/image_base64/image_url to brand it on the spot, and country to target a market. You become the owner and drive it with the other tiktok ops.",
+      "Buy a ready-to-use TikTok account from the warmed pool — no QR, no signup. Optionally pass display_name/bio/image_base64/image_url to brand it on the spot, and country to target a market. You become the owner and drive it with the other tiktok ops; reveal the login with POST /social/tiktok/credentials.",
     category: "social",
-    tags: ["tiktok", "deploy", "account", "launch", "one-click"],
+    tags: ["tiktok", "buy", "account", "launch", "one-click"],
   }),
   async (req: AuthenticatedRequest, res: Response) => {
     const owner = req.payment?.payer || req.agentId;
@@ -2563,7 +2560,7 @@ router.post(
       // reclaimed while it stays sealed and unused (resale clears it, so a
       // resold account can't be refunded against the treasury).
       recordTikTokPurchase(acct.id, {
-        amountUsdc: req.payment ? Number(req.payment.amountLamports) / 1_000_000 : TIKTOK_DEPLOY_PRICE_USDC,
+        amountUsdc: req.payment ? Number(req.payment.amountLamports) / 1_000_000 : TIKTOK_BUY_PRICE_USDC,
         paymentSig: req.payment?.signature ?? null,
         chain: req.payment?.chain ?? null,
       });
@@ -2614,19 +2611,19 @@ router.post(
         country: acct.country,
         status: acct.status,
         owner: String(owner),
-        deployed: true,
+        bought: true,
         rebrand,
         credentials_available: credentialsAvailable,
         credentials_note: credentialsAvailable
           ? "The raw login is available but sealed. Drive the account via Palmyr as-is (it stays refundable and resellable). To take the login and self-host, call POST /social/tiktok/credentials — that commits the account to you (no longer refundable or resellable)."
           : undefined,
         message:
-          "Your TikTok account is deployed and live. " +
+          "Your TikTok account is live. " +
           (rebrand ? "Applying your name/bio/photo now — poll rebrand.poll_url until it's done. " : "") +
           "Drive it with the other tiktok ops (post/follow/like/profile/avatar) using this account_id.",
       });
     } catch (err: any) {
-      await decline(500, "Deploy failed", `deploy failed: ${err?.message || err}`);
+      await decline(500, "Buy failed", `buy failed: ${err?.message || err}`);
     }
   },
 );
@@ -2676,10 +2673,12 @@ router.post(
   },
 );
 
-/* ─── Resale marketplace (agent-to-agent) ───────────────────────────────────
-   An agent that owns an UNREVEALED account can list it; another agent buys it,
-   ownership + the live server session transfer, and the seller is paid
-   (price − fee) via the treasury payout pipeline. Wallet-to-wallet: the seller
+/* ─── Marketplace (agent-to-agent resale, cross-platform) ────────────────────
+   One `/market` surface for every platform — an agent that owns an UNREVEALED
+   account lists it, another agent buys it, ownership + the live server session
+   transfer, and the seller is paid (price − fee) via the treasury payout
+   pipeline. `platform` is a parameter, so X / email slot in behind the same
+   routes as they gain the sealed-account model. Wallet-to-wallet: the seller
    must be a wallet to receive the payout. Fee is env-configurable. */
 
 // A Base (0x…) or Solana (base58) wallet address — the seller must be one to
@@ -2689,13 +2688,49 @@ const WALLET_ADDR_RE = /^(0x[0-9a-fA-F]{40}|[1-9A-HJ-NP-Za-km-z]{32,44})$/;
 // [0, 5000] so a misconfig can never pay a seller a negative amount.
 const RESALE_FEE_BPS = Math.min(5000, Math.max(0, Number(process.env.PALMYR_RESALE_FEE_BPS ?? 1000) || 0));
 
-// POST /social/tiktok/list — owner lists an account for resale (unrevealed + active).
+// Platform adapters — TikTok is the only marketplace platform today; X / email
+// slot in here. `null` result = platform not on the marketplace yet.
+function marketListFor(platform: string, id: string, owner: string, price: number): { ok: boolean; error?: string } {
+  if (platform === "tiktok") return listTikTokForSale(id, owner, price);
+  return { ok: false, error: `platform "${platform}" is not on the marketplace yet` };
+}
+function marketUnlistFor(platform: string, id: string, owner: string): { ok: boolean; error?: string } {
+  if (platform === "tiktok") return unlistTikTok(id, owner);
+  return { ok: false, error: `platform "${platform}" is not on the marketplace yet` };
+}
+function marketListingsFor(platform: string | undefined, country?: string): Array<Record<string, unknown>> {
+  // No platform → aggregate across all (only tiktok exists today).
+  const out: Array<Record<string, unknown>> = [];
+  if (!platform || platform === "tiktok") {
+    for (const l of tiktokMarketListings({ country })) out.push({ platform: "tiktok", ...l });
+  }
+  return out;
+}
+function marketPriceFor(platform: string, id: string): number {
+  if (platform === "tiktok") return getTikTokAccount(id)?.list_price_usdc ?? 0;
+  return 0;
+}
+function marketBuyFor(platform: string, buyer: string, id: string): { ok: boolean; error?: string; ownListing?: boolean; seller?: string; price_usdc?: number } {
+  if (platform === "tiktok") return buyTikTokFromMarket(buyer, id);
+  return { ok: false, error: `platform "${platform}" is not on the marketplace yet` };
+}
+
+// GET /social/market/listings?platform=&country= — public browse (all platforms if none).
+router.get("/market/listings", (req: Request, res: Response) => {
+  const platform = typeof req.query.platform === "string" ? req.query.platform : undefined;
+  const country = typeof req.query.country === "string" ? req.query.country : undefined;
+  const listings = marketListingsFor(platform, country);
+  res.json({ count: listings.length, fee_bps: RESALE_FEE_BPS, listings });
+});
+
+// POST /social/market/list { platform, account_id, price_usdc } — owner lists for resale.
 router.post(
-  "/tiktok/list",
-  requireTikTokEnabled,
-  requireAuth(0.001, "general", { description: "List a TikTok account you own for resale on the marketplace. Only unrevealed, active accounts can be listed; the seller must be a wallet to receive the payout.", category: "social", tags: ["tiktok", "marketplace", "list", "sell"] }),
+  "/market/list",
+  requireSocialReady,
+  requireAuth(0.001, "general", { description: "List an account you own for resale on the marketplace. Body: { platform, account_id, price_usdc }. Only unrevealed, active accounts can be listed; the seller must be a wallet to receive the payout.", category: "social", tags: ["marketplace", "list", "sell"] }),
   (req: AuthenticatedRequest, res: Response) => {
-    const { account_id, price_usdc } = (req.body || {}) as { account_id?: string; price_usdc?: number };
+    const { platform, account_id, price_usdc } = (req.body || {}) as { platform?: string; account_id?: string; price_usdc?: number };
+    if (!platform) { res.status(400).json({ error: "platform required" }); return; }
     if (!account_id) { res.status(400).json({ error: "account_id required" }); return; }
     if (typeof price_usdc !== "number" || !(price_usdc > 0)) { res.status(400).json({ error: "price_usdc must be a positive number" }); return; }
     const owner = req.payment?.payer || req.agentId;
@@ -2704,11 +2739,12 @@ router.post(
       res.status(400).json({ error: "Wallet required", message: "Resale payouts are paid on-chain, so the account must be owned by a wallet. Own it via a wallet identity to list it." });
       return;
     }
-    const result = listTikTokForSale(account_id, String(owner), price_usdc);
+    const result = marketListFor(String(platform), account_id, String(owner), price_usdc);
     if (!result.ok) { res.status(400).json({ error: result.error }); return; }
     const net = Math.round(price_usdc * (1 - RESALE_FEE_BPS / 10000) * 1_000_000) / 1_000_000;
     res.json({
       listed: true,
+      platform,
       account_id,
       price_usdc,
       you_receive_usdc: net,
@@ -2717,63 +2753,58 @@ router.post(
   },
 );
 
-// POST /social/tiktok/unlist — owner withdraws a listing.
+// POST /social/market/unlist { platform, account_id } — owner withdraws a listing.
 router.post(
-  "/tiktok/unlist",
-  requireTikTokEnabled,
-  requireAuth(0.001, "general", { description: "Withdraw a TikTok account you listed for resale.", category: "social", tags: ["tiktok", "marketplace", "unlist"] }),
+  "/market/unlist",
+  requireSocialReady,
+  requireAuth(0.001, "general", { description: "Withdraw an account you listed for resale. Body: { platform, account_id }.", category: "social", tags: ["marketplace", "unlist"] }),
   (req: AuthenticatedRequest, res: Response) => {
-    const { account_id } = (req.body || {}) as { account_id?: string };
+    const { platform, account_id } = (req.body || {}) as { platform?: string; account_id?: string };
+    if (!platform) { res.status(400).json({ error: "platform required" }); return; }
     if (!account_id) { res.status(400).json({ error: "account_id required" }); return; }
     const owner = req.payment?.payer || req.agentId;
     if (!owner) { res.status(401).json({ error: "Unauthenticated" }); return; }
-    const result = unlistTikTok(account_id, String(owner));
+    const result = marketUnlistFor(String(platform), account_id, String(owner));
     if (!result.ok) { res.status(400).json({ error: result.error }); return; }
-    res.json({ unlisted: true, account_id });
+    res.json({ unlisted: true, platform, account_id });
   },
 );
 
-// GET /social/tiktok/market — public browse of resale listings (no owner/handle/creds).
-router.get("/tiktok/market", (req: Request, res: Response) => {
-  const country = typeof req.query.country === "string" ? req.query.country : undefined;
-  const listings = tiktokMarketListings({ country });
-  res.json({ count: listings.length, fee_bps: RESALE_FEE_BPS, listings });
-});
-
 // The paywall needs the price before the handler runs, so read it off the listing.
-function resolveTikTokMarketPrice(req: Request): number {
-  const id = (req.body || {}).account_id;
-  if (typeof id !== "string") return 0; // validateTikTokMarketBuy 404s this first
-  return getTikTokAccount(id)?.list_price_usdc ?? 0;
+function resolveMarketPrice(req: Request): number {
+  const { platform, account_id } = (req.body || {}) as { platform?: string; account_id?: string };
+  if (typeof platform !== "string" || typeof account_id !== "string") return 0; // validateMarketBuy 4xxs this
+  return marketPriceFor(platform, account_id);
 }
 
 // Reject a buy for something that isn't listed BEFORE the paywall charges.
-function validateTikTokMarketBuy(req: Request, res: Response, next: () => void): void {
-  const id = (req.body || {}).account_id;
-  if (typeof id !== "string" || !id) { res.status(400).json({ error: "account_id required" }); return; }
-  const row = getTikTokAccount(id);
-  if (!row || row.list_price_usdc == null || row.status !== "active") {
-    res.status(404).json({ error: "Not for sale", message: `account ${id} is not currently listed. Browse GET /social/tiktok/market.` });
+function validateMarketBuy(req: Request, res: Response, next: () => void): void {
+  const { platform, account_id } = (req.body || {}) as { platform?: string; account_id?: string };
+  if (typeof platform !== "string" || !platform) { res.status(400).json({ error: "platform required" }); return; }
+  if (typeof account_id !== "string" || !account_id) { res.status(400).json({ error: "account_id required" }); return; }
+  if (!(marketPriceFor(platform, account_id) > 0)) {
+    res.status(404).json({ error: "Not for sale", message: `${platform} account ${account_id} is not currently listed. Browse GET /social/market/listings.` });
     return;
   }
   next();
 }
 
-// POST /social/tiktok/market/buy — buy a listed account. Pay the listing price;
-// ownership + the live session transfer to you, and the seller is paid
-// (price − fee). The account arrives SEALED (drive it via ops; reveal to commit).
+// POST /social/market/buy { platform, account_id } — buy a listed account. Pay
+// the listing price; ownership + the live session transfer to you, and the
+// seller is paid (price − fee). The account arrives SEALED (drive it via ops;
+// reveal to commit).
 router.post(
-  "/tiktok/market/buy",
-  requireTikTokEnabled,
-  validateTikTokMarketBuy,
-  requireAuth(resolveTikTokMarketPrice, "general", { description: "Buy a TikTok account listed on the resale marketplace. You get ownership + the live server session — drive it immediately with the tiktok ops.", category: "social", tags: ["tiktok", "marketplace", "buy"] }),
+  "/market/buy",
+  requireSocialReady,
+  validateMarketBuy,
+  requireAuth(resolveMarketPrice, "general", { description: "Buy an account listed on the resale marketplace. Body: { platform, account_id }. You get ownership + the live server session — drive it immediately with that platform's ops.", category: "social", tags: ["marketplace", "buy"] }),
   async (req: AuthenticatedRequest, res: Response) => {
-    const { account_id } = (req.body || {}) as { account_id?: string };
+    const { platform, account_id } = (req.body || {}) as { platform?: string; account_id?: string };
     const buyer = req.payment?.payer || req.agentId;
     if (!buyer) { res.status(400).json({ error: "No payer/agent identity" }); return; }
     const paidUsdc = req.payment ? Number(req.payment.amountLamports) / 1_000_000 : undefined;
     try {
-      const result = buyTikTokFromMarket(String(buyer), String(account_id));
+      const result = marketBuyFor(String(platform), String(buyer), String(account_id));
       if (!result.ok) {
         const status = result.ownListing ? 400 : 409;
         if (req.payment) {
@@ -2792,31 +2823,32 @@ router.post(
       const price = result.price_usdc!;
       const sellerChain: "solana" | "base" = seller.startsWith("0x") ? "base" : "solana";
       const owed = Math.round(price * (1 - RESALE_FEE_BPS / 10000) * 1_000_000) / 1_000_000;
-      const payoutKey = req.payment?.signature ?? `sale_${account_id}_${buyer}`;
+      const payoutKey = req.payment?.signature ?? `sale_${platform}_${account_id}_${buyer}`;
       let sellerPaid: { ok: boolean; tx?: string; owed: number } | null = null;
       try {
         const payout = await refundUsdcToPayer({
           chain: sellerChain,
           payer: seller,
           amountUsdc: owed,
-          reason: `marketplace resale payout: tiktok ${account_id} sold to ${buyer}`,
+          reason: `marketplace resale payout: ${platform} ${account_id} sold to ${buyer}`,
           originalPaymentSignature: payoutKey,
-          endpoint: "/social/tiktok/market/buy",
+          endpoint: "/social/market/buy",
         });
         sellerPaid = { ok: payout.ok, tx: payout.refundTx, owed };
-        if (!payout.ok) console.error(`[market] seller payout not sent for ${account_id} (owed ${owed} to ${seller}): ${payout.reason} — refund sweep will retry`);
+        if (!payout.ok) console.error(`[market] seller payout not sent for ${platform} ${account_id} (owed ${owed} to ${seller}): ${payout.reason} — refund sweep will retry`);
       } catch (e: any) {
-        console.error(`[market] seller payout threw for ${account_id} (owed ${owed} to ${seller}):`, e?.message || e);
+        console.error(`[market] seller payout threw for ${platform} ${account_id} (owed ${owed} to ${seller}):`, e?.message || e);
         sellerPaid = { ok: false, owed };
       }
 
       res.status(200).json({
         bought: true,
+        platform,
         account_id,
         owner: String(buyer),
         paid_usdc: paidUsdc ?? price,
         seller_payout: sellerPaid,
-        message: "You now own this account and its live session — drive it with the tiktok ops using this account_id. The raw login stays sealed unless you reveal it (POST /social/tiktok/credentials).",
+        message: `You now own this account and its live session — drive it with the ${platform} ops using this account_id. The raw login stays sealed unless you reveal it.`,
       });
     } catch (err: any) {
       if (req.payment) {
@@ -2909,164 +2941,8 @@ router.post(
 // /twitter/pool/prices: it exposes only aggregate counts, never account detail.
 router.get("/tiktok/pool/stock", (_req: Request, res: Response) => {
   const stock = poolStock();
-  res.json({ price_usdc: TIKTOK_DEPLOY_PRICE_USDC, ...stock });
+  res.json({ price_usdc: TIKTOK_BUY_PRICE_USDC, ...stock });
 });
-
-/* ─── TikTok credential HANDOVER (the storefront model) ──────────────────
-   TikTok automated login is blocked, so instead of driving accounts
-   server-side (the /tiktok/deploy + tiktok_accounts path above, now dormant)
-   we sell the raw credentials out of the shared social_account_pool, exactly
-   like /twitter/buy. The buyer receives login/password/email and signs in on
-   the real app themselves. Admin seeds with /tiktok/pool-add; buyers call
-   /tiktok/buy; the storefront reads /tiktok/stock. Flat price for now — X's
-   per-country pricing lives in a country-keyed table that would collide. */
-const TIKTOK_BUY_PRICE_USDC = 5;
-
-// GET /social/tiktok/stock — public read of handover stock (ready credentials
-// by country), for the storefront. Distinct from the dormant server-side
-// /tiktok/pool/stock above.
-router.get("/tiktok/stock", (_req: Request, res: Response) => {
-  const s = poolReadyStock("tiktok");
-  res.json({ total: s.total, price_usdc: TIKTOK_BUY_PRICE_USDC, by_country: s.by_country });
-});
-
-// POST /social/tiktok/pool-add — admin-only. Seed a bought/created TikTok
-// account into the handover pool. Accepts explicit fields or a
-// `login:password[:email[:email_password]]` credentials_line (accsmarket
-// format). No server login is attempted (it's blocked); we just store the
-// credentials for handover.
-router.post(
-  "/tiktok/pool-add",
-  requireTikTokEnabled,
-  requirePoolAdmin,
-  (req: Request, res: Response) => {
-    const {
-      credentials_line,
-      username: explicitUsername,
-      login,
-      password,
-      email,
-      email_password,
-      country,
-      sale_price_usdc,
-      acquired_cost_usdc,
-      notes,
-    } = (req.body || {}) as Record<string, any>;
-
-    let creds: PoolCredentials = { login: "", password: "" };
-    let username = explicitUsername;
-
-    if (credentials_line && typeof credentials_line === "string") {
-      const raw = credentials_line.split(":");
-      while (raw.length > 0 && raw[raw.length - 1] === "") raw.pop();
-      if (raw.length < 2 || raw.length > 4) {
-        res.status(400).json({
-          error: "credentials_line must have 2-4 colon-separated fields: login:password[:email[:email_password]]",
-          hint: "If your password contains ':', use explicit body fields instead of credentials_line.",
-          got: raw.length,
-        });
-        return;
-      }
-      creds = { login: raw[0], password: raw[1], email: raw[2], email_password: raw[3] };
-      if (!username) username = raw[0];
-    } else {
-      creds = { login: login || username, password, email, email_password };
-    }
-
-    if (!username || !creds.login || !creds.password) {
-      res.status(400).json({ error: "username and login+password (or credentials_line) required" });
-      return;
-    }
-
-    try {
-      const result = poolAddTikTok({
-        username,
-        credentials: creds,
-        country,
-        sale_price_usdc: typeof sale_price_usdc === "number" ? sale_price_usdc : TIKTOK_BUY_PRICE_USDC,
-        acquired_cost_usdc: typeof acquired_cost_usdc === "number" ? acquired_cost_usdc : undefined,
-        notes,
-      });
-      res.status(result.success ? 200 : 400).json(result);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message || "Pool add failed" });
-    }
-  }
-);
-
-// Reject a malformed country BEFORE the paywall so an x402 payer isn't charged
-// then refunded on a typo. Mirrors validateBuyFilters (lighter — flat price).
-function validateTikTokBuy(req: Request, res: Response, next: () => void): void {
-  const c = (req.body || {}).country;
-  if (c && !/^[A-Za-z]{2}$/.test(String(c))) {
-    res.status(400).json({ error: "Invalid country", message: "country must be a 2-letter ISO 3166-1 alpha-2 code (e.g. US)" });
-    return;
-  }
-  next();
-}
-
-// POST /social/tiktok/buy — the one-click TikTok account. Pay, and you receive
-// the FULL credentials (login/password/email) to sign in on your side and
-// change anything. Handover-only: Palmyr never logs in for you.
-router.post(
-  "/tiktok/buy",
-  requireTikTokEnabled,
-  validateTikTokBuy,
-  requireAuth(TIKTOK_BUY_PRICE_USDC, "general", {
-    description:
-      "Buy a ready-to-use TikTok account and receive its full login credentials (username, password, email) to sign in on your own device and change the password. Optionally pass country to target a market.",
-    category: "social",
-    tags: ["tiktok", "buy", "account", "credentials", "one-click"],
-  }),
-  async (req: AuthenticatedRequest, res: Response) => {
-    const { country } = (req.body || {}) as { country?: string };
-    const buyerWallet = req.payment?.payer || req.agentId;
-    if (!buyerWallet) {
-      res.status(400).json({ error: "No payer/agent identity" });
-      return;
-    }
-    try {
-      const paidAmount = req.payment ? Number(req.payment.amountLamports) / 1_000_000 : undefined;
-      const result = poolBuy({
-        platform: "tiktok",
-        country: country ? country.toUpperCase() : undefined,
-        buyer_wallet: buyerWallet,
-        payment: req.payment
-          ? { signature: req.payment.signature, chain: req.payment.chain || "solana", amount_usdc: paidAmount ?? 0 }
-          : undefined,
-      });
-      if (!result.success) {
-        const availableCountries = availablePoolCountries("tiktok");
-        const hint = availableCountries.length
-          ? ` Currently in stock: ${availableCountries.join(", ")}. Drop the country filter or pick one of these.`
-          : " No TikTok accounts are ready right now — try again shortly.";
-        if (req.payment) {
-          await refundAndRespond(req, res, {
-            reason: result.error || "No matching accounts in pool",
-            userMessage: (result.error || "No matching TikTok accounts in pool") + " — your payment is being refunded." + hint,
-            errorLabel: "No matching accounts",
-            httpStatus: 409,
-            extra: { available: false, availableCountries },
-          });
-        } else {
-          res.status(409).json({ ...result, availableCountries });
-        }
-        return;
-      }
-      res.status(200).json(result);
-    } catch (err: any) {
-      if (req.payment) {
-        await refundAndRespond(req, res, {
-          reason: `Buy failed: ${err?.message || err}`,
-          userMessage: "Could not complete the purchase — your payment is being refunded.",
-          errorLabel: "Buy failed",
-        });
-      } else {
-        res.status(500).json({ error: err.message || "Buy failed" });
-      }
-    }
-  }
-);
 
 // POST /social/tiktok/pool/seed — admin-only. Mint a QR hand-off link for a NEW
 // pool account: the row is registered to the sentinel up front, and whoever opens
@@ -3116,7 +2992,7 @@ router.post(
         status: "awaiting_viewer",
         credentials_stored: Boolean(parsedCreds.creds),
         message:
-          "Open connect_url and scan with the TikTok app in the target country. On a successful scan the account joins the deployable pool and can be handed to a buyer via POST /social/tiktok/deploy." +
+          "Open connect_url and scan with the TikTok app in the target country. On a successful scan the account joins the deployable pool and can be handed to a buyer via POST /social/tiktok/buy." +
           (parsedCreds.creds ? " Handover credentials stored — the buyer receives them on deploy." : " No handover credentials attached — pass credentials_line to include them."),
         poll_url: `/social/tiktok/connect/${started.token}`,
       });
