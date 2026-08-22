@@ -89,7 +89,10 @@ import {
   registerPoolAccount,
   poolStock,
   POOL_OWNER,
+  setCredentials as setTikTokCredentials,
+  getCredentials as getTikTokCredentials,
 } from "../services/tiktok-accounts";
+import type { TikTokCredentials } from "../services/tiktok-accounts";
 import {
   beginSeed,
   runSeed,
@@ -2452,6 +2455,26 @@ router.get(
 );
 
 // ─── One-click deploy — the storefront ─────────────────────────────────────
+// Parse optional TikTok handover credentials from a request body — either a
+// `login:password[:email[:email_password]]` line (accsmarket shape) or explicit
+// fields. Returns {} when none are supplied (credentials are optional on seed),
+// {error} on a malformed line, or {creds} on success. Shared by seed + pool-add.
+function parseTikTokCredsFromBody(body: any): { creds?: TikTokCredentials; error?: string } {
+  const b = body || {};
+  if (b.credentials_line && typeof b.credentials_line === "string") {
+    const raw = b.credentials_line.split(":");
+    while (raw.length > 0 && raw[raw.length - 1] === "") raw.pop();
+    if (raw.length < 2 || raw.length > 4) {
+      return { error: "credentials_line must have 2-4 colon-separated fields: login:password[:email[:email_password]] (if your password contains ':', use explicit fields)" };
+    }
+    return { creds: { login: raw[0], password: raw[1], email: raw[2], email_password: raw[3] } };
+  }
+  if (b.login && b.password) {
+    return { creds: { login: b.login, password: b.password, email: b.email, email_password: b.email_password } };
+  }
+  return {};
+}
+
 // A ready TikTok account is a warmed, server-connected row already sitting in
 // the pool (owner = the sentinel). Deploy hands one over: pay, and it becomes
 // yours and live in a single atomic owner swap — no QR, no phone, no signup. The
@@ -2560,6 +2583,13 @@ router.post(
         rebrand = { operation_id: job.id, poll_url: `/social/tiktok/operations/${job.id}` };
       }
 
+      // Handover: if the seeder attached credentials, deliver them so the buyer
+      // can also sign in on their own device and change the password. The
+      // account is drivable via Palmyr's server session right now regardless;
+      // the credentials are the durable, self-hostable copy. Delivered once in
+      // this response and re-readable later by the owner via /tiktok/credentials.
+      const credentials = getTikTokCredentials(acct.id);
+
       res.status(202).json({
         account_id: acct.id,
         handle: acct.handle,
@@ -2568,14 +2598,60 @@ router.post(
         owner: String(owner),
         deployed: true,
         rebrand,
+        credentials: credentials ?? undefined,
+        credentials_note: credentials
+          ? "These are your account's real login credentials — you can sign in on your own device and change the password. If you change it, the server session drops; reconnect anytime with POST /social/tiktok/connect (QR)."
+          : undefined,
         message:
           "Your TikTok account is deployed and live. " +
           (rebrand ? "Applying your name/bio/photo now — poll rebrand.poll_url until it's done. " : "") +
+          (credentials ? "Your login credentials are included in this response. " : "") +
           "Drive it with the other tiktok ops (post/follow/like/profile/avatar) using this account_id.",
       });
     } catch (err: any) {
       await decline(500, "Deploy failed", `deploy failed: ${err?.message || err}`);
     }
+  },
+);
+
+// POST /social/tiktok/credentials — owner-only. Re-read the handover credentials
+// for a server account you own (they're also returned once on deploy). Lets a
+// buyer fetch the login again to sign in on their own device / change the
+// password. Ownership-gated: after a resale the previous owner can no longer
+// read them. 404 if the account has no stored credentials (server-drive-only).
+router.post(
+  "/tiktok/credentials",
+  requireTikTokEnabled,
+  requireAuth(0.001, "general", {
+    description: "Reveal the login credentials of a TikTok account you own (username, password, email) so you can sign in on your own device.",
+    category: "social",
+    tags: ["tiktok", "credentials", "reveal"],
+  }),
+  (req: AuthenticatedRequest, res: Response) => {
+    const { account_id } = (req.body || {}) as { account_id?: string };
+    if (!account_id) {
+      res.status(400).json({ error: "account_id required" });
+      return;
+    }
+    const caller = req.payment?.payer || req.agentId;
+    const verdict = checkOwnership(account_id, caller ? String(caller) : undefined);
+    if (!verdict.allowed) {
+      res.status(403).json({ error: "Forbidden", error_code: "NOT_YOUR_ACCOUNT", message: verdict.reason });
+      return;
+    }
+    const credentials = getTikTokCredentials(account_id);
+    if (!credentials) {
+      res.status(404).json({
+        error: "No stored credentials",
+        message: "This account has no handover credentials (it's server-drive-only). Nothing to reveal.",
+      });
+      return;
+    }
+    res.json({
+      account_id,
+      credentials,
+      note: "Sign in on your own device with these. If you change the password, the server session drops — reconnect with POST /social/tiktok/connect (QR) to resume driving it through Palmyr.",
+    });
   },
 );
 
@@ -2756,6 +2832,14 @@ router.post(
   (req: Request, res: Response) => {
     try {
       const { country } = (req.body || {}) as { country?: string };
+      // Optional handover credentials: the seeder owns the account, so it can
+      // attach the login here for the buyer to receive on deploy. Malformed
+      // input is rejected; omitting creds is allowed (server-drive-only seed).
+      const parsedCreds = parseTikTokCredsFromBody(req.body);
+      if (parsedCreds.error) {
+        res.status(400).json({ error: parsedCreds.error });
+        return;
+      }
       const id = randomUUID().replace(/-/g, "");
       const proxySessionId = id; // the hex id doubles as the sticky IPRoyal session key
       const registered = registerPoolAccount({
@@ -2767,6 +2851,7 @@ router.post(
         res.status(500).json({ error: registered.error });
         return;
       }
+      if (parsedCreds.creds) setTikTokCredentials(id, parsedCreds.creds);
       const started = startServerConnect({
         accountId: id,
         owner: POOL_OWNER,
@@ -2780,8 +2865,10 @@ router.post(
         account_id: id,
         pool: true,
         status: "awaiting_viewer",
+        credentials_stored: Boolean(parsedCreds.creds),
         message:
-          "Open connect_url and scan with the TikTok app in the target country. On a successful scan the account joins the deployable pool and can be handed to a buyer via POST /social/tiktok/deploy.",
+          "Open connect_url and scan with the TikTok app in the target country. On a successful scan the account joins the deployable pool and can be handed to a buyer via POST /social/tiktok/deploy." +
+          (parsedCreds.creds ? " Handover credentials stored — the buyer receives them on deploy." : " No handover credentials attached — pass credentials_line to include them."),
         poll_url: `/social/tiktok/connect/${started.token}`,
       });
     } catch (err: any) {
