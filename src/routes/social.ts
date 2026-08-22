@@ -97,8 +97,12 @@ import {
   unlist as unlistTikTok,
   marketListings as tiktokMarketListings,
   buyFromMarket as buyTikTokFromMarket,
+  recordPurchase as recordTikTokPurchase,
+  hasBuyerUsedSince as tiktokUsedSince,
+  reclaimToPool as reclaimTikTokToPool,
 } from "../services/tiktok-accounts";
 import type { TikTokCredentials } from "../services/tiktok-accounts";
+import { refund as creditBalance } from "../services/balance";
 import {
   beginSeed,
   runSeed,
@@ -2555,6 +2559,14 @@ router.post(
       }
 
       const acct = leased.row;
+      // Record purchase provenance so this pool sale can be auto-refunded +
+      // reclaimed while it stays sealed and unused (resale clears it, so a
+      // resold account can't be refunded against the treasury).
+      recordTikTokPurchase(acct.id, {
+        amountUsdc: req.payment ? Number(req.payment.amountLamports) / 1_000_000 : TIKTOK_DEPLOY_PRICE_USDC,
+        paymentSig: req.payment?.signature ?? null,
+        chain: req.payment?.chain ?? null,
+      });
       // The account is now the caller's and already live (it was connected as a
       // pool asset). Brand it with a single follow-up op that sets name+bio then
       // the photo. Created with NO payment context on purpose: this rebrand is
@@ -2813,6 +2825,82 @@ router.post(
         res.status(500).json({ error: err.message || "Buy failed" });
       }
     }
+  },
+);
+
+// Refund window for an unrevealed pool purchase, in hours (default 24; 0 = no
+// time limit — refundable while sealed + unused). Env-tunable.
+const REFUND_WINDOW_HOURS = Math.max(0, Number(process.env.PALMYR_REFUND_WINDOW_HOURS ?? 24) || 0);
+
+// POST /social/tiktok/refund — return an account you bought from Palmyr's pool
+// for a full refund + reclaim. Eligible only while SEALED (unrevealed), UNUSED
+// (no value op since purchase), and within the window. Resold accounts aren't
+// eligible (provenance is cleared on resale — the seller holds that money).
+router.post(
+  "/tiktok/refund",
+  requireTikTokEnabled,
+  requireAuth(0.001, "general", {
+    description: "Refund + return a TikTok account you bought from Palmyr's pool. Only works while the credentials are still sealed (unrevealed), the account is unused, and within the refund window.",
+    category: "social",
+    tags: ["tiktok", "refund", "return"],
+  }),
+  async (req: AuthenticatedRequest, res: Response) => {
+    const { account_id } = (req.body || {}) as { account_id?: string };
+    if (!account_id) { res.status(400).json({ error: "account_id required" }); return; }
+    const caller = req.payment?.payer || req.agentId;
+    const row = getTikTokAccount(account_id);
+    if (!row || !caller || row.owner !== String(caller)) {
+      res.status(403).json({ error: "Forbidden", error_code: "NOT_YOUR_ACCOUNT", message: "you don't own this account" });
+      return;
+    }
+    if (!row.bought_at) {
+      res.status(400).json({ error: "Not refundable", message: "no Palmyr-pool purchase on record for this account (resold or self-connected accounts aren't refundable)." });
+      return;
+    }
+    if (row.revealed_at) {
+      res.status(409).json({ error: "Committed", message: "you revealed the credentials — a revealed account can't be refunded." });
+      return;
+    }
+    const ageHours = (Date.now() - Date.parse(row.bought_at)) / 3_600_000;
+    if (REFUND_WINDOW_HOURS > 0 && ageHours > REFUND_WINDOW_HOURS) {
+      res.status(409).json({ error: "Window passed", message: `the ${REFUND_WINDOW_HOURS}h refund window has passed.` });
+      return;
+    }
+    if (tiktokUsedSince(account_id, row.bought_at)) {
+      res.status(409).json({ error: "Account used", message: "this account has been used since purchase (a post/follow/like/delete) — used accounts aren't refundable." });
+      return;
+    }
+
+    const amount = row.bought_amount_usdc ?? 0;
+    let refundInfo: Record<string, unknown>;
+    try {
+      if (String(caller).startsWith("dashboard:")) {
+        // Custodial buyer → credit their balance (idempotent on the reference).
+        const userId = String(caller).slice("dashboard:".length);
+        creditBalance(userId, amount, `TikTok pool refund: ${account_id}`, `ttrefund_${account_id}`);
+        refundInfo = { method: "balance", amount_usdc: amount, ok: true };
+      } else {
+        // Wallet buyer → on-chain refund (idempotent on the original buy sig).
+        const chain = (row.bought_chain as "solana" | "base") || (String(caller).startsWith("0x") ? "base" : "solana");
+        const sig = row.bought_payment_sig || `ttrefund_${account_id}`;
+        const r = await refundUsdcToPayer({
+          chain,
+          payer: String(caller),
+          amountUsdc: amount,
+          reason: `TikTok pool refund: ${account_id}`,
+          originalPaymentSignature: sig,
+          endpoint: "/social/tiktok/refund",
+        });
+        refundInfo = { method: "onchain", amount_usdc: amount, ok: r.ok, tx: r.refundTx, note: r.ok ? undefined : "refund recorded; the treasury retry sweep will complete it" };
+      }
+    } catch (err: any) {
+      // The refund wasn't recorded → leave the account with the buyer, don't reclaim.
+      res.status(500).json({ error: "Refund failed", message: err?.message || "could not issue the refund; you still own the account" });
+      return;
+    }
+    // Refund is recorded (sent, or pending-with-retry). Return the account to the pool.
+    reclaimTikTokToPool(account_id);
+    res.json({ refunded: true, account_id, refund: refundInfo, message: "Refund issued and the account has been returned to the pool." });
   },
 );
 
