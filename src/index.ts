@@ -19,6 +19,7 @@ import { storage } from "./services/storage";
 import phoneRoutes from "./routes/phone";
 import emailRoutes from "./routes/email";
 import socialRoutes from "./routes/social";
+import marketRoutes from "./routes/market";
 import domainRoutes from "./routes/domains";
 import xAccountRoutes from "./routes/xaccounts";
 import skillsRoutes from "./routes/skills";
@@ -279,6 +280,7 @@ app.use("/email", emailRoutes);
 // at the canonical service and its challenge/receipt pass through unchanged.
 app.use(createTikTokCompatibilityProxy({ origin: config.tiktokServiceOrigin }));
 app.use("/social", socialRoutes);
+app.use("/market", marketRoutes);
 app.use("/x", xAccountRoutes);
 app.use("/skills", skillsRoutes);
 app.use("/domains", domainRoutes);
