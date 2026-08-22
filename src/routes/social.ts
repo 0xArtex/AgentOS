@@ -91,6 +91,8 @@ import {
   POOL_OWNER,
   setCredentials as setTikTokCredentials,
   getCredentials as getTikTokCredentials,
+  hasCredentials as hasTikTokCredentials,
+  markRevealed as markTikTokRevealed,
 } from "../services/tiktok-accounts";
 import type { TikTokCredentials } from "../services/tiktok-accounts";
 import {
@@ -2583,12 +2585,12 @@ router.post(
         rebrand = { operation_id: job.id, poll_url: `/social/tiktok/operations/${job.id}` };
       }
 
-      // Handover: if the seeder attached credentials, deliver them so the buyer
-      // can also sign in on their own device and change the password. The
-      // account is drivable via Palmyr's server session right now regardless;
-      // the credentials are the durable, self-hostable copy. Delivered once in
-      // this response and re-readable later by the owner via /tiktok/credentials.
-      const credentials = getTikTokCredentials(acct.id);
+      // Deploy delivers a MANAGED account, not the raw login: the buyer drives
+      // it via Palmyr's server session, and while the credentials stay sealed
+      // the account is still refundable + resellable. Taking the raw login is a
+      // separate, deliberate step (POST /tiktok/credentials) that commits the
+      // buyer — so we don't auto-reveal here, we just say the option exists.
+      const credentialsAvailable = hasTikTokCredentials(acct.id);
 
       res.status(202).json({
         account_id: acct.id,
@@ -2598,14 +2600,13 @@ router.post(
         owner: String(owner),
         deployed: true,
         rebrand,
-        credentials: credentials ?? undefined,
-        credentials_note: credentials
-          ? "These are your account's real login credentials — you can sign in on your own device and change the password. If you change it, the server session drops; reconnect anytime with POST /social/tiktok/connect (QR)."
+        credentials_available: credentialsAvailable,
+        credentials_note: credentialsAvailable
+          ? "The raw login is available but sealed. Drive the account via Palmyr as-is (it stays refundable and resellable). To take the login and self-host, call POST /social/tiktok/credentials — that commits the account to you (no longer refundable or resellable)."
           : undefined,
         message:
           "Your TikTok account is deployed and live. " +
           (rebrand ? "Applying your name/bio/photo now — poll rebrand.poll_url until it's done. " : "") +
-          (credentials ? "Your login credentials are included in this response. " : "") +
           "Drive it with the other tiktok ops (post/follow/like/profile/avatar) using this account_id.",
       });
     } catch (err: any) {
@@ -2614,16 +2615,17 @@ router.post(
   },
 );
 
-// POST /social/tiktok/credentials — owner-only. Re-read the handover credentials
-// for a server account you own (they're also returned once on deploy). Lets a
-// buyer fetch the login again to sign in on their own device / change the
-// password. Ownership-gated: after a resale the previous owner can no longer
-// read them. 404 if the account has no stored credentials (server-drive-only).
+// POST /social/tiktok/credentials — owner-only. Reveal the raw login for an
+// account you own. This is the COMMITMENT GATE: revealing marks the account
+// revealed, which makes it non-refundable and non-resellable (once the login is
+// seen, a clean resale can't be guaranteed). Idempotent — re-reading after the
+// first reveal changes nothing. Ownership-gated (a former owner can't read them
+// post-resale); 404 if the account has no stored credentials (server-drive-only).
 router.post(
   "/tiktok/credentials",
   requireTikTokEnabled,
   requireAuth(0.001, "general", {
-    description: "Reveal the login credentials of a TikTok account you own (username, password, email) so you can sign in on your own device.",
+    description: "Reveal the login credentials of a TikTok account you own (username, password, email) so you can sign in on your own device. NOTE: revealing commits the account to you — it can no longer be refunded or resold.",
     category: "social",
     tags: ["tiktok", "credentials", "reveal"],
   }),
@@ -2647,10 +2649,13 @@ router.post(
       });
       return;
     }
+    // Commit: from here the account is the buyer's for keeps.
+    markTikTokRevealed(account_id);
     res.json({
       account_id,
       credentials,
-      note: "Sign in on your own device with these. If you change the password, the server session drops — reconnect with POST /social/tiktok/connect (QR) to resume driving it through Palmyr.",
+      revealed: true,
+      note: "You now hold the raw login. This account is committed to you — no longer refundable or resellable. If you change the password the server session drops; reconnect with POST /social/tiktok/connect (QR) to resume driving it through Palmyr.",
     });
   },
 );
