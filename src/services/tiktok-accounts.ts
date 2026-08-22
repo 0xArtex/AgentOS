@@ -39,8 +39,16 @@ function ensureCredentialsColumn(): void {
     if (!cols.some((c) => c.name === "revealed_at")) {
       db.exec("ALTER TABLE tiktok_accounts ADD COLUMN revealed_at TEXT");
     }
+    // Resale marketplace: an owner can list an UNrevealed account for sale.
+    // list_price_usdc non-null = for sale at that price; NULL = not listed.
+    if (!cols.some((c) => c.name === "list_price_usdc")) {
+      db.exec("ALTER TABLE tiktok_accounts ADD COLUMN list_price_usdc REAL");
+    }
+    if (!cols.some((c) => c.name === "listed_at")) {
+      db.exec("ALTER TABLE tiktok_accounts ADD COLUMN listed_at TEXT");
+    }
   } catch (e: any) {
-    console.warn("[tiktok-accounts] could not ensure credential columns:", e?.message || e);
+    console.warn("[tiktok-accounts] could not ensure account columns:", e?.message || e);
   }
 }
 
@@ -67,6 +75,10 @@ export interface TikTokAccountRow {
   created_at: string;
   /** When the owner revealed the raw credentials (the commitment gate). Null = still sealed. */
   revealed_at: string | null;
+  /** Resale price if the owner has listed it on the marketplace; null = not for sale. */
+  list_price_usdc: number | null;
+  /** When it was listed for sale; null = not listed. */
+  listed_at: string | null;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -404,4 +416,104 @@ export function poolStock(): PoolStock {
     total += r.n;
   }
   return { total, by_country };
+}
+
+/* ─── Resale marketplace ────────────────────────────────────────────────────
+   An owner can list an account they hold for sale. Only UNREVEALED, active
+   accounts are listable: revealing takes the keys (a clean resale can't be
+   guaranteed), and a dead session has nothing live to hand over. A buy is an
+   atomic owner swap seller→buyer (mirrors leaseFromPool) — the server session
+   transfers with the row, so the buyer inherits it logged-in. Pool-sentinel
+   stock is sold via deploy, not here, so the sentinel can't list. */
+
+export interface ListResult {
+  ok: boolean;
+  error?: string;
+  row?: TikTokAccountRow;
+}
+
+/** List an account you own for sale. Owner-only; unrevealed + active only. */
+export function listForSale(id: string, owner: string, priceUsdc: number): ListResult {
+  const row = getAccount(id);
+  if (!row) return { ok: false, error: `account ${id} not found` };
+  if (row.owner !== owner) return { ok: false, error: `account ${id} belongs to another wallet` };
+  if (owner === POOL_OWNER) return { ok: false, error: "pool stock is sold via deploy, not the resale market" };
+  if (row.revealed_at) return { ok: false, error: "this account's credentials were revealed — a revealed account can't be resold" };
+  if (row.status !== "active") return { ok: false, error: `account is '${row.status}', not active — only a live session can be resold` };
+  if (typeof priceUsdc !== "number" || !Number.isFinite(priceUsdc) || priceUsdc <= 0) {
+    return { ok: false, error: "price_usdc must be a positive number" };
+  }
+  db.prepare("UPDATE tiktok_accounts SET list_price_usdc=?, listed_at=? WHERE id=? AND owner=?")
+    .run(priceUsdc, nowIso(), id, owner);
+  return { ok: true, row: getAccount(id)! };
+}
+
+/** Remove your own listing. Owner-only. Idempotent. */
+export function unlist(id: string, owner: string): ListResult {
+  const row = getAccount(id);
+  if (!row) return { ok: false, error: `account ${id} not found` };
+  if (row.owner !== owner) return { ok: false, error: `account ${id} belongs to another wallet` };
+  db.prepare("UPDATE tiktok_accounts SET list_price_usdc=NULL, listed_at=NULL WHERE id=? AND owner=?")
+    .run(id, owner);
+  return { ok: true, row: getAccount(id)! };
+}
+
+export interface MarketListing {
+  account_id: string;
+  country: string | null;
+  price_usdc: number;
+  listed_at: string | null;
+}
+
+/** Public browse of for-sale accounts (no owner, no handle, no credentials). */
+export function marketListings(opts: { country?: string } = {}): MarketListing[] {
+  const country = opts.country ? opts.country.toUpperCase() : null;
+  const rows = db
+    .prepare(
+      `SELECT id, country, list_price_usdc, listed_at FROM tiktok_accounts
+        WHERE list_price_usdc IS NOT NULL AND status = 'active'
+          AND (? IS NULL OR UPPER(country) = ?)
+        ORDER BY list_price_usdc ASC, listed_at ASC`,
+    )
+    .all(country, country) as Array<{ id: string; country: string | null; list_price_usdc: number; listed_at: string | null }>;
+  return rows.map((r) => ({ account_id: r.id, country: r.country, price_usdc: r.list_price_usdc, listed_at: r.listed_at }));
+}
+
+export interface MarketBuyResult {
+  ok: boolean;
+  error?: string;
+  /** Set when the buyer tried to buy their own listing — a 4xx, not a race. */
+  ownListing?: boolean;
+  row?: TikTokAccountRow;
+  seller?: string;
+  price_usdc?: number;
+}
+
+/**
+ * Atomically buy a specific listed account: swap owner seller→buyer, clear the
+ * listing, in one transaction guarded on the seller still owning it (so two
+ * concurrent buys can't both win). Refuses a self-purchase. The caller pays the
+ * seller (price − fee) after this returns ok.
+ */
+export function buyFromMarket(buyer: string, id: string): MarketBuyResult {
+  if (!buyer) return { ok: false, error: "buyer identity required" };
+  const pre = getAccount(id);
+  if (!pre || pre.list_price_usdc == null || pre.status !== "active") {
+    return { ok: false, error: `account ${id} is not for sale` };
+  }
+  if (pre.owner === buyer) return { ok: false, ownListing: true, error: "you can't buy your own listing" };
+  const seller = pre.owner;
+  const price = pre.list_price_usdc;
+  const swap = db.transaction(() => {
+    const res = db
+      .prepare(
+        `UPDATE tiktok_accounts
+            SET owner=?, list_price_usdc=NULL, listed_at=NULL
+          WHERE id=? AND owner=? AND list_price_usdc IS NOT NULL AND status='active'`,
+      )
+      .run(buyer, id, seller);
+    return res.changes === 1;
+  });
+  if (!swap()) return { ok: false, error: "listing was just taken or withdrawn — try another" };
+  return { ok: true, row: getAccount(id)!, seller, price_usdc: price };
 }
