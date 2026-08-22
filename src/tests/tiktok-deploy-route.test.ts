@@ -127,15 +127,15 @@ beforeEach(() => {
   db.prepare("DELETE FROM tiktok_accounts WHERE owner = ?").run(BUYER);
 });
 
-describe("POST /social/tiktok/deploy", () => {
+describe("POST /social/tiktok/buy", () => {
   it("hands a ready pool account to the payer and binds ownership", async () => {
     const id = `dep_ok_${SUFFIX}`;
     seedReady(id, "us");
     assert.equal(poolStock().total, 1, "the seeded account is ready stock");
 
-    const r = await post("/social/tiktok/deploy", BUYER, {});
+    const r = await post("/social/tiktok/buy", BUYER, {});
     assert.equal(r.status, 202);
-    assert.equal(r.json.deployed, true);
+    assert.equal(r.json.bought, true);
     assert.equal(r.json.account_id, id, "the payer gets the account that was in the pool");
     assert.equal(r.json.owner, BUYER);
     assert.equal(r.json.rebrand, null, "no name/bio/photo passed → no rebrand op fired");
@@ -145,18 +145,18 @@ describe("POST /social/tiktok/deploy", () => {
 
   it("refunds the payer when the pool is empty rather than charging for nothing", async () => {
     clearPool();
-    const r = await post("/social/tiktok/deploy", BUYER, {});
+    const r = await post("/social/tiktok/buy", BUYER, {});
     assert.equal(r.status, 409);
     assert.equal(r.json.available, false);
-    assertRefunded(r, BUYER, "POST /social/tiktok/deploy");
+    assertRefunded(r, BUYER, "POST /social/tiktok/buy");
   });
 
   it("refunds a country miss and still names what is in stock", async () => {
     seedReady(`dep_us_${SUFFIX}`, "us");
-    const r = await post("/social/tiktok/deploy", BUYER, { country: "de" });
+    const r = await post("/social/tiktok/buy", BUYER, { country: "de" });
     assert.equal(r.status, 409);
     assert.match(JSON.stringify(r.json), /US/, "the in-stock hint tells the caller to change the filter");
-    assertRefunded(r, BUYER, "POST /social/tiktok/deploy");
+    assertRefunded(r, BUYER, "POST /social/tiktok/buy");
     // The US account must be untouched — a wrong-country ask must not consume it.
     assert.equal(poolStock().by_country["US"], 1, "a filtered miss leases nothing");
   });
@@ -164,10 +164,10 @@ describe("POST /social/tiktok/deploy", () => {
   it("rejects an over-long bio before leasing, refunds, and burns no account", async () => {
     const id = `dep_badbio_${SUFFIX}`;
     seedReady(id, "us");
-    const r = await post("/social/tiktok/deploy", BUYER, { bio: "x".repeat(81) });
+    const r = await post("/social/tiktok/buy", BUYER, { bio: "x".repeat(81) });
     assert.equal(r.status, 400);
     assert.equal(r.json.error_code, "INVALID_INPUT");
-    assertRefunded(r, BUYER, "POST /social/tiktok/deploy");
+    assertRefunded(r, BUYER, "POST /social/tiktok/buy");
     // Validation runs BEFORE the lease, so the pool account is still there.
     assert.equal(getAccount(id)!.owner, POOL_OWNER, "a typo must not hand out (or consume) a scarce account");
     assert.equal(poolStock().total, 1);
