@@ -31,8 +31,16 @@ function ensureCredentialsColumn(): void {
     if (!cols.some((c) => c.name === "credentials_encrypted")) {
       db.exec("ALTER TABLE tiktok_accounts ADD COLUMN credentials_encrypted TEXT");
     }
+    // revealed_at = the moment the owner took the raw login. It's the
+    // commitment gate: an UNrevealed account is still "sealed" (Palmyr holds
+    // the session, the login never left the box) so it can be refunded or
+    // resold clean; once revealed the owner has the keys, so it becomes
+    // non-refundable and non-resellable. Nullable; set once, never cleared.
+    if (!cols.some((c) => c.name === "revealed_at")) {
+      db.exec("ALTER TABLE tiktok_accounts ADD COLUMN revealed_at TEXT");
+    }
   } catch (e: any) {
-    console.warn("[tiktok-accounts] could not ensure credentials_encrypted column:", e?.message || e);
+    console.warn("[tiktok-accounts] could not ensure credential columns:", e?.message || e);
   }
 }
 
@@ -57,6 +65,8 @@ export interface TikTokAccountRow {
   last_error_code: string | null;
   last_error_at: string | null;
   created_at: string;
+  /** When the owner revealed the raw credentials (the commitment gate). Null = still sealed. */
+  revealed_at: string | null;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -210,6 +220,25 @@ export function hasCredentials(id: string): boolean {
     | { credentials_encrypted: string | null }
     | undefined;
   return Boolean(row && row.credentials_encrypted);
+}
+
+/**
+ * Mark an account revealed — the owner has taken the raw login. Set once and
+ * never cleared (COALESCE keeps the first reveal time), because the point is
+ * irreversible: the moment the login is seen, the account can no longer be
+ * refunded or resold clean.
+ */
+export function markRevealed(id: string): void {
+  db.prepare("UPDATE tiktok_accounts SET revealed_at = COALESCE(revealed_at, ?) WHERE id=?")
+    .run(nowIso(), id);
+}
+
+/** Whether the owner has revealed the credentials (→ non-refundable, non-resellable). */
+export function isRevealed(id: string): boolean {
+  const row = db.prepare("SELECT revealed_at FROM tiktok_accounts WHERE id=?").get(id) as
+    | { revealed_at: string | null }
+    | undefined;
+  return Boolean(row && row.revealed_at);
 }
 
 export interface AccountHealth extends TikTokAccountRow {

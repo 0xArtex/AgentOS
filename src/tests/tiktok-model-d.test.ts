@@ -22,6 +22,8 @@ import {
   setCredentials,
   getCredentials,
   hasCredentials,
+  markRevealed,
+  isRevealed,
   leaseFromPool,
   checkOwnership,
   getAccount,
@@ -75,5 +77,27 @@ test("model D: an account seeded without creds has nothing to hand over", () => 
   registerPoolAccount({ id, country: "ZT", proxySessionId: id });
   assert.equal(hasCredentials(id), false);
   assert.equal(getCredentials(id), null);
+  db.prepare("DELETE FROM tiktok_accounts WHERE id=?").run(id);
+});
+
+test("reveal gate: a fresh account is sealed; reveal is one-way and idempotent", () => {
+  resetSentinel();
+  const id = "ttreveal" + randomBytes(4).toString("hex");
+  registerPoolAccount({ id, country: "ZT", proxySessionId: id });
+  setCredentials(id, { login: "u", password: "p" });
+
+  // Sealed by default → refundable + resellable elsewhere key on this being false.
+  assert.equal(isRevealed(id), false, "a fresh account is not revealed");
+  assert.equal(getAccount(id)?.revealed_at, null);
+
+  markRevealed(id);
+  assert.equal(isRevealed(id), true, "reveal flips the gate");
+  const firstAt = getAccount(id)?.revealed_at;
+  assert.ok(firstAt, "revealed_at is stamped");
+
+  // Re-revealing keeps the original timestamp (COALESCE) — the commitment is set once.
+  markRevealed(id);
+  assert.equal(getAccount(id)?.revealed_at, firstAt, "reveal time is not overwritten on a second reveal");
+
   db.prepare("DELETE FROM tiktok_accounts WHERE id=?").run(id);
 });
