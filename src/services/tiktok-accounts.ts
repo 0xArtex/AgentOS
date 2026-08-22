@@ -14,8 +14,35 @@
  */
 import { db } from "../db";
 import { hasServerProfile } from "./social-runtime";
+import { encrypt, decrypt } from "./pool-crypto";
 
 export type AccountStatus = "connecting" | "active" | "logged_out" | "restricted" | "dead";
+
+// Self-contained schema guard for the handover credentials column. A server
+// account's session lives in its browser profile (profile-is-the-credential),
+// but for the credential-HANDOVER model the seeder also stores the raw login so
+// a buyer can be handed it on deploy and sign in on their own device. Nullable,
+// encrypted at rest (AES-GCM via POOL_ENCRYPTION_KEY). Guarded + idempotent,
+// mirroring social-pool's rest_id backfill.
+ensureCredentialsColumn();
+function ensureCredentialsColumn(): void {
+  try {
+    const cols = db.prepare("PRAGMA table_info(tiktok_accounts)").all() as Array<{ name: string }>;
+    if (!cols.some((c) => c.name === "credentials_encrypted")) {
+      db.exec("ALTER TABLE tiktok_accounts ADD COLUMN credentials_encrypted TEXT");
+    }
+  } catch (e: any) {
+    console.warn("[tiktok-accounts] could not ensure credentials_encrypted column:", e?.message || e);
+  }
+}
+
+/** Handover credentials for a TikTok account (accsmarket shape). */
+export interface TikTokCredentials {
+  login: string;
+  password: string;
+  email?: string;
+  email_password?: string;
+}
 
 export interface TikTokAccountRow {
   id: string;
@@ -151,6 +178,38 @@ export function setHandle(id: string, handle: string): void {
 export function markDead(id: string, errorCode?: string): void {
   db.prepare("UPDATE tiktok_accounts SET status='dead', last_error_code=?, last_error_at=? WHERE id=?")
     .run(errorCode || "SEED_FAILED", nowIso(), id);
+}
+
+/**
+ * Store (or replace) the handover credentials for an account, encrypted at rest.
+ * Separate from registration so the QR-seed flow can attach creds the seeder
+ * already holds without the credentials ever touching a login attempt (TikTok's
+ * automated login is blocked — we never type them; the buyer does).
+ */
+export function setCredentials(id: string, creds: TikTokCredentials): void {
+  db.prepare("UPDATE tiktok_accounts SET credentials_encrypted=? WHERE id=?")
+    .run(encrypt(JSON.stringify(creds)), id);
+}
+
+/** Decrypt the stored handover credentials, or null if none were seeded. */
+export function getCredentials(id: string): TikTokCredentials | null {
+  const row = db.prepare("SELECT credentials_encrypted FROM tiktok_accounts WHERE id=?").get(id) as
+    | { credentials_encrypted: string | null }
+    | undefined;
+  if (!row || !row.credentials_encrypted) return null;
+  try {
+    return JSON.parse(decrypt(row.credentials_encrypted)) as TikTokCredentials;
+  } catch {
+    return null;
+  }
+}
+
+/** Whether handover credentials are stored (without decrypting them). */
+export function hasCredentials(id: string): boolean {
+  const row = db.prepare("SELECT credentials_encrypted FROM tiktok_accounts WHERE id=?").get(id) as
+    | { credentials_encrypted: string | null }
+    | undefined;
+  return Boolean(row && row.credentials_encrypted);
 }
 
 export interface AccountHealth extends TikTokAccountRow {
