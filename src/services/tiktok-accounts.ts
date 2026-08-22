@@ -47,6 +47,14 @@ function ensureCredentialsColumn(): void {
     if (!cols.some((c) => c.name === "listed_at")) {
       db.exec("ALTER TABLE tiktok_accounts ADD COLUMN listed_at TEXT");
     }
+    // Purchase provenance for POOL sales (deploy), so an unused/unrevealed
+    // account can be auto-refunded and reclaimed. Set at deploy, cleared on
+    // refund-reclaim AND on resale (so a resold account can't be refunded
+    // against Palmyr's treasury — the seller already holds the money).
+    for (const col of ["bought_at TEXT", "bought_amount_usdc REAL", "bought_payment_sig TEXT", "bought_chain TEXT"]) {
+      const name = col.split(" ")[0];
+      if (!cols.some((c) => c.name === name)) db.exec(`ALTER TABLE tiktok_accounts ADD COLUMN ${col}`);
+    }
   } catch (e: any) {
     console.warn("[tiktok-accounts] could not ensure account columns:", e?.message || e);
   }
@@ -79,6 +87,11 @@ export interface TikTokAccountRow {
   list_price_usdc: number | null;
   /** When it was listed for sale; null = not listed. */
   listed_at: string | null;
+  /** Purchase provenance for a POOL sale (deploy); null = not a refundable pool purchase. */
+  bought_at: string | null;
+  bought_amount_usdc: number | null;
+  bought_payment_sig: string | null;
+  bought_chain: string | null;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -508,7 +521,8 @@ export function buyFromMarket(buyer: string, id: string): MarketBuyResult {
     const res = db
       .prepare(
         `UPDATE tiktok_accounts
-            SET owner=?, list_price_usdc=NULL, listed_at=NULL
+            SET owner=?, list_price_usdc=NULL, listed_at=NULL,
+                bought_at=NULL, bought_amount_usdc=NULL, bought_payment_sig=NULL, bought_chain=NULL
           WHERE id=? AND owner=? AND list_price_usdc IS NOT NULL AND status='active'`,
       )
       .run(buyer, id, seller);
@@ -516,4 +530,55 @@ export function buyFromMarket(buyer: string, id: string): MarketBuyResult {
   });
   if (!swap()) return { ok: false, error: "listing was just taken or withdrawn — try another" };
   return { ok: true, row: getAccount(id)!, seller, price_usdc: price };
+}
+
+/* ─── Refund (pool sales only) ──────────────────────────────────────────────
+   A buyer can return an account they bought from Palmyr's pool (deploy) while
+   it's still sealed (unrevealed), unused, and within the window. Provenance is
+   recorded at deploy and CLEARED on resale + reclaim, so only the current
+   pool-deploy owner can refund — a resold account (seller already paid) can't
+   be refunded against the treasury. */
+
+/** Record a pool purchase on the row so it can be refunded + reclaimed. */
+export function recordPurchase(
+  id: string,
+  opts: { amountUsdc: number; paymentSig?: string | null; chain?: string | null },
+): void {
+  db.prepare(
+    "UPDATE tiktok_accounts SET bought_at=?, bought_amount_usdc=?, bought_payment_sig=?, bought_chain=? WHERE id=?",
+  ).run(nowIso(), opts.amountUsdc, opts.paymentSig ?? null, opts.chain ?? null, id);
+}
+
+/**
+ * Has the buyer used the account (a value op) since they bought it? Excludes the
+ * deploy-time rebrand (profile/avatar) and read-only analytics — only real usage
+ * (follow/like/delete/post) counts. Tables may not exist in a bare unit context;
+ * treat a missing table as "not used".
+ */
+export function hasBuyerUsedSince(id: string, sinceIso: string): boolean {
+  try {
+    const op = db
+      .prepare(
+        "SELECT 1 FROM tiktok_op_jobs WHERE account_id=? AND created_at > ? AND op IN ('follow','like','delete') LIMIT 1",
+      )
+      .get(id, sinceIso);
+    if (op) return true;
+  } catch { /* table not present in this context */ }
+  try {
+    const post = db
+      .prepare("SELECT 1 FROM tiktok_post_jobs WHERE account_id=? AND created_at > ? LIMIT 1")
+      .get(id, sinceIso);
+    if (post) return true;
+  } catch { /* table not present */ }
+  return false;
+}
+
+/** Return a refunded/returned account to the deployable pool and wipe buyer state. */
+export function reclaimToPool(id: string): void {
+  db.prepare(
+    `UPDATE tiktok_accounts
+        SET owner=?, list_price_usdc=NULL, listed_at=NULL,
+            bought_at=NULL, bought_amount_usdc=NULL, bought_payment_sig=NULL, bought_chain=NULL
+      WHERE id=?`,
+  ).run(POOL_OWNER, id);
 }
