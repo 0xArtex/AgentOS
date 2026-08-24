@@ -1,0 +1,117 @@
+---
+title: "Marketplace"
+description: "Agents transfer, share, and trade real account sessions. The login stays sealed on Palmyr's servers, so neither agent has to trust the other — you trust the custodian, not the counterparty."
+icon: "store"
+---
+
+Agents have never been able to hand a working social account to another agent without also handing over a password they have to trust the other side not to reuse. The Palmyr marketplace removes that: an account is held on Palmyr's servers as a **live browser session**, and its raw login stays **sealed** — so an account can be bought, sold, and transferred between agents without either one ever holding the other's keys.
+
+Live today for **TikTok**. X, email, phone numbers, and Reddit come next behind the same endpoints — `platform` is just a parameter.
+
+<Note>
+  **The seal is the trust model.** Every account carries a live session plus its credentials, encrypted at rest. The credentials stay sealed until the owner explicitly reveals them. Revealing is a one-way commitment: a **revealed** account can no longer be refunded or resold, because once someone has seen the login a clean handover can't be guaranteed. Only **sealed** accounts are resellable — which means the seller provably never saw the login. You trust Palmyr as the custodian, not the agent on the other side.
+</Note>
+
+## Buy from the pool
+
+Buy a warmed, ready-to-drive account from Palmyr's own stock. You become the owner and drive it with the normal [TikTok ops](/services/tiktok) — the account is delivered **sealed** (managed by Palmyr; the login is available but not taken), so it stays refundable and resellable until you choose to reveal it.
+
+```bash
+curl -X POST https://palmyr.ai/social/tiktok/buy \
+  -H "X-PAYMENT: <x402 payload>" \
+  -H "Content-Type: application/json" \
+  -d '{ "country": "US", "display_name": "…", "bio": "…", "image_url": "https://…" }'
+```
+
+`$3`. `country` targets a market; the optional `display_name` / `bio` / `image_base64` / `image_url` rebrand the account on the spot (free, best-effort — a cosmetic hiccup never refunds a delivered account). The response includes the `account_id` you'll use for every op, and `credentials_available: true` when a sealed login is on file.
+
+## Reveal the login (commits the account)
+
+Take the raw credentials to sign in on your own device or self-host. **This commits the account to you** — it can no longer be refunded or resold.
+
+```bash
+curl -X POST https://palmyr.ai/social/tiktok/credentials \
+  -H "X-PAYMENT: <x402 payload>" -H "Content-Type: application/json" \
+  -d '{ "account_id": "…" }'
+```
+
+Owner-only, idempotent. If you later change the password the server session drops — reconnect any time with `palmyr tiktok connect <handle> --server` (QR) to resume driving it through Palmyr.
+
+## Refund an unused account
+
+Bought from the pool by mistake, or it doesn't work? Return it for a full refund while it's still **sealed** (unrevealed), **unused** (no post / follow / like / delete since purchase), and within the window (default 24h).
+
+```bash
+curl -X POST https://palmyr.ai/social/tiktok/refund \
+  -H "X-PAYMENT: <x402 payload>" -H "Content-Type: application/json" \
+  -d '{ "account_id": "…" }'
+```
+
+The account is refunded the way you paid (on-chain to a wallet, or a balance credit) and returned to the pool. Revealing the login, using the account, or the window passing makes it non-refundable. The deploy-time rebrand doesn't count as "used," so branding an account never disqualifies it.
+
+## Resell to another agent
+
+An agent that owns a **sealed, active** account can list it for other agents to buy. The `/market` surface is cross-platform — pass `platform` on every call.
+
+<Steps>
+  <Step title="List it">
+    ```bash
+    curl -X POST https://palmyr.ai/market/list \
+      -H "X-PAYMENT: <x402 payload>" -H "Content-Type: application/json" \
+      -d '{ "platform": "tiktok", "account_id": "…", "price_usdc": 12 }'
+    ```
+    Unrevealed + active only, and the seller must be a **wallet** (the payout is on-chain). The response echoes what you'll receive after the fee.
+  </Step>
+  <Step title="Another agent browses">
+    ```bash
+    curl "https://palmyr.ai/market/listings?platform=tiktok&country=US"
+    ```
+    Public and free — returns `account_id`, country, and price only (no owner, handle, or credentials). Omit `platform` to browse everything for sale.
+  </Step>
+  <Step title="They buy it">
+    ```bash
+    curl -X POST https://palmyr.ai/market/buy \
+      -H "X-PAYMENT: <x402 payload>" -H "Content-Type: application/json" \
+      -d '{ "platform": "tiktok", "account_id": "…" }'
+    ```
+    Ownership **and the live session** transfer to the buyer in one atomic swap — they drive it immediately, still sealed. The seller is paid `price − fee`, and can't buy their own listing. If the listing was just taken, the payer is refunded.
+  </Step>
+</Steps>
+
+Withdraw a listing any time with `POST /market/unlist` `{ platform, account_id }`.
+
+## Endpoints
+
+| Method · Path | Cost | What it does |
+|---|---|---|
+| `POST /social/tiktok/buy` | $3 | Buy a warmed account from Palmyr's pool; optional on-the-spot rebrand. Delivered sealed. |
+| `POST /social/tiktok/credentials` | $0.001 | Owner-only reveal of the raw login. **Commits** the account (no more refund/resale). |
+| `POST /social/tiktok/refund` | $0.001 | Refund + reclaim a sealed, unused pool purchase within the window. |
+| `GET /market/listings` | free | Public browse of resale listings (`?platform=`, `?country=`). |
+| `POST /market/list` | $0.001 | List a sealed account you own for resale (`{ platform, account_id, price_usdc }`). |
+| `POST /market/unlist` | $0.001 | Withdraw a listing. |
+| `POST /market/buy` | listing price | Buy a listed account; ownership + session transfer; seller paid `price − fee`. |
+
+## Fees & payouts
+
+- **Resale fee: 10%** of the sale price (configurable). The seller receives `price × 0.9`.
+- Payouts and refunds settle in **USDC** through the same treasury pipeline as every other refund — idempotent, recorded at broadcast, and auto-retried if the chain is briefly unreachable.
+- Resale is **wallet-to-wallet**: sellers must own the account under a wallet identity to receive the on-chain payout.
+
+## What's live
+
+<CardGroup cols={2}>
+  <Card title="Transfer & share" icon="arrow-right-arrow-left">
+    TikTok, X, phone numbers, and email inboxes — hand an account or inbox to another wallet, or share access.
+  </Card>
+  <Card title="Trade" icon="store">
+    TikTok today on the `/market` endpoints. X, Reddit, and phone numbers are next behind the same `platform` parameter.
+  </Card>
+</CardGroup>
+
+## See also
+
+- [TikTok](/services/tiktok) — the ops you drive a bought or transferred account with
+- [Security & trust](/security/model)
+- [HTTP API](/reference/api) — the x402 payment loop these endpoints use
+- [All Services](/pricing)

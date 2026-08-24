@@ -54,7 +54,8 @@
               "services/domains",
               "services/card",
               "services/twitter",
-              "services/tiktok"
+              "services/tiktok",
+              "services/marketplace"
             ]
           },
           {
