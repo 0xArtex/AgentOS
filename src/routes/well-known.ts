@@ -18,7 +18,15 @@
 import type { Express, Request, Response } from "express";
 import { createHash } from "crypto";
 import { enumeratePaidRoutes } from "../services/route-discovery";
-import { bazaarInfo, bazaarServiceName, bazaarTags, BAZAAR_ICON_URL } from "../middleware/x402";
+import {
+  bazaarInfo,
+  bazaarServiceName,
+  bazaarTags,
+  BAZAAR_ICON_URL,
+  isPhoneNumbersListRoute,
+  phoneNumbersListExample,
+  phoneNumbersListSuccessSchema,
+} from "../middleware/x402";
 
 /**
  * Stamp the spec's `info.version` from the root package.json so crawlers can
@@ -188,6 +196,8 @@ export function buildOpenApiDoc(app: Express, host: string): any {
       schema: { type: "string" },
     });
 
+    const phoneList = isPhoneNumbersListRoute(r.method, r.path);
+    const outputSchema = phoneList ? phoneNumbersListSuccessSchema : permissiveJsonSchema;
     const op: any = {
       summary: r.metadata?.description || `${r.method} ${r.path}`,
       description: r.metadata?.description,
@@ -231,7 +241,7 @@ export function buildOpenApiDoc(app: Express, host: string): any {
           schema: {
             properties: {
               input: permissiveJsonSchema,
-              output: permissiveJsonSchema,
+              output: outputSchema,
             },
           },
           info: bazaarInfo(r.method, mutatingMethods.has(r.method)),
@@ -244,10 +254,13 @@ export function buildOpenApiDoc(app: Express, host: string): any {
         },
         "200": {
           description: "OK",
-          content: jsonContent,
+          content: { "application/json": { schema: outputSchema } },
         },
       },
     };
+    if (phoneList) {
+      op.extensions.bazaar.info.output = { example: phoneNumbersListExample };
+    }
 
     // Only mutating methods carry a request body in OpenAPI semantics. GET
     // routes pass parameters via path/query, so requestBody on them would
