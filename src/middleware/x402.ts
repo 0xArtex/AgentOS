@@ -322,6 +322,26 @@ export function bazaarInfo(method: string, isBodyMethod: boolean) {
   };
 }
 
+/** Paid list route whose handler always returns `{ numbers }` on HTTP 200. */
+export const PHONE_NUMBERS_LIST_PATH = "/phone/numbers";
+
+/** Handler-owned GET /phone/numbers 200 body. Nested number rows stay unconstrained. */
+export const phoneNumbersListSuccessSchema = {
+  type: "object",
+  additionalProperties: true,
+  required: ["numbers"],
+  properties: {
+    numbers: { type: "array", items: { type: "object", additionalProperties: true } },
+  },
+};
+
+export const phoneNumbersListExample = { numbers: [] as unknown[] };
+
+export function isPhoneNumbersListRoute(method: string, path: string): boolean {
+  const clean = (path || "").split("?")[0].replace(/\/+$/, "") || "/";
+  return method.toUpperCase() === "GET" && clean === PHONE_NUMBERS_LIST_PATH;
+}
+
 function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Metadata) {
   const resource = "https://" + (req.get("host") || "palmyr.ai") + req.originalUrl;
   const isTikTokOrigin = (req.get("host") || "").split(":")[0].toLowerCase()
@@ -384,6 +404,11 @@ function buildPaymentRequired(req: Request, minUsdc: number, metadata?: X402Meta
   // `.info` here populates all three spots at once (zod strips unknown
   // per-accepts keys, never rejects — safe to duplicate; see report).
   bazaar.info = bazaarInfo(req.method, isBodyMethod);
+  const requestPath = String(req.originalUrl || req.path || "").split("?")[0];
+  if (isPhoneNumbersListRoute(req.method, requestPath)) {
+    bazaar.info.output = { example: phoneNumbersListExample };
+    bazaar.schema.properties.output.properties.example = phoneNumbersListSuccessSchema;
+  }
 
   return {
     x402Version: 2,
